@@ -9,7 +9,7 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
 | C1 | The repository, the model package and the site with a live diagram for each idea | in progress | |
-| C2 | The site on GitHub Pages, and CI on each push | in progress | C1 |
+| C2 | The site on GitHub Pages, and CI on each push | done (2026-10-20) | C1 |
 | C3 | A diagram of the four schedules: pull, push, demand and once, with the same values | next | C1 |
 | C4 | A diagram of one path grammar for names, positions and order | next | C1 |
 | C5 | The decisions Q1 to Q4 of `DECISIONS.md` | waiting | |
