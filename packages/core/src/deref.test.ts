@@ -127,6 +127,25 @@ describe("trees: self, parent and nearest", () => {
     }
   });
 
+  it("starts a nearest walk at the node itself with self: true", () => {
+    const inner = (step: Json): Json => ({
+      type: "panel",
+      value: {
+        width: 300,
+        children: {
+          type: "list",
+          value: [{ type: "panel", value: { width: { type: "ref", value: ["self", "parent", step, "width"] } } }],
+        },
+      },
+    });
+    const widthOf = (step: Json): Json | undefined => {
+      const out = run(inner(step));
+      return out.result.ok ? (out.result.value as { children: { width: Json }[] }).children[0]?.width : undefined;
+    };
+    expect(widthOf({ type: "nearest", value: { type: "panel", self: true } })).toBe(300);
+    expect(run(inner({ type: "nearest", value: { type: "panel" } })).result).toMatchObject({ ok: false, error: { code: "#REF!" } });
+  });
+
   it("evaluates a field of a node only one time, also when two readers ask", () => {
     const out = run(tree);
     const widthEvaluations = out.trace.children.filter((child) => child.path.at(-1) === "width");

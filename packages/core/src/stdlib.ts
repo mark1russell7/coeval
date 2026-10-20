@@ -241,14 +241,16 @@ function treeNode(parts: readonly Part[], context: Context, type: string): Resul
 
 /**
  * The walker of `nearest`: it follows a key (the default is `parent`) until the node that it reaches has the
- * wanted type. A node without that key ends the walk with an error.
+ * wanted type. With `self: true`, the node where the walk starts is the first candidate. A node without that key
+ * ends the walk with an error.
  */
 const nearest: Walker = ({ data, here, deref }) => {
   const follow = isRecord(data) && typeof field(data, "follow") === "string" ? String(field(data, "follow")) : "parent";
   const wanted = isRecord(data) ? field(data, "type") : undefined;
+  const fromSelf = isRecord(data) && field(data, "self") === true;
   let at: Thing | undefined = here;
   for (let hops = 0; hops < 256; hops += 1) {
-    at = at === undefined || at === null ? undefined : deref(at, follow);
+    if (hops > 0 || !fromSelf) at = at === undefined || at === null ? undefined : deref(at, follow);
     if (at === undefined || at === null) return { ok: false, reason: `No node of the type ${String(wanted)} is on the way.` };
     const type = isHostThing(at) ? (at as { readonly type?: unknown }).type : undefined;
     if (type === wanted) return { ok: true, thing: at };
