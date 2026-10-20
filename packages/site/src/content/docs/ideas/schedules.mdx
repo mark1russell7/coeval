@@ -1,0 +1,33 @@
+---
+title: Schedules
+description: A schedule decides when to compute. It is a separate layer. Pure work gives the same values under each schedule.
+tableOfContents: false
+---
+
+A schedule answers one question: something changed, so what runs, and in which order? coeval keeps this question out of the meaning of a document. The meaning says what a value is. The schedule says when to compute it.
+
+## Four schedules
+
+| Schedule | When it computes | Where it fits |
+| --- | --- | --- |
+| Pull | When a reader asks for a value. A change only marks the readers as old. | Signals in a browser |
+| Push | When a value changes. Its readers compute in the order of the graph, until the values stop changing. | A reactive store with epochs |
+| Demand | When a cell is read, one time for each run, with a check for cycles | A spreadsheet |
+| Once | One time, in the written order | A server, or a command line |
+
+## The rule
+
+For the derive side, each schedule gives the same values. This is the benefit of pure work. Thus each host can choose its own schedule. A browser can pull, a store with epochs can push, and a server can compute a page once.
+
+For the run side, the program itself gives the order. The schedule only starts the run on its trigger.
+
+## What the schedule needs from coeval
+
+A schedule needs two things:
+
+- **The graph of the data.** Each kind declares what it reads, in its contract. From the contracts, a tool can make the graph of a document before it runs.
+- **The side of each kind.** A schedule can repeat derive work, and it must not repeat a run.
+
+From the graph, a static analysis gives three results before the start. It finds the cycles, an order for a push schedule, and the independent groups of nodes. Independent groups can compute at the same time.
+
+A diagram of the four schedules is on [the roadmap](https://github.com/mark1russell7/coeval/blob/main/docs/ROADMAP.md).

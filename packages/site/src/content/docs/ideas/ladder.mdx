@@ -1,0 +1,30 @@
+---
+title: The ladder
+description: A question goes to the own entry of a document, then to its kind, then to the default. The first rung with an entry answers.
+tableOfContents: false
+---
+
+import LadderDiagram from "../../../components/LadderDiagram.tsx";
+
+coeval does not read a definition to learn what a document means. It asks the document a question, and the answer comes from the first rung of the ladder that has an entry for the verb.
+
+1. **Own entry.** The document itself can name an evaluator for a verb, in its key `$own`. This changes one document.
+2. **Kind.** The kind names an evaluator for each verb that it answers. The name of the kind comes from the document, or else from its container.
+3. **Default.** The world has a default evaluator for some verbs, for example a JSON view.
+
+<LadderDiagram client:visible />
+
+## Try these
+
+- Select **A card in a list**. The card names no kind, and its list names the kind `card`.
+- Select **A typo**. The kind `rul` does not exist. The question stops with an error, because the ladder does not guess a name.
+- Select **Plain data** and the verb `view`. No kind applies, thus the default answers.
+- Give the document its own entry. The question stops at the first rung.
+
+## Why "coinductive"
+
+A document is finite data that a store can keep and a checker can examine. Its meaning is different: it is the set of answers to questions. Nothing outside the ladder decides the meaning, and the answers come when something asks. Thus the meaning of a document is a set of observations, not a definition. The theory calls this view coinductive, and it gives coeval its name.
+
+## The cost of the rule
+
+A new kind is one write: a document with the entries of the kind. A new verb needs a default, or an entry in each kind that answers it. This is the usual trade between objects and data types. The default rung keeps a new verb cheap.

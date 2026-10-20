@@ -1,0 +1,44 @@
+# Roadmap
+
+This file is the one list of the work of coeval. Each item has an ID and a status. The tracker page mirrors this file.
+
+The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the owner), and `later`.
+
+## The design and the site
+
+| ID | Item | Status | Depends on |
+| --- | --- | --- | --- |
+| C1 | The repository, the model package and the site with a live diagram for each idea | in progress | |
+| C2 | The site on GitHub Pages, and CI on each push | in progress | C1 |
+| C3 | A diagram of the four schedules: pull, push, demand and once, with the same values | next | C1 |
+| C4 | A diagram of one path grammar for names, positions and order | next | C1 |
+| C5 | The decisions Q1 to Q4 of `DECISIONS.md` | waiting | |
+
+## The kernel
+
+| ID | Item | Status | Depends on |
+| --- | --- | --- | --- |
+| K1 | The specification of the model, with one requirement ID for each rule and one test for each ID | next | C5 |
+| K2 | The contract of a kind: the roles of its fields (code or data), its types, its context and its effects | later | K1 |
+| K3 | A check of a whole document before it runs, from the contracts | later | K2 |
+| K4 | The path grammar: a list of moves from the place of the reference | later | K1, C4 |
+| K5 | The result model: a value, or an error value with a code, a reason and a place | later | K1 |
+| K6 | The explain trace of a question and of an evaluation | later | K5 |
+
+## The kits
+
+| ID | Item | Status | Depends on |
+| --- | --- | --- | --- |
+| L1 | The sequence kit: steps with names for the results of earlier steps, capabilities, and the order of effects | later | K2 |
+| L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later | K2, K4 |
+| L3 | The reaction kit: an event starts a run, and a change of data does not repeat a run | later | L1 |
+| L4 | The formula adapter: a formula language as the evaluator of the pure kinds | later | K2 |
+| L5 | The storage adapter: one query language for the world, with an adapter for each store | later | K2 |
+
+## The schedule layer
+
+| ID | Item | Status | Depends on |
+| --- | --- | --- | --- |
+| S1 | The interface of a schedule: the graph of the data and the side of each kind | later | K2 |
+| S2 | The static analysis: cycles, an order for a push schedule, and the independent groups | later | S1 |
+| S3 | Adapters to the reactive engines of the hosts | later | S1 |

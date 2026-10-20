@@ -1,0 +1,76 @@
+/*
+ * The family tokens (tokens.css) mapped to the variables of Starlight. Starlight and the tokens both use the
+ * attribute data-theme on the html element, so the light and the dark theme follow the same switch.
+ * In Starlight, "white" is the text with the most contrast and "black" is the page, in both themes.
+ */
+:root,
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  --sl-font: var(--font-sans);
+  --sl-font-mono: var(--font-mono);
+  --sl-color-accent-low: var(--color-accent-wash);
+  --sl-color-accent: var(--color-accent);
+  --sl-color-accent-high: var(--color-accent-strong);
+  --sl-color-white: var(--color-ink);
+  --sl-color-gray-1: var(--color-ink);
+  --sl-color-gray-2: var(--color-ink-secondary);
+  --sl-color-gray-3: var(--color-ink-muted);
+  --sl-color-gray-4: var(--color-rule-strong);
+  --sl-color-gray-5: var(--color-rule);
+  --sl-color-gray-6: var(--color-surface-sunken);
+  --sl-color-gray-7: var(--color-surface);
+  --sl-color-black: var(--color-page);
+  --sl-color-bg-nav: color-mix(in srgb, var(--color-page) 92%, transparent);
+  --sl-color-bg-sidebar: var(--color-page);
+  --sl-color-hairline: var(--color-rule);
+  --sl-color-hairline-light: var(--color-rule);
+  --sl-color-hairline-shade: var(--color-rule-strong);
+  --sl-color-red: var(--color-mark);
+  --sl-color-red-low: var(--color-mark-wash);
+  --sl-color-red-high: var(--color-mark);
+}
+
+header.header {
+  backdrop-filter: blur(6px);
+}
+
+/* A page with a diagram gets a wide column. The prose keeps a short line, and the diagrams use the full width. */
+:root:has(.ce-figure) {
+  --sl-content-width: 62rem;
+}
+
+.sl-markdown-content > :is(p, ul, ol, h2, h3, blockquote) {
+  max-width: 46rem;
+}
+
+/* ------------------------------------------------------------------------------------------- the hero */
+
+.ce-hero {
+  display: grid;
+  gap: var(--space-5);
+  align-items: start;
+  padding-block: var(--space-6) var(--space-4);
+}
+
+.ce-hero .hero {
+  padding-block: 0;
+}
+
+.ce-hero .hero h1 {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.ce-hero .hero .tagline {
+  max-width: 34ch;
+  font-size: var(--text-lg);
+  color: var(--color-ink-secondary);
+}
+
+@media (min-width: 64rem) {
+  .ce-hero {
+    grid-template-columns: minmax(18rem, 0.8fr) minmax(0, 1.4fr);
+    gap: var(--space-7);
+  }
+}

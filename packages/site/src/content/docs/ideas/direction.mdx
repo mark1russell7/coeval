@@ -1,0 +1,27 @@
+---
+title: Direction
+description: Data moves back in a sequence, by moves in a structure, and down, up and sideways in a tree. One path grammar can name all of it.
+tableOfContents: false
+---
+
+import DirectionDiagram from "../../../components/DirectionDiagram.tsx";
+
+The direction of data is the direction of the references that a construct permits. Three shapes cover the languages that coeval serves.
+
+<DirectionDiagram client:visible />
+
+## Back, in a sequence
+
+A step of a sequence can name each earlier step. It cannot name a later step. This is the scope of `let*`: each binding sees the bindings before it.
+
+## Moves, from a focus
+
+A formula over a structure reads by position. It starts at a focus and moves: to the parent, to the children, to the siblings or to all of the others. A spreadsheet reads cells in the same way.
+
+## Down, up and sideways, in a tree
+
+In a tree of components, data and the box of a parent go down. The size of a child and its events go up. A reference goes sideways, to another branch. The theory of attribute grammars names these inherited, synthesized and reference attributes.
+
+## One path grammar
+
+A name is also a position. A variable is a path up the program to the place of its binding. The previous step is a path to the sibling before. Thus one grammar of paths can name all three shapes. A path is a list of moves from the place of the reference.

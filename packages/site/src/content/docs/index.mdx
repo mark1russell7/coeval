@@ -1,0 +1,37 @@
+---
+title: coeval
+description: A base for declarative languages. A document gets its meaning from a question. Its kind names the evaluator, and a ladder finds it.
+template: splash
+hero:
+  tagline: A document gets its meaning from a question, not from a definition. Its kind names the evaluator. Try it at the right.
+  actions:
+    - text: The model in one page
+      link: ./start/model/
+      icon: right-arrow
+    - text: GitHub
+      link: https://github.com/mark1russell7/coeval
+      icon: github
+      variant: minimal
+---
+
+import LoopDiagram from "../../components/LoopDiagram.tsx";
+
+coeval is a base for declarative languages. Each language stores its programs as JSON documents. coeval gives the parts that all of these languages share. These parts are the documents, the ladder that finds an evaluator, the context of a term, and the split between pure work and effects.
+
+The project is in the design stage. Each idea has a page with a live diagram. The diagrams use the model package of the repository, thus each answer comes from real code.
+
+## The whole model in one loop
+
+A store holds documents. The derive side computes the view from the store, without an effect. An event starts a run, and a run causes effects in a written order. The effects change the store, and the loop starts again.
+
+<LoopDiagram client:visible />
+
+## The ideas
+
+- [Documents and kinds](./ideas/documents/): a document names its kind, and the kind names its evaluator.
+- [The ladder](./ideas/ladder/): a question goes to the own entry, then to the kind, then to the default.
+- [Context](./ideas/context/): a term reaches outside itself through five parts only.
+- [Direction](./ideas/direction/): back in a sequence, by moves in a structure, down and up in a tree.
+- [Derive and run](./ideas/derive-and-run/): order has a meaning only for effects.
+- [Evaluators](./ideas/evaluators/): an evaluator evaluates its parts, and does not look inside them.
+- [Schedules](./ideas/schedules/): when to compute is a separate layer.

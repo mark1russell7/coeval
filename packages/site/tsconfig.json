@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@mark1russell7/cue/ts/config/react.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "composite": false,
+    "incremental": false,
+    "isolatedDeclarations": false,
+    "declaration": false,
+    "declarationMap": false,
+    "rootDir": "${configDir}",
+    "types": [
+      "vite/client",
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "src/content.config.ts",
+    "dist",
+    ".astro"
+  ]
+}

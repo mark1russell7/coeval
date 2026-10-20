@@ -1,0 +1,29 @@
+---
+title: Derive and run
+description: A list of pure steps is a graph, and order has a meaning only for effects. Each kind is on the derive side or on the run side.
+tableOfContents: false
+---
+
+import OrderDiagram from "../../../components/OrderDiagram.tsx";
+
+A program that is a list of steps looks like a sequence. For pure steps, it is not. It is a graph that someone wrote down in one order.
+
+<OrderDiagram client:visible />
+
+## Order has a meaning only for effects
+
+A pure step reads values and gives a value. Two orders that obey the arrows give the same result. A step with an effect is different. A log line before a save and a log line after a save are two different histories. Thus each effect keeps its place among the other effects.
+
+## Two sides
+
+coeval puts each kind on one of two sides.
+
+| | Derive | Run |
+| --- | --- | --- |
+| Effects | None | Yes, with capabilities |
+| Order | Any order that obeys the data | The written order |
+| When | When something reads the value, or when its data changes | When a trigger starts it |
+| Again after a change of data | Yes | No |
+| Examples | Formulas, trees of components, layout rules, queries | Sequences of calls, event handlers |
+
+An event handler holds a run as data. The derive side can compute the handler, and the run starts only when its event comes. A change of data does not repeat an effect. The [loop on the home page](../../) shows both sides.

@@ -1,0 +1,27 @@
+---
+title: Context
+description: A term reaches outside itself through five parts only. The languages differ in which parts they read and what they give their body.
+tableOfContents: false
+---
+
+import ContextDiagram from "../../../components/ContextDiagram.tsx";
+
+A term is not alone. A formula reads its parent, a step reads an earlier step, and a handler reads its event. Each of these reads goes through one door, the context. A context has five parts.
+
+| Part | What a reference through it reaches |
+| --- | --- |
+| Names | A value that a binding gives: a `let`, a parameter or the result of an earlier step |
+| Focus | A position in a structure: the node itself, its parent, its children or its siblings |
+| World | A stored document or collection, by an absolute ID or by a query |
+| Event | The trigger of a run, and its values |
+| Capabilities | The effects that the term can cause |
+
+## The languages differ here
+
+Most declarative languages have the same core: a literal, a reference, a call, a binding, a condition and a loop. They differ in the context. Select a construct to see how it uses each part.
+
+<ContextDiagram client:visible />
+
+## What a construct gives its body
+
+Each construct reads some parts, and it gives the parts of its body a context. It can give the same value, more names, a new position, a smaller set of capabilities or a new value. A pure construct gives its body no capability. A run gives its body the same capabilities or fewer, and not more at any time.

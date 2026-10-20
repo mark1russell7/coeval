@@ -1,0 +1,13 @@
+---
+/**
+ * The hero of the home page: the hero of Starlight, and the live ladder beside it.
+ * The site config sets this component as the override of the Starlight hero, so only the home page uses it.
+ */
+import Default from "@astrojs/starlight/components/Hero.astro";
+import LadderDiagram from "./LadderDiagram.tsx";
+---
+
+<div class="ce-hero">
+  <Default />
+  <LadderDiagram client:load initial="card" />
+</div>
