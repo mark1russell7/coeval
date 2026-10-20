@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CONSTRUCTS, PART_INFO, type Give, type Part, type Use } from "@coeval/core";
+import { CONSTRUCTS, PART_INFO, type ContextPart as Part, type Give, type Use } from "@coeval/core";
 import { prettyJson } from "../lib/motion.ts";
 
 const GIVE_WORDS: Readonly<Record<Give, string>> = {

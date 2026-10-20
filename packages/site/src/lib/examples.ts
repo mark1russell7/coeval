@@ -1,4 +1,4 @@
-import type { Doc, World } from "@coeval/core";
+import { typed, type Json, type World } from "@coeval/core";
 
 /** The world of the ladder diagrams: three kinds and two defaults. */
 export const LADDER_WORLD: World = {
@@ -17,27 +17,24 @@ export const VERBS = ["view", "eval", "check", "run"] as const;
 export interface LadderExample {
   readonly id: string;
   readonly label: string;
-  readonly doc: Doc;
-  /** The container of the document, and the kind that it declares for its items. */
+  /** The document: an envelope, or a bare value. */
+  readonly doc: Json;
+  /** The container of a bare value, and the type that it declares for its items. */
   readonly container?: { readonly name: string; readonly kind: string };
 }
 
 /** The documents of the ladder diagram. */
 export const LADDER_EXAMPLES: readonly LadderExample[] = [
-  { id: "rule", label: "A rule", doc: { $kind: "rule", use: "stack", with: { gap: 8 } } },
+  { id: "rule", label: "A rule", doc: typed("rule", { use: "stack", with: { gap: 8 } }) },
   {
     id: "card",
     label: "A card in a list",
     doc: { title: "Notes", done: false },
     container: { name: "cards", kind: "card" },
   },
-  {
-    id: "sequence",
-    label: "A sequence",
-    doc: { $kind: "sequence", steps: [{ call: "store.find" }, { call: "store.patch" }] },
-  },
+  { id: "sequence", label: "A sequence", doc: typed("sequence", ["find", "patch"]) },
   { id: "plain", label: "Plain data", doc: { width: 120, height: 80 } },
-  { id: "typo", label: "A typo", doc: { $kind: "rul", use: "stack" } },
+  { id: "typo", label: "A typo", doc: typed("rul", { use: "stack" }) },
 ];
 
 /**

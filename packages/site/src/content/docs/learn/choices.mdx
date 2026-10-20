@@ -1,0 +1,38 @@
+---
+title: Choices
+description: The evaluator of if gets its parts sealed and evaluates only the branch that the test selects. The other branch does not happen.
+tableOfContents: false
+---
+
+import GlyphKey from "../../../components/GlyphKey.tsx";
+import Explorer from "../../../glyphs/Explorer.tsx";
+import { CHOICE } from "../../../lib/programs.ts";
+
+The evaluator of `if` shows why an evaluator gets its parts sealed and not evaluated. It evaluates the test first. Then it evaluates only the branch that the test selects. The other branch is not evaluated, and its card says so.
+
+<GlyphKey page={6} />
+
+The context has the name `size` with the value 12. Thus the test is true, and the log in the other branch does not happen.
+
+<Explorer
+  client:visible
+  doc={CHOICE}
+  names={{ size: 12 }}
+  label="A choice with the size 12"
+  caption="The test gives true. The evaluator of if evaluates then, and it does not evaluate else. No log happens."
+/>
+
+With the size 4, the test is false. The evaluator evaluates the branch `else`, and the log happens.
+
+<Explorer
+  client:visible
+  doc={CHOICE}
+  names={{ size: 4 }}
+  label="A choice with the size 4"
+  caption="The test gives false. The evaluator of if evaluates else, and the log happens. The branch then is not evaluated."
+  panel={false}
+/>
+
+## Each evaluator decides
+
+A condition is not a special part of the language. It is a kind with an evaluator, as `add` is. Any evaluator can decide which parts to evaluate, how many times, and in which context. A loop, a retry and a handler that waits for an event are evaluators of the same form.

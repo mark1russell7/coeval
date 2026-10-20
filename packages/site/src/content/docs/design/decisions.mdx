@@ -10,7 +10,11 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | ID | Decision |
 | --- | --- |
 | D1 | An evaluator is a document in the language that fits its side. It is not a program of one fixed formula language. |
-| D2 | Dispatch uses names only. The kind comes from the document or from its container. A classifier can tag data when it comes in, and the ladder does not guess. |
+| D2 | Dispatch uses names only. The type comes from the envelope or from the container. A classifier can tag data when it comes in, and the ladder does not guess. |
+| D5 | A public language can live in this repository as a test language. |
+| D6 | A document is a value in an envelope: `{ type, value }`, with `name` and `own` in the header. A position that declares its type holds a bare value. |
+| D7 | An evaluator gets its parts sealed. A part has no field with its value. |
+| D8 | The site draws each document with the view that the ladder finds. The pictures compose as the documents compose. |
 | D3 | A schedule is a separate layer. coeval gives the graph of the data and the side of each kind. The engines of the hosts stay in their own projects. |
 | D4 | The repository is public. Its continuous integration runs on GitHub Actions. |
 
@@ -18,7 +22,5 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 
 | ID | Question | The current proposal |
 | --- | --- | --- |
-| Q1 | Does each language live in this repository, or in its own repository? | The kernel and the small reference languages live here, one package each. A full language stays in its own repository and uses the kernel. |
-| Q2 | Is the run side one language for all hosts? | Yes: sequences of calls, with names for the results of earlier steps. |
-| Q3 | Which key holds the kind? | `$kind`. A field `kind` stays ordinary data. |
-| Q4 | Does a path grammar cover names, positions and order? | Yes: a path is a list of moves from the place of the reference. |
+| Q2 | Is the run side (the effects) one language for all hosts? | Yes: sequences of calls, with names for the results of earlier steps, and capabilities. |
+| Q4 | Does a path grammar cover names, positions and order? | Yes: a list of four moves from the place of the reference. Refer to [Paths](../../learn/paths/). |

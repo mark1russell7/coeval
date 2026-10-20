@@ -1,13 +1,20 @@
 ---
 /**
- * The hero of the home page: the hero of Starlight, and the live ladder beside it.
+ * The hero of the home page: the hero of Starlight, and a live document beside it that a reader can step through.
  * The site config sets this component as the override of the Starlight hero, so only the home page uses it.
  */
 import Default from "@astrojs/starlight/components/Hero.astro";
-import LadderDiagram from "./LadderDiagram.tsx";
+import Explorer from "../glyphs/Explorer.tsx";
+import { NAMES } from "../lib/programs.ts";
 ---
 
 <div class="ce-hero">
   <Default />
-  <LadderDiagram client:load initial="card" />
+  <Explorer
+    client:load
+    doc={NAMES}
+    panel={false}
+    initial="start"
+    label="A document with three steps. Select Play to see its evaluation."
+  />
 </div>

@@ -3,11 +3,14 @@ title: coeval
 description: A base for declarative languages. A document gets its meaning from a question. Its kind names the evaluator, and a ladder finds it.
 template: splash
 hero:
-  tagline: A document gets its meaning from a question, not from a definition. Its kind names the evaluator. Try it at the right.
+  tagline: A document gets its meaning from a question, not from a definition. Each picture on this site is a document, drawn by the same rules. Select Play at the right.
   actions:
-    - text: The model in one page
-      link: ./start/model/
+    - text: Learn, one glyph at a time
+      link: ./learn/documents/
       icon: right-arrow
+    - text: The playground
+      link: ./playground/
+      variant: secondary
     - text: GitHub
       link: https://github.com/mark1russell7/coeval
       icon: github
@@ -28,10 +31,13 @@ A store holds documents. The derive side computes the view from the store, witho
 
 ## The ideas
 
-- [Documents and kinds](./ideas/documents/): a document names its kind, and the kind names its evaluator.
-- [The ladder](./ideas/ladder/): a question goes to the own entry, then to the kind, then to the default.
-- [Context](./ideas/context/): a term reaches outside itself through five parts only.
-- [Direction](./ideas/direction/): back in a sequence, by moves in a structure, down and up in a tree.
-- [Derive and run](./ideas/derive-and-run/): order has a meaning only for effects.
-- [Evaluators](./ideas/evaluators/): an evaluator evaluates its parts, and does not look inside them.
-- [Schedules](./ideas/schedules/): when to compute is a separate layer.
+- [Documents](./learn/documents/): a value in an envelope. The tab of the card is the type.
+- [Kinds](./learn/kinds/): a kind is a document that names an evaluator for each verb.
+- [The ladder](./learn/ladder/): a question goes to the own entry, then to the kind, then to the default.
+- [Evaluation](./learn/evaluation/): results come up through ports, and parts are sealed.
+- [Names](./learn/names/), [Choices](./learn/choices/) and [Effects](./learn/effects/): scope, laziness and capabilities, with the same cards.
+- [Context](./learn/context/): a term reaches outside itself through five parts only.
+- [Paths](./learn/paths/): each reference syntax is a list of moves.
+- [Direction](./learn/direction/): back in a sequence, by moves in a structure, down and up in a tree.
+- [Derive and run](./learn/derive-and-run/): order has a meaning only for effects.
+- [Schedules](./learn/schedules/): when to compute is a separate layer.

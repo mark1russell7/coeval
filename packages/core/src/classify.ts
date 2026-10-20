@@ -1,4 +1,4 @@
-import { KIND_KEY, field, type Doc } from "./doc.ts";
+import { type Envelope, type Json, field, isRecord, typed } from "./doc.ts";
 
 /** A shape proposes a kind for each document that has all of its fields. */
 export interface Shape {
@@ -22,17 +22,19 @@ function isStrictSuperset(larger: readonly string[], smaller: readonly string[])
 }
 
 /**
- * This function proposes a kind for a document that names no kind, from the fields that the document has.
- * A shape applies when the document has each field of the shape. The most specific shapes are the ones that
+ * This function proposes a kind for a value without a type, from the fields that the value has.
+ * A shape applies when the value has each field of the shape. The most specific shapes are the ones that
  * no other applicable shape contains. A host uses a classifier when data comes in, and then tags the data.
  * The ladder does not call a classifier.
  *
  * @param shapes - The shapes to examine.
- * @param doc - The document without a kind.
+ * @param value - The value without a type.
  * @returns The proposed kind, or an error with the candidates.
  */
-export function classify(shapes: readonly Shape[], doc: Doc): Classification {
-  const applicable = shapes.filter((shape) => shape.fields.every((name) => field(doc, name) !== undefined));
+export function classify(shapes: readonly Shape[], value: Json): Classification {
+  const applicable = isRecord(value)
+    ? shapes.filter((shape) => shape.fields.every((name) => field(value, name) !== undefined))
+    : [];
   const best = applicable.filter((shape) => !applicable.some((other) => isStrictSuperset(other.fields, shape.fields)));
   const candidates = best.map((shape) => shape.name);
   const only = best.length === 1 ? best[0] : undefined;
@@ -41,12 +43,12 @@ export function classify(shapes: readonly Shape[], doc: Doc): Classification {
 }
 
 /**
- * This function gives a copy of a document with a kind. The original document does not change.
+ * This function puts a value in an envelope with a type. The value does not change.
  *
- * @param doc - The document.
+ * @param value - The value.
  * @param kind - The name of the kind.
- * @returns The tagged copy.
+ * @returns The envelope.
  */
-export function tag(doc: Doc, kind: string): Doc {
-  return { ...doc, [KIND_KEY]: kind };
+export function tag(value: Json, kind: string): Envelope {
+  return typed(kind, value);
 }

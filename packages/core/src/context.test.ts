@@ -18,7 +18,7 @@ describe("context data", () => {
     }
   });
 
-  it("names a kind in each example", () => {
-    for (const construct of CONSTRUCTS) expect(typeof construct.example["$kind"], construct.id).toBe("string");
+  it("gives each example a type in its envelope", () => {
+    for (const construct of CONSTRUCTS) expect(typeof construct.example.type, construct.id).toBe("string");
   });
 });

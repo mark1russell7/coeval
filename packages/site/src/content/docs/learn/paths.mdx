@@ -1,0 +1,29 @@
+---
+title: Paths
+description: Each reference syntax in common use is a list of moves from the place of the reference. Four moves can write all of them.
+tableOfContents: false
+---
+
+import GlyphKey from "../../../components/GlyphKey.tsx";
+import PathDiagram from "../../../components/PathDiagram.tsx";
+
+A reference points at something outside the term: a parent, a part, an earlier step or a field of a value. Languages use many syntaxes for this. Each syntax is a list of moves from the place of the reference.
+
+<GlyphKey page={7} />
+
+| Move | Glyph | What it does |
+| --- | --- | --- |
+| up | ↑ | It goes to the parent in a structure. |
+| down | ↓ | It goes to a named child in a structure. |
+| back | ← | It goes to the nearest earlier binding with a name. |
+| field | • | It goes into a field of a value, or an item of a list. |
+
+Select a syntax to see it as moves. The walk shows each move in order.
+
+<PathDiagram client:visible />
+
+## One grammar
+
+A name is also a position. A variable is a path back to the place of its binding. A reference to an earlier step is a path back in a sequence. A reference to a parent is a path up. Thus one grammar of four moves can write each reference that the other pages show.
+
+The context gives each move its target. A move up reads the focus. A move back reads the names. A field reads a value. The [context page](../context/) shows the parts of a context.

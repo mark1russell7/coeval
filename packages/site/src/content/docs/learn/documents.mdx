@@ -1,0 +1,64 @@
+---
+title: Documents
+description: A document is a value in an envelope. The tab of its card is its type. Data has no tab.
+tableOfContents: false
+---
+
+import GlyphKey from "../../../components/GlyphKey.tsx";
+import TaggingDiagram from "../../../components/TaggingDiagram.tsx";
+import KindDiagram from "../../../components/KindDiagram.tsx";
+import ValueGlyph from "../../../glyphs/Value.tsx";
+import { View } from "../../../glyphs/View.tsx";
+
+Each picture on this site is made of a small set of glyphs. This page gives the first four. Each later page adds one or two glyphs, and it uses all of the glyphs before it. Thus a large picture is made of the same parts as a small picture.
+
+<GlyphKey page={1} />
+
+## Data
+
+Data is a JSON value: a number, a text, a truth value, a list or a record. Data has no type of its own. Its glyph is the value alone.
+
+<div class="cv-gallery not-content">
+  <ValueGlyph value={42} size="large" />
+  <ValueGlyph value="Notes" size="large" />
+  <ValueGlyph value={true} size="large" />
+  <ValueGlyph value={[1, 2, 3]} size="large" />
+  <ValueGlyph value={{ title: "Notes", done: false }} />
+</div>
+
+## A document is a value in an envelope
+
+A document puts a value in an envelope: `{ "type": "number", "value": 42 }`. The envelope names the type, and it does not change the value. The card is the envelope. Its tab is the type, and its body is the value.
+
+<div class="cv-gallery not-content">
+  <View doc={{ type: "number", value: 42 }} />
+  <View doc={{ type: "text", value: "Notes" }} />
+  <View doc={{ type: "bool", value: true }} />
+  <View doc={{ type: "list", value: [{ type: "number", value: 1 }, { type: "number", value: 2 }] }} />
+</div>
+
+The envelope can also hold a header: a `name` for a binding, and `own` entries that change one document. The later pages use both.
+
+## Why an envelope
+
+A value can get a type in four common ways. Select a value to compare them.
+
+<TaggingDiagram client:visible />
+
+## A container can declare the type
+
+A list of numbers does not need an envelope for each number. The kind of the list declares the type of its items. Such a value is bare, and its card has a dashed tab.
+
+<div class="cv-gallery not-content">
+  <View doc={{ type: "add", value: [2, 3, { type: "number", value: 4 }] }} />
+</div>
+
+The first two numbers are bare. The list of `add` gives them the type `number`. The third number has its own envelope. Typed languages work in the same way: a declaration gives a type, and only an open position needs a tag.
+
+One record can be in three lists, with three declared types. Each list gives the record a different meaning.
+
+<KindDiagram client:visible />
+
+## Parts
+
+A document can hold other documents. They are its parts, and their cards are inside its card. The kind of a document tells where its parts are. [The next page](../kinds/) shows the kinds.

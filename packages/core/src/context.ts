@@ -1,4 +1,5 @@
-import type { Doc } from "./doc.ts";
+import type { Envelope } from "./doc.ts";
+import type { Side } from "./ladder.ts";
 
 /** The parts of a context. A term can reach outside itself only through these parts. */
 export const PARTS = ["names", "focus", "world", "event", "caps"] as const;
@@ -50,9 +51,6 @@ export const PART_INFO: readonly PartInfo[] = [
   },
 ];
 
-/** The two sides of evaluation. `derive` is pure. `run` causes effects in order. */
-export type Side = "derive" | "run";
-
 /**
  * What a construct gives the parts of its body, for one part of the context.
  *
@@ -78,7 +76,7 @@ export interface Construct {
   readonly title: string;
   readonly side: Side;
   readonly summary: string;
-  readonly example: Doc;
+  readonly example: Envelope;
   readonly uses: Readonly<Record<Part, Use>>;
 }
 
@@ -92,9 +90,8 @@ export const CONSTRUCTS: readonly Construct[] = [
     side: "derive",
     summary: "A pure formula that gives a value at one position of a structure.",
     example: {
-      $kind: "formula",
-      let: { gap: 8 },
-      value: { op: "add", args: [{ ref: "width", at: "parent" }, { var: "gap" }] },
+      type: "formula",
+      value: { let: { gap: 8 }, body: { op: "add", args: [{ ref: "width", at: "parent" }, { var: "gap" }] } },
     },
     uses: {
       names: { reads: true, gives: "extends", note: "A let binds names for its body." },
@@ -110,10 +107,10 @@ export const CONSTRUCTS: readonly Construct[] = [
     side: "run",
     summary: "A list of steps. A step can read the result of each earlier step by its name.",
     example: {
-      $kind: "sequence",
-      steps: [
-        { call: "store.find", name: "cards", input: { match: { board: "b1" } } },
-        { call: "store.patch", input: { ids: { ref: "cards.ids" }, set: { done: true } } },
+      type: "seq",
+      value: [
+        { type: "store.find", value: { match: { board: "b1" } }, name: "cards" },
+        { type: "store.patch", value: { ids: { type: "ref", value: "cards.ids" }, set: { done: true } } },
       ],
     },
     uses: {
@@ -130,9 +127,8 @@ export const CONSTRUCTS: readonly Construct[] = [
     side: "derive",
     summary: "A node of a document tree. Its data and its box go down to its children.",
     example: {
-      $kind: "node",
-      data: { title: "Notes" },
-      children: [{ $kind: "text", value: { ref: "title" } }],
+      type: "node",
+      value: { data: { title: "Notes" }, children: [{ type: "text", value: { type: "ref", value: "title" } }] },
     },
     uses: {
       names: { reads: true, gives: "extends", note: "The data of the node becomes a name for its children." },
@@ -147,7 +143,7 @@ export const CONSTRUCTS: readonly Construct[] = [
     title: "Layout rule",
     side: "derive",
     summary: "A rule that gives the box of a child from the box of its parent.",
-    example: { $kind: "rule", use: "stack", with: { gap: 8 } },
+    example: { type: "rule", value: { use: "stack", with: { gap: 8 } } },
     uses: {
       names: { reads: true, gives: "none", note: "The rule reads its parameters." },
       focus: { reads: true, gives: "none", note: "The rule reads the box of the parent and the key of the child." },
@@ -162,9 +158,11 @@ export const CONSTRUCTS: readonly Construct[] = [
     side: "run",
     summary: "A run that an event starts. It holds a sequence as data until the event comes.",
     example: {
-      $kind: "on",
-      event: "click",
-      run: { $kind: "sequence", steps: [{ call: "card.toggle", input: { id: { ref: "event.target" } } }] },
+      type: "on",
+      value: {
+        event: "click",
+        run: { type: "seq", value: [{ type: "card.toggle", value: { id: { type: "ref", value: "event.target" } } }] },
+      },
     },
     uses: {
       names: { reads: true, gives: "same", note: "The handler reads the names of its place." },
@@ -179,7 +177,7 @@ export const CONSTRUCTS: readonly Construct[] = [
     title: "Query",
     side: "derive",
     summary: "A selection of stored documents. A storage adapter decides where it runs.",
-    example: { $kind: "query", collection: "cards", match: { board: { ref: "board" } } },
+    example: { type: "query", value: { collection: "cards", match: { board: { type: "ref", value: "board" } } } },
     uses: {
       names: { reads: true, gives: "none", note: "The query reads its parameters." },
       focus: NONE,

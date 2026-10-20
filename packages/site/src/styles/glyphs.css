@@ -1,0 +1,1030 @@
+/*
+ * The visual grammar of coeval. One concept has one glyph, and a composite is drawn from the glyphs of its parts.
+ *
+ * - A document is a card. Its tab holds its type. A dashed tab is a type that the container declares.
+ * - A name tag on the right of the tab is a binding name.
+ * - Data has no tab. Data is a value glyph inside a card.
+ * - The port at the lower right is the result. A red port is an error value.
+ * - A card of the run side has a magenta edge and a triangle in its tab.
+ * - Nested cards alternate between two surfaces, so that the depth is visible.
+ */
+
+.cv-card {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 3.2rem;
+  margin: 0.95rem 0.3rem 0.85rem 0;
+  padding: 0.95rem 0.65rem 0.6rem;
+  border: 1.5px solid var(--color-rule-strong);
+  border-radius: 10px;
+  background: var(--color-surface);
+  vertical-align: top;
+  transition: border-color 160ms, box-shadow 160ms, opacity 160ms, background-color 160ms;
+}
+
+.cv-card[data-variant="block"] {
+  padding-right: 1rem;
+  padding-bottom: 1.35rem;
+}
+
+.cv-card[data-depth="1"] {
+  background: var(--color-surface-sunken);
+}
+
+.cv-card[data-depth="1"] .cv-tab {
+  background: var(--color-surface-sunken);
+}
+
+.cv-card[data-variant="value"] {
+  align-items: center;
+  justify-content: center;
+  min-width: 4.6rem;
+  padding: 0.85rem 0.6rem 0.45rem;
+}
+
+.cv-card[role="button"] {
+  cursor: pointer;
+}
+
+.cv-card[role="button"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.cv-tab {
+  position: absolute;
+  top: -0.78rem;
+  left: 0.55rem;
+  display: inline-flex;
+  gap: 0.3em;
+  align-items: center;
+  max-width: calc(100% - 1rem);
+  padding: 0.05rem 0.45rem;
+  border: 1.5px solid var(--color-rule-strong);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.25rem;
+  white-space: nowrap;
+}
+
+.cv-tab[data-declared="true"] {
+  border-style: dashed;
+  color: var(--color-ink-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.cv-card[data-unknown="true"] .cv-tab {
+  border-color: var(--ce-stop);
+  color: var(--ce-stop);
+}
+
+.cv-run-mark {
+  color: var(--ce-run);
+}
+
+.cv-card[data-side="run"] {
+  border-left: 5px solid var(--ce-run);
+}
+
+.cv-rung {
+  display: inline-grid;
+  place-items: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 3px;
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-size: 0.65rem;
+  font-style: normal;
+}
+
+.cv-flags {
+  position: absolute;
+  top: -0.72rem;
+  right: 0.55rem;
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.cv-name {
+  padding: 0 0.5rem;
+  border: 1.5px solid var(--ce-names);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ce-names) 14%, var(--color-surface));
+  color: var(--ce-names);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2rem;
+}
+
+.cv-own {
+  padding: 0 0.45rem;
+  border: 1.5px solid var(--color-accent);
+  border-radius: 4px;
+  background: var(--color-accent-wash);
+  color: var(--color-accent-strong);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2rem;
+}
+
+.cv-tools {
+  position: absolute;
+  top: -0.8rem;
+  right: 0.4rem;
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.cv-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  min-height: 1.4rem;
+}
+
+/* ------------------------------------------------------------------------------------ the port */
+
+.cv-port {
+  position: absolute;
+  right: -0.5rem;
+  bottom: -0.8rem;
+  z-index: 1;
+  display: inline-flex;
+  gap: 0.3em;
+  align-items: center;
+  padding: 0 0.45rem;
+  border: 1.5px solid var(--ce-answer);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-accent-strong);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.3rem;
+  white-space: nowrap;
+  animation: cv-pop 220ms ease-out;
+}
+
+.cv-port[data-ok="false"] {
+  border-color: var(--ce-stop);
+  background: var(--ce-stop-wash);
+  color: var(--ce-stop);
+}
+
+.cv-port-arrow {
+  color: var(--color-ink-muted);
+}
+
+.cv-final .cv-port,
+.cv-panel .cv-port {
+  position: static;
+  animation: none;
+}
+
+@keyframes cv-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------------- the states */
+
+.cv-card[data-state="pending"] {
+  border-color: var(--color-rule);
+}
+
+.cv-card[data-state="active"] {
+  border-color: var(--ce-answer);
+  border-style: dashed;
+}
+
+.cv-card[data-state="current"] {
+  border-color: var(--ce-answer);
+  box-shadow: 0 0 0 3px var(--ce-answer-wash), 0 0 0 4.5px var(--ce-answer);
+}
+
+.cv-card[data-state="current"] > .cv-tab,
+.cv-card[data-state="active"] > .cv-tab {
+  border-color: var(--ce-answer);
+}
+
+.cv-card[data-state="skipped"] {
+  border-style: dashed;
+  opacity: 0.5;
+}
+
+.cv-card[data-selected="true"] {
+  box-shadow: 0 0 0 3px var(--color-accent-wash), 0 0 0 4.5px var(--color-accent-strong);
+}
+
+/* The edge of the run side wins over the color of each state. */
+.cv-card[data-side="run"]:not([data-state="skipped"]) {
+  border-left-color: var(--ce-run);
+}
+
+.cv-skip {
+  position: absolute;
+  right: 0.4rem;
+  bottom: -0.75rem;
+  padding: 0 0.35rem;
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  font-size: 0.68rem;
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------------------------- the values */
+
+.cv-value {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.cv-value[data-size="large"] {
+  font-size: 1.15rem;
+}
+
+.cv-value[data-of="text"] {
+  color: color-mix(in srgb, var(--ce-focus) 70%, var(--color-ink));
+}
+
+.cv-value[data-of="bool"] {
+  color: color-mix(in srgb, var(--ce-caps) 70%, var(--color-ink));
+}
+
+.cv-value[data-of="null"] {
+  color: var(--color-ink-muted);
+}
+
+.cv-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  align-items: center;
+  font-weight: 400;
+}
+
+.cv-list-item + .cv-list-item::before {
+  content: ",";
+  margin-right: 0.35em;
+  margin-left: -0.35em;
+  color: var(--color-ink-muted);
+}
+
+.cv-record {
+  display: inline-grid;
+  gap: 0.15rem 0.5rem;
+  padding: 0.2rem 0.4rem;
+  border-left: 2px solid var(--color-rule-strong);
+  font-weight: 400;
+}
+
+.cv-field {
+  display: inline-flex;
+  gap: 0.4em;
+  align-items: baseline;
+}
+
+.cv-field-key {
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.cv-field-key::after {
+  content: ":";
+}
+
+/* ----------------------------------------------------------------------------- parts and layout */
+
+.cv-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.15rem;
+  align-items: center;
+}
+
+.cv-row-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.cv-symbol {
+  margin: 0 0.35rem 0 0.1rem;
+  color: var(--color-ink-muted);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.cv-slots {
+  display: grid;
+  gap: 0 0.6rem;
+}
+
+.cv-slot {
+  display: grid;
+  grid-template-columns: 2.8rem auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.cv-slot-label {
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.cv-steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cv-step {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.cv-step-number {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1.5px solid var(--color-rule-strong);
+  border-radius: 50%;
+  color: var(--color-ink-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.cv-ref {
+  color: var(--ce-names);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.cv-problem {
+  color: var(--ce-stop);
+  font-size: 0.75rem;
+}
+
+.cv-kind {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 13rem;
+  max-width: 22rem;
+}
+
+.cv-kind-name {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.cv-kind-summary {
+  color: var(--color-ink-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.cv-kind-verbs {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.cv-kind-verbs th,
+.cv-kind-verbs td {
+  padding: 0.15rem 0.4rem;
+  border-top: 1px solid var(--color-rule);
+  text-align: left;
+}
+
+.cv-kind-verbs th {
+  color: var(--color-ink-muted);
+  font-weight: 400;
+}
+
+.cv-kind-verbs td {
+  font-family: var(--font-mono);
+}
+
+/* --------------------------------------------------------------------------------- the explorer */
+
+.cv-now {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-rule);
+  color: var(--color-ink-secondary);
+  min-height: 2.6rem;
+}
+
+.cv-stage {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+@container (min-width: 46rem) {
+  .cv-stage[data-panel="true"] {
+    grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 1fr);
+  }
+}
+
+.cv-picture {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.3rem 0.8rem 0.6rem 0.2rem;
+}
+
+.cv-json {
+  margin-top: var(--space-3);
+}
+
+.cv-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius);
+  background: var(--color-surface-sunken);
+}
+
+.cv-panel-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.cv-panel-head {
+  margin: 0 0 0.35rem;
+  color: var(--color-ink-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.cv-link {
+  margin-left: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.cv-scrub {
+  display: inline-flex;
+  flex: 1 1 12rem;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.cv-scrub input {
+  flex: 1;
+  accent-color: var(--color-accent);
+}
+
+.cv-muted {
+  color: var(--color-ink-muted);
+}
+
+.cv-small {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.cv-final {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-rule);
+}
+
+/* ------------------------------------------------------------------------------- the ladder glyph */
+
+.cv-ladder {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0 0 0 0.9rem;
+  border-left: 3px double var(--color-rule-strong);
+  list-style: none;
+}
+
+.cv-shelf {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-surface);
+  font-size: 0.78rem;
+}
+
+.cv-shelf[data-state="unvisited"] {
+  opacity: 0.45;
+}
+
+.cv-shelf[data-state="answers"] {
+  border-color: var(--ce-answer);
+  background: var(--ce-answer-wash);
+}
+
+.cv-shelf[data-state="stops"] {
+  border-color: var(--ce-stop);
+  background: var(--ce-stop-wash);
+}
+
+.cv-shelf-head {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-weight: 700;
+}
+
+.cv-shelf-letter {
+  display: inline-grid;
+  place-items: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 3px;
+  background: var(--color-ink-secondary);
+  color: var(--color-surface);
+  font-size: 0.65rem;
+}
+
+.cv-shelf[data-state="answers"] .cv-shelf-letter {
+  background: var(--color-accent);
+}
+
+.cv-shelf-holds {
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------------ context, effects, seals */
+
+.cv-context {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.cv-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  font-size: 0.78rem;
+}
+
+.cv-context-label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  min-width: 6.5rem;
+  color: var(--color-ink-secondary);
+}
+
+.cv-name-chip {
+  display: inline-flex;
+  gap: 0.35em;
+  align-items: center;
+  padding: 0 0.45rem;
+  border: 1.5px solid var(--ce-names);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ce-names) 10%, var(--color-surface));
+  color: var(--ce-names);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.cv-name-chip .cv-value {
+  font-size: 0.72rem;
+}
+
+.cv-cap-chip {
+  padding: 0 0.45rem;
+  border: 1.5px solid var(--ce-caps);
+  border-radius: 4px;
+  color: var(--ce-caps);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.cv-effects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-rule);
+}
+
+.cv-effects-title {
+  color: var(--color-ink-secondary);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.cv-tickets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cv-ticket {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.15rem 0.55rem 0.15rem 0.2rem;
+  border: 1.5px solid var(--ce-run);
+  border-radius: 6px;
+  background: var(--ce-run-wash);
+  font-size: 0.8rem;
+  animation: cv-pop 220ms ease-out;
+}
+
+.cv-ticket-number {
+  display: inline-grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  background: var(--ce-run);
+  color: var(--color-surface);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.cv-ticket-kind {
+  color: var(--ce-run);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.cv-sealed-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.cv-sealed {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  min-width: 3rem;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.45rem;
+  border: 1.5px solid var(--color-rule-strong);
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--color-surface),
+    var(--color-surface) 5px,
+    var(--color-surface-sunken) 5px,
+    var(--color-surface-sunken) 10px
+  );
+}
+
+.cv-sealed-key {
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  background: var(--color-surface);
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+/* ------------------------------------------------------------------------------------ the galleries */
+
+.cv-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  align-items: flex-start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-port,
+  .cv-ticket {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------------------ the other diagrams */
+
+.cv-details {
+  margin-top: var(--space-3);
+  font-size: 0.85rem;
+}
+
+.cv-details summary {
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.cv-code {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-small);
+  background: var(--color-surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.cv-big {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.cv-ways th[scope="row"] {
+  min-width: 9rem;
+}
+
+.cv-ways tr[data-chosen="true"] {
+  background: var(--color-accent-wash);
+}
+
+.cv-ways td {
+  vertical-align: top;
+}
+
+.cv-why {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--color-ink-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.cv-envelope-demo {
+  margin-top: var(--space-4);
+}
+
+.cv-moves {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.cv-move {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: fit-content;
+  padding: 0.15rem 0.6rem 0.15rem 0.25rem;
+  border: 1.5px solid var(--color-rule-strong);
+  border-radius: 999px;
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  transition: border-color 200ms, color 200ms, background-color 200ms;
+}
+
+.cv-move[data-lit="true"] {
+  border-color: var(--ce-focus);
+  background: color-mix(in srgb, var(--ce-focus) 12%, var(--color-surface));
+  color: var(--color-ink);
+}
+
+.cv-move-symbol {
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: var(--color-surface-sunken);
+  font-weight: 700;
+}
+
+.cv-move[data-lit="true"] .cv-move-symbol {
+  background: var(--ce-focus);
+  color: var(--color-surface);
+}
+
+.cv-field-walk {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.cv-field-trail {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.cv-field-step {
+  padding: 0 0.5rem;
+  border: 1.5px solid var(--ce-focus);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.cv-field-step + .cv-field-step::before {
+  content: "›";
+  margin: 0 0.4rem 0 -0.4rem;
+  color: var(--color-ink-muted);
+}
+
+.cv-field-edit {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.cv-field-edit input,
+.cv-field-edit select {
+  min-height: 2rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-family: var(--font-mono);
+}
+
+.cv-json-edit {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.cv-json-edit textarea {
+  width: 100%;
+  min-height: 14rem;
+  margin: var(--space-2) 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.cv-stepping {
+  padding: 0 var(--space-4);
+}
+
+/* --------------------------------------------------------------------------------------- the key */
+
+.cv-key {
+  margin-block: var(--space-4);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.cv-key summary {
+  padding: var(--space-2) var(--space-4);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cv-key-new-count {
+  color: var(--color-accent-strong);
+  font-weight: 400;
+}
+
+.cv-key-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  list-style: none;
+}
+
+.cv-key-item {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: 4.4rem;
+  padding: 0.2rem 0.4rem;
+  border-top: 1px solid var(--color-rule);
+}
+
+.cv-key-item[data-new="true"] {
+  background: var(--color-accent-wash);
+}
+
+.cv-key-glyph {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  min-width: 5.5rem;
+}
+
+.cv-key-glyph .cv-port {
+  position: static;
+}
+
+.cv-key-glyph .cv-card {
+  margin-block: 0.9rem 0.8rem;
+}
+
+.cv-key-title {
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.cv-key-badge {
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.cv-key-mini {
+  padding: 0.05rem 0.45rem;
+  border: 1.5px solid var(--color-rule-strong);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.cv-key-rungs {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.cv-key-rungs span {
+  display: inline-grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 3px;
+  background: var(--color-ink-secondary);
+  color: var(--color-surface);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------------- the arrows of references */
+
+.cv-picture {
+  position: relative;
+}
+
+.cv-arrows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.cv-arrow-ref {
+  fill: none;
+  stroke: var(--ce-names);
+  stroke-width: 1.75;
+  stroke-dasharray: 5 4;
+  opacity: 0.85;
+}

@@ -1,17 +1,53 @@
-export { type Doc, type Json, KIND_KEY, OWN_KEY, field, isRecord, kindOf, ownEntry } from "./doc.ts";
+export {
+  type Envelope,
+  type Json,
+  type JsonRecord,
+  ENVELOPE_KEYS,
+  field,
+  fromJson,
+  isEnvelope,
+  isRecord,
+  toJson,
+  typed,
+} from "./doc.ts";
 export {
   type Answer,
   type AskOptions,
+  type Header,
   type Kind,
   type KindSource,
   type Outcome,
+  type PartsSpec,
   type Rung,
+  type Side,
   type Step,
   type World,
   RUNGS,
   ask,
+  kindNamed,
 } from "./ladder.ts";
 export { type Classification, type Shape, classify, tag } from "./classify.ts";
+export { type PartSlot, type Split, splitParts } from "./parts.ts";
+export {
+  type Context,
+  type Effect,
+  type ErrorCode,
+  type EvalError,
+  type EvalInput,
+  type Evaluator,
+  type Machine,
+  type Part,
+  type Result,
+  type Run,
+  type TraceNode,
+  evaluate,
+  fail,
+  flatten,
+  makeContext,
+  nodeAt,
+  ok,
+} from "./evaluate.ts";
+export { STD_CAPS, STD_EVALUATORS, STD_MACHINE, STD_WORLD } from "./stdlib.ts";
 export {
   type Edge,
   type OrderProblem,
@@ -25,9 +61,8 @@ export {
 export {
   type Construct,
   type Give,
-  type Part,
+  type Part as ContextPart,
   type PartInfo,
-  type Side,
   type Use,
   CONSTRUCTS,
   PARTS,

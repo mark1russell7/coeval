@@ -1,0 +1,28 @@
+---
+title: Kinds
+description: A kind is a document. It names an evaluator for each verb, tells where the parts of a value are, and gives its side.
+tableOfContents: false
+---
+
+import GlyphKey from "../../../components/GlyphKey.tsx";
+import KindGallery from "../../../components/KindGallery.tsx";
+
+The type of a document is the name of a kind. A kind is a document too, with the type `kind`. Thus the site draws a kind as a card, with the glyphs of the page before.
+
+<GlyphKey page={2} />
+
+A kind gives three things:
+
+- **The evaluator of each verb.** A verb is a question, for example `eval` or `view`. The kind names the evaluator that answers it.
+- **The place of the parts.** The value of a document is data, a list of parts, or a record with named parts. A list can declare the type of its bare items.
+- **The side.** A kind on the derive side is pure. A kind on the run side causes effects.
+
+Select a kind to see it as a document, and to see a document of that kind after its evaluation.
+
+<KindGallery client:visible />
+
+## A kind is data
+
+To change how each document of a kind evaluates, write the document of the kind. No registry changes, and no code changes. A new kind is one new document.
+
+The site uses this rule for its own pictures. Each card is drawn by the view that the kind of its document names. The verb `view` goes up the same ladder as the verb `eval`. [The next page](../ladder/) shows the ladder.

@@ -4,21 +4,24 @@ description: A question goes to the own entry of a document, then to its kind, t
 tableOfContents: false
 ---
 
+import GlyphKey from "../../../components/GlyphKey.tsx";
 import LadderDiagram from "../../../components/LadderDiagram.tsx";
 
 coeval does not read a definition to learn what a document means. It asks the document a question, and the answer comes from the first rung of the ladder that has an entry for the verb.
 
-1. **Own entry.** The document itself can name an evaluator for a verb, in its key `$own`. This changes one document.
-2. **Kind.** The kind names an evaluator for each verb that it answers. The name of the kind comes from the document, or else from its container.
+<GlyphKey page={3} />
+
+1. **Own entry.** The header of a document can name an evaluator for a verb, in its field `own`. This changes one document.
+2. **Kind.** The kind names an evaluator for each verb that it answers. The type comes from the envelope, or else from the container.
 3. **Default.** The world has a default evaluator for some verbs, for example a JSON view.
 
 <LadderDiagram client:visible />
 
 ## Try these
 
-- Select **A card in a list**. The card names no kind, and its list names the kind `card`.
+- Select **A card in a list**. The card is bare, and its list declares the type `card`. Its tab is dashed.
 - Select **A typo**. The kind `rul` does not exist. The question stops with an error, because the ladder does not guess a name.
-- Select **Plain data** and the verb `view`. No kind applies, thus the default answers.
+- Select **Plain data** and the verb `view`. No type is known, thus the default answers.
 - Give the document its own entry. The question stops at the first rung.
 
 ## Why "coinductive"

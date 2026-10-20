@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ask, classify, tag, type Doc, type Shape, type World } from "@coeval/core";
-import { prettyJson } from "../lib/motion.ts";
+import { ask, classify, tag, type Json, type Shape, type World } from "@coeval/core";
+import { View, WorldContext } from "../glyphs/View.tsx";
 
 const WORLD: World = {
   kinds: {
@@ -13,7 +13,7 @@ const WORLD: World = {
 
 const SHAPES: readonly Shape[] = [{ name: "width and height", fields: ["width", "height"], kind: "box" }];
 
-const RECORD: Doc = { width: 120, height: 80 };
+const RECORD: Json = { width: 120, height: 80 };
 
 const LISTS = [
   { name: "photos", kind: "image", meaning: "A picture of 120 by 80" },
@@ -60,13 +60,13 @@ export default function KindDiagram() {
 
   const rows = LISTS.map((list) => {
     if (mode === "name") {
-      const answer = ask(WORLD, RECORD, "view", { containerKind: list.kind });
-      return { list, kind: list.kind, evaluator: answer.evaluator };
+      const answer = ask(WORLD, {}, "view", { declaredType: list.kind });
+      return { list, kind: list.kind, evaluator: answer.evaluator, doc: RECORD, declared: list.kind as string | undefined };
     }
     const guess = classify(SHAPES, RECORD);
-    const tagged = guess.kind === undefined ? RECORD : tag(RECORD, guess.kind);
-    const answer = ask(WORLD, tagged, "view");
-    return { list, kind: guess.kind ?? "none", evaluator: answer.evaluator };
+    const tagged = guess.kind === undefined ? undefined : tag(RECORD, guess.kind);
+    const answer = ask(WORLD, tagged ?? {}, "view");
+    return { list, kind: guess.kind ?? "none", evaluator: answer.evaluator, doc: (tagged ?? RECORD) as Json, declared: undefined as string | undefined };
   });
   const wrong = rows.filter((row) => row.kind !== row.list.kind).length;
 
@@ -87,7 +87,18 @@ export default function KindDiagram() {
         <div className="ce-two">
           <div>
             <p className="ce-panel-title">The same record, in three lists</p>
-            <pre className="ce-doc">{prettyJson(RECORD)}</pre>
+            <WorldContext.Provider value={WORLD}>
+              <div className="cv-gallery">
+                {rows.map((row) => (
+                  <View key={row.list.name} doc={row.doc} {...(row.declared === undefined ? {} : { declaredType: row.declared })} />
+                ))}
+              </div>
+            </WorldContext.Provider>
+            <p className="ce-bar-label">
+              {mode === "name"
+                ? "Each dashed tab is a type that its list declares. The record itself does not change."
+                : "The classifier put each copy in an envelope with the type box."}
+            </p>
           </div>
           <div className="ce-scroll">
             <table className="ce-table">

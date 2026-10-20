@@ -11,8 +11,12 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | C1 | The repository, the model package and the site with a live diagram for each idea | in progress | |
 | C2 | The site on GitHub Pages, and CI on each push | done (2026-10-20) | C1 |
 | C3 | A diagram of the four schedules: pull, push, demand and once, with the same values | next | C1 |
-| C4 | A diagram of one path grammar for names, positions and order | next | C1 |
-| C5 | The decisions Q1 to Q4 of `DECISIONS.md` | waiting | |
+| C4 | A diagram of one path grammar for names, positions and order | done (2026-10-20) | C1 |
+| C5 | The decisions Q2 and Q4 of `DECISIONS.md` (Q1 and Q3 are decided: D5 and D6) | waiting | |
+| C6 | The visual grammar: one glyph for each concept, the views by the ladder, the glyph key, and the explorer of an evaluation | done (2026-10-20) | C1 |
+| C7 | The guide: one page for each glyph, from documents to effects | done (2026-10-20) | C6 |
+| C8 | The playground: build a document from the kinds, and open each picture of the guide in it | done (2026-10-20) | C6 |
+| C9 | Reference arrows on each picture, and a diagram of a scope that a reader can edit | next | C6 |
 
 ## The kernel
 
@@ -22,8 +26,9 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | K2 | The contract of a kind: the roles of its fields (code or data), its types, its context and its effects | later | K1 |
 | K3 | A check of a whole document before it runs, from the contracts | later | K2 |
 | K4 | The path grammar: a list of moves from the place of the reference | later | K1, C4 |
-| K5 | The result model: a value, or an error value with a code, a reason and a place | later | K1 |
-| K6 | The explain trace of a question and of an evaluation | later | K5 |
+| K5 | The result model: a value, or an error value with a code, a reason and a place | in progress (codes and reasons done, the place is next) | K1 |
+| K6 | The explain trace of a question and of an evaluation | in progress (the trace exists, the explorer draws it) | K5 |
+| K7 | Sealed parts: the kernel gives an evaluator handles without the value of a part | done (2026-10-20) | |
 
 ## The kits
 

@@ -1,26 +1,22 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ask, kindOf, OWN_KEY, RUNGS, type Answer, type Doc, type Rung, type Step } from "@coeval/core";
+import { RUNGS, ask, fromJson, kindNamed, typed, type Answer, type Envelope, type Json, type Rung, type Step } from "@coeval/core";
 import { LADDER_EXAMPLES, LADDER_WORLD, VERBS, ladderExample } from "../lib/examples.ts";
 import { prettyJson, useStepper } from "../lib/motion.ts";
+import { View, WorldContext } from "../glyphs/View.tsx";
 
 const TITLES: Readonly<Record<Rung, string>> = { own: "Own entry", kind: "Kind", default: "Default" };
 
-function verbsText(verbs: Readonly<Record<string, string>>): string {
-  const entries = Object.entries(verbs);
+function verbsText(verbs: Readonly<Record<string, string>> | undefined): string {
+  const entries = Object.entries(verbs ?? {});
   return entries.length === 0 ? "No entries." : entries.map(([verb, name]) => `${verb} → ${name}`).join(", ");
 }
 
-function holds(rung: Rung, doc: Doc, containerKind: string | undefined): string {
+function holds(rung: Rung, header: Envelope | undefined, declared: string | undefined): string {
   if (rung === "default") return verbsText(LADDER_WORLD.defaults);
-  if (rung === "own") {
-    const own = doc[OWN_KEY];
-    return typeof own === "object" && own !== null && !Array.isArray(own)
-      ? verbsText(own as Record<string, string>)
-      : "No own entries.";
-  }
-  const name = kindOf(doc) ?? containerKind;
-  if (name === undefined) return "No kind is named.";
-  const kind = Object.hasOwn(LADDER_WORLD.kinds, name) ? LADDER_WORLD.kinds[name] : undefined;
+  if (rung === "own") return header?.own === undefined ? "No own entries." : verbsText(header.own);
+  const name = header?.type ?? declared;
+  if (name === undefined) return "No type is known.";
+  const kind = kindNamed(LADDER_WORLD, name);
   return kind === undefined ? `${name}: not a kind of this world.` : `${name}: ${verbsText(kind.verbs)}`;
 }
 
@@ -28,12 +24,12 @@ function outcomeText(step: Step, verb: string): string {
   switch (step.outcome) {
     case "answers":
       return step.rung === "kind" && step.source === "container"
-        ? `Answers with ${step.evaluator ?? ""}. The container names the kind.`
+        ? `Answers with ${step.evaluator ?? ""}. The container declares the type.`
         : `Answers with ${step.evaluator ?? ""}.`;
     case "no-entry":
       return step.rung === "kind" ? `${step.kind ?? ""} has no entry for ${verb}.` : `No entry for ${verb}.`;
     case "skipped":
-      return "Skipped: no kind is named.";
+      return "Skipped: no type is known.";
     case "unknown-kind":
       return `Stops: the world has no kind ${step.kind ?? ""}.`;
   }
@@ -66,12 +62,17 @@ export default function LadderDiagram({ initial = "rule" }: LadderDiagramProps) 
   const [replay, setReplay] = useState(0);
 
   const example = ladderExample(exampleId);
-  const containerKind = example.container?.kind;
-  const doc: Doc = ownOn ? { ...example.doc, [OWN_KEY]: { [verb]: `custom.${verb}` } } : example.doc;
-  const answer = ask(LADDER_WORLD, doc, verb, containerKind === undefined ? {} : { containerKind });
-  const shown = useStepper(answer.steps.length, `${exampleId}:${verb}:${String(ownOn)}:${String(replay)}`);
-  const done = shown >= answer.steps.length;
-  const current = answer.steps[shown - 1];
+  const declared = example.container?.kind;
+  const base = fromJson(example.doc);
+  // A bare value has no header, thus an own entry needs an envelope. The type comes from the container.
+  const header: Envelope | undefined = ownOn
+    ? { ...(base ?? typed(declared ?? "?", example.doc)), own: { [verb]: `custom.${verb}` } }
+    : base;
+  const shown: Json = header === undefined ? example.doc : (header as Json);
+  const answer = ask(LADDER_WORLD, header ?? {}, verb, declared === undefined || header !== undefined ? {} : { declaredType: declared });
+  const shownSteps = useStepper(answer.steps.length, `${exampleId}:${verb}:${String(ownOn)}:${String(replay)}`);
+  const done = shownSteps >= answer.steps.length;
+  const current = answer.steps[shownSteps - 1];
 
   const rungRefs = useRef(new Map<Rung, HTMLLIElement>());
   const climbRef = useRef<HTMLDivElement>(null);
@@ -79,8 +80,7 @@ export default function LadderDiagram({ initial = "rule" }: LadderDiagramProps) 
   useLayoutEffect(() => {
     const rung = current?.rung ?? "own";
     const element = rungRefs.current.get(rung);
-    const climb = climbRef.current;
-    if (element === undefined || climb === null) return;
+    if (element === undefined || climbRef.current === null) return;
     setPulseTop(element.offsetTop + element.offsetHeight / 2);
   }, [current?.rung, exampleId, verb, ownOn]);
 
@@ -92,13 +92,7 @@ export default function LadderDiagram({ initial = "rule" }: LadderDiagramProps) 
         <div className="ce-bar-group" role="group" aria-label="Document">
           <span className="ce-bar-label">Document</span>
           {LADDER_EXAMPLES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="ce-btn"
-              aria-pressed={item.id === exampleId}
-              onClick={() => setExampleId(item.id)}
-            >
+            <button key={item.id} type="button" className="ce-btn" aria-pressed={item.id === exampleId} onClick={() => setExampleId(item.id)}>
               {item.label}
             </button>
           ))}
@@ -132,11 +126,18 @@ export default function LadderDiagram({ initial = "rule" }: LadderDiagramProps) 
               <span className="ce-doc-label">
                 {example.container === undefined
                   ? "The document"
-                  : `The document, in the list ${example.container.name}. The list declares the kind ${example.container.kind} for its items.`}
+                  : `The document, in the list ${example.container.name}. The list declares the type ${example.container.kind} for its items.`}
               </span>
-              <pre className="ce-doc">{prettyJson(doc)}</pre>
+              <WorldContext.Provider value={LADDER_WORLD}>
+                <View doc={shown} {...(header === undefined && declared !== undefined ? { declaredType: declared } : {})} />
+              </WorldContext.Provider>
+              <details className="cv-details">
+                <summary>The JSON</summary>
+                <pre className="ce-doc">{prettyJson(shown)}</pre>
+              </details>
               <span className="ce-doc-label">
                 The question: <span className="ce-mono">{verb}</span>. It starts at rung 1.
+                {ownOn && header !== undefined && base === undefined && " A bare value has no header, thus the own entry needs an envelope."}
               </span>
             </div>
           </div>
@@ -144,25 +145,14 @@ export default function LadderDiagram({ initial = "rule" }: LadderDiagramProps) 
           <div className="ce-climb" ref={climbRef}>
             <div className="ce-rail" aria-hidden="true" />
             {pulseTop !== undefined && (
-              <div
-                className="ce-pulse"
-                aria-hidden="true"
-                data-state={stopped ? "stop" : "go"}
-                style={{ top: `${pulseTop}px` }}
-              />
+              <div className="ce-pulse" aria-hidden="true" data-state={stopped ? "stop" : "go"} style={{ top: `${pulseTop}px` }} />
             )}
             <ol className="ce-rungs">
               {[...RUNGS].reverse().map((rung) => {
                 const index = answer.steps.findIndex((step) => step.rung === rung);
                 const step = index === -1 ? undefined : answer.steps[index];
-                const visible = step !== undefined && index < shown;
-                const state = !visible
-                  ? "waiting"
-                  : step.outcome === "answers"
-                    ? "answers"
-                    : step.outcome === "unknown-kind"
-                      ? "stops"
-                      : "passed";
+                const visible = step !== undefined && index < shownSteps;
+                const state = !visible ? "waiting" : step.outcome === "answers" ? "answers" : step.outcome === "unknown-kind" ? "stops" : "passed";
                 return (
                   <li
                     key={rung}
@@ -182,7 +172,7 @@ export default function LadderDiagram({ initial = "rule" }: LadderDiagramProps) 
                         {visible ? outcomeText(step, verb) : step === undefined && done ? "Not visited." : ""}
                       </span>
                     </div>
-                    <div className="ce-rung-holds">{holds(rung, doc, containerKind)}</div>
+                    <div className="ce-rung-holds">{holds(rung, header, header === undefined ? declared : undefined)}</div>
                   </li>
                 );
               })}
@@ -192,8 +182,8 @@ export default function LadderDiagram({ initial = "rule" }: LadderDiagramProps) 
       </div>
 
       <figcaption className="ce-caption">
-        A question visits the rungs in order. The first rung with an entry for the verb answers. The kind comes from
-        the document or from its container. It does not come from the shape of the data.
+        A question visits the rungs in order. The first rung with an entry for the verb answers. The type comes from the
+        envelope or from the container. It does not come from the shape of the data.
       </figcaption>
     </figure>
   );

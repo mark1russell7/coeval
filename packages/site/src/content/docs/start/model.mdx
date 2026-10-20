@@ -8,7 +8,7 @@ coeval has five rules. A language that obeys them gets the shared parts. These p
 
 ## The five rules
 
-1. **A program is a document.** It is JSON. Its key `$kind` names its kind. A store keeps it, and an editor changes it like any other data.
+1. **A program is a document.** It is a value in an envelope: `{ type, value }`. The type names a kind. A store keeps the document, and an editor changes it like any other data.
 2. **A question finds the meaning.** To evaluate a document, coeval asks it a verb, for example `view`. The answer comes from the own entry of the document, then from its kind, then from the default. Refer to [the ladder](../../ideas/ladder/).
 3. **An evaluator evaluates its parts, and does not look inside them.** It gets each part as a document. It can evaluate the part, in a context that it chooses, or give the part to another evaluator. Refer to [evaluators](../../ideas/evaluators/).
 4. **A context is the only door.** A term reaches outside itself through five parts: names, focus, world, event and capabilities. Refer to [context](../../ideas/context/).
@@ -18,7 +18,7 @@ coeval has five rules. A language that obeys them gets the shared parts. These p
 
 | One for all languages | Many, one for each language |
 | --- | --- |
-| The form of a document and the key of its kind | The kinds and their evaluators |
+| The envelope: `type`, `value`, `name` and `own` | The kinds and their evaluators |
 | The ladder | The verbs that a kind answers |
 | The grammar of a path | The structures that a path goes through |
 | The parts of a context | Which parts a construct reads, and what it gives its body |

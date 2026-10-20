@@ -1,0 +1,67 @@
+---
+title: Evaluation
+description: An evaluation asks each card the verb eval. Results come up through ports. An evaluator gets its parts sealed.
+tableOfContents: false
+---
+
+import GlyphKey from "../../../components/GlyphKey.tsx";
+import Explorer from "../../../glyphs/Explorer.tsx";
+import SwapDiagram from "../../../components/SwapDiagram.tsx";
+import { ADD, MISSING } from "../../../lib/programs.ts";
+
+To evaluate a document, coeval asks it the verb `eval`. [The ladder](../ladder/) finds the evaluator. The evaluator gets the parts of the document, and it decides when to evaluate each part. Each result comes up to the parent through a port.
+
+<GlyphKey page={4} />
+
+## Step through an evaluation
+
+Select **Next** to go one event forward. Each start and each end of an evaluation is one event. The panel shows the current card: the ladder that found its evaluator, its context, the parts that its evaluator gets, and its result. Select a card to look at it.
+
+<Explorer
+  client:visible
+  doc={ADD}
+  label="The evaluation of 2 plus 3 times 4"
+  caption="The evaluation of add starts first and ends last. Between them, each part starts and ends. Each result goes up through a port, and the parent combines the results."
+  initial="start"
+/>
+
+The picture is the document. The cards are nested as the parts are nested. The order of the events is the order of the evaluation. No other drawing describes it.
+
+## An evaluator gets its parts sealed
+
+An evaluator gets each part as a sealed card. It can evaluate the part, in a context that it chooses. It can give the part to another evaluator, or keep it for later. It cannot read the part, because a sealed part has no field with its value.
+
+<SwapDiagram client:visible />
+
+The seal gives a simple test for a new evaluator. Evaluate the same documents with the old evaluator and the new evaluator, and compare each result. When each result agrees, the new evaluator can replace the old one.
+
+## A failure is a value
+
+An evaluation does not throw. A failure gives an error value with a code and a reason, and the port of the card shows it in red. The parent gets the error value as its result, unless it can recover.
+
+<Explorer
+  client:visible
+  doc={MISSING}
+  label="A reference to a missing name"
+  caption="The context has no name price, thus the reference gives #NAME?. The add gets an error, and its result is that error."
+  panel={false}
+/>
+
+| Code | Cause |
+| --- | --- |
+| `#KIND?` | The type is not a kind of the world. |
+| `#NOEVAL` | No rung of the ladder gives an evaluator. |
+| `#PART?` | A part has no envelope, and its position declares no type. |
+| `#NAME?` | The context has no such name. |
+| `#VALUE!` | A value has the wrong form for its kind. |
+| `#ARGS` | Two or more parts failed. |
+| `#CAP!` | The context has no capability for an effect. |
+| `#CALC!` | The code of an evaluator failed. |
+
+## Editors are different
+
+An editor, a checker or a compiler works on the document as data. It must look inside. These tools work before an evaluation or beside it. They do not give meaning to a document, thus the seal does not apply to them.
+
+## An evaluator is a document too
+
+An evaluator is not one fixed formula language. A pure evaluator can be a formula. An evaluator of effects is a sequence of calls. An evaluator that builds a tree is a tree template. Each evaluator uses the language of its side, and code evaluators are the base cases.

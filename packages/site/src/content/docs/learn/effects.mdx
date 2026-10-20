@@ -1,0 +1,36 @@
+---
+title: Effects
+description: A kind of the run side causes effects. The effects happen in the written order. A capability decides which effects a term can cause.
+tableOfContents: false
+---
+
+import GlyphKey from "../../../components/GlyphKey.tsx";
+import Explorer from "../../../glyphs/Explorer.tsx";
+import { EFFECTS, PURE } from "../../../lib/programs.ts";
+
+Some kinds change the world: `log` writes a line, and `write` writes a value to the store. These kinds are on the run side. Their cards have a magenta edge. Each effect becomes a numbered ticket in the world, in the order of the effects.
+
+<GlyphKey page={7} />
+
+<Explorer
+  client:visible
+  doc={EFFECTS}
+  label="Three effects in a sequence"
+  caption="The first log, the write and the last log happen in the written order. The tickets show the order. The write gives its value to the name total, and the last log reads it."
+  initial="start"
+/>
+
+Only the effects have numbers. For pure parts, the order of the evaluation does not change a result. For effects, the order is the meaning.
+
+## Capabilities
+
+A term can cause an effect only when its context has the capability for that effect. A construct gives its parts the same capabilities or fewer. The kind `pure` gives its part no capability. Thus an effect inside `pure` fails with `#CAP!`, and the world does not change.
+
+<Explorer
+  client:visible
+  doc={PURE}
+  label="An effect without a capability"
+  caption="The root has the capabilities log and write. The kind pure gives its part none. The log asks for its effect and gets #CAP!."
+/>
+
+Select the log card, and look at the panel. Its context has no capability. The capability is a part of the context, as a name is.

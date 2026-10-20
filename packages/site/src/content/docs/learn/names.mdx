@@ -1,0 +1,43 @@
+---
+title: Names
+description: A step with a name tag gives its result to the later steps. A reference reads a name back. The context grows one step at a time.
+tableOfContents: false
+---
+
+import GlyphKey from "../../../components/GlyphKey.tsx";
+import Explorer from "../../../glyphs/Explorer.tsx";
+import { NAMES } from "../../../lib/programs.ts";
+
+A sequence evaluates its steps in their written order. A step with a name tag gives its result to the later steps under that name. A reference reads a name back. This is the scope of `let*`: each binding sees the bindings before it.
+
+<GlyphKey page={5} />
+
+<Explorer
+  client:visible
+  doc={NAMES}
+  label="Three steps with names"
+  caption="Step 1 gives a. Step 2 reads a, and gives b. Step 3 reads b and logs it. Select each step, and look at its names in the panel."
+  initial="start"
+/>
+
+## The context grows
+
+Select the steps one after the other, and look at the panel. Step 1 can read no name. Step 2 can read `a`. Step 3 can read `a` and `b`. The sequence makes the context larger after each named step. A reference to a later name gives `#NAME?`, because that name does not exist yet.
+
+<Explorer
+  client:visible
+  doc={{
+    type: "seq",
+    value: [
+      { type: "ref", value: "later" },
+      { type: "number", value: 1, name: "later" },
+    ],
+  }}
+  label="A reference to a later step"
+  caption="Step 1 reads later, and step 2 gives later. The name does not exist when step 1 starts, thus the result is #NAME?."
+  panel={false}
+/>
+
+## A name and a nesting are two forms of one thing
+
+A sequence with names is the same as nested bindings: `let a = 1 + 2 in let b = a * 10 in log b`. The sequence writes the nesting as a list, so that a person reads it from the top to the bottom.

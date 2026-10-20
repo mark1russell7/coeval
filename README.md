@@ -12,7 +12,7 @@ The project is in the design stage. The model package is small, and its API chan
 
 ## The model in five rules
 
-1. **A program is a document.** It is JSON, and its key `$kind` names its kind.
+1. **A program is a document.** It is a value in an envelope: `{ "type": "add", "value": [2, 3] }`. The type names a kind.
 2. **A question finds the meaning.** The answer comes from the own entry of the document, then from its kind, then from the default.
 3. **An evaluator evaluates its parts, and does not look inside them.** Thus equal parts can replace each other.
 4. **A context is the only door.** A term reaches outside itself through five parts: names, focus, world, event and capabilities.
@@ -22,8 +22,8 @@ The project is in the design stage. The model package is small, and its API chan
 
 | Package | Contents |
 | --- | --- |
-| [`@coeval/core`](./packages/core) | The model: documents, the ladder, the classifier, the order of a sequence and the parts of a context |
-| [`@coeval/site`](./packages/site) | The site, with a live diagram for each idea. GitHub Pages serves it. |
+| [`@coeval/core`](./packages/core) | The model: envelopes, the ladder, sealed parts, the evaluation with its trace, error values, a small standard world, the order of a sequence and the parts of a context |
+| [`@coeval/site`](./packages/site) | The site: a visual grammar where each concept has one glyph, a guide that adds glyphs one page at a time, and a playground. GitHub Pages serves it. |
 
 ## Commands
 

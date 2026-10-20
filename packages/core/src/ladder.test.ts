@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ask, classify, tag, type Shape, type World } from "./index.ts";
+import { ask, classify, tag, typed, type Shape, type World } from "./index.ts";
 
 const world: World = {
   kinds: {
@@ -12,29 +12,29 @@ const world: World = {
 
 describe("ask", () => {
   it("takes the own entry first", () => {
-    const answer = ask(world, { $kind: "rule", $own: { view: "my.view" } }, "view");
+    const answer = ask(world, typed("rule", { use: "stack" }, { own: { view: "my.view" } }), "view");
     expect(answer).toMatchObject({ evaluator: "my.view", rung: "own" });
     expect(answer.steps).toHaveLength(1);
   });
 
   it("takes the kind when the document has no own entry", () => {
-    const answer = ask(world, { $kind: "rule" }, "view");
+    const answer = ask(world, typed("rule", null), "view");
     expect(answer).toMatchObject({ evaluator: "rule.view", rung: "kind" });
     expect(answer.steps.at(-1)).toMatchObject({ kind: "rule", source: "document" });
   });
 
-  it("takes the kind of the container when the document names no kind", () => {
-    const answer = ask(world, { title: "Notes" }, "view", { containerKind: "card" });
+  it("takes the type that the position declares for a bare value", () => {
+    const answer = ask(world, {}, "view", { declaredType: "card" });
     expect(answer).toMatchObject({ evaluator: "card.view", rung: "kind" });
     expect(answer.steps.at(-1)).toMatchObject({ kind: "card", source: "container" });
   });
 
-  it("lets the own kind of the document win over the kind of the container", () => {
-    expect(ask(world, { $kind: "rule" }, "view", { containerKind: "card" }).evaluator).toBe("rule.view");
+  it("lets the type of an envelope win over the declared type", () => {
+    expect(ask(world, typed("rule", null), "view", { declaredType: "card" }).evaluator).toBe("rule.view");
   });
 
   it("goes past the kind to the default", () => {
-    const answer = ask(world, { $kind: "sequence" }, "view");
+    const answer = ask(world, typed("sequence", []), "view");
     expect(answer).toMatchObject({ evaluator: "json.view", rung: "default" });
     expect(answer.steps.map((step) => `${step.rung}:${step.outcome}`)).toEqual([
       "own:no-entry",
@@ -43,25 +43,24 @@ describe("ask", () => {
     ]);
   });
 
-  it("does not guess a kind from the shape of a document", () => {
-    const answer = ask(world, { width: 1, height: 1 }, "view");
+  it("does not guess a type for a bare value without a declared type", () => {
+    const answer = ask(world, {}, "view");
     expect(answer.steps.map((step) => step.outcome)).toEqual(["no-entry", "skipped", "answers"]);
-    expect(answer.rung).toBe("default");
   });
 
   it("stops at a kind that the world does not have", () => {
-    const answer = ask(world, { $kind: "rul" }, "view");
+    const answer = ask(world, typed("rul", null), "view");
     expect(answer.error).toBe("unknown-kind");
     expect(answer.evaluator).toBeUndefined();
   });
 
   it("gives no answer when no rung has the verb", () => {
-    expect(ask(world, { $kind: "rule" }, "run").error).toBe("no-answer");
+    expect(ask(world, typed("rule", null), "run").error).toBe("no-answer");
   });
 
   it("does not read inherited members as entries", () => {
-    expect(ask(world, { $kind: "constructor" }, "view").error).toBe("unknown-kind");
-    expect(ask(world, { $kind: "rule" }, "toString").error).toBe("no-answer");
+    expect(ask(world, typed("constructor", null), "view").error).toBe("unknown-kind");
+    expect(ask(world, typed("rule", null), "toString").error).toBe("no-answer");
   });
 });
 
@@ -83,14 +82,15 @@ describe("classify", () => {
     });
   });
 
-  it("reports a document that no shape matches", () => {
+  it("reports a value that no shape matches", () => {
     expect(classify(shapes, { name: "a" }).error).toBe("no-match");
+    expect(classify(shapes, 7).error).toBe("no-match");
   });
 
-  it("tags a copy, and the ladder then answers by the name", () => {
+  it("puts the value in an envelope, and the ladder then answers by the type", () => {
     const raw = { width: 1, height: 1 };
     const tagged = tag(raw, "card");
-    expect(raw).toEqual({ width: 1, height: 1 });
+    expect(tagged).toEqual({ type: "card", value: { width: 1, height: 1 } });
     expect(ask(world, tagged, "view").evaluator).toBe("card.view");
   });
 });

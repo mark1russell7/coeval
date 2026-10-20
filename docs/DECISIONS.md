@@ -28,11 +28,29 @@ This file records each decision of the design of coeval, and each open question.
 
 **Decision.** The repository is public. CI and the site run on GitHub Actions and GitHub Pages.
 
+## D5 (2026-10-20): public languages can live here for tests
+
+**Decision.** A public language can live in this repository as a test language of the kernel. A full language can also stay in its own repository and use the kernel.
+
+## D6 (2026-10-20): a document is a value in an envelope
+
+**Context.** A value can get a type in four common ways. The tag can be a reserved key, an envelope or the only key. Or the value has no tag. The site compares them on the page `learn/documents`.
+
+**Decision.** A document is an envelope: `{ type, value }`. The header can also have `name` (a binding) and `own` (own entries). A position that declares its type can hold a bare value.
+
+**Why.** Only the envelope does four things. It can tag any value, and it keeps the value. It has room for a header, and it gives the type without a guess. A reserved key collides with data that has the same key, and a header needs more reserved keys.
+
+## D7 (2026-10-20): an evaluator gets its parts sealed
+
+**Decision.** A part is a handle with a key, a name and a function that evaluates it. It has no field with its value. Thus the kernel enforces the rule that an evaluator does not look inside its parts.
+
+## D8 (2026-10-20): the site draws each document with its view
+
+**Decision.** Each picture of the site is a document. The verb `view` goes up the ladder, and the view that answers draws the card. A view draws the parts of its document with the same component. Thus the pictures compose as the documents compose.
+
 ## Open questions
 
 | ID | Question | The current proposal |
 | --- | --- | --- |
-| Q1 | Does each language live in this repository, or in its own repository? | The kernel and small reference languages live here, one package each. A full language stays in its own repository and uses the kernel. |
-| Q2 | Is the run side one language for all hosts? | Yes: sequences of calls, with names for the results of earlier steps. |
-| Q3 | Which key holds the kind? | `$kind`. A field `kind` stays ordinary data. |
-| Q4 | Does one path grammar cover names, positions and order? | Yes: a path is a list of moves from the place of the reference. |
+| Q2 | Is the run side (the effects) one language for all hosts? | Yes: sequences of calls, with names for the results of earlier steps, and capabilities. |
+| Q4 | Does one path grammar cover names, positions and order? | Yes: a path is a list of four moves (up, down, back, field) from the place of the reference. The page `learn/paths` shows it. |
