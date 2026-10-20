@@ -52,12 +52,13 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
-| M1 | A language that uses coeval gets the package from npm, or from a pinned reference to this repository | next | K4 |
-| M2 | Formulas: each reference of a formula is a path document. The old text forms convert to paths. | next | M1 |
+| M1 | A language that uses coeval gets the package from npm, or from a pinned reference to this repository | done (2026-10-20, a pinned reference, and npm after M9) | K4 |
+| M2 | Formulas: each reference of a formula is a path document. The old text forms convert to paths. | done (2026-10-20) | M1 |
 | M3 | Events: each handler is a run document of the one run language (D9) | next | M1 |
 | M4 | Types: the layout rules and the kinds are paths into a world, with namespaces and aliases | next | M1 |
 | M5 | Overrides: each override names its target with a path, not with a dotted text | later | M2 |
 | M6 | Trees: each node of a tree of components is an envelope | later | M4, M5 |
 | M7 | The program format of procedures: a call is an envelope, and a reference is a path (D9, D10) | next | K4 |
 | M8 | An adapter for the addresses of a formula language: its moves become paths | later | K4 |
+| M9 | The first npm release of `@mark1russell7/coeval` | waiting (the owner bootstraps the new package) | |
 
