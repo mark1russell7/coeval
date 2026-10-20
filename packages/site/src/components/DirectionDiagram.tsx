@@ -1,113 +1,39 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useState } from "react";
+import type { Json } from "@coeval/core";
+import Picture from "../glyphs/Picture.tsx";
 import TreeSvg, { type TreeArrow } from "./TreeSvg.tsx";
 import { MOVES, TREE, targets, type Move } from "../lib/tree.ts";
 
 type Tab = "sequence" | "moves" | "tree";
 
-const STEPS = [
-  { id: "cards", text: "Find the cards of the board", reads: [] as string[] },
-  { id: "count", text: "Count", reads: ["cards"] },
-  { id: "label", text: "Write the label from", reads: ["count"] },
-  { id: "done", text: "Mark each card done in", reads: ["cards"] },
-] as const;
+const SEQUENCE: Json = {
+  type: "seq",
+  value: [
+    { type: "add", value: [1, 2], name: "a" },
+    { type: "multiply", value: [{ type: "ref", value: "a" }, 10], name: "b" },
+    { type: "log", value: [{ type: "ref", value: "b" }] },
+    { type: "add", value: [{ type: "ref", value: "a" }, { type: "ref", value: "b" }], name: "c" },
+  ],
+};
+
+const STEP_NAMES: readonly (string | undefined)[] = ["a", "b", undefined, "c"];
 
 function SequenceTab() {
-  const [selected, setSelected] = useState<string>("done");
-  const at = STEPS.findIndex((step) => step.id === selected);
-  const current = STEPS[at];
-  const reads: readonly string[] = current?.reads ?? [];
-  const later = STEPS.slice(at + 1).map((step) => step.id);
-
-  const rows = useRef<(HTMLLIElement | null)[]>([]);
-  const [centers, setCenters] = useState<readonly number[]>([]);
-  const [height, setHeight] = useState(0);
-  useLayoutEffect(() => {
-    const measure = (): void => {
-      setCenters(rows.current.map((row) => (row === null ? 0 : row.offsetTop + row.offsetHeight / 2)));
-      const last = rows.current.at(-1);
-      setHeight(last === null || last === undefined ? 0 : last.offsetTop + last.offsetHeight);
-    };
-    measure();
-    const list = rows.current[0]?.parentElement;
-    if (list === null || list === undefined) return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(list);
-    return () => observer.disconnect();
-  }, []);
-
-  const arcs = reads.map((name) => {
-    const from = STEPS.findIndex((step) => step.id === name);
-    const y1 = centers[at] ?? 0;
-    const y2 = centers[from] ?? 0;
-    const reach = 10 + Math.abs(at - from) * 9;
-    return `M38 ${y1} C${38 - reach} ${y1} ${38 - reach} ${y2} 38 ${y2}`;
-  });
-
+  const [selected, setSelected] = useState<readonly string[]>(["3"]);
+  const step = Number(selected[0] ?? "3");
+  const before = STEP_NAMES.slice(0, step).filter((name): name is string => name !== undefined);
+  const after = STEP_NAMES.slice(step + 1).filter((name): name is string => name !== undefined);
   return (
     <div className="ce-two">
-      <div style={{ position: "relative", paddingLeft: "44px" }}>
-        <svg
-          width="44"
-          height={height}
-          style={{ position: "absolute", left: 0, top: 0 }}
-          aria-hidden="true"
-        >
-          <defs>
-            <marker id="ce-seq-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path d="M0 0 L10 5 L0 10 Z" style={{ fill: "var(--ce-names)" }} />
-            </marker>
-          </defs>
-          {arcs.map((d) => (
-            <path key={d} d={d} className="ce-arrow" style={{ stroke: "var(--ce-names)" }} markerEnd="url(#ce-seq-arrow)" />
-          ))}
-        </svg>
-        <ol className="ce-steps" aria-label="The steps of a sequence">
-          {STEPS.map((step, index) => (
-            <li
-              key={step.id}
-              ref={(element) => {
-                rows.current[index] = element;
-              }}
-              className="ce-step"
-              aria-current={step.id === selected}
-              data-state={reads.includes(step.id) ? "read" : later.includes(step.id) ? "later" : "normal"}
-              tabIndex={0}
-              onClick={() => setSelected(step.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setSelected(step.id);
-                }
-              }}
-            >
-              <span className="ce-step-index">{index + 1}</span>
-              <span>
-                {step.text}{" "}
-                {step.reads.map((name) => (
-                  <span key={name} className="ce-ref">
-                    {name}
-                  </span>
-                ))}
-              </span>
-              <span className="ce-mono ce-bar-label">gives {step.id}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <Picture doc={SEQUENCE} selected={selected.slice(0, 1).join("/")} onSelect={(path) => setSelected(path.slice(0, 1))} />
       <div>
-        <p className="ce-panel-title">What step {at + 1} can name</p>
+        <p className="ce-panel-title">What step {step + 1} can name</p>
         <p style={{ margin: 0 }}>
-          It reads{" "}
-          {reads.length === 0 ? (
-            "no earlier step"
-          ) : (
-            <span className="ce-ref">{reads.join(", ")}</span>
-          )}
-          . It can name each step before it: {STEPS.slice(0, at).map((step) => step.id).join(", ") || "none"}.{" "}
-          {later.length > 0 ? `It cannot name ${later.join(", ")}, because those steps come later.` : "No step comes after it."}
+          It can name {before.length === 0 ? "no step" : <span className="ce-ref">{before.join(", ")}</span>}.{" "}
+          {after.length > 0 ? `It cannot name ${after.join(", ")}, because that step comes later.` : "No named step comes after it."}
         </p>
         <p className="ce-bar-label" style={{ marginTop: "var(--space-3)" }}>
-          Select a step to see its references. The arrows go back, to the place where each name gets its value.
+          Select a step. Each dashed arrow goes back from a reference to the step that gives its name.
         </p>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useId, useLayoutEffect, useState, type RefObject } from "react";
 import type { Link } from "../lib/scope.ts";
 import { pathKey } from "./overlay.ts";
 
@@ -24,13 +24,14 @@ export interface RefArrowsProps {
  * move back, drawn on the picture. Its color is the color of the names.
  */
 export default function RefArrows({ container, links, version }: RefArrowsProps) {
+  const marker = `cv-ref-head-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const [drawn, setDrawn] = useState<readonly Drawn[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useLayoutEffect(() => {
-    const box = container.current;
-    if (box === null) return undefined;
-    const measure = (): void => {
+    // The ref of the container attaches after the effects of its children, thus the first measure waits one frame.
+    let observer: ResizeObserver | undefined;
+    const measure = (box: HTMLElement): void => {
       const origin = box.getBoundingClientRect();
       const find = (path: readonly string[]): DOMRect | undefined =>
         box.querySelector<HTMLElement>(`[data-path="${CSS.escape(pathKey(path))}"]`)?.getBoundingClientRect();
@@ -56,23 +57,30 @@ export default function RefArrows({ container, links, version }: RefArrowsProps)
       setDrawn(out);
       setSize({ width: box.scrollWidth, height: box.scrollHeight });
     };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(box);
-    return () => observer.disconnect();
+    const frame = window.requestAnimationFrame(() => {
+      const box = container.current;
+      if (box === null) return;
+      measure(box);
+      observer = new ResizeObserver(() => measure(box));
+      observer.observe(box);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
   }, [container, links, version]);
 
   if (drawn.length === 0) return null;
   return (
     <svg className="cv-arrows" width={size.width} height={size.height} aria-hidden="true">
       <defs>
-        <marker id="cv-ref-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <marker id={marker} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0 0 L10 5 L0 10 Z" style={{ fill: "var(--ce-names)" }} />
         </marker>
       </defs>
       {drawn.map((arrow) => (
         <g key={arrow.key}>
-          <path d={arrow.d} className="cv-arrow-ref" markerEnd="url(#cv-ref-head)" />
+          <path d={arrow.d} className="cv-arrow-ref" markerEnd={`url(#${marker})`} />
         </g>
       ))}
     </svg>

@@ -10,13 +10,13 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | --- | --- | --- | --- |
 | C1 | The repository, the model package and the site with a live diagram for each idea | in progress | |
 | C2 | The site on GitHub Pages, and CI on each push | done (2026-10-20) | C1 |
-| C3 | A diagram of the four schedules: pull, push, demand and once, with the same values | next | C1 |
+| C3 | A diagram of the four schedules: pull, push, demand and once, with the same values | done (2026-10-20) | C1 |
 | C4 | A diagram of one path grammar for names, positions and order | done (2026-10-20) | C1 |
 | C5 | The decisions Q2 and Q4 of `DECISIONS.md` (Q1 and Q3 are decided: D5 and D6) | waiting | |
 | C6 | The visual grammar: one glyph for each concept, the views by the ladder, the glyph key, and the explorer of an evaluation | done (2026-10-20) | C1 |
 | C7 | The guide: one page for each glyph, from documents to effects | done (2026-10-20) | C6 |
 | C8 | The playground: build a document from the kinds, and open each picture of the guide in it | done (2026-10-20) | C6 |
-| C9 | Reference arrows on each picture, and a diagram of a scope that a reader can edit | next | C6 |
+| C9 | Reference arrows on each picture (done), and arrows for each move of a path on each picture | in progress | C6 |
 
 ## The kernel
 

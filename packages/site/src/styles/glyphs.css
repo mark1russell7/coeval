@@ -1028,3 +1028,84 @@
   stroke-dasharray: 5 4;
   opacity: 0.85;
 }
+
+/* ------------------------------------------------------------------------------------- schedules */
+
+.cv-schedules {
+  display: grid;
+  gap: var(--space-3);
+}
+
+@container (min-width: 50rem) {
+  .cv-schedules {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 30rem) and (max-width: 49.99rem) {
+  .cv-schedules {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.cv-schedule {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius);
+  background: var(--color-surface-sunken);
+}
+
+.cv-schedule-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.cv-cell {
+  display: grid;
+  grid-template-columns: 1.2rem minmax(0, 1fr) auto auto;
+  gap: 0.35rem;
+  align-items: center;
+  margin-block: 0.2rem;
+  padding: 0 0.3rem;
+  border-radius: 6px;
+  transition: background-color 200ms;
+}
+
+.cv-cell .cv-card {
+  transform-origin: left center;
+  scale: 0.82;
+  margin: 0.7rem 0 0.4rem;
+}
+
+.cv-cell[data-lit="true"] {
+  background: var(--ce-derive-wash);
+}
+
+.cv-cell[data-old="true"] .cv-card {
+  border-style: dashed;
+  opacity: 0.55;
+}
+
+.cv-cell-name {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.cv-cell-value {
+  min-width: 2rem;
+  text-align: right;
+}
+
+.cv-cell-count {
+  min-width: 2rem;
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.cv-cell[data-lit="true"] .cv-cell-count {
+  color: var(--ce-derive);
+  font-weight: 700;
+}
