@@ -34,7 +34,7 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
-| L1 | The sequence kit: steps with names for the results of earlier steps, capabilities, and the order of effects | later | K2 |
+| L1 | The sequence kit: steps with names for the results of earlier steps, capabilities, and the order of effects | in progress (`run`, the runners and the namespaces of capabilities are done, D11) | K2 |
 | L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later | K2, K4 |
 | L3 | The reaction kit: an event starts a run, and a change of data does not repeat a run | later | L1 |
 | L4 | The formula adapter: a formula language as the evaluator of the pure kinds | later | K2 |

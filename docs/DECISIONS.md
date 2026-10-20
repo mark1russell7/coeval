@@ -14,7 +14,7 @@ This file records each decision of the design of coeval, and each open question.
 
 **Context.** A ladder can find a kind by its name (a tag) or by the shape of the data (the fields that it has).
 
-**Decision.** The ladder uses names only. The kind comes from the key `$kind` of the document, or else from the kind that its container declares for its items. A classifier can propose a kind from the shape when data comes in, and then it writes the tag. The ladder does not call a classifier at any time.
+**Decision.** The ladder uses names only. The kind comes from the type of the document (the envelope of D6), or else from the kind that its container declares for its items. A classifier can propose a kind from the shape when data comes in, and then it writes the tag. The ladder does not call a classifier at any time.
 
 **Why.** Two documents with the same shape can need different evaluators. A width and a height can be a picture, a box or a limit. A name is explicit, and a wrong name is an error that a person can see.
 
@@ -71,3 +71,17 @@ This file records each decision of the design of coeval, and each open question.
 A language on top of coeval can accept a shorter form and change it into a path. The stored form is always the full path.
 
 No question waits on the owner.
+
+## D11 (2026-10-20): a run waits for its effects, with the same code as an evaluation
+
+**Context.** A step of a run can read the result of the step before (D9). The host does an effect, and it can take time, for example a request to a server. An evaluation does not wait.
+
+**Decision.**
+
+- `run` evaluates a document and gives each effect to the host (`perform`). It waits when the host waits. `evaluate` records each effect and does none.
+- A kind whose parts or effects can wait has a runner: a generator function. It takes the result of a part or of an effect with `yield*`. The same runner serves `evaluate` and `run`.
+- A run goes on at once until an effect waits. Thus an effect that must happen during the event, for example to stop the event, happens in time.
+- In a run, a part that can wait must have a parent that can wait. Otherwise the part fails with `#CALC!` before it starts.
+- A capability permits the kind of its name and each kind in its namespace: `store` permits `store.update`.
+
+**Why.** One evaluator for a dry run and for a real run keeps one meaning. With an asynchronous function, each wait defers the rest of the run, also when nothing waits. A generator waits only when the host waits.

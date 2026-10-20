@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   STD_CAPS,
   STD_EVALUATORS,
+  STD_RUNNERS,
   STD_WALKERS,
   evaluate,
   flatten,
@@ -38,7 +39,7 @@ export function playgroundHref(doc: Json): string {
 const NO_NAMES: Readonly<Record<string, Json>> = {};
 
 /** The machine of the site: the world of the site, and the standard evaluators. */
-export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: STD_EVALUATORS, walkers: STD_WALKERS };
+export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: STD_EVALUATORS, runners: STD_RUNNERS, walkers: STD_WALKERS };
 
 /** The props of the explorer. */
 export interface ExplorerProps {

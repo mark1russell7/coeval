@@ -78,8 +78,13 @@ export {
   type Evaluator,
   type Machine,
   type Part,
+  type Perform,
   type Result,
   type Run,
+  type RunInput,
+  type RunOptions,
+  type RunPart,
+  type Runner,
   type TraceNode,
   evaluate,
   fail,
@@ -87,8 +92,10 @@ export {
   makeContext,
   nodeAt,
   ok,
+  permits,
+  run,
 } from "./evaluate.ts";
-export { STD_CAPS, STD_EVALUATORS, STD_MACHINE, STD_WALKERS, STD_WORLD } from "./stdlib.ts";
+export { STD_CAPS, STD_EVALUATORS, STD_MACHINE, STD_RUNNERS, STD_WALKERS, STD_WORLD } from "./stdlib.ts";
 export {
   type Edge,
   type OrderProblem,

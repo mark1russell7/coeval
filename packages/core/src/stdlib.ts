@@ -1,5 +1,5 @@
 import { type Json, type Key, field, isRecord } from "./doc.ts";
-import { type Context, type Evaluator, type Machine, type Part, type Result, fail, ok } from "./evaluate.ts";
+import { type Context, type Evaluator, type Machine, type Part, type Result, type RunPart, type Runner, fail, ok } from "./evaluate.ts";
 import { type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
 
@@ -135,19 +135,6 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     const [a, b] = values as readonly number[];
     return ok((a ?? 0) > (b ?? 0));
   },
-  "list.all": ({ parts }) => {
-    const all = allValues(parts.map((part) => part.evaluate()));
-    return "error" in all ? all.error : ok(all.values);
-  },
-  "control.if": ({ parts }) => {
-    const test = parts.find((part) => part.key === "test");
-    if (test === undefined) return fail("#VALUE!", "if needs a test.");
-    const chosen = test.evaluate();
-    if (!chosen.ok) return chosen;
-    if (typeof chosen.value !== "boolean") return fail("#VALUE!", "The test of if must give a truth value.");
-    const branch = parts.find((part) => part.key === (chosen.value === true ? "then" : "else"));
-    return branch === undefined ? ok(null) : branch.evaluate();
-  },
   "ref.resolve": ({ data, resolve }) => {
     if (!Array.isArray(data) || data.length === 0) {
       return fail("#VALUE!", "The value of ref is a path: a list that starts with a root, for example [\"names\", \"a\"].");
@@ -158,41 +145,7 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     if (path[0] === "names" && found.hops.length === 1) return fail("#NAME?", `The context has no name ${String(path[1])}.`);
     return fail(found.code, found.reason);
   },
-  "control.seq": ({ parts, context }) => {
-    let names: Record<string, Json> = { ...context.names };
-    let last: Json = null;
-    for (const part of parts) {
-      const result = part.evaluate({ ...context, names });
-      if (!result.ok) return result;
-      names = { ...names, last: result.value };
-      if (part.name !== undefined) names = { ...names, [part.name]: result.value };
-      last = result.value;
-    }
-    return ok(last);
-  },
-  "control.pure": ({ parts, context }) => {
-    const only = parts[0];
-    if (only === undefined) return fail("#VALUE!", "pure needs one part.");
-    const pureContext: Context = { ...context, caps: [] };
-    return only.evaluate(pureContext);
-  },
   "tree.node": (input) => treeNode(input.parts, input.context, input.kind),
-  "effect.log": ({ parts, effect }) => {
-    const all = allValues(parts.map((part) => part.evaluate()));
-    if ("error" in all) return all.error;
-    const message = all.values.length === 1 ? (all.values[0] ?? null) : all.values;
-    return effect("log", message);
-  },
-  "effect.write": ({ parts, data, effect }) => {
-    const key = isRecord(data) ? field(data, "key") : undefined;
-    if (typeof key !== "string") return fail("#VALUE!", "write needs a text key.");
-    const value = parts.find((part) => part.key === "value");
-    if (value === undefined) return fail("#VALUE!", "write needs a value.");
-    const result = value.evaluate();
-    if (!result.ok) return result;
-    const done = effect("write", { key, value: result.value });
-    return done.ok ? result : done;
-  },
 };
 
 /**
@@ -261,8 +214,70 @@ const nearest: Walker = ({ data, here, deref }) => {
 /** The walkers of the standard world, by name. */
 export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest };
 
-/** The machine of the examples: the standard world, its evaluators and its walkers. */
-export const STD_MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS, walkers: STD_WALKERS };
+/** This function evaluates parts one after the other, and stops at the first error. */
+function* inOrder(parts: readonly RunPart[]): Generator<Promise<Result>, { readonly values: readonly Json[] } | { readonly error: Result }, Result> {
+  const values: Json[] = [];
+  for (const part of parts) {
+    const result = yield* part.evaluate();
+    if (!result.ok) return { error: result };
+    values.push(result.value);
+  }
+  return { values };
+}
+
+/**
+ * The runners of the standard world, by name: the kinds that can hold effects. Each one evaluates its parts in
+ * order. In a run, an effect ends before the next step starts.
+ */
+export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
+  "control.seq": function* ({ parts, context }) {
+    let names: Record<string, Json> = { ...context.names };
+    let last: Json = null;
+    for (const part of parts) {
+      const result = yield* part.evaluate({ ...context, names });
+      if (!result.ok) return result;
+      names = { ...names, last: result.value };
+      if (part.name !== undefined) names = { ...names, [part.name]: result.value };
+      last = result.value;
+    }
+    return ok(last);
+  },
+  "control.pure": function* ({ parts, context }) {
+    const only = parts[0];
+    if (only === undefined) return fail("#VALUE!", "pure needs one part.");
+    return yield* only.evaluate({ ...context, caps: [] });
+  },
+  "control.if": function* ({ parts }) {
+    const test = parts.find((part) => part.key === "test");
+    if (test === undefined) return fail("#VALUE!", "if needs a test.");
+    const chosen = yield* test.evaluate();
+    if (!chosen.ok) return chosen;
+    if (typeof chosen.value !== "boolean") return fail("#VALUE!", "The test of if must give a truth value.");
+    const branch = parts.find((part) => part.key === (chosen.value === true ? "then" : "else"));
+    return branch === undefined ? ok(null) : yield* branch.evaluate();
+  },
+  "list.all": function* ({ parts }) {
+    const all = yield* inOrder(parts);
+    return "error" in all ? all.error : ok(all.values);
+  },
+  "effect.log": function* ({ parts, effect }) {
+    const all = yield* inOrder(parts);
+    if ("error" in all) return all.error;
+    return yield* effect("log", all.values.length === 1 ? (all.values[0] ?? null) : all.values);
+  },
+  "effect.write": function* ({ parts, data, effect }) {
+    const key = isRecord(data) ? field(data, "key") : undefined;
+    if (typeof key !== "string") return fail("#VALUE!", "write needs a text key.");
+    const value = parts.find((part) => part.key === "value");
+    if (value === undefined) return fail("#VALUE!", "write needs a value.");
+    const result = yield* value.evaluate();
+    if (!result.ok) return result;
+    return yield* effect("write", { key, value: result.value });
+  },
+};
+
+/** The machine of the examples: the standard world, its evaluators, its runners and its walkers. */
+export const STD_MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS, runners: STD_RUNNERS, walkers: STD_WALKERS };
 
 /** The capabilities of the examples at the root: the two effects of the standard world. */
 export const STD_CAPS: readonly string[] = ["log", "write"];

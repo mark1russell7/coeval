@@ -34,3 +34,11 @@ A term can cause an effect only when its context has the capability for that eff
 />
 
 Select the log card, and look at the panel. Its context has no capability. The capability is a part of the context, as a name is.
+
+A capability also permits the kinds of its namespace. The capability `store` permits the effects `store.update` and `store.remove`.
+
+## A run
+
+The pictures on this page are evaluations. An evaluation records each effect, and it does none. A run is the same evaluation, but the host does each effect and gives back its result. Thus a step can read the result of the step before as `last`.
+
+A kind that holds effects has a runner. The same runner serves the evaluation and the run, thus the picture of an evaluation shows exactly what a run does. A run waits only when the host waits. Before that, it goes on at once.
