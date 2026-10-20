@@ -1,4 +1,4 @@
-import type { Json } from "@coeval/core";
+import type { Json } from "@mark1russell7/coeval";
 
 /** The props of a value glyph. */
 export interface ValueGlyphProps {

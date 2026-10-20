@@ -1,5 +1,6 @@
-import { type Json, field, isRecord } from "./doc.ts";
-import { type Context, type Evaluator, type Machine, type Result, fail, ok } from "./evaluate.ts";
+import { type Json, type Key, field, isRecord } from "./doc.ts";
+import { type Context, type Evaluator, type Machine, type Part, type Result, fail, ok } from "./evaluate.ts";
+import { type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
 
 /**
@@ -32,7 +33,30 @@ export const STD_WORLD: World = {
       parts: { shape: "record", fields: ["test", "then", "else"] },
       summary: "It evaluates the test, then only the branch that the test selects.",
     },
-    ref: { verbs: { eval: "names.ref", view: "view.ref" }, summary: "The value of a name of the context, by its path." },
+    ref: {
+      verbs: { eval: "ref.resolve", view: "view.ref" },
+      summary: "A path from a root of the context. Each step goes up the ladder of the verb deref.",
+    },
+    nearest: {
+      verbs: { step: "walk.nearest", view: "view.card" },
+      summary: "A step of a path: it follows a key again and again, until it reaches a node of a type.",
+    },
+    panel: {
+      verbs: { eval: "tree.node", view: "view.op" },
+      parts: { shape: "record", fields: ["width", "height", "children"], of: "number" },
+      summary: "A node of a tree. Its parts see it as self, and each node links to its parent.",
+    },
+    box: {
+      verbs: { eval: "tree.node", view: "view.op" },
+      parts: { shape: "record", fields: ["width", "height", "children"], of: "number" },
+      summary: "A node of a tree, as panel. A formula in a box can read the parent of the box.",
+    },
+    math: {
+      kinds: {
+        sum: { type: "ref", value: ["world", "add"] },
+        product: { type: "ref", value: ["world", "multiply"] },
+      },
+    },
     seq: {
       verbs: { eval: "control.seq", view: "view.seq" },
       parts: { shape: "list" },
@@ -124,24 +148,24 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     const branch = parts.find((part) => part.key === (chosen.value === true ? "then" : "else"));
     return branch === undefined ? ok(null) : branch.evaluate();
   },
-  "names.ref": ({ data, context }) => {
-    if (typeof data !== "string" || data === "") return fail("#VALUE!", "The value of ref must be a path, for example cards.count.");
-    const [name = "", ...rest] = data.split(".");
-    if (!context.names.has(name)) return fail("#NAME?", `The context has no name ${name}.`);
-    let at: Json | undefined = context.names.get(name);
-    for (const key of rest) {
-      at = isRecord(at) ? field(at, key) : Array.isArray(at) ? (at as readonly Json[])[Number(key)] : undefined;
-      if (at === undefined) return fail("#VALUE!", `The value of ${name} has no field ${key}.`);
+  "ref.resolve": ({ data, resolve }) => {
+    if (!Array.isArray(data) || data.length === 0) {
+      return fail("#VALUE!", "The value of ref is a path: a list that starts with a root, for example [\"names\", \"a\"].");
     }
-    return ok(at ?? null);
+    const path: readonly Json[] = data;
+    const found = resolve(path);
+    if (found.ok) return ok(valueOfThing(found.thing));
+    if (path[0] === "names" && found.hops.length === 1) return fail("#NAME?", `The context has no name ${String(path[1])}.`);
+    return fail(found.code, found.reason);
   },
   "control.seq": ({ parts, context }) => {
-    const names = new Map(context.names);
+    let names: Record<string, Json> = { ...context.names };
     let last: Json = null;
     for (const part of parts) {
-      const result = part.evaluate({ names, caps: context.caps });
+      const result = part.evaluate({ ...context, names });
       if (!result.ok) return result;
-      if (part.name !== undefined) names.set(part.name, result.value);
+      names = { ...names, last: result.value };
+      if (part.name !== undefined) names = { ...names, [part.name]: result.value };
       last = result.value;
     }
     return ok(last);
@@ -149,9 +173,10 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
   "control.pure": ({ parts, context }) => {
     const only = parts[0];
     if (only === undefined) return fail("#VALUE!", "pure needs one part.");
-    const pureContext: Context = { names: context.names, caps: new Set() };
+    const pureContext: Context = { ...context, caps: [] };
     return only.evaluate(pureContext);
   },
+  "tree.node": (input) => treeNode(input.parts, input.context, input.kind),
   "effect.log": ({ parts, effect }) => {
     const all = allValues(parts.map((part) => part.evaluate()));
     if ("error" in all) return all.error;
@@ -170,8 +195,72 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
   },
 };
 
-/** The machine of the examples: the standard world and its evaluators. */
-export const STD_MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS };
+/**
+ * This function evaluates a node of a tree. The node is a host thing. A step `parent` reaches the node that holds
+ * it. A step with the name of a part evaluates that part on demand, one time. Each part sees the node as self.
+ */
+function treeNode(parts: readonly Part[], context: Context, type: string): Result {
+  const memo = new Map<string, Result>();
+  const read = (key: string): Result | undefined => {
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    const part = parts.find((item) => item.key === key);
+    if (part === undefined) return undefined;
+    const result = part.evaluate({ ...context, self: me });
+    memo.set(key, result);
+    return result;
+  };
+  const me: HostThing & { readonly type: string } = {
+    [THING]: true,
+    type,
+    label: `node ${type}`,
+    deref(key: Key): Thing | undefined {
+      if (key === "parent") return context.self;
+      if (key === "type") return type;
+      const result = read(String(key));
+      return result?.ok === true ? result.value : undefined;
+    },
+    toJson(): Json {
+      const out: Record<string, Json> = {};
+      for (const part of parts) {
+        const result = read(part.key);
+        out[part.key] = result?.ok === true ? result.value : null;
+      }
+      return out;
+    },
+  };
+  const out: Record<string, Json> = {};
+  for (const part of parts) {
+    const result = read(part.key);
+    if (result === undefined) continue;
+    if (!result.ok) return result;
+    out[part.key] = result.value;
+  }
+  return ok(out);
+}
+
+/**
+ * The walker of `nearest`: it follows a key (the default is `parent`) until the node that it reaches has the
+ * wanted type. A node without that key ends the walk with an error.
+ */
+const nearest: Walker = ({ data, here, deref }) => {
+  const follow = isRecord(data) && typeof field(data, "follow") === "string" ? String(field(data, "follow")) : "parent";
+  const wanted = isRecord(data) ? field(data, "type") : undefined;
+  let at: Thing | undefined = here;
+  for (let hops = 0; hops < 256; hops += 1) {
+    at = at === undefined || at === null ? undefined : deref(at, follow);
+    if (at === undefined || at === null) return { ok: false, reason: `No node of the type ${String(wanted)} is on the way.` };
+    const type = isHostThing(at) ? (at as { readonly type?: unknown }).type : undefined;
+    if (type === wanted) return { ok: true, thing: at };
+  }
+  return { ok: false, reason: "The walk is too long." };
+};
+
+/** The walkers of the standard world, by name. */
+export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest };
+
+/** The machine of the examples: the standard world, its evaluators and its walkers. */
+export const STD_MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS, walkers: STD_WALKERS };
 
 /** The capabilities of the examples at the root: the two effects of the standard world. */
 export const STD_CAPS: readonly string[] = ["log", "write"];

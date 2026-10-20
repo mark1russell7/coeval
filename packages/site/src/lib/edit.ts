@@ -1,4 +1,4 @@
-import { fromJson, isRecord, kindNamed, typed, type Json, type World } from "@coeval/core";
+import { fromJson, isRecord, kindNamed, typed, type Json, type World } from "@mark1russell7/coeval";
 
 /**
  * This function gives the value inside a document: the value of an envelope, or the bare value itself.
@@ -131,9 +131,9 @@ export function newDoc(kind: string): Json {
     case "if":
       return typed("if", { test: typed("bool", true), then: typed("text", "yes"), else: typed("text", "no") });
     case "ref":
-      return typed("ref", "a");
+      return typed("ref", ["names", "a"]);
     case "seq":
-      return typed("seq", [typed("number", 1, { name: "a" }), typed("ref", "a")]);
+      return typed("seq", [typed("number", 1, { name: "a" }), typed("ref", ["names", "a"])]);
     case "pure":
       return typed("pure", [typed("number", 1)]);
     case "log":

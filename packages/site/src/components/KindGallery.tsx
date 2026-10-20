@@ -1,15 +1,16 @@
 import { useState } from "react";
-import type { Json } from "@coeval/core";
+import { kindNamed, type Json } from "@mark1russell7/coeval";
 import Evaluated from "../glyphs/Evaluated.tsx";
 import { View, SITE_WORLD, kindDoc } from "../glyphs/View.tsx";
 import { prettyJson } from "../lib/motion.ts";
-import { ADD, CHOICE, EFFECTS, NAMES, PURE } from "../lib/programs.ts";
+import { ADD, CHOICE, EFFECTS, NAMES, PURE, TREE } from "../lib/programs.ts";
 
 const GROUPS: readonly { readonly title: string; readonly kinds: readonly string[] }[] = [
   { title: "Data", kinds: ["number", "text", "bool"] },
   { title: "Operations", kinds: ["add", "multiply", "greater", "list"] },
   { title: "Control and names", kinds: ["if", "seq", "ref", "pure"] },
   { title: "Effects", kinds: ["log", "write"] },
+  { title: "Trees and paths", kinds: ["panel", "box", "nearest"] },
   { title: "Kinds", kinds: ["kind"] },
 ];
 
@@ -23,7 +24,9 @@ const EXAMPLES: Readonly<Record<string, Json>> = {
   list: { type: "list", value: [{ type: "number", value: 1 }, { type: "text", value: "two" }] },
   if: CHOICE,
   seq: NAMES,
-  ref: { type: "seq", value: [{ type: "number", value: 5, name: "size" }, { type: "ref", value: "size" }] },
+  ref: { type: "seq", value: [{ type: "number", value: 5, name: "size" }, { type: "ref", value: ["names", "size"] }] },
+  panel: TREE,
+  box: TREE,
   pure: PURE,
   log: { type: "log", value: ["hello"] },
   write: EFFECTS,
@@ -35,7 +38,7 @@ const EXAMPLES: Readonly<Record<string, Json>> = {
  */
 export default function KindGallery() {
   const [selected, setSelected] = useState("add");
-  const kind = Object.hasOwn(SITE_WORLD.kinds, selected) ? SITE_WORLD.kinds[selected] : undefined;
+  const kind = kindNamed(SITE_WORLD, selected);
   const example = EXAMPLES[selected];
 
   return (

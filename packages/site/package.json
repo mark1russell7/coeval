@@ -25,9 +25,9 @@
   "dependencies": {
     "@astrojs/react": "^7.0.1",
     "@astrojs/starlight": "^0.42.6",
-    "@coeval/core": "workspace:*",
     "@fontsource-variable/atkinson-hyperlegible-mono": "^5.3.0",
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
+    "@mark1russell7/coeval": "workspace:*",
     "astro": "^7.3.8",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

@@ -6,14 +6,16 @@ import {
   isRecord,
   kindNamed,
   splitParts,
+  typeName,
   typed,
   type Envelope,
   type Json,
   type Kind,
   type Rung,
   type World,
-} from "@coeval/core";
+} from "@mark1russell7/coeval";
 import Card from "./Card.tsx";
+import { OverlayContext, STATIC_OVERLAY } from "./overlay.ts";
 import ValueGlyph from "./Value.tsx";
 
 /**
@@ -104,7 +106,7 @@ function Parts({ doc, path }: { readonly doc: Envelope; readonly path: readonly 
     );
   }
   if (kind?.parts?.shape === "list") {
-    const symbol = SYMBOLS[doc.type];
+    const symbol = SYMBOLS[typeName(doc.type)];
     return (
       <div className="cv-row">
         {split.parts.length === 0 && <span className="cv-problem">no parts</span>}
@@ -152,12 +154,41 @@ function PartsView({ doc, declared, path, rung, unknown }: ViewProps) {
 
 /** The view of a reference: an arrow back to a name of the context. */
 function RefView({ doc, declared, path, rung, unknown }: ViewProps) {
+  const steps: readonly Json[] = Array.isArray(doc.value) ? doc.value : [];
   return (
     <Card doc={doc} declared={declared} path={path} unknown={unknown} variant="value" {...(rung === undefined ? {} : { rung })}>
-      <span className="cv-ref" title="A reference to a name of the context">
-        <span aria-hidden="true">↖</span> {typeof doc.value === "string" ? doc.value : "?"}
-      </span>
+      <PathChips steps={steps} />
     </Card>
+  );
+}
+
+/**
+ * The glyph of a path: the root first, in the color of its part of the context, then one chip for each step. A
+ * step document is drawn with its own view.
+ */
+export function PathChips({ steps }: { readonly steps: readonly Json[] }) {
+  if (steps.length === 0) return <span className="cv-problem">no path</span>;
+  const [root, ...rest] = steps;
+  const part = root === "self" ? "focus" : typeof root === "string" ? root : "names";
+  return (
+    <span className="cv-path" title="A path: a root of the context, then one step at a time">
+      <span className="cv-path-root" data-part={part}>
+        {String(root)}
+      </span>
+      {rest.map((step, index) =>
+        typeof step === "string" || typeof step === "number" ? (
+          <span key={index} className="cv-path-step">
+            {String(step)}
+          </span>
+        ) : (
+          <span key={index} className="cv-path-doc">
+            <OverlayContext.Provider value={STATIC_OVERLAY}>
+              <View doc={step} />
+            </OverlayContext.Provider>
+          </span>
+        ),
+      )}
+    </span>
   );
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RefArrows from "../glyphs/RefArrows.tsx";
 import { links } from "../lib/scope.ts";
-import { STD_CAPS, evaluate, flatten, fromJson, kindNamed, makeContext, typed, type Json, type TraceNode } from "@coeval/core";
+import { STD_CAPS, evaluate, flatten, fromJson, kindNamed, makeContext, typeName, typed, type Json, type TraceNode } from "@mark1russell7/coeval";
 import Explorer, { SITE_MACHINE, pathText } from "../glyphs/Explorer.tsx";
 import { Port } from "../glyphs/Card.tsx";
 import { EffectsLog } from "../glyphs/Panels.tsx";
@@ -85,7 +85,7 @@ export default function Playground() {
   const node = getAt(doc, selected);
   const envelope = node === undefined ? undefined : fromJson(node);
   const declared = declaredAt(SITE_WORLD, doc, selected);
-  const type = envelope?.type ?? declared ?? "?";
+  const type = envelope === undefined ? (declared ?? "?") : typeName(envelope.type);
   const value = envelope === undefined ? node : envelope.value;
   const kind = kindNamed(SITE_WORLD, type);
   const parentValue = selected.length === 0 ? undefined : getAt(doc, selected.slice(0, -1));
@@ -148,14 +148,36 @@ export default function Playground() {
             </select>
           </label>
 
-          {(type === "number" || type === "text" || type === "ref") && (
+          {(type === "number" || type === "text") && (
             <label className="cv-field-edit">
-              <span>{type === "ref" ? "Path" : "Value"}</span>
+              <span>Value</span>
               <input
                 type={type === "number" ? "number" : "text"}
                 value={typeof value === "number" || typeof value === "string" ? String(value) : ""}
                 onChange={(event) => setValue(type === "number" ? Number(event.target.value) : event.target.value)}
               />
+            </label>
+          )}
+          {type === "ref" && (
+            <label className="cv-field-edit">
+              <span>Path</span>
+              <input
+                type="text"
+                aria-describedby="cv-path-help"
+                value={Array.isArray(value) ? (value as readonly Json[]).map((step) => (typeof step === "object" ? "…" : String(step))).join(", ") : ""}
+                onChange={(event) =>
+                  setValue(
+                    event.target.value
+                      .split(",")
+                      .map((step) => step.trim())
+                      .filter((step) => step !== "")
+                      .map((step) => (/^\d+$/.test(step) ? Number(step) : step)),
+                  )
+                }
+              />
+              <span id="cv-path-help" className="cv-small cv-muted" style={{ gridColumn: "2" }}>
+                A root (self, names, world, event or caps), then the keys, with a comma between them.
+              </span>
             </label>
           )}
           {type === "bool" && (

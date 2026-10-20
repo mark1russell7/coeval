@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { Result, Run, TraceNode } from "@coeval/core";
+import type { Result, Run, TraceNode } from "@mark1russell7/coeval";
 
 /**
  * The state of a card at one moment of an evaluation.

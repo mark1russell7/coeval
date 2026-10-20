@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Json } from "@coeval/core";
+import type { Json } from "@mark1russell7/coeval";
 import Picture from "../glyphs/Picture.tsx";
 import TreeSvg, { type TreeArrow } from "./TreeSvg.tsx";
 import { MOVES, TREE, targets, type Move } from "../lib/tree.ts";

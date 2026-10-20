@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   STD_CAPS,
   STD_EVALUATORS,
+  STD_WALKERS,
   evaluate,
   flatten,
   fromJson,
@@ -9,10 +10,11 @@ import {
   kindNamed,
   makeContext,
   splitParts,
+  typeName,
   type Json,
   type Machine,
   type TraceNode,
-} from "@coeval/core";
+} from "@mark1russell7/coeval";
 import { Port } from "./Card.tsx";
 import { ContextStrip, EffectsLog, LadderGlyph, SealedPart } from "./Panels.tsx";
 import { View, SITE_WORLD, WorldContext } from "./View.tsx";
@@ -36,7 +38,7 @@ export function playgroundHref(doc: Json): string {
 const NO_NAMES: Readonly<Record<string, Json>> = {};
 
 /** The machine of the site: the world of the site, and the standard evaluators. */
-export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: STD_EVALUATORS };
+export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: STD_EVALUATORS, walkers: STD_WALKERS };
 
 /** The props of the explorer. */
 export interface ExplorerProps {
@@ -68,7 +70,7 @@ export function pathText(path: readonly string[]): string {
 
 function describe(node: TraceNode | undefined, ended: boolean): string {
   if (node === undefined) return "Nothing started yet. Select Next or Play.";
-  const what = `${node.doc.type}${node.path.length === 0 ? "" : ` at ${pathText(node.path)}`}`;
+  const what = `${typeName(node.doc.type)}${node.path.length === 0 ? "" : ` at ${pathText(node.path)}`}`;
   if (!ended) {
     const rung = node.answer.rung;
     return rung === undefined
@@ -231,7 +233,7 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
               <>
                 <p className="cv-panel-title">
                   {selected !== undefined ? "The selected card" : "The current card"}:{" "}
-                  <span className="ce-mono">{focus.doc.type}</span>
+                  <span className="ce-mono">{typeName(focus.doc.type)}</span>
                   {focus.path.length > 0 && <span className="cv-muted"> at {pathText(focus.path)}</span>}
                   {selected !== undefined && (
                     <button type="button" className="cv-link" onClick={() => setSelected(undefined)}>

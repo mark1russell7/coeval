@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STD_WORLD, typed, type Json } from "@coeval/core";
+import { STD_WORLD, typed, type Json } from "@mark1russell7/coeval";
 import { appendAt, declaredAt, getAt, removeAt, setAt } from "./edit.ts";
 
 const doc: Json = typed("add", [2, typed("multiply", [3, 4])]);

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { typed, type Json } from "@coeval/core";
+import { typed, type Json } from "@mark1russell7/coeval";
 import { View, WorldContext } from "../glyphs/View.tsx";
-import type { World } from "@coeval/core";
+import type { World } from "@mark1russell7/coeval";
 
 const THINGS = [
   { id: "rule", label: "A rule (a record)", type: "rule", value: { use: "stack", gap: 8 } as Json },

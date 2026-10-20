@@ -1,5 +1,5 @@
 import { createContext, useContext, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import type { Envelope, Result, Rung, Side } from "@coeval/core";
+import { typeName, type Envelope, type Json, type Result, type Rung, type Side } from "@mark1russell7/coeval";
 import ValueGlyph from "./Value.tsx";
 import { pathKey, stateAt, useOverlay } from "./overlay.ts";
 
@@ -44,18 +44,39 @@ export interface CardProps {
   readonly children: ReactNode;
 }
 
+/**
+ * This function gives a short form of a result for a port. A scalar stays as it is. A list gives its length, and
+ * a record gives its keys. The full value is in the title of the port.
+ *
+ * @param value - The result.
+ * @returns The short form.
+ */
+function compact(value: Json): { readonly scalar: boolean; readonly text: string } {
+  if (value === null || typeof value !== "object") return { scalar: true, text: "" };
+  if (Array.isArray(value)) {
+    const count = (value as readonly Json[]).length;
+    return { scalar: false, text: `[ ${count} ${count === 1 ? "item" : "items"} ]` };
+  }
+  const keys = Object.keys(value);
+  return { scalar: false, text: `{ ${keys.slice(0, 3).join(", ")}${keys.length > 3 ? ", …" : ""} }` };
+}
+
 /** The port of a card: the result of its evaluation, at the lower right edge. */
 export function Port({ result }: { readonly result: Result }) {
-  return result.ok ? (
-    <span className="cv-port" data-ok="true" title="The result of this document">
+  if (!result.ok) {
+    return (
+      <span className="cv-port" data-ok="false" title={result.error.reason}>
+        {result.error.code}
+      </span>
+    );
+  }
+  const short = compact(result.value);
+  return (
+    <span className="cv-port" data-ok="true" title={`The result of this document: ${JSON.stringify(result.value)}`}>
       <span className="cv-port-arrow" aria-hidden="true">
         =
       </span>
-      <ValueGlyph value={result.value} />
-    </span>
-  ) : (
-    <span className="cv-port" data-ok="false" title={result.error.reason}>
-      {result.error.code}
+      {short.scalar ? <ValueGlyph value={result.value} /> : <span className="cv-value">{short.text}</span>}
     </span>
   );
 }
@@ -88,7 +109,7 @@ export default function Card({ doc, declared, path, rung, side = "derive", unkno
       data-path={key}
       role={selectable ? "button" : undefined}
       tabIndex={selectable ? 0 : undefined}
-      aria-label={`${doc.type}${doc.name === undefined ? "" : `, name ${doc.name}`}`}
+      aria-label={`${typeName(doc.type)}${doc.name === undefined ? "" : `, name ${doc.name}`}`}
       onClick={selectable ? select : undefined}
       onKeyDown={
         selectable
@@ -106,10 +127,10 @@ export default function Card({ doc, declared, path, rung, side = "derive", unkno
         data-declared={declared}
         title={
           unknown
-            ? `The world has no kind ${doc.type}.`
+            ? `The world has no kind ${typeName(doc.type)}.`
             : declared
-              ? `The container declares the type ${doc.type}. The value has no envelope.`
-              : `The envelope names the type ${doc.type}.`
+              ? `The container declares the type ${typeName(doc.type)}. The value has no envelope.`
+              : `The envelope names the type ${typeName(doc.type)}.`
         }
       >
         {side === "run" && (
@@ -117,7 +138,7 @@ export default function Card({ doc, declared, path, rung, side = "derive", unkno
             ▸
           </span>
         )}
-        {doc.type}
+        {typeName(doc.type)}
         {overlay.showRungs && rung !== undefined && (
           <span className="cv-rung" title={RUNG_TITLE[rung]}>
             {RUNG_LETTER[rung]}

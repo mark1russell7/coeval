@@ -12,7 +12,7 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | C2 | The site on GitHub Pages, and CI on each push | done (2026-10-20) | C1 |
 | C3 | A diagram of the four schedules: pull, push, demand and once, with the same values | done (2026-10-20) | C1 |
 | C4 | A diagram of one path grammar for names, positions and order | done (2026-10-20) | C1 |
-| C5 | The decisions Q2 and Q4 of `DECISIONS.md` (Q1 and Q3 are decided: D5 and D6) | waiting | |
+| C5 | The decisions of the owner on the questions Q1 to Q4 (D5, D6, D9, D10) | done (2026-10-20) | |
 | C6 | The visual grammar: one glyph for each concept, the views by the ladder, the glyph key, and the explorer of an evaluation | done (2026-10-20) | C1 |
 | C7 | The guide: one page for each glyph, from documents to effects | done (2026-10-20) | C6 |
 | C8 | The playground: build a document from the kinds, and open each picture of the guide in it | done (2026-10-20) | C6 |
@@ -25,7 +25,7 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | K1 | The specification of the model, with one requirement ID for each rule and one test for each ID | next | C5 |
 | K2 | The contract of a kind: the roles of its fields (code or data), its types, its context and its effects | later | K1 |
 | K3 | A check of a whole document before it runs, from the contracts | later | K2 |
-| K4 | The path grammar: a list of moves from the place of the reference | later | K1, C4 |
+| K4 | References: paths from five roots, the verb `deref`, collapse, computed steps, and types as paths (D10) | done (2026-10-20) | |
 | K5 | The result model: a value, or an error value with a code, a reason and a place | in progress (codes and reasons done, the place is next) | K1 |
 | K6 | The explain trace of a question and of an evaluation | in progress (the trace exists, the explorer draws it) | K5 |
 | K7 | Sealed parts: the kernel gives an evaluator handles without the value of a part | done (2026-10-20) | |
@@ -47,3 +47,17 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | S1 | The interface of a schedule: the graph of the data and the side of each kind | later | K2 |
 | S2 | The static analysis: cycles, an order for a push schedule, and the independent groups | later | S1 |
 | S3 | Adapters to the reactive engines of the hosts | later | S1 |
+
+## The migration of the languages
+
+| ID | Item | Status | Depends on |
+| --- | --- | --- | --- |
+| M1 | A language that uses coeval gets the package from npm, or from a pinned reference to this repository | next | K4 |
+| M2 | Formulas: each reference of a formula is a path document. The old text forms convert to paths. | next | M1 |
+| M3 | Events: each handler is a run document of the one run language (D9) | next | M1 |
+| M4 | Types: the layout rules and the kinds are paths into a world, with namespaces and aliases | next | M1 |
+| M5 | Overrides: each override names its target with a path, not with a dotted text | later | M2 |
+| M6 | Trees: each node of a tree of components is an envelope | later | M4, M5 |
+| M7 | The program format of procedures: a call is an envelope, and a reference is a path (D9, D10) | next | K4 |
+| M8 | An adapter for the addresses of a formula language: its moves become paths | later | K4 |
+

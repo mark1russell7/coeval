@@ -1,4 +1,4 @@
-import { fromJson, type Json } from "@coeval/core";
+import { fromJson, typeName, type Json } from "@mark1russell7/coeval";
 import { getAt, valueOf } from "./edit.ts";
 
 /** A reference and the binding that it reads: two paths of one document. */
@@ -30,7 +30,7 @@ export function bindingOf(root: Json, refPath: readonly string[], name: string):
   for (let depth = refPath.length - 1; depth >= 0; depth -= 1) {
     const ancestorPath = refPath.slice(0, depth);
     const ancestor = fromJson(getAt(root, ancestorPath));
-    if (ancestor?.type !== "seq" || !Array.isArray(ancestor.value)) continue;
+    if (ancestor === undefined || typeName(ancestor.type) !== "seq" || !Array.isArray(ancestor.value)) continue;
     const index = Number(refPath[depth]);
     const items: readonly Json[] = ancestor.value;
     for (let earlier = index - 1; earlier >= 0; earlier -= 1) {
@@ -50,8 +50,10 @@ export function links(root: Json): readonly Link[] {
   const out: Link[] = [];
   walk(root, [], (node, path) => {
     const envelope = fromJson(node);
-    if (envelope?.type !== "ref" || typeof envelope.value !== "string") return;
-    const name = envelope.value.split(".")[0] ?? "";
+    if (envelope === undefined || typeName(envelope.type) !== "ref" || !Array.isArray(envelope.value)) return;
+    const steps: readonly Json[] = envelope.value;
+    if (steps[0] !== "names" || typeof steps[1] !== "string") return;
+    const name = steps[1];
     const to = bindingOf(root, path, name);
     if (to !== undefined) out.push({ from: path, to, name });
   });

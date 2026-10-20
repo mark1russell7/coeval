@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { evaluate, makeContext, type Json } from "@coeval/core";
+import { evaluate, makeContext, type Json } from "@mark1russell7/coeval";
 import { SITE_MACHINE } from "../glyphs/Explorer.tsx";
 import { View, SITE_WORLD, WorldContext } from "../glyphs/View.tsx";
 import ValueGlyph from "../glyphs/Value.tsx";

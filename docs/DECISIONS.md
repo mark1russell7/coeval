@@ -48,9 +48,26 @@ This file records each decision of the design of coeval, and each open question.
 
 **Decision.** Each picture of the site is a document. The verb `view` goes up the ladder, and the view that answers draws the card. A view draws the parts of its document with the same component. Thus the pictures compose as the documents compose.
 
-## Open questions
+## D9 (2026-10-20): one language for the run side
 
-| ID | Question | The current proposal |
-| --- | --- | --- |
-| Q2 | Is the run side (the effects) one language for all hosts? | Yes: sequences of calls, with names for the results of earlier steps, and capabilities. |
-| Q4 | Does one path grammar cover names, positions and order? | Yes: a path is a list of four moves (up, down, back, field) from the place of the reference. The page `learn/paths` shows it. |
+**Decision.** Each effect of each host is a document of the same form. A call is an envelope: its type is the path of a procedure in the world, and its value is the input. A sequence orders the steps, a name keeps a result, and a reference reads it. Capabilities limit the effects.
+
+**Why.** Two forms for the same idea gave two checkers and two permission systems. In one of them, a step could not read the result of the step before.
+
+## D10 (2026-10-20): a reference is a path from a root of the context
+
+**Decision.**
+
+- A reference is a document `{ "type": "ref", "value": [root, step, ...] }`. The root is `self`, `names`, `world`, `event` or `caps`. A stored reference always names its root.
+- The context is a record with these five roots. The evaluators differ only in how they change the context for their parts.
+- Each step is a question to the thing that the path reached: the verb `deref` goes up the ladder. A host thing answers itself (own), a kind can answer, and the default goes into a field or an item.
+- A node of a tree has the fields `parent` and `children`. Thus up and down are field steps.
+- A computed step, for example `nearest`, is a document of a kind with the verb `step`. It is not special.
+- After each hop, a reference is followed until the path reaches something else (collapse). A cycle gives `#CYCLE!`.
+- The type of a document is a reference into the world. A text or a list of keys is a base reference that the kernel resolves itself, thus the chain of types stops. A namespace groups kinds, and an alias is a reference to a kind.
+
+**Why.** Several syntaxes of text pointed at things in different ways. A path of plain keys, with the meaning of each step asked of the thing that the path reached, is one declarative form. The same mechanism names types, parts, fields, earlier results and the registry. The reach of a term is what its context and its world can name.
+
+A language on top of coeval can accept a shorter form and change it into a path. The stored form is always the full path.
+
+No question waits on the owner.

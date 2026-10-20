@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ask, classify, tag, type Json, type Shape, type World } from "@coeval/core";
+import { ask, classify, tag, type Json, type Shape, type World } from "@mark1russell7/coeval";
 import { View, WorldContext } from "../glyphs/View.tsx";
 
 const WORLD: World = {

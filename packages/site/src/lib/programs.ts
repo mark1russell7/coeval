@@ -1,4 +1,4 @@
-import type { Json } from "@coeval/core";
+import type { Json } from "@mark1russell7/coeval";
 
 /** A document of the examples, with a label for a picker. */
 export interface Program {
@@ -17,8 +17,8 @@ export const NAMES: Json = {
   type: "seq",
   value: [
     { type: "add", value: [1, 2], name: "a" },
-    { type: "multiply", value: [{ type: "ref", value: "a" }, 10], name: "b" },
-    { type: "log", value: [{ type: "ref", value: "b" }] },
+    { type: "multiply", value: [{ type: "ref", value: ["names", "a"] }, 10], name: "b" },
+    { type: "log", value: [{ type: "ref", value: ["names", "b"] }] },
   ],
 };
 
@@ -26,7 +26,7 @@ export const NAMES: Json = {
 export const CHOICE: Json = {
   type: "if",
   value: {
-    test: { type: "greater", value: [{ type: "ref", value: "size" }, 10] },
+    test: { type: "greater", value: [{ type: "ref", value: ["names", "size"] }, 10] },
     then: { type: "text", value: "big" },
     else: { type: "log", value: ["small"] },
   },
@@ -38,7 +38,7 @@ export const EFFECTS: Json = {
   value: [
     { type: "log", value: ["start"] },
     { type: "write", value: { key: "total", value: { type: "add", value: [2, 3] } }, name: "total" },
-    { type: "log", value: [{ type: "ref", value: "total" }] },
+    { type: "log", value: [{ type: "ref", value: ["names", "total"] }] },
   ],
 };
 
@@ -46,7 +46,7 @@ export const EFFECTS: Json = {
 export const PURE: Json = { type: "pure", value: [{ type: "log", value: ["hello"] }] };
 
 /** A reference to a name that the context does not have. */
-export const MISSING: Json = { type: "add", value: [{ type: "ref", value: "price" }, 2] };
+export const MISSING: Json = { type: "add", value: [{ type: "ref", value: ["names", "price"] }, 2] };
 
 /** A document with values of each kind of data, each in its own envelope. */
 export const VALUES: readonly Json[] = [
@@ -56,6 +56,39 @@ export const VALUES: readonly Json[] = [
   { type: "list", value: [1, 2, 3] },
 ];
 
+/** A tree of nodes. A box reads the width of its parent, and the inner box reads the nearest panel. */
+export const TREE: Json = {
+  type: "panel",
+  value: {
+    width: 300,
+    children: {
+      type: "list",
+      value: [
+        {
+          type: "box",
+          value: {
+            width: { type: "add", value: [{ type: "ref", value: ["self", "parent", "width"] }, -20] },
+            children: {
+              type: "list",
+              value: [
+                {
+                  type: "box",
+                  value: {
+                    width: { type: "ref", value: ["self", "parent", { type: "nearest", value: { type: "panel" } }, "width"] },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  },
+};
+
+/** A type that is a path: the alias math.product of the kind multiply. */
+export const ALIAS: Json = { type: ["math", "product"], value: [6, 7] };
+
 /** The programs of the playground, in the order of its menu. */
 export const PROGRAMS: readonly Program[] = [
   { id: "add", label: "Arithmetic", doc: ADD },
@@ -64,4 +97,6 @@ export const PROGRAMS: readonly Program[] = [
   { id: "effects", label: "Effects", doc: EFFECTS },
   { id: "pure", label: "No capability", doc: PURE },
   { id: "missing", label: "A missing name", doc: MISSING },
+  { id: "tree", label: "A tree", doc: TREE },
+  { id: "alias", label: "A type as a path", doc: ALIAS },
 ];

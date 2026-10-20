@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { RUNGS, ask, fromJson, kindNamed, typed, type Answer, type Envelope, type Json, type Rung, type Step } from "@coeval/core";
+import { RUNGS, ask, fromJson, kindNamed, typeName, typed, type Answer, type Envelope, type Json, type Rung, type Step } from "@mark1russell7/coeval";
 import { LADDER_EXAMPLES, LADDER_WORLD, VERBS, ladderExample } from "../lib/examples.ts";
 import { prettyJson, useStepper } from "../lib/motion.ts";
 import { View, WorldContext } from "../glyphs/View.tsx";
@@ -14,7 +14,7 @@ function verbsText(verbs: Readonly<Record<string, string>> | undefined): string 
 function holds(rung: Rung, header: Envelope | undefined, declared: string | undefined): string {
   if (rung === "default") return verbsText(LADDER_WORLD.defaults);
   if (rung === "own") return header?.own === undefined ? "No own entries." : verbsText(header.own);
-  const name = header?.type ?? declared;
+  const name = header === undefined ? declared : typeName(header.type);
   if (name === undefined) return "No type is known.";
   const kind = kindNamed(LADDER_WORLD, name);
   return kind === undefined ? `${name}: not a kind of this world.` : `${name}: ${verbsText(kind.verbs)}`;

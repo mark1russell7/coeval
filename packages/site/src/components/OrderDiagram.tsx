@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { dataEdges, effectEdges, isAllowedOrder, layers, type Edge, type StepSpec } from "@coeval/core";
+import { dataEdges, effectEdges, isAllowedOrder, layers, type Edge, type StepSpec } from "@mark1russell7/coeval";
 
 const BASE = [
   { id: "a", text: "Load the prices", reads: [] },

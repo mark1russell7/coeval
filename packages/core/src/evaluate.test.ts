@@ -33,24 +33,24 @@ describe("evaluate", () => {
       type: "seq",
       value: [
         { type: "add", value: [1, 2], name: "a" },
-        { type: "multiply", value: [{ type: "ref", value: "a" }, 10], name: "b" },
-        { type: "log", value: [{ type: "ref", value: "b" }] },
+        { type: "multiply", value: [{ type: "ref", value: ["names", "a"] }, 10], name: "b" },
+        { type: "log", value: [{ type: "ref", value: ["names", "b"] }] },
       ],
     });
     expect(out.result).toEqual({ ok: true, value: 30 });
     expect(out.effects.map((effect) => effect.payload)).toEqual([30]);
-    expect(nodeAt(out.trace, ["2"])?.names).toEqual(["a", "b"]);
+    expect(nodeAt(out.trace, ["2"])?.names).toEqual(["last", "a", "b"]);
   });
 
   it("reads a field of a name by a path", () => {
-    expect(run({ type: "ref", value: "card.size.width" }, { card: { size: { width: 8 } } }).result).toEqual({
+    expect(run({ type: "ref", value: ["names", "card", "size", "width"] }, { card: { size: { width: 8 } } }).result).toEqual({
       ok: true,
       value: 8,
     });
   });
 
   it("gives #NAME? for a name that the context does not have", () => {
-    expect(run({ type: "ref", value: "later" }).result).toMatchObject({ ok: false, error: { code: "#NAME?" } });
+    expect(run({ type: "ref", value: ["names", "later"] }).result).toMatchObject({ ok: false, error: { code: "#NAME?" } });
   });
 
   it("refuses an effect inside pure, because pure gives its part no capability", () => {
@@ -77,7 +77,7 @@ describe("evaluate", () => {
   });
 
   it("collects two failed parts as #ARGS", () => {
-    expect(run({ type: "add", value: [{ type: "ref", value: "x" }, { type: "ref", value: "y" }] }).result).toMatchObject({
+    expect(run({ type: "add", value: [{ type: "ref", value: ["names", "x"] }, { type: "ref", value: ["names", "y"] }] }).result).toMatchObject({
       ok: false,
       error: { code: "#ARGS" },
     });

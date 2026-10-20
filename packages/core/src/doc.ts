@@ -4,13 +4,28 @@ export type Json = null | boolean | number | string | readonly Json[] | { readon
 /** A JSON record. */
 export type JsonRecord = { readonly [key: string]: Json };
 
+/** One step of a path that is a plain key: a name, or an index of a list. */
+export type Key = string | number;
+
+/**
+ * The type of a document is a reference into the world (the registry of kinds).
+ *
+ * - A text is a base reference with one key: `"add"`.
+ * - A list of keys is a base reference with a path: `["git", "push"]`.
+ * - A document of type `ref` is the same reference, expanded. Its path starts at the root `world`.
+ *
+ * The kernel resolves a base reference itself. The expanded form is necessary only to attach more to the
+ * reference. Thus the chain of types stops at a base reference.
+ */
+export type TypeRef = string | readonly Key[] | { readonly type: "ref"; readonly value: readonly Json[] };
+
 /**
  * A typed document: an envelope with a header and a value. The header names the type of the value. The value is
  * not changed by the envelope at any time. Thus any JSON value can have a type: a number, a list, a text or a record.
  */
 export type Envelope = {
-  /** The name of the kind of the value. */
-  readonly type: string;
+  /** The type: a reference to a kind of the world. */
+  readonly type: TypeRef;
   /** The value. */
   readonly value: Json;
   /** The name of a binding. A sequence gives the result of this document to the later steps under this name. */
@@ -44,16 +59,64 @@ export function field(record: JsonRecord, key: string): Json | undefined {
 }
 
 /**
- * This function tells if a value has the form of an envelope. That form is a record with a text `type` and a
- * `value`. It has no other keys than the keys of an envelope. A contract decides where an envelope is expected. This function only checks
- * the form.
+ * This function tells if a value is a key of a path: a text, or a whole number from 0.
+ *
+ * @param value - The value to examine.
+ * @returns `true` for a key.
+ */
+export function isKey(value: Json | undefined): value is Key {
+  return typeof value === "string" || (typeof value === "number" && Number.isInteger(value) && value >= 0);
+}
+
+/**
+ * This function tells if a value is a reference to a type. The reference is a text, a list of keys, or a document
+ * of type `ref` whose path starts at the root `world`.
+ *
+ * @param value - The value to examine.
+ * @returns `true` for a reference to a type.
+ */
+export function isTypeRef(value: Json | undefined): boolean {
+  if (typeof value === "string") return value !== "";
+  if (Array.isArray(value)) return value.length > 0 && (value as readonly Json[]).every(isKey);
+  if (!isRecord(value)) return false;
+  const path = field(value, "value");
+  return field(value, "type") === "ref" && Array.isArray(path) && (path as readonly Json[])[0] === "world";
+}
+
+/**
+ * This function gives the path of a reference to a type, from the root of the world.
+ *
+ * @param type - The reference.
+ * @returns The keys from the root of the world, or `undefined` for a computed step that has no fixed key.
+ */
+export function typePath(type: TypeRef): readonly Key[] | undefined {
+  if (typeof type === "string") return [type];
+  if (Array.isArray(type)) return type as readonly Key[];
+  const steps = (type as { readonly value: readonly Json[] }).value.slice(1);
+  return steps.every(isKey) ? (steps as readonly Key[]) : undefined;
+}
+
+/**
+ * This function gives the text of a type for a reader: its keys, joined with a dot.
+ *
+ * @param type - The reference to the type.
+ * @returns The text, for example `git.push`.
+ */
+export function typeName(type: TypeRef): string {
+  return typePath(type)?.join(".") ?? "(computed)";
+}
+
+/**
+ * This function tells if a value has the form of an envelope. That form is a record with a reference to a type
+ * and a `value`. It has no other keys than the keys of an envelope. A contract decides where an envelope is
+ * expected. This function only checks the form.
  *
  * @param value - The value to examine.
  * @returns `true` when the value has the form of an envelope.
  */
 export function isEnvelope(value: Json | undefined): value is JsonRecord & Envelope {
   if (!isRecord(value)) return false;
-  if (typeof field(value, "type") !== "string" || !Object.hasOwn(value, "value")) return false;
+  if (!isTypeRef(field(value, "type")) || !Object.hasOwn(value, "value")) return false;
   const name = field(value, "name");
   if (name !== undefined && typeof name !== "string") return false;
   const own = field(value, "own");
@@ -64,13 +127,23 @@ export function isEnvelope(value: Json | undefined): value is JsonRecord & Envel
 /**
  * This function makes an envelope.
  *
- * @param type - The name of the kind.
+ * @param type - The reference to the kind.
  * @param value - The value.
  * @param header - The optional name and own entries.
  * @returns The envelope.
  */
-export function typed(type: string, value: Json, header: { readonly name?: string; readonly own?: Record<string, string> } = {}): Envelope {
+export function typed(type: TypeRef, value: Json, header: { readonly name?: string; readonly own?: Record<string, string> } = {}): Envelope {
   return { type, value, ...(header.name === undefined ? {} : { name: header.name }), ...(header.own === undefined ? {} : { own: header.own }) };
+}
+
+/**
+ * This function makes a reference document: a path from a root of the context.
+ *
+ * @param path - The steps. The first step is a root: `self`, `names`, `world`, `event` or `caps`.
+ * @returns The document of type `ref`.
+ */
+export function ref(...path: readonly Json[]): Envelope {
+  return typed("ref", path);
 }
 
 /**
@@ -81,7 +154,7 @@ export function typed(type: string, value: Json, header: { readonly name?: strin
  */
 export function toJson(doc: Envelope): JsonRecord {
   return {
-    type: doc.type,
+    type: doc.type as Json,
     value: doc.value,
     ...(doc.name === undefined ? {} : { name: doc.name }),
     ...(doc.own === undefined ? {} : { own: doc.own }),
@@ -102,7 +175,7 @@ export function fromJson(value: Json | undefined): Envelope | undefined {
     for (const [verb, name] of Object.entries(own)) if (typeof name === "string") ownEntries[verb] = name;
   }
   const name = field(value, "name");
-  return typed(String(field(value, "type")), field(value, "value") ?? null, {
+  return typed(field(value, "type") as TypeRef, field(value, "value") ?? null, {
     ...(typeof name === "string" ? { name } : {}),
     ...(isRecord(own) ? { own: ownEntries } : {}),
   });

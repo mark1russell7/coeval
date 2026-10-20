@@ -1,4 +1,4 @@
-import { typed, type Json, type World } from "@coeval/core";
+import { typed, type Json, type World } from "@mark1russell7/coeval";
 
 /** The world of the ladder diagrams: three kinds and two defaults. */
 export const LADDER_WORLD: World = {

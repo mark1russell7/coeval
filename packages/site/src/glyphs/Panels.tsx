@@ -1,4 +1,4 @@
-import { RUNGS, kindNamed, type Answer, type Effect, type Envelope, type Json, type Rung, type World } from "@coeval/core";
+import { RUNGS, kindNamed, typeName, type Answer, type Effect, type Envelope, type Json, type Rung, type World } from "@mark1russell7/coeval";
 import { RUNG_LETTER } from "./Card.tsx";
 import ValueGlyph from "./Value.tsx";
 
@@ -26,7 +26,7 @@ export function LadderGlyph({ world, doc, declared, answer }: LadderGlyphProps) 
   const kind = kindNamed(world, doc.type);
   const holds: Readonly<Record<Rung, string>> = {
     own: entries(doc.own, answer.verb),
-    kind: kind === undefined ? `${doc.type}: not a kind of this world` : `${doc.type}${declared ? " (declared)" : ""}: ${entries(kind.verbs, answer.verb)}`,
+    kind: kind === undefined ? `${typeName(doc.type)}: not a kind of this world` : `${typeName(doc.type)}${declared ? " (declared)" : ""}: ${entries(kind.verbs, answer.verb)}`,
     default: entries(world.defaults, answer.verb),
   };
   return (

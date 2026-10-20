@@ -30,7 +30,7 @@ Write all prose of this repository in the style of ASD-STE100 Simplified Technic
 
 ## The site
 
-- Each idea has one page and one live diagram. A diagram uses `@coeval/core`, so each answer comes from real code.
+- Each idea has one page and one live diagram. A diagram uses `@mark1russell7/coeval`, so each answer comes from real code.
 - Each color of a diagram has one meaning, and a label or a shape goes with it. The tokens are in `diagrams.css`.
 - Each diagram works with a keyboard, in the light and the dark theme, at the width of a phone, and with reduced motion.
 

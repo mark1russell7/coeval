@@ -1,19 +1,57 @@
 {
   "$schema": "https://json.schemastore.org/package",
-  "name": "@coeval/core",
+  "name": "@mark1russell7/coeval",
   "version": "0.1.0",
-  "private": true,
+  "description": "coeval: a base for declarative languages. Documents in envelopes, a ladder that finds the evaluator, sealed parts, references as paths from a context, and a traced evaluation.",
   "type": "module",
   "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "build",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "sideEffects": false,
   "scripts": {
+    "build": "tsdown",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mark1russell7/coeval.git",
+    "directory": "packages/core"
+  },
+  "keywords": [
+    "typescript",
+    "dsl",
+    "declarative",
+    "interpreter",
+    "language-workbench",
+    "coinductive",
+    "json"
+  ],
   "devDependencies": {
     "@mark1russell7/cue": "github:mark1russell7/cue",
     "@types/node": "^26.6.4",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./build/index.js",
+    "types": "./build/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.js"
+      },
+      "./package.json": "./package.json"
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { STD_CAPS, evaluate, flatten, makeContext, type Json, type TraceNode } from "@coeval/core";
+import { STD_CAPS, evaluate, flatten, makeContext, type Json, type TraceNode } from "@mark1russell7/coeval";
 import { SITE_MACHINE } from "./Explorer.tsx";
 import { View, SITE_WORLD, WorldContext } from "./View.tsx";
 import { OverlayContext, pathKey, type Overlay } from "./overlay.ts";

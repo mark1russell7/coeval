@@ -1,44 +1,15 @@
+import { type TypeRef, typeName } from "./doc.ts";
+import { type Kind, type World, lookupKind } from "./world.ts";
+
+export type { Kind, Namespace, PartsSpec, Side, World, WorldEntry } from "./world.ts";
+
 /** The rungs of the ladder, in the order that a question visits them. */
 export const RUNGS = ["own", "kind", "default"] as const;
 
 /** One rung of the ladder. */
 export type Rung = (typeof RUNGS)[number];
 
-/** The two sides of evaluation. `derive` is pure. `run` causes effects in order. */
-export type Side = "derive" | "run";
-
-/**
- * Where the parts of a value are. A part is a typed document that the evaluator gets sealed.
- *
- * - `none`: the value is data. It has no parts.
- * - `list`: the value is a list, and each item is a part.
- * - `record`: the value is a record. The named fields are parts, and the other fields are data.
- *
- * `of` is the type of a bare item. An item without an envelope gets this type from its container.
- */
-export type PartsSpec =
-  | { readonly shape: "none" }
-  | { readonly shape: "list"; readonly of?: string }
-  | { readonly shape: "record"; readonly fields: readonly string[]; readonly of?: string };
-
-/** A kind gives the name of an evaluator for each verb, and the contract of its value. */
-export interface Kind {
-  readonly verbs: Readonly<Record<string, string>>;
-  /** Where the parts of the value are. The default is `none`. */
-  readonly parts?: PartsSpec;
-  /** The side of the kind. A kind of the run side causes effects. The default is `derive`. */
-  readonly side?: Side;
-  /** One sentence that tells what the kind is. */
-  readonly summary?: string;
-}
-
-/** A world holds the kinds and the defaults that answer the questions. */
-export interface World {
-  readonly kinds: Readonly<Record<string, Kind>>;
-  readonly defaults: Readonly<Record<string, string>>;
-}
-
-/** The place where the ladder found the name of the kind. */
+/** The place where the ladder found the type. */
 export type KindSource = "document" | "container";
 
 /**
@@ -57,9 +28,9 @@ export interface Step {
   readonly outcome: Outcome;
   /** The evaluator, when the outcome is `answers`. */
   readonly evaluator?: string;
-  /** The name of the kind, at the kind rung. */
+  /** The text of the type, at the kind rung. */
   readonly kind?: string;
-  /** The place of the name of the kind, at the kind rung. */
+  /** The place of the type, at the kind rung. */
   readonly source?: KindSource;
 }
 
@@ -80,7 +51,7 @@ export interface Answer {
  * empty header, and its position can declare its type.
  */
 export interface Header {
-  readonly type?: string;
+  readonly type?: TypeRef;
   readonly own?: Readonly<Record<string, string>>;
 }
 
@@ -95,22 +66,35 @@ function entryOf(verbs: Readonly<Record<string, string>> | undefined, verb: stri
 }
 
 /**
- * This function finds a kind of a world by its name. It reads only the own entries of the world.
+ * This function finds the kind that a type names, and follows each alias. It gives `undefined` for an unknown
+ * type.
  *
  * @param world - The world.
- * @param name - The name of the kind.
+ * @param type - The reference to the type.
  * @returns The kind, or `undefined`.
  */
-export function kindNamed(world: World, name: string): Kind | undefined {
-  return Object.hasOwn(world.kinds, name) ? world.kinds[name] : undefined;
+export function kindOf(world: World, type: TypeRef): Kind | undefined {
+  const found = lookupKind(world, type);
+  return found.ok ? found.kind : undefined;
+}
+
+/**
+ * This function finds a kind by a text type. It is the same as `kindOf` for a one-key reference.
+ *
+ * @param world - The world.
+ * @param name - The text of the type.
+ * @returns The kind, or `undefined`.
+ */
+export function kindNamed(world: World, name: TypeRef): Kind | undefined {
+  return kindOf(world, name);
 }
 
 /**
  * This function asks a document a question, and gives the evaluator that answers it.
  *
  * The question visits the rungs in order: the own entry of the envelope, then its kind, then the default of the
- * world. The type comes from the envelope, or else from the type that the position declares. The ladder does not
- * guess a type from the shape of a value.
+ * world. The type comes from the envelope, or else from the type that the position declares. The type is a
+ * reference into the world. The ladder does not guess a type from the shape of a value.
  *
  * @param world - The kinds and the defaults.
  * @param doc - The header of the document: an envelope, or `{}` for a bare value.
@@ -128,12 +112,13 @@ export function ask(world: World, doc: Header, verb: string, options: AskOptions
   }
   steps.push({ rung: "own", outcome: "no-entry" });
 
-  const name = doc.type ?? options.declaredType;
-  if (name === undefined) {
+  const type: TypeRef | undefined = doc.type ?? options.declaredType;
+  if (type === undefined) {
     steps.push({ rung: "kind", outcome: "skipped" });
   } else {
     const source: KindSource = doc.type === undefined ? "container" : "document";
-    const kind = kindNamed(world, name);
+    const name = typeName(type);
+    const kind = kindOf(world, type);
     if (kind === undefined) {
       steps.push({ rung: "kind", outcome: "unknown-kind", kind: name, source });
       return { verb, error: "unknown-kind", steps };

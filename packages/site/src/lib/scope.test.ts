@@ -11,7 +11,7 @@ describe("references and their bindings", () => {
   });
 
   it("does not link a reference to a later step", () => {
-    const doc = { type: "seq", value: [{ type: "ref", value: "x" }, { type: "number", value: 1, name: "x" }] };
+    const doc = { type: "seq", value: [{ type: "ref", value: ["names", "x"] }, { type: "number", value: 1, name: "x" }] };
     expect(links(doc)).toEqual([]);
   });
 
@@ -20,7 +20,7 @@ describe("references and their bindings", () => {
       type: "seq",
       value: [
         { type: "number", value: 2, name: "n" },
-        { type: "seq", value: [{ type: "ref", value: "n" }] },
+        { type: "seq", value: [{ type: "ref", value: ["names", "n"] }] },
       ],
     };
     expect(links(doc)).toEqual([{ from: ["1", "0"], to: ["0"], name: "n" }]);

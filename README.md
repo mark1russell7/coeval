@@ -10,19 +10,20 @@ coeval is a base for declarative languages. Each language keeps its programs as 
 
 The project is in the design stage. The model package is small, and its API changes without notice. The packages are not on npm. The plan is in [`docs/ROADMAP.md`](./docs/ROADMAP.md), and the decisions are in [`docs/DECISIONS.md`](./docs/DECISIONS.md).
 
-## The model in five rules
+## The model in six rules
 
 1. **A program is a document.** It is a value in an envelope: `{ "type": "add", "value": [2, 3] }`. The type names a kind.
 2. **A question finds the meaning.** The answer comes from the own entry of the document, then from its kind, then from the default.
 3. **An evaluator evaluates its parts, and does not look inside them.** Thus equal parts can replace each other.
 4. **A context is the only door.** A term reaches outside itself through five parts: names, focus, world, event and capabilities.
 5. **Order has a meaning only for effects.** Pure work runs in any order that obeys its data. Effects keep their written order.
+6. **A reference is a path from a root of the context.** Each step is a question to the thing that the path reached. A type is a path into the world.
 
 ## Packages
 
 | Package | Contents |
 | --- | --- |
-| [`@coeval/core`](./packages/core) | The model: envelopes, the ladder, sealed parts, the evaluation with its trace, error values, a small standard world, the order of a sequence and the parts of a context |
+| [`@mark1russell7/coeval`](./packages/core) | The model: envelopes, the ladder, sealed parts, the evaluation with its trace, error values, a small standard world, the order of a sequence and the parts of a context |
 | [`@coeval/site`](./packages/site) | The site: a visual grammar where each concept has one glyph, a guide that adds glyphs one page at a time, and a playground. GitHub Pages serves it. |
 
 ## Commands

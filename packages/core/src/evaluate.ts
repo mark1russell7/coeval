@@ -1,9 +1,34 @@
-import { type Envelope, type Json, fromJson, typed } from "./doc.ts";
+import { type Envelope, type Json, fromJson, typed, typeName } from "./doc.ts";
 import { splitParts } from "./parts.ts";
-import { ask, kindNamed, type Answer, type Side, type World } from "./ladder.ts";
+import { ask, kindOf, type Answer } from "./ladder.ts";
+import type { Side } from "./world.ts";
+import {
+  type Context,
+  type Navigator,
+  type Resolution,
+  type Thing,
+  context as makeRootContext,
+  isHostThing,
+  resolve,
+  worldThing,
+} from "./deref.ts";
+
+export type { Context } from "./deref.ts";
 
 /** The code of an error value. */
-export type ErrorCode = "#KIND?" | "#NOEVAL" | "#PART?" | "#NAME?" | "#VALUE!" | "#ARGS" | "#CAP!" | "#CALC!" | "#DEPTH!";
+export type ErrorCode =
+  | "#KIND?"
+  | "#NOEVAL"
+  | "#PART?"
+  | "#NAME?"
+  | "#REF!"
+  | "#CYCLE!"
+  | "#STEP?"
+  | "#VALUE!"
+  | "#ARGS"
+  | "#CAP!"
+  | "#CALC!"
+  | "#DEPTH!";
 
 /** An error value: a code and a reason. An evaluation gives an error value, and it does not throw. */
 export interface EvalError {
@@ -35,21 +60,17 @@ export function fail(code: ErrorCode, reason: string): Result {
   return { ok: false, error: { code, reason } };
 }
 
-/** The context of a term: the names that it can read, and the effects that it can cause. */
-export interface Context {
-  readonly names: ReadonlyMap<string, Json>;
-  readonly caps: ReadonlySet<string>;
-}
-
 /**
- * This function makes a context.
+ * This function makes a context with names and capabilities. The other roots are empty, and an evaluation sets
+ * the world.
  *
  * @param names - The names and their values.
  * @param caps - The effects that the term can cause.
+ * @param self - The node of the term, if it has one.
  * @returns The context.
  */
-export function makeContext(names: Readonly<Record<string, Json>> = {}, caps: readonly string[] = []): Context {
-  return { names: new Map(Object.entries(names)), caps: new Set(caps) };
+export function makeContext(names: Readonly<Record<string, Json>> = {}, caps: readonly string[] = [], self: Thing = null): Context {
+  return makeRootContext({ names, caps, self });
 }
 
 /**
@@ -72,12 +93,21 @@ export interface Part {
 
 /** The input of an evaluator. */
 export interface EvalInput {
+  /** The text of the type of the document, for example `add` or `math.sum` after its alias. */
+  readonly kind: string;
   /** The value of the document without its parts. */
   readonly data: Json;
   /** The parts, in the order of the value. */
   readonly parts: readonly Part[];
   /** The context of the document. */
   readonly context: Context;
+  /**
+   * This function resolves a path from the context of the document.
+   *
+   * @param path - The steps. The first step is a root.
+   * @returns What the path reached, with each hop.
+   */
+  resolve(path: readonly Json[]): Resolution;
   /**
    * This function causes an effect. The context must have the capability for the kind of the effect.
    *
@@ -91,9 +121,8 @@ export interface EvalInput {
 /** An evaluator: a function from the input of a document to a result. */
 export type Evaluator = (input: EvalInput) => Result;
 
-/** A machine: a world of kinds, and the code of each evaluator name. */
-export interface Machine {
-  readonly world: World;
+/** A machine: a world of kinds, and the code of each evaluator name, of each `deref` and of each walker. */
+export interface Machine extends Navigator {
   readonly evaluators: Readonly<Record<string, Evaluator>>;
   /** The deepest nesting of evaluations. The default is 200. */
   readonly maxDepth?: number;
@@ -128,6 +157,8 @@ export interface TraceNode {
   readonly scope: Readonly<Record<string, Json>>;
   /** The capabilities that the document had when its evaluation started. */
   readonly caps: readonly string[];
+  /** A short text for the root `self` when the evaluation started. */
+  readonly self: string;
   /** The time of the start. Each start and each end takes one tick. */
   readonly enter: number;
   /** The time of the end. */
@@ -157,11 +188,17 @@ interface Building {
   names: readonly string[];
   scope: Readonly<Record<string, Json>>;
   caps: readonly string[];
+  self: string;
   enter: number;
   exit: number;
   result: Result;
   children: Building[];
   effects: number[];
+}
+
+function selfLabel(self: Thing): string {
+  if (isHostThing(self)) return self.label;
+  return self === null ? "none" : JSON.stringify(self).slice(0, 40);
 }
 
 const NO_ANSWER: Answer = { verb: "eval", error: "no-answer", steps: [] };
@@ -195,9 +232,10 @@ export function evaluate(machine: Machine, doc: Json, context: Context = makeCon
       declared: envelope === undefined,
       answer: NO_ANSWER,
       side: "derive",
-      names: [...ctx.names.keys()],
-      scope: Object.fromEntries(ctx.names),
-      caps: [...ctx.caps],
+      names: Object.keys(ctx.names),
+      scope: ctx.names,
+      caps: ctx.caps,
+      self: selfLabel(ctx.self),
       enter: tick,
       exit: tick,
       result: fail("#NOEVAL", "The evaluation did not end."),
@@ -221,17 +259,17 @@ export function evaluate(machine: Machine, doc: Json, context: Context = makeCon
 
     const answer = ask(machine.world, envelope ?? {}, "eval", declared === undefined ? {} : { declaredType: declared });
     node.answer = answer;
-    const kind = kindNamed(machine.world, doc.type);
+    const kind = kindOf(machine.world, doc.type);
     node.side = kind?.side ?? "derive";
-    if (answer.error === "unknown-kind") return finish(fail("#KIND?", `The world has no kind ${doc.type}.`));
+    if (answer.error === "unknown-kind") return finish(fail("#KIND?", `The world has no kind ${typeName(doc.type)}.`));
     const name = answer.evaluator;
     const code = name !== undefined && Object.hasOwn(machine.evaluators, name) ? machine.evaluators[name] : undefined;
     if (name === undefined || code === undefined) {
-      return finish(fail("#NOEVAL", `No rung gives an evaluator for ${doc.type}.`));
+      return finish(fail("#NOEVAL", `No rung gives an evaluator for ${typeName(doc.type)}.`));
     }
 
     const split = splitParts(kind?.parts, doc.value);
-    if (!split.ok) return finish(fail("#VALUE!", `${split.reason} The kind is ${doc.type}.`));
+    if (!split.ok) return finish(fail("#VALUE!", `${split.reason} The kind is ${typeName(doc.type)}.`));
     const parts: Part[] = split.parts.map((slot) => {
       const header = fromJson(slot.item);
       return {
@@ -243,11 +281,13 @@ export function evaluate(machine: Machine, doc: Json, context: Context = makeCon
     const data = split.data;
 
     const input: EvalInput = {
+      kind: typeName(doc.type),
       data,
       parts,
       context: ctx,
+      resolve: (steps: readonly Json[]) => resolve(machine, ctx, steps),
       effect: (effectKind: string, payload: Json) => {
-        if (!ctx.caps.has(effectKind)) {
+        if (!ctx.caps.includes(effectKind)) {
           return fail("#CAP!", `The context has no capability for the effect ${effectKind}.`);
         }
         const index = effects.length;
@@ -273,13 +313,15 @@ export function evaluate(machine: Machine, doc: Json, context: Context = makeCon
     names: [],
     scope: {},
     caps: [],
+    self: "none",
     enter: 0,
     exit: 0,
     result: ok(null),
     children: [],
     effects: [],
   };
-  const result = visit(doc, [], declaredType, context, holder);
+  const rootContext: Context = context.world === null ? { ...context, world: worldThing(machine.world) } : context;
+  const result = visit(doc, [], declaredType, rootContext, holder);
   const root = holder.children[0];
   if (root === undefined) throw new Error("The evaluation made no trace.");
   return { result, trace: root, effects, time: tick };

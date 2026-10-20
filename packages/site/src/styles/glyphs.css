@@ -340,7 +340,7 @@
 
 .cv-slot {
   display: grid;
-  grid-template-columns: 2.8rem auto;
+  grid-template-columns: minmax(2.8rem, max-content) auto;
   gap: 0.4rem;
   align-items: center;
 }
@@ -1108,4 +1108,142 @@
 .cv-cell[data-lit="true"] .cv-cell-count {
   color: var(--ce-derive);
   font-weight: 700;
+}
+
+/* ---------------------------------------------------------------------------------------- paths */
+
+.cv-path {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.cv-path-root {
+  padding: 0.05rem 0.45rem;
+  border: 1.5px solid var(--part);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--part) 14%, var(--color-surface));
+  color: var(--part);
+  font-weight: 700;
+}
+
+.cv-path-step {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.cv-path-step::before,
+.cv-path-doc::before {
+  content: "›";
+  margin-right: 0.3rem;
+  color: var(--color-ink-muted);
+  font-weight: 400;
+}
+
+.cv-path-doc {
+  display: inline-flex;
+  align-items: center;
+}
+
+.cv-path-doc .cv-card {
+  min-width: 7rem;
+  margin-block: 0.8rem 0.5rem;
+}
+
+/* ---------------------------------------------------------------------------------- the walk */
+
+.cv-roots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.cv-root {
+  padding: 0.15rem 0.7rem;
+  border: 1.5px dashed var(--part);
+  border-radius: 999px;
+  color: var(--part);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  opacity: 0.55;
+}
+
+.cv-root[data-lit="true"] {
+  border-style: solid;
+  background: color-mix(in srgb, var(--part) 14%, var(--color-surface));
+  font-weight: 700;
+  opacity: 1;
+}
+
+.cv-hops {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0 0 0 0.9rem;
+  border-left: 3px double var(--color-rule-strong);
+  list-style: none;
+}
+
+.cv-hop {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 5rem 1.2rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  animation: cv-pop 220ms ease-out;
+}
+
+.cv-hop-step {
+  display: inline-flex;
+  align-items: center;
+}
+
+.cv-path-step-alone::before {
+  content: none;
+}
+
+.cv-hop-by {
+  justify-self: start;
+  padding: 0 0.45rem;
+  border-radius: 4px;
+  background: var(--color-surface-sunken);
+  color: var(--color-ink-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.cv-hop[data-by="own"] .cv-hop-by {
+  background: var(--color-accent-wash);
+  color: var(--color-accent-strong);
+}
+
+.cv-hop[data-by="kind"] .cv-hop-by,
+.cv-hop[data-by="step"] .cv-hop-by {
+  background: color-mix(in srgb, var(--ce-focus) 14%, var(--color-surface));
+  color: var(--ce-focus);
+}
+
+.cv-hop[data-by="collapse"] .cv-hop-by {
+  background: color-mix(in srgb, var(--ce-caps) 14%, var(--color-surface));
+  color: var(--ce-caps);
+}
+
+.cv-hop-arrow {
+  color: var(--color-ink-muted);
+}
+
+.cv-thing {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border: 1.5px solid var(--part, var(--color-rule-strong));
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }

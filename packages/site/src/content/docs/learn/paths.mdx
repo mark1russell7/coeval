@@ -1,29 +1,54 @@
 ---
 title: Paths
-description: Each reference syntax in common use is a list of moves from the place of the reference. Four moves can write all of them.
+description: A reference is a path from a root of the context. Each step is a question to the thing that the path reached. A type is a path into the world.
 tableOfContents: false
 ---
 
 import GlyphKey from "../../../components/GlyphKey.tsx";
-import PathDiagram from "../../../components/PathDiagram.tsx";
+import WalkDiagram from "../../../components/WalkDiagram.tsx";
 
-A reference points at something outside the term: a parent, a part, an earlier step or a field of a value. Languages use many syntaxes for this. Each syntax is a list of moves from the place of the reference.
+A reference is a document of the kind `ref`. Its value is a path: a list that starts with a root of the context, then one step for each hop.
 
-<GlyphKey page={7} />
+```json
+{ "type": "ref", "value": ["names", "cards", "ids", 1] }
+```
 
-| Move | Glyph | What it does |
+<GlyphKey page={9} />
+
+## Five roots
+
+The context is a record with five roots. Each path starts at one of them.
+
+| Root | What it holds | Who sets it |
 | --- | --- | --- |
-| up | ↑ | It goes to the parent in a structure. |
-| down | ↓ | It goes to a named child in a structure. |
-| back | ← | It goes to the nearest earlier binding with a name. |
-| field | • | It goes into a field of a value, or an item of a list. |
+| `self` | The node that the term is part of | A node of a tree sets it for its parts |
+| `names` | The values that the evaluators around the term bound | A sequence adds `last` and the name of each step |
+| `world` | The registry of kinds | The host of the evaluation |
+| `event` | The event that started a run | A handler |
+| `caps` | The effects that the term can cause | Each evaluator gives the same set or a smaller set |
 
-Select a syntax to see it as moves. The walk shows each move in order.
+The evaluators differ in how they change the context for their parts. The references do not differ: each reference is a walk from a root.
 
-<PathDiagram client:visible />
+## Each step is a question
 
-## One grammar
+A step does not carry a meaning of its own. The walk asks the thing that it reached: "what is this key on you?" The question goes up the ladder of the verb `deref`.
 
-A name is also a position. A variable is a path back to the place of its binding. A reference to an earlier step is a path back in a sequence. A reference to a parent is a path up. Thus one grammar of four moves can write each reference that the other pages show.
+- **Own:** a node of a tree answers itself. It answers `parent` with the node that holds it, as any other field.
+- **Kind:** a kind can name a `deref` evaluator for its documents.
+- **Default:** a record answers with a field, and a list answers with an item.
 
-The context gives each move its target. A move up reads the focus. A move back reads the names. A field reads a value. The [context page](../context/) shows the parts of a context.
+A step can also be a document. Then the walker of its kind takes the step. `nearest` is such a kind: it follows `parent` until it reaches a node of a type. It is not special. It is a kind with an evaluator.
+
+After each hop, the walk examines what it reached. When that is a reference, the walk follows it until it reaches something else. This is collapse. A cycle of references gives `#CYCLE!`.
+
+<WalkDiagram client:visible />
+
+## A type is a path too
+
+The type of a document is a reference into the world: `"add"`, or `["math", "product"]`. A namespace groups kinds, and an alias is a reference to another kind. The walk follows an alias by collapse. A text or a list of keys in the field `type` is a base reference that the kernel resolves itself. Thus the chain of types stops there, and it does not expand forever.
+
+The world of a sandbox is smaller. A path that the world cannot resolve gives `#KIND?`. Thus the reach of a term is what its world and its context can name.
+
+## Shorter forms are possible
+
+A language on top of coeval can accept a shorter form, for example the text `$parent.width`. Its evaluator changes the short form into a path. The stored document always has the full path with its root, thus no reader guesses.

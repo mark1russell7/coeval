@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { STD_CAPS, evaluate, makeContext, typed, type Envelope, type Json } from "@coeval/core";
+import { STD_CAPS, evaluate, makeContext, typeName, typed, type Envelope, type Json } from "@mark1russell7/coeval";
 import Evaluated from "../glyphs/Evaluated.tsx";
 import { SITE_MACHINE } from "../glyphs/Explorer.tsx";
 import { View } from "../glyphs/View.tsx";
@@ -26,7 +26,7 @@ export default function SwapDiagram() {
   const [mode, setMode] = useState<Mode>("evaluate");
   const [current, setCurrent] = useState<"A" | "B">("A");
   const part = PARTS.find((item) => item.id === current)?.doc ?? typed("number", 5);
-  const results = PARTS.map((item) => (mode === "evaluate" ? JSON.stringify(Number(valueOf(item.doc)) * 10) : `"${item.doc.type}"`));
+  const results = PARTS.map((item) => (mode === "evaluate" ? JSON.stringify(Number(valueOf(item.doc)) * 10) : `"${typeName(item.doc.type)}"`));
   const same = results[0] === results[1];
   const parent: Json = typed("multiply", [part, 10]);
 
@@ -79,7 +79,7 @@ export default function SwapDiagram() {
               <div className="cv-gallery">
                 <View doc={parent} />
                 <span className="cv-port" data-ok="true" style={{ position: "static" }}>
-                  = “{part.type}”
+                  = “{typeName(part.type)}”
                 </span>
               </div>
             )}

@@ -15,12 +15,11 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D6 | A document is a value in an envelope: `{ type, value }`, with `name` and `own` in the header. A position that declares its type holds a bare value. |
 | D7 | An evaluator gets its parts sealed. A part has no field with its value. |
 | D8 | The site draws each document with the view that the ladder finds. The pictures compose as the documents compose. |
+| D9 | The run side is one language: a call is an envelope whose type is the path of a procedure. |
+| D10 | A reference is a path from a root of the context. Each step is a question through the ladder. A type is a path into the world. Refer to [Paths](../../learn/paths/). |
 | D3 | A schedule is a separate layer. coeval gives the graph of the data and the side of each kind. The engines of the hosts stay in their own projects. |
 | D4 | The repository is public. Its continuous integration runs on GitHub Actions. |
 
 ## Open
 
-| ID | Question | The current proposal |
-| --- | --- | --- |
-| Q2 | Is the run side (the effects) one language for all hosts? | Yes: sequences of calls, with names for the results of earlier steps, and capabilities. |
-| Q4 | Does a path grammar cover names, positions and order? | Yes: a list of four moves from the place of the reference. Refer to [Paths](../../learn/paths/). |
+No question waits on the owner. The roadmap has the work that remains.

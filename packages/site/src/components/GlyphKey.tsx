@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { STD_CAPS, typed, type Json } from "@coeval/core";
+import { STD_CAPS, typed, type Json } from "@mark1russell7/coeval";
 import Evaluated from "../glyphs/Evaluated.tsx";
 import ValueGlyph from "../glyphs/Value.tsx";
 import { View } from "../glyphs/View.tsx";
@@ -39,7 +39,7 @@ const ENTRIES: readonly Entry[] = [
     glyph: () => <Port result={{ ok: false, error: { code: "#NAME?", reason: "The context has no name price." } }} />,
   },
   { id: "name", page: 5, title: "A name tag: a binding for later steps", glyph: () => <View doc={typed("number", 3, { name: "a" })} /> },
-  { id: "ref", page: 5, title: "A reference: back to a name", glyph: () => <View doc={typed("ref", "a")} /> },
+  { id: "ref", page: 5, title: "A reference: a path from a root of the context", glyph: () => <View doc={typed("ref", ["names", "a"])} /> },
   {
     id: "skipped",
     page: 6,
@@ -67,6 +67,27 @@ const ENTRIES: readonly Entry[] = [
     ),
   },
   { id: "cap", page: 7, title: "A capability: an effect that a term can cause", glyph: () => <span className="cv-cap-chip">log</span> },
+  {
+    id: "roots",
+    page: 9,
+    title: "The five roots of a context: each path starts at one",
+    glyph: () => (
+      <span className="cv-roots">
+        <span className="cv-root" data-part="focus" data-lit="true">
+          self
+        </span>
+        <span className="cv-root" data-part="names" data-lit="true">
+          names
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "step",
+    page: 9,
+    title: "A computed step: a document with its own kind",
+    glyph: () => <View doc={typed("ref", ["self", typed("nearest", { type: "panel" }), "width"])} />,
+  },
 ];
 
 /** The props of the glyph key. */
