@@ -24,7 +24,8 @@ export type ExtFn = (data: Json) => Result;
  * - `ext`: the extensions of the namespace `ext`, by their name. The kit has `ext.undefined` and `ext.number`.
  * - `truthy`: the truth of a value for `if`, `and` and `or`. `undefined` is an error `#VALUE!`. The default
  *   accepts only `true` and `false`.
- * - `otherwise`: the value of an `if` without `else`. The default is `null`.
+ * - `otherwise`: the value of an `if` without `else`. The default is `null`. A profile with this key gives its value,
+ *   also `undefined`.
  * - `logic`: what `and` and `or` give: a truth value (the default), or the value that decided.
  * - `omit`: the errors that leave a field out of a `record`, as an absent value.
  * - `missing`: the values that a reference cannot give. Such a value gives `#N/A`.
@@ -150,7 +151,7 @@ export function formulaKinds(): Readonly<Record<string, WorldEntry>> {
  */
 export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record<string, Evaluator>> {
   const truthy = profile.truthy ?? strictTruthy;
-  const otherwise = ok(profile.otherwise ?? null);
+  const otherwise = ok(Object.hasOwn(profile, "otherwise") ? profile.otherwise : null);
   const logicValue = profile.logic === "value";
   const omit = profile.omit;
   const missing = profile.missing;
