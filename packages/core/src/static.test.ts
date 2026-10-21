@@ -130,6 +130,29 @@ describe("references", () => {
     expect(calls).toEqual(["n1.value", "n2"]);
   });
 
+  it("[DEREF.QUICK] a resolution without hops asks a host thing for the keys one time, also from the root world", () => {
+    const calls: string[] = [];
+    const store: HostThing = {
+      [THING]: true,
+      label: "store",
+      deref: () => undefined,
+      toJson: () => null,
+      resolve: (keys) => {
+        calls.push(keys.join("."));
+        if (keys[0] === "r") return { thing: { type: "ref", value: ["names", "x"] } };
+        return keys[0] === "n1" ? { thing: 42 } : undefined;
+      },
+    };
+    const ctx = context({ world: store, names: { s: store, x: 7 } });
+    expect(resolve({ world }, ctx, ["world", "n1", "value"], { hops: false })).toEqual({ ok: true, thing: 42, hops: [] });
+    expect(resolve({ world }, ctx, ["names", "s", "n1"], { hops: false })).toMatchObject({ ok: true, thing: 42 });
+    expect(resolve({ world }, ctx, ["world", "n2"], { hops: false })).toEqual({ ok: false, code: "#N/A", reason: "The path n2 reaches nothing.", hops: [] });
+    expect(calls).toEqual(["n1.value", "n1", "n2"]);
+    expect(resolve({ world }, ctx, ["world", "r"], { hops: false })).toMatchObject({ ok: true, thing: 7 });
+    expect(resolve({ world, plain: true }, ctx, ["world", "r"], { hops: false })).toMatchObject({ ok: true, thing: { type: "ref", value: ["names", "x"] } });
+    expect(resolve({ world }, context({ world: store }), ["world"], { hops: false })).toMatchObject({ ok: true, thing: store });
+  });
+
   it("[TREE.NEAREST-MATCH] a host gives the walker nearest its own test of a type", () => {
     const leaf = { kind: "leaf", up: { kind: "card", name: "c1", up: null } };
     const walker = nearestWalker({ matches: (node, wanted) => (node as { kind?: unknown } | null)?.kind === wanted, maxHops: 8 });

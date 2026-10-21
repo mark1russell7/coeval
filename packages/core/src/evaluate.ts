@@ -445,9 +445,14 @@ export interface EvalOptions {
   readonly effects?: Effect[];
 }
 
+/** The options of a resolution without a record of hops, and with one. One object of each serves each call. */
+const WITHOUT_HOPS: ResolveOptions = Object.freeze({ hops: false });
+const WITH_HOPS: ResolveOptions = Object.freeze({ hops: true });
+
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
-  readonly effects: Effect[];
+  /** The list of the effects. It is made at the first effect, thus an evaluation without effects makes no list. */
+  private list: Effect[] | undefined;
   tick = 0;
   nextId = 0;
   current: Building | undefined;
@@ -461,13 +466,19 @@ class Session implements Runtime {
     readonly signal: StopSignal | undefined,
     effects: Effect[] | undefined,
   ) {
-    this.effects = effects ?? [];
+    this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
   }
 
+  /** The effects of the evaluation, in their order. */
+  get effects(): Effect[] {
+    return (this.list ??= []);
+  }
+
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
-    return resolve(this.machine, ctx, path, { hops: options?.hops ?? this.traced });
+    const hops = options?.hops ?? this.traced;
+    return resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
   }
 
   private permitted(ctx: Context, keys: readonly Key[]): boolean {
@@ -479,8 +490,9 @@ class Session implements Runtime {
     const text = keys.join(".");
     if (!this.permitted(ctx, keys)) return fail("#CAP!", `The context has no capability for the effect ${text}.`, { place });
     const node = this.current;
-    const effect: Effect = { index: this.effects.length, kind: text, path: keys, payload, node: node?.id ?? -1, at: this.tick, place, context: ctx };
-    this.effects.push(effect);
+    const list = this.effects;
+    const effect: Effect = { index: list.length, kind: text, path: keys, payload, node: node?.id ?? -1, at: this.tick, place, context: ctx };
+    list.push(effect);
     if (node !== undefined) node.effects.push(effect.index);
     return effect;
   }
