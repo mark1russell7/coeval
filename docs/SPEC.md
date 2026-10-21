@@ -43,6 +43,10 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | SHAPE.REQUIRED | A value without a field that `required` names, or without the form of its shape, gives a reason and a place. |
 | SHAPE.DEEP | A deep shape makes each envelope at any depth a part, and keeps the rest as data. |
 | SHAPE.PROTO | A field with the name `__proto__` stays a field. It does not change a prototype. |
+| SHAPE.DATA | A data shape gives the type of a value: a text, a number with optional limits, or one of some values. Another value gives a reason and a place. |
+| SHAPE.CLOSED | A closed record shape permits only its named fields. Another field gives a reason and its place. |
+| SHAPE.KINDS | A term shape can name the kinds that it permits. A part whose type does not start with one of them gives a reason. |
+| SHAPE.DISTINCT | A list shape can permit no two equal items. |
 | EVAL.SEALED | An evaluator gets each part sealed. Two parts with the same result can replace each other. |
 | EVAL.FILL | An evaluator can put the result of each part in the place of the part. The data around the parts stays the same objects. |
 
@@ -64,6 +68,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | DEREF.ADOPT | A navigation can adopt each value that a path reaches as a thing, also a value that a `let` binds. |
 | DEREF.HOPS | A resolution can skip the record of its hops. |
 | DEREF.SYMBOL | The brand of a host thing is a global symbol. Two copies of the kernel know the things of each other. |
+| DEREF.WALK-CODE | A walker can give the code of its failure, for example `#REF!` for a position outside a space. The default code is `#N/A`. |
 | TREE.PARENT | A node of a tree reads its parent through the field `parent`. |
 | TREE.NEAREST-SELF | A walk `nearest` with `self: true` starts at the node itself. |
 | TREE.NEAREST-MATCH | A host can give the walker `nearest` its own test of a type and its own limit of hops. |
@@ -139,6 +144,10 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
 | STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. |
+| STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. |
+| STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |
+| STATIC.AT | `check` gives the JSON path of each problem. For a value without its shape, the path goes to the value with the problem. |
+| STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |
 
 ## The formula kit
 
@@ -155,6 +164,10 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | FORMULA.LOGIC | `and` and `or` stop early. A profile can give the value that decided. |
 | FORMULA.OPS | An operation gets the values of its arguments, in order. It stops at the first error. |
 | FORMULA.LAZY | A lazy operation evaluates only the arguments that it needs. |
+| FORMULA.COMBINE | A profile can combine the errors of the parts of an operation, a `record` or a `list`. Then each part evaluates, and one failed part gives its own error. |
+| FORMULA.STEPS | A language can give the kind `ref` a deep shape. Then each step document of a path is a part. The parts evaluate first, in order, and the first error is the result. The walker gets the values. |
+| FORMULA.ADDRESS | A term shape can declare an address. A reference there gives what its path reaches, not its value. Thus a host thing stays a thing. |
+| FORMULA.EXT-CONTEXT | An extension gets the context of its document, for example the position of `self`. |
 | FORMULA.EXT | The standard extensions give the values that JSON cannot write. |
 | FORMULA.DEPTH | A deep formula evaluates up to the limit of the depth. |
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. |

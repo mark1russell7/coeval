@@ -1,6 +1,6 @@
 import { type Json, isRecord } from "./doc.ts";
 import type { Kind, WorldEntry } from "./world.ts";
-import { valueOfThing } from "./deref.ts";
+import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine } from "./evaluate.ts";
 
@@ -13,8 +13,8 @@ export type OpFn = (...args: never[]) => unknown;
  */
 export type LazyOp = (args: readonly (() => Result)[]) => Result;
 
-/** The code of an extension: it gives the value of the data of an extension document. */
-export type ExtFn = (data: Json) => Result;
+/** The code of an extension: it gives the value of the data of an extension document, in the context of the document. */
+export type ExtFn = (data: Json, context: Context) => Result;
 
 /**
  * The rules of one formula language: its operations, and the rules that differ between languages.
@@ -30,6 +30,8 @@ export type ExtFn = (data: Json) => Result;
  * - `omit`: the errors that leave a field out of a `record`, as an absent value.
  * - `missing`: the values that a reference cannot give. Such a value gives `#N/A`.
  * - `check`: a check of the value of an operation, for example "a number must be finite".
+ * - `combine`: the error of two or more failed parts of an operation, a `record` or a `list`. With it, each part
+ *   evaluates, and one failed part gives its own error. Without it, the first error stops the evaluation.
  */
 export interface FormulaProfile {
   readonly ops?: Readonly<Record<string, OpFn>> | ((name: string) => OpFn | undefined);
@@ -41,7 +43,11 @@ export interface FormulaProfile {
   readonly omit?: (error: EvalError) => boolean;
   readonly missing?: (value: unknown) => boolean;
   readonly check?: (value: unknown, op: string) => Result | undefined;
+  readonly combine?: (errors: readonly EvalError[]) => EvalError;
 }
+
+/** The mark of a field that the profile leaves out of a record. */
+const SKIPPED: unique symbol = Symbol("skipped");
 
 /** The value of a name whose binding failed. A reference to the name gives the error. */
 export class Held {
@@ -95,6 +101,17 @@ function setOwn(target: Record<string, unknown>, key: string, value: unknown): v
 
 function compiled(compile: (input: CompileInput) => Code): CompiledEvaluator {
   return { compile };
+}
+
+/** This function evaluates parts in order. It gives the value of each part, or the first error. */
+function valuesOf(parts: readonly CompiledPart[], ctx: Context, rt: Parameters<Code>[1]): unknown[] | Failed {
+  const values = new Array<unknown>(parts.length);
+  for (let index = 0; index < parts.length; index += 1) {
+    const result = (parts[index] as CompiledPart).code(ctx, rt);
+    if (!result.ok) return result;
+    values[index] = result.value;
+  }
+  return values;
 }
 
 function partsOf(value: unknown): Readonly<Record<string, CompiledPart>> {
@@ -168,6 +185,22 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
     return Object.hasOwn(ops, name) ? ops[name] : undefined;
   };
   const notTruth = (what: string): Failed => fail("#VALUE!", `The ${what} must give a truth value.`);
+  const combine = profile.combine;
+  /** This function evaluates each part. Without `combine`, the first error stops it. A field that `omit` skips is absent. */
+  const collect = (parts: readonly CompiledPart[], ctx: Context, rt: Parameters<Code>[1], skip?: (error: EvalError) => boolean): (readonly unknown[]) | Failed => {
+    const values = new Array<unknown>(parts.length);
+    let errors: EvalError[] | undefined;
+    for (let index = 0; index < parts.length; index += 1) {
+      const result = (parts[index] as CompiledPart).code(ctx, rt);
+      if (result.ok) values[index] = result.value;
+      else if (skip !== undefined && skip(result.error)) values[index] = SKIPPED;
+      else if (combine === undefined) return result;
+      else (errors ??= []).push(result.error);
+    }
+    // The errors exist only with combine, so the second test only narrows the type.
+    if (errors === undefined || combine === undefined) return values;
+    return { ok: false, error: errors.length === 1 ? (errors[0] as EvalError) : combine(errors) };
+  };
 
   return {
     "formula.lit": compiled(({ doc }) => {
@@ -175,7 +208,7 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
       return () => result;
     }),
 
-    "formula.ref": compiled(({ doc }) => {
+    "formula.ref": compiled(({ doc, parts, fill, address }) => {
       const path = doc.value;
       if (!Array.isArray(path) || path.length === 0) {
         const bad = fail("#VALUE!", 'The value of ref is a path: a list that starts with a root, for example ["names", "a"].');
@@ -183,17 +216,37 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
       }
       // A path through a name whose binding failed gives the error of the binding.
       const head = path[0] === "names" && typeof path[1] === "string" ? path[1] : undefined;
+      const give = (found: Resolution): Result => {
+        if (!found.ok) return fail(found.code, found.reason);
+        // An address gives what the path reaches: a host thing stays a thing.
+        if (address === true) return ok(found.thing);
+        const reached = valueOfThing(found.thing);
+        if (reached instanceof Held) return { ok: false, error: reached.error };
+        if (missing !== undefined && missing(reached)) return fail("#N/A", "The path reaches no value.");
+        return ok(reached);
+      };
+      // The step documents of a path are its parts when the kind ref has a deep shape. They evaluate first, in order.
+      const computed = parts.length > 0;
       return (ctx, rt) => {
         if (head !== undefined && Object.hasOwn(ctx.names, head)) {
           const bound = ctx.names[head];
           if (bound instanceof Held) return { ok: false, error: bound.error };
         }
-        const found = rt.resolve(ctx, path);
-        if (!found.ok) return fail(found.code, found.reason);
-        const value = valueOfThing(found.thing);
-        if (value instanceof Held) return { ok: false, error: value.error };
-        if (missing !== undefined && missing(value)) return fail("#N/A", "The path reaches no value.");
-        return ok(value);
+        if (!computed) return give(rt.resolve(ctx, path));
+        const steps = valuesOf(parts, ctx, rt);
+        return Array.isArray(steps) ? give(rt.resolve(ctx, fill(steps) as readonly unknown[])) : steps;
+      };
+    }),
+
+    "formula.step": compiled(({ doc, parts, fill }) => {
+      // A step document without parts is its own value. A step document with parts gets the result of each part.
+      if (parts.length === 0) {
+        const same = ok(doc);
+        return () => same;
+      }
+      return (ctx, rt) => {
+        const values = valuesOf(parts, ctx, rt);
+        return Array.isArray(values) ? ok({ ...doc, value: fill(values) as Json }) : values;
       };
     }),
 
@@ -201,6 +254,19 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
       const fields = partsOf(value);
       const keys = Object.keys(fields);
       const codes = keys.map((key) => (fields[key] as CompiledPart).code);
+      if (combine !== undefined) {
+        // With combine, each field evaluates, and two failed fields give one error.
+        const parts = keys.map((key) => fields[key] as CompiledPart);
+        return (ctx, rt) => {
+          const values = collect(parts, ctx, rt, omit);
+          if (!Array.isArray(values)) return values as Failed;
+          const out: Record<string, unknown> = {};
+          keys.forEach((key, index) => {
+            if (values[index] !== SKIPPED) setOwn(out, key, values[index]);
+          });
+          return ok(out);
+        };
+      }
       return (ctx, rt) => {
         const out: Record<string, unknown> = {};
         for (let index = 0; index < keys.length; index += 1) {
@@ -216,13 +282,8 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
     }),
 
     "formula.list": compiled(({ parts }) => (ctx, rt) => {
-      const out = new Array<unknown>(parts.length);
-      for (let index = 0; index < parts.length; index += 1) {
-        const result = (parts[index] as CompiledPart).code(ctx, rt);
-        if (!result.ok) return result;
-        out[index] = result.value;
-      }
-      return ok(out);
+      const values = collect(parts, ctx, rt);
+      return Array.isArray(values) ? ok(values) : (values as Failed);
     }),
 
     "formula.let": compiled(({ value }) => {
@@ -340,6 +401,17 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
       }
       const done = (out: unknown): Result => (check === undefined ? ok(out) : (check(out, name) ?? ok(out)));
       const failed = (error: unknown): Result => thrown(error, `the operation ${name}`);
+      if (combine !== undefined) {
+        return (ctx, rt) => {
+          const values = collect(parts, ctx, rt);
+          if (!Array.isArray(values)) return values as Failed;
+          try {
+            return done(fn(...values));
+          } catch (error) {
+            return failed(error);
+          }
+        };
+      }
       if (parts.length === 1) {
         const [a] = parts as readonly [CompiledPart];
         return (ctx, rt) => {
@@ -389,9 +461,9 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
         const unknown = fail("#NAME?", `The language has no extension ${name}.`);
         return () => unknown;
       }
-      return () => {
+      return (ctx) => {
         try {
-          return handler(doc.value);
+          return handler(doc.value, ctx);
         } catch (error) {
           return thrown(error, `the extension ${name}`);
         }
