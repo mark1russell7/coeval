@@ -259,14 +259,21 @@ function mayBeRef(thing: unknown): boolean {
   return typeof thing === "object" && thing !== null && (thing as { readonly type?: unknown }).type === "ref";
 }
 
+/** This function tells if each step of a path from an index is a key. */
+function keysFrom(path: readonly unknown[], start: number): boolean {
+  for (let index = start; index < path.length; index += 1) if (!isKey(path[index])) return false;
+  return true;
+}
+
 /**
- * This function resolves the common path without a record of hops: a root, then keys, through plain values. It
- * gives `undefined` when the path needs the full algorithm. Examples are a host thing, an envelope, a reference to
- * follow, a step document and a failure (for its exact reason).
+ * This function resolves the common path without a record of hops: a root, then keys. Plain values answer the
+ * keys, or a host thing answers all of them in one call. It gives `undefined` when the path needs the full
+ * algorithm. Examples are a host thing without `resolve`, an envelope, a reference to follow, a step document and a
+ * failure of a step (for its exact reason).
  */
 function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): Resolution | undefined {
   const root = path[0];
-  if (root !== "names" && root !== "self" && root !== "event") return undefined;
+  if (root !== "names" && root !== "self" && root !== "event" && root !== "world") return undefined;
   if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return undefined;
   if (nav.adopt !== undefined) return undefined;
   let here: unknown = ctx[root];
@@ -274,7 +281,15 @@ function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): R
   for (let index = 1; index < path.length; index += 1) {
     if (typeof here !== "object" || here === null) return undefined;
     if (!plain && mayBeRef(here)) return undefined;
-    if ((here as Partial<HostThing>)[THING] === true) return undefined;
+    if ((here as Partial<HostThing>)[THING] === true) {
+      const thing = here as HostThing;
+      if (thing.resolve === undefined || !keysFrom(path, index)) return undefined;
+      const keys = path.slice(index) as readonly Key[];
+      const reached = thing.resolve(keys);
+      if (reached === undefined) return { ok: false, code: "#N/A", reason: `The path ${keys.join(".")} reaches nothing.`, hops: NO_HOPS };
+      if (!plain && mayBeRef(reached.thing)) return undefined;
+      return { ok: true, thing: reached.thing, hops: NO_HOPS };
+    }
     const step = path[index];
     if (Array.isArray(here)) {
       if (typeof step !== "number" || !Number.isInteger(step) || step < 0 || step >= here.length) return undefined;
