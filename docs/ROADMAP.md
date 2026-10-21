@@ -59,6 +59,8 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | M5 | Overrides: each override names its target with a path, not with a dotted text | done (2026-10-20) | M2 |
 | M6 | Trees: each node of a tree of components is an envelope | done (2026-10-20) | M4, M5 |
 | M7 | The program format of procedures: a call is an envelope, and a reference is a path (D9, D10) | in progress (done on a branch, the push waits) | K4 |
-| M8 | An adapter for the addresses of a formula language: its moves become paths | later | K4 |
-| M9 | The first npm release of `@mark1russell7/coeval` | waiting (the owner bootstraps the new package) | |
+| M8 | An adapter for the addresses of a formula language: its moves become paths | in progress (the rules are D12) | K4 |
+| M10 | The reactive formula language reads and writes documents (D12) | in progress | D12 |
+| M11 | The formula language of positions reads and writes documents (D12) | in progress | D12 |
+| M9 | The first npm release of `@mark1russell7/coeval` | done (2026-10-21, version 0.1.0) | |
 
