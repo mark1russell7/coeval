@@ -96,6 +96,7 @@ export {
 export { type Classification, type Shape, classify, tag } from "./classify.ts";
 export { type PartSlot, type Split, pathMatches, splitParts } from "./parts.ts";
 export {
+  type AllOptions,
   type Code,
   type CompileInput,
   type CompiledEvaluator,

@@ -90,10 +90,14 @@ export type Alias = { readonly type: "ref"; readonly value: readonly Json[] };
 /** One entry of the world: a kind, a namespace, or an alias. */
 export type WorldEntry = Kind | Namespace | Alias;
 
-/** A world holds the kinds and the defaults that answer the questions. */
+/**
+ * A world holds the kinds and the defaults that answer the questions. `fallback` is the kind of each first key that
+ * the world does not have. A world with a fallback is open: each path that starts with an unknown key names a kind.
+ */
 export interface World {
   readonly kinds: Readonly<Record<string, WorldEntry>>;
   readonly defaults: Readonly<Record<string, string>>;
+  readonly fallback?: Kind;
 }
 
 /** The result of a lookup of a type in the world. */
@@ -139,7 +143,8 @@ function entryAt(entries: Readonly<Record<string, WorldEntry>>, key: Key): World
 /**
  * This function finds the kind that a type names. It walks the path from the root of the world, one key at a
  * time. An alias on the way is followed until a kind answers (collapse). A cycle of aliases stops the lookup. In a
- * namespace with a fallback, a key that the namespace does not have gets the fallback kind.
+ * namespace with a fallback, a key that the namespace does not have gets the fallback kind. In an open world, a first
+ * key that the world does not have gets the fallback kind of the world.
  *
  * @param world - The world.
  * @param type - The reference to the type.
@@ -152,7 +157,7 @@ export function lookupKind(world: World, type: TypeRef): Lookup {
   let aliases = 0;
   for (;;) {
     let entries = world.kinds;
-    let fallback: Kind | undefined;
+    let fallback: Kind | undefined = world.fallback;
     let entry: WorldEntry | undefined;
     let followed = false;
     for (let index = 0; index < path.length; index += 1) {

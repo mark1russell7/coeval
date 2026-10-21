@@ -29,6 +29,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | WORLD.EXPANDED | A type can be the expanded form: a reference document from the root `world`. |
 | WORLD.NO-KIND | A path that reaches no kind gives `#KIND?`. |
 | WORLD.FALLBACK | A namespace with a fallback gives the fallback kind for each key that it does not have. |
+| WORLD.OPEN | A world with a fallback gives the fallback kind for each first key that it does not have. |
 | CLASSIFY.SPECIFIC | A classifier proposes the kind of the most specific shape. |
 | CLASSIFY.AMBIGUOUS | A classifier reports two shapes that match equally well. |
 | CLASSIFY.NONE | A classifier reports a value that no shape matches. |
@@ -43,6 +44,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | SHAPE.DEEP | A deep shape makes each envelope at any depth a part, and keeps the rest as data. |
 | SHAPE.PROTO | A field with the name `__proto__` stays a field. It does not change a prototype. |
 | EVAL.SEALED | An evaluator gets each part sealed. Two parts with the same result can replace each other. |
+| EVAL.FILL | An evaluator can put the result of each part in the place of the part. The data around the parts stays the same objects. |
 
 ## References
 
@@ -105,6 +107,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | RUN.EFFECT | An effect has its kind, its keys, its place and its context. |
 | RUN.CAUSE | An error of the host stays the cause of the error value. |
 | RUN.ALL | Parts can run at the same time, with a limit. The results keep the order of the parts. |
+| RUN.FAIL-FAST | With `failFast`, the first failed part stops the parts at the same time. The later parts do not start, and the results come at once. |
 | RUN.ABORT | A run stops with `#ABORT` when the host aborts it. |
 | SEQ.LAST | A sequence gives the result of the step before under the name `last`. |
 | SEQ.NAMES | A sequence gives the result of a named step to the later steps. |

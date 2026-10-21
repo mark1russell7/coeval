@@ -217,6 +217,116 @@ describe("the run side", () => {
     expect(order).toEqual(["slow", "fast"]);
   });
 
+  it("[RUN.FAIL-FAST] with failFast, the first failure stops the parts, and the results come at once", async () => {
+    const started: string[] = [];
+    const finished: string[] = [];
+    const fast: Runner = function* ({ parts, all }): Steps {
+      const results = yield* all(parts, { concurrency: 2, failFast: true });
+      return ok(results.map((result) => (result.ok ? result.value : result.error.code)));
+    };
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, fast: { verbs: { eval: "fast" }, parts: { shape: "list" } } } },
+      runners: { ...STD_MACHINE.runners, fast },
+    };
+    const doc = {
+      type: "fast",
+      value: [
+        { type: "seq", value: [{ type: "log", value: ["slow"] }, { type: "log", value: ["after slow"] }] },
+        { type: "log", value: ["boom"] },
+        { type: "log", value: ["later"] },
+      ],
+    };
+    const begin = Date.now();
+    const done = await prepare(machine, doc).run(makeContext({}, STD_CAPS), {
+      perform: async (effect) => {
+        const text = String(effect.payload);
+        started.push(text);
+        await waiter(text === "slow" ? 200 : 1, null);
+        if (text === "boom") throw new Error("boom");
+        finished.push(text);
+        return text;
+      },
+    });
+    expect(done).toEqual({ ok: true, value: ["#ABORT", "#CALC!", "#ABORT"] });
+    expect(Date.now() - begin).toBeLessThan(150);
+    expect(started).toEqual(["slow", "boom"]);
+    await waiter(250, null);
+    // The part that ran stopped at its wait: its next step did not start
+    expect(started).toEqual(["slow", "boom"]);
+    expect(finished).toEqual(["slow"]);
+  });
+
+  it("[RUN.FAIL-FAST] without failFast, a failure does not stop the other parts", async () => {
+    const all: Runner = function* ({ parts, all: drive }): Steps {
+      const results = yield* drive(parts, { concurrency: 1 });
+      return ok(results.map((result) => (result.ok ? result.value : result.error.code)));
+    };
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, each: { verbs: { eval: "each" }, parts: { shape: "list" } } } },
+      runners: { ...STD_MACHINE.runners, each: all },
+    };
+    const doc = { type: "each", value: [{ type: "log", value: ["boom"] }, { type: "log", value: ["later"] }] };
+    const done = await prepare(machine, doc).run(makeContext({}, STD_CAPS), {
+      perform: (effect) => {
+        if (effect.payload === "boom") throw new Error("boom");
+        return effect.payload;
+      },
+    });
+    expect(done).toEqual({ ok: true, value: ["#CALC!", "later"] });
+  });
+
+  it("[EVAL.FILL] an evaluator puts the result of each part in its place, and the data stays the same objects", () => {
+    const shared = { big: [1, 2, 3] };
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, data: { verbs: { eval: "data" }, parts: { shape: "deep" } } } },
+      evaluators: {
+        ...STD_MACHINE.evaluators,
+        data: ({ parts, fill }) => {
+          const results = parts.map((part) => part.evaluate());
+          const bad = results.find((result) => !result.ok);
+          return bad ?? ok(fill(results.map((result) => (result as { value: unknown }).value)));
+        },
+      },
+    };
+    const value = JSON.parse('{"__proto__": {"type": "add", "value": [1, 2]}, "list": [0, {"type": "add", "value": [3, 4]}]}') as Record<string, unknown>;
+    value["shared"] = shared;
+    const result = prepare(machine, { type: "data", value }).evaluate();
+    expect(result.ok).toBe(true);
+    const out = (result as { value: Record<string, unknown> }).value;
+    expect(Object.hasOwn(out, "__proto__")).toBe(true);
+    expect(out["__proto__"]).toBe(3);
+    expect(out["list"]).toEqual([0, 7]);
+    expect(out["shared"]).toBe(shared);
+    // A document without parts gives its value itself
+    const plain = { a: 1 };
+    expect(prepare(machine, { type: "data", value: plain }).evaluate()).toEqual({ ok: true, value: plain });
+  });
+
+  it("[EVAL.FILL] a runner fills its value too", async () => {
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, data: { verbs: { eval: "data" }, parts: { shape: "deep" } } } },
+      runners: {
+        ...STD_MACHINE.runners,
+        data: function* ({ parts, fill }): Steps {
+          const values: unknown[] = [];
+          for (const part of parts) {
+            const result = yield* part.evaluate();
+            if (!result.ok) return result;
+            values.push(result.value);
+          }
+          return ok(fill(values));
+        },
+      },
+    };
+    const doc = { type: "data", value: { a: { type: "log", value: ["x"] }, b: "kept" } };
+    const done = await prepare(machine, doc).run(makeContext({}, STD_CAPS), { perform: () => "logged" });
+    expect(done).toEqual({ ok: true, value: { a: "logged", b: "kept" } });
+  });
+
   it("[RUN.ABORT] a run stops with #ABORT when the host aborts", async () => {
     const controller = new AbortController();
     const doc = { type: "seq", value: [{ type: "log", value: ["a"] }, { type: "log", value: ["b"] }] };
