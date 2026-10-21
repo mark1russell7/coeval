@@ -115,7 +115,7 @@ export function EffectsLog({ effects, tick }: EffectsLogProps) {
             <li key={effect.index} className="cv-ticket">
               <span className="cv-ticket-number">{effect.index + 1}</span>
               <span className="cv-ticket-kind">{effect.kind}</span>
-              <ValueGlyph value={effect.payload} />
+              <ValueGlyph value={effect.payload as Json} />
             </li>
           ))}
         </ol>

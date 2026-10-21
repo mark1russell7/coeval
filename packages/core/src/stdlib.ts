@@ -1,5 +1,5 @@
 import { type Json, type Key, field, isRecord } from "./doc.ts";
-import { type Context, type Evaluator, type Machine, type Part, type Result, type RunPart, type Runner, fail, ok } from "./evaluate.ts";
+import { type Context, type Evaluator, type Machine, type Part, type Result, type RunPart, type Runner, type Steps, fail, ok } from "./evaluate.ts";
 import { type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
 
@@ -60,6 +60,10 @@ export const STD_WORLD: World = {
     seq: {
       verbs: { eval: "control.seq", view: "view.seq" },
       parts: { shape: "list" },
+      scope: [
+        { names: { headers: true }, in: [["*"]], sequential: true },
+        { names: { fixed: ["last"] }, in: [["*"]], sequential: true },
+      ],
       summary: "Its steps, in order. The result of a named step is a name for the later steps.",
     },
     pure: {
@@ -83,12 +87,12 @@ export const STD_WORLD: World = {
   defaults: { view: "view.card" },
 };
 
-function isNumber(value: Json): value is number {
+function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
 /** This function evaluates each part, collects the errors, and gives the values when no part failed. */
-function allValues(results: readonly Result[]): { readonly values: readonly Json[] } | { readonly error: Result } {
+function allValues(results: readonly Result[]): { readonly values: readonly unknown[] } | { readonly error: Result } {
   const errors = results.filter((result) => !result.ok);
   const first = errors[0];
   if (first !== undefined && errors.length === 1) return { error: first };
@@ -96,7 +100,7 @@ function allValues(results: readonly Result[]): { readonly values: readonly Json
   return { values: results.map((result) => (result.ok ? result.value : null)) };
 }
 
-function numbers(values: readonly Json[], kind: string): readonly number[] | Result {
+function numbers(values: readonly unknown[], kind: string): readonly number[] | Result {
   const bad = values.findIndex((value) => !isNumber(value));
   if (bad !== -1) return fail("#VALUE!", `Part ${bad} of ${kind} is not a number.`);
   return values.filter(isNumber);
@@ -139,11 +143,8 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     if (!Array.isArray(data) || data.length === 0) {
       return fail("#VALUE!", "The value of ref is a path: a list that starts with a root, for example [\"names\", \"a\"].");
     }
-    const path: readonly Json[] = data;
-    const found = resolve(path);
-    if (found.ok) return ok(valueOfThing(found.thing));
-    if (path[0] === "names" && found.hops.length === 1) return fail("#NAME?", `The context has no name ${String(path[1])}.`);
-    return fail(found.code, found.reason);
+    const found = resolve(data as readonly Json[]);
+    return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
   },
   "tree.node": (input) => treeNode(input.parts, input.context, input.kind),
 };
@@ -173,8 +174,8 @@ function treeNode(parts: readonly Part[], context: Context, type: string): Resul
       const result = read(String(key));
       return result?.ok === true ? result.value : undefined;
     },
-    toJson(): Json {
-      const out: Record<string, Json> = {};
+    toJson(): unknown {
+      const out: Record<string, unknown> = {};
       for (const part of parts) {
         const result = read(part.key);
         out[part.key] = result?.ok === true ? result.value : null;
@@ -182,7 +183,7 @@ function treeNode(parts: readonly Part[], context: Context, type: string): Resul
       return out;
     },
   };
-  const out: Record<string, Json> = {};
+  const out: Record<string, unknown> = {};
   for (const part of parts) {
     const result = read(part.key);
     if (result === undefined) continue;
@@ -192,31 +193,57 @@ function treeNode(parts: readonly Part[], context: Context, type: string): Resul
   return ok(out);
 }
 
+/** The options of a walker `nearest`. */
+export interface NearestOptions {
+  /**
+   * This function tells if a node has the wanted type. The default compares the field `type` of a host thing.
+   *
+   * @param node - The node that the walk reached.
+   * @param wanted - The type that the step document asks for.
+   * @returns `true` when the node has the type.
+   */
+  readonly matches?: (node: Thing, wanted: Json | undefined) => boolean;
+  /** The most hops of one walk. The default is 256. */
+  readonly maxHops?: number;
+}
+
+function hostType(node: Thing, wanted: Json | undefined): boolean {
+  return isHostThing(node) && (node as { readonly type?: unknown }).type === wanted;
+}
+
 /**
- * The walker of `nearest`: it follows a key (the default is `parent`) until the node that it reaches has the
- * wanted type. With `self: true`, the node where the walk starts is the first candidate. A node without that key
- * ends the walk with an error.
+ * This function makes a walker `nearest`. The walker follows a key (the default is `parent`) until the node that it
+ * reaches has the wanted type. With `self: true`, the node where the walk starts is the first candidate. A node
+ * without that key ends the walk with an error.
+ *
+ * @param options - The test of a type and the most hops.
+ * @returns The walker.
  */
-const nearest: Walker = ({ data, here, deref }) => {
-  const follow = isRecord(data) && typeof field(data, "follow") === "string" ? String(field(data, "follow")) : "parent";
-  const wanted = isRecord(data) ? field(data, "type") : undefined;
-  const fromSelf = isRecord(data) && field(data, "self") === true;
-  let at: Thing | undefined = here;
-  for (let hops = 0; hops < 256; hops += 1) {
-    if (hops > 0 || !fromSelf) at = at === undefined || at === null ? undefined : deref(at, follow);
-    if (at === undefined || at === null) return { ok: false, reason: `No node of the type ${String(wanted)} is on the way.` };
-    const type = isHostThing(at) ? (at as { readonly type?: unknown }).type : undefined;
-    if (type === wanted) return { ok: true, thing: at };
-  }
-  return { ok: false, reason: "The walk is too long." };
-};
+export function nearestWalker(options: NearestOptions = {}): Walker {
+  const matches = options.matches ?? hostType;
+  const maxHops = options.maxHops ?? 256;
+  return ({ data, here, deref }) => {
+    const follow = isRecord(data) && typeof field(data, "follow") === "string" ? String(field(data, "follow")) : "parent";
+    const wanted = isRecord(data) ? field(data, "type") : undefined;
+    const fromSelf = isRecord(data) && field(data, "self") === true;
+    let at: Thing | undefined = here;
+    for (let hops = 0; hops < maxHops; hops += 1) {
+      if (hops > 0 || !fromSelf) at = at === undefined || at === null ? undefined : deref(at, follow);
+      if (at === undefined || at === null) return { ok: false, reason: `No node of the type ${String(wanted)} is on the way.` };
+      if (matches(at, wanted)) return { ok: true, thing: at };
+    }
+    return { ok: false, reason: "The walk is too long." };
+  };
+}
+
+const nearest: Walker = nearestWalker();
 
 /** The walkers of the standard world, by name. */
 export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest };
 
 /** This function evaluates parts one after the other, and stops at the first error. */
-function* inOrder(parts: readonly RunPart[]): Generator<Promise<Result>, { readonly values: readonly Json[] } | { readonly error: Result }, Result> {
-  const values: Json[] = [];
+function* inOrder(parts: readonly RunPart[]): Generator<Promise<unknown>, { readonly values: readonly unknown[] } | { readonly error: Result }, unknown> {
+  const values: unknown[] = [];
   for (const part of parts) {
     const result = yield* part.evaluate();
     if (!result.ok) return { error: result };
@@ -230,9 +257,9 @@ function* inOrder(parts: readonly RunPart[]): Generator<Promise<Result>, { reado
  * order. In a run, an effect ends before the next step starts.
  */
 export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
-  "control.seq": function* ({ parts, context }) {
-    let names: Record<string, Json> = { ...context.names };
-    let last: Json = null;
+  "control.seq": function* ({ parts, context }): Steps {
+    let names: Record<string, unknown> = { ...context.names };
+    let last: unknown = null;
     for (const part of parts) {
       const result = yield* part.evaluate({ ...context, names });
       if (!result.ok) return result;

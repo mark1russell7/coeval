@@ -14,7 +14,7 @@ type Mode = "evaluate" | "inspect";
 
 function valueOf(doc: Envelope): Json {
   const run = evaluate(SITE_MACHINE, doc, makeContext({}, STD_CAPS));
-  return run.result.ok ? run.result.value : null;
+  return run.result.ok ? (run.result.value as Json) : null;
 }
 
 /**

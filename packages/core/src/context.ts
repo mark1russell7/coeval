@@ -2,7 +2,7 @@ import type { Envelope } from "./doc.ts";
 import type { Side } from "./ladder.ts";
 
 /** The parts of a context. A term can reach outside itself only through these parts. */
-export const PARTS = ["names", "focus", "world", "event", "caps"] as const;
+export const PARTS = ["self", "names", "world", "event", "caps"] as const;
 
 /** One part of a context. */
 export type Part = (typeof PARTS)[number];
@@ -20,17 +20,18 @@ export interface PartInfo {
 /** The descriptions of the parts, in the order of `PARTS`. */
 export const PART_INFO: readonly PartInfo[] = [
   {
+    part: "self",
+    title: "Self",
+    reaches: "A position in a structure: the node itself, its parent, its children or its siblings.",
+    direction: "Any direction that a move permits: up, down or to the side.",
+  },
+  {
     part: "names",
     title: "Names",
     reaches: "The values that a binding gives: a let, a parameter, or the result of an earlier step.",
     direction: "Back, to the place where the program binds the name.",
   },
-  {
-    part: "focus",
-    title: "Focus",
-    reaches: "A position in a structure: the node itself, its parent, its children or its siblings.",
-    direction: "Any direction that a move permits: up, down or to the side.",
-  },
+
   {
     part: "world",
     title: "World",
@@ -90,12 +91,15 @@ export const CONSTRUCTS: readonly Construct[] = [
     side: "derive",
     summary: "A pure formula that gives a value at one position of a structure.",
     example: {
-      type: "formula",
-      value: { let: { gap: 8 }, body: { op: "add", args: [{ ref: "width", at: "parent" }, { var: "gap" }] } },
+      type: "let",
+      value: {
+        bind: { gap: 8 },
+        body: { type: ["ops", "add"], value: [{ type: "ref", value: ["self", "parent", "width"] }, { type: "ref", value: ["names", "gap"] }] },
+      },
     },
     uses: {
       names: { reads: true, gives: "extends", note: "A let binds names for its body." },
-      focus: { reads: true, gives: "moves", note: "A move reads the parent. An axis moves the focus to each target." },
+      self: { reads: true, gives: "moves", note: "A move reads the parent. An axis moves self to each target." },
       world: NONE,
       event: NONE,
       caps: { reads: false, gives: "none", note: "A formula causes no effect, thus its parts get no capability." },
@@ -109,13 +113,13 @@ export const CONSTRUCTS: readonly Construct[] = [
     example: {
       type: "seq",
       value: [
-        { type: "store.find", value: { match: { board: "b1" } }, name: "cards" },
-        { type: "store.patch", value: { ids: { type: "ref", value: "cards.ids" }, set: { done: true } } },
+        { type: ["store", "find"], value: { match: { board: "b1" } }, name: "cards" },
+        { type: ["store", "patch"], value: { ids: { type: "ref", value: ["names", "cards", "ids"] }, set: { done: true } } },
       ],
     },
     uses: {
       names: { reads: true, gives: "extends", note: "The result of each step is a name for the later steps." },
-      focus: NONE,
+      self: NONE,
       world: { reads: true, gives: "same", note: "A step reads and writes the store through a procedure." },
       event: { reads: false, gives: "same", note: "The steps get the event of the run without a change." },
       caps: { reads: true, gives: "narrows", note: "A nested call gets the same capabilities or fewer." },
@@ -128,11 +132,11 @@ export const CONSTRUCTS: readonly Construct[] = [
     summary: "A node of a document tree. Its data and its box go down to its children.",
     example: {
       type: "node",
-      value: { data: { title: "Notes" }, children: [{ type: "text", value: { type: "ref", value: "title" } }] },
+      value: { data: { title: "Notes" }, children: [{ type: "text", value: { type: "ref", value: ["names", "title"] } }] },
     },
     uses: {
       names: { reads: true, gives: "extends", note: "The data of the node becomes a name for its children." },
-      focus: { reads: true, gives: "moves", note: "Each child becomes the focus of its own part." },
+      self: { reads: true, gives: "moves", note: "Each child becomes self for its own part." },
       world: { reads: true, gives: "same", note: "A node can show stored documents." },
       event: NONE,
       caps: NONE,
@@ -143,10 +147,10 @@ export const CONSTRUCTS: readonly Construct[] = [
     title: "Layout rule",
     side: "derive",
     summary: "A rule that gives the box of a child from the box of its parent.",
-    example: { type: "rule", value: { use: "stack", with: { gap: 8 } } },
+    example: { type: ["layouts", "stack"], value: { gap: 8 } },
     uses: {
       names: { reads: true, gives: "none", note: "The rule reads its parameters." },
-      focus: { reads: true, gives: "none", note: "The rule reads the box of the parent and the key of the child." },
+      self: { reads: true, gives: "none", note: "The rule reads the box of the parent and the key of the child." },
       world: NONE,
       event: NONE,
       caps: NONE,
@@ -161,12 +165,12 @@ export const CONSTRUCTS: readonly Construct[] = [
       type: "on",
       value: {
         event: "click",
-        run: { type: "seq", value: [{ type: "card.toggle", value: { id: { type: "ref", value: "event.target" } } }] },
+        run: { type: "seq", value: [{ type: ["card", "toggle"], value: { id: { type: "ref", value: ["event", "target"] } } }] },
       },
     },
     uses: {
       names: { reads: true, gives: "same", note: "The handler reads the names of its place." },
-      focus: { reads: true, gives: "same", note: "The handler knows the node that got the event." },
+      self: { reads: true, gives: "same", note: "The handler knows the node that got the event." },
       world: { reads: true, gives: "same", note: "The run reads and writes the store." },
       event: { reads: true, gives: "sets", note: "The handler gives the event to its run." },
       caps: { reads: true, gives: "narrows", note: "The run gets only the capabilities of the handler." },
@@ -177,10 +181,10 @@ export const CONSTRUCTS: readonly Construct[] = [
     title: "Query",
     side: "derive",
     summary: "A selection of stored documents. A storage adapter decides where it runs.",
-    example: { type: "query", value: { collection: "cards", match: { board: { type: "ref", value: "board" } } } },
+    example: { type: "query", value: { collection: "cards", match: { board: { type: "ref", value: ["names", "board"] } } } },
     uses: {
       names: { reads: true, gives: "none", note: "The query reads its parameters." },
-      focus: NONE,
+      self: NONE,
       world: { reads: true, gives: "none", note: "The query reads one collection." },
       event: NONE,
       caps: NONE,

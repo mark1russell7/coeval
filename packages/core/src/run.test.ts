@@ -4,7 +4,7 @@ import { STD_CAPS, STD_MACHINE, evaluate, makeContext, permits, run, type Effect
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 
 describe("a run", () => {
-  it("waits for each effect, and gives its result to the next step as last", async () => {
+  it("[RUN.SEQ] waits for each effect, and gives its result to the next step as last", async () => {
     const order: string[] = [];
     const out = await run(
       STD_MACHINE,
@@ -33,7 +33,7 @@ describe("a run", () => {
     ]);
   });
 
-  it("does the part before the first wait at once, in the call", () => {
+  it("[RUN.EAGER] does the part before the first wait at once, in the call", () => {
     const seen: string[] = [];
     void run(STD_MACHINE, { type: "log", value: ["now"] }, makeContext({}, STD_CAPS), {
       perform: (effect) => {
@@ -44,7 +44,7 @@ describe("a run", () => {
     expect(seen).toEqual(["now"]);
   });
 
-  it("stops at a failed step, and the later effects do not happen", async () => {
+  it("[RUN.STOP] stops at a failed step, and the later effects do not happen", async () => {
     const performed: string[] = [];
     const out = await run(
       STD_MACHINE,
@@ -62,7 +62,7 @@ describe("a run", () => {
     expect(performed).toEqual(["one"]);
   });
 
-  it("refuses an effect without its capability, and the host does not see it", async () => {
+  it("[RUN.CAP] refuses an effect without its capability, and the host does not see it", async () => {
     let calls = 0;
     const out = await run(STD_MACHINE, { type: "log", value: ["x"] }, makeContext({}, ["write"]), {
       perform: () => {
@@ -74,19 +74,19 @@ describe("a run", () => {
     expect(calls).toBe(0);
   });
 
-  it("refuses an effect inside pure, also in a run", async () => {
+  it("[RUN.PURE] refuses an effect inside pure, also in a run", async () => {
     const out = await run(STD_MACHINE, { type: "pure", value: [{ type: "log", value: ["x"] }] }, makeContext({}, STD_CAPS));
     expect(out.result).toMatchObject({ ok: false, error: { code: "#CAP!" } });
   });
 
-  it("gives the same derived values as an evaluation", async () => {
+  it("[RUN.SAME] gives the same derived values as an evaluation", async () => {
     const doc: Json = { type: "if", value: { test: { type: "greater", value: [3, 2] }, then: { type: "add", value: [1, 2] } } };
     const out = await run(STD_MACHINE, doc, makeContext({}, STD_CAPS));
     expect(out.result).toEqual(evaluate(STD_MACHINE, doc, makeContext({}, STD_CAPS)).result);
     expect(out.result).toEqual({ ok: true, value: 3 });
   });
 
-  it("refuses a step that waits inside a part that cannot wait", async () => {
+  it("[RUN.NESTED-WAIT] refuses a step that waits inside a part that cannot wait", async () => {
     const out = await run(STD_MACHINE, { type: "add", value: [1, { type: "log", value: ["x"] }] }, makeContext({}, STD_CAPS));
     expect(out.result).toMatchObject({ ok: false, error: { code: "#CALC!" } });
     expect(out.effects).toEqual([]);
@@ -94,7 +94,7 @@ describe("a run", () => {
 });
 
 describe("capabilities", () => {
-  it("permit a kind by its name, or by its namespace", () => {
+  it("[CAP.NAMESPACE] permit a kind by its name, or by its namespace", () => {
     expect(permits(["store"], "store.update")).toBe(true);
     expect(permits(["store.update"], "store.update")).toBe(true);
     expect(permits(["store.update"], "store.remove")).toBe(false);

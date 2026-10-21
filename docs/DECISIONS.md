@@ -103,3 +103,21 @@ No question waits on the owner.
   - An axis of a formula language is `{ "type": ["axes", name], "value": { parameters } }`. An extension is `{ "type": ["ext", ...keys], "value": data }`.
 
 **Why.** One document model lets a tool read, check, show and change the terms of each language with one set of code. Each evaluator stays fast and specific to its domain. The rules make a record, a lambda and a reference look the same in each language.
+
+## D13 (2026-10-21): the languages evaluate through the kernel
+
+**Context.** D12 shared only the documents. Each language kept its own reader, evaluator, scope walker, reference walker, checker and error values. The same machinery thus had four copies and four sets of tests. The owner wants one copy, with one set of tests.
+
+**Decision.**
+
+- The kernel holds the machinery that each language needs. A language keeps only what is its own: its text syntax, its operations, its value domains, its spaces and its schedule.
+- `prepare` compiles a document into a plan one time. The ladder, the kinds and the parts are known after that. A plan evaluates many times, with no trace. A trace is an optional pass over the same plan.
+- A value can be any value of the host. A document is JSON, and a result is not always JSON.
+- The contract of a kind tells the shape of its parts and the names that it binds (K2). A part can be at any depth of the value.
+- The static kit reads the contracts: it walks a document, finds its free references, changes them, and checks a document before it runs (K3). Each issue has a place (K5).
+- The formula kit (L4) evaluates the shared constructs: `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and` and `or`. It applies the operations of the namespace `ops` from a table that the language gives. A small profile gives the rules that differ between languages, for example the truthiness of a value.
+- The run side drives parts at the same time and keeps the error of the host. It narrows the capabilities of a part, and it stops when the host aborts.
+- A language can keep a second tier, for example a compiler to loops. That tier reads documents, and the plan of the kernel is its reference.
+- The document form of D12 stays. This decision replaces only its clause "each language keeps its own evaluator".
+
+**Why.** One copy of each rule gives one meaning, and one set of tests proves it. A correction in the kernel corrects each language.

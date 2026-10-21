@@ -70,13 +70,14 @@ export function Port({ result }: { readonly result: Result }) {
       </span>
     );
   }
-  const short = compact(result.value);
+  const value = result.value as Json;
+  const short = compact(value);
   return (
-    <span className="cv-port" data-ok="true" title={`The result of this document: ${JSON.stringify(result.value)}`}>
+    <span className="cv-port" data-ok="true" title={`The result of this document: ${JSON.stringify(value)}`}>
       <span className="cv-port-arrow" aria-hidden="true">
         =
       </span>
-      {short.scalar ? <ValueGlyph value={result.value} /> : <span className="cv-value">{short.text}</span>}
+      {short.scalar ? <ValueGlyph value={value} /> : <span className="cv-value">{short.text}</span>}
     </span>
   );
 }
