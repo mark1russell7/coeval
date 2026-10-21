@@ -14,11 +14,16 @@ export type Side = "derive" | "run";
  * - `record`: the value is a record. Each named field has its shape. A list of names makes each named field a
  *   part. The other fields have the shape `rest` (the default is data). `required` names the fields that must be.
  * - `deep`: each envelope at any depth of the value is a part, and the rest is data.
+ * - `text`, `number` and `one`: the value is data of that type. `one` names the values that it permits.
+ *
+ * A `term` with `address: true` is an address: a reference there gives what its path reaches, not the value. A
+ * `term` with `kinds` permits only a part whose type starts with one of the paths. A `record` with `closed: true`
+ * permits only its named fields. A `list` with `distinct: true` permits no two equal items.
  */
 export type Shape =
   | { readonly shape: "none" }
-  | { readonly shape: "term"; readonly of?: string }
-  | { readonly shape: "list"; readonly of?: string; readonly item?: Shape }
+  | { readonly shape: "term"; readonly of?: string; readonly address?: boolean; readonly kinds?: readonly (readonly Key[])[] }
+  | { readonly shape: "list"; readonly of?: string; readonly item?: Shape; readonly distinct?: boolean }
   | { readonly shape: "map"; readonly of?: string; readonly item?: Shape }
   | {
       readonly shape: "record";
@@ -26,8 +31,12 @@ export type Shape =
       readonly of?: string;
       readonly required?: readonly string[];
       readonly rest?: Shape;
+      readonly closed?: boolean;
     }
-  | { readonly shape: "deep"; readonly of?: string };
+  | { readonly shape: "deep"; readonly of?: string }
+  | { readonly shape: "text" }
+  | { readonly shape: "number"; readonly whole?: boolean; readonly min?: number; readonly max?: number }
+  | { readonly shape: "one"; readonly values: readonly Json[] };
 
 /** The former name of `Shape`. */
 export type PartsSpec = Shape;
@@ -209,6 +218,9 @@ export function entriesAsJson(entries: Readonly<Record<string, WorldEntry>>): Js
 
 function describeShape(shape: Shape | undefined): Json {
   if (shape === undefined || shape.shape === "none") return "none";
+  if (shape.shape === "text") return "a text";
+  if (shape.shape === "number") return "a number";
+  if (shape.shape === "one") return `one of ${JSON.stringify(shape.values)}`;
   if (shape.shape === "term") return `a part${shape.of === undefined ? "" : ` of ${shape.of}`}`;
   if (shape.shape === "deep") return "each document in the value";
   if (shape.shape === "list") return `a list${shape.of === undefined ? "" : ` of ${shape.of}`}`;

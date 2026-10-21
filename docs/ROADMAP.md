@@ -66,6 +66,6 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | M12 | Version 0.2.0 on npm: the kernel that the languages evaluate through (D13) | in progress | K2, K3, L1, L4 |
 | M13 | The reactive formula language evaluates through the formula kit, and its analysis uses the static kit | next | M12 |
 | M14 | The program format of procedures runs on `run`, and its checker uses the static kit | next | M12 |
-| M15 | The formula language of positions reads documents with the static kit, and the kernel is its reference interpreter | next | M12 |
+| M15 | The formula language of positions reads documents with the static kit, and the kernel is its reference interpreter | in progress (the kernel 0.4.0: computed steps, addresses, data contracts and errors that combine) | M12 |
 | M16 | The defs of a user interface: bindings through the formula kit, one world for paths and runs, and checks from the static kit | next | M12 |
 

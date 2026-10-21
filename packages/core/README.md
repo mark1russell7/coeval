@@ -25,14 +25,14 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | Part | Exports | What it does |
 | --- | --- | --- |
 | Documents | `isEnvelope`, `stored`, `typePath`, `docEquals` | The envelope, the keys of a store beside it, and the equality of documents |
-| World | `lookupKind`, `Kind`, `Namespace`, `PartShape`, `ScopeRule` | The kinds, with their contracts: the shape of the parts, the names that a kind binds, and its effects. A namespace can have a fallback kind |
+| World | `lookupKind`, `Kind`, `Namespace`, `PartShape`, `ScopeRule` | The kinds, with their contracts: the shape of the parts, the type of the data, the kinds that a position permits, the names that a kind binds, and its effects. A namespace can have a fallback kind |
 | Ladder | `ask` | The evaluator of a verb: the own entry, then the kind, then the default |
-| References | `resolve`, `HostThing`, `Navigator` | A path from a root of the context: `self`, `names`, `world`, `event` or `caps` |
+| References | `resolve`, `HostThing`, `Navigator` | A path from a root of the context: `self`, `names`, `world`, `event` or `caps`. A step document can have computed parts, and a walker can give the code of its failure |
 | Plans | `prepare`, `planner`, `evaluate`, `run` | A document compiles one time into code. An evaluator is a function or a compiler |
 | The run side | `run`, `Runner`, `permits`, `narrow` | Effects in order, parts at the same time, capabilities that only narrow, and an abort |
 | Errors | `Result`, `EvalError`, `Failure`, `failures` | An error value has a code, a reason, a place and a cause. An evaluation does not throw |
-| The static kit | `walk`, `refsOf`, `mapRefs`, `check` | The documents of a document, its free references, and its problems before a run |
-| The formula kit | `formulaMachine`, `FormulaProfile` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext` |
+| The static kit | `walk`, `refsOf`, `mapRefs`, `check` | The documents of a document in linear time, its free references, and its problems before a run, each with its place and its JSON path |
+| The formula kit | `formulaMachine`, `FormulaProfile` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. An address gives a thing, not its value |
 
 Each rule has an ID in [`docs/SPEC.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://mark1russell7.github.io/coeval/) explains each idea with a live diagram.
 

@@ -207,6 +207,8 @@ export interface CompileInput {
    * @returns The value with the items.
    */
   fill(items: readonly unknown[]): unknown;
+  /** `true` when the position of the document declares an address. A reference there gives the thing, not its value. */
+  readonly address?: boolean;
 }
 
 /**
@@ -246,6 +248,8 @@ export interface EvalInput {
   readonly context: Context;
   /** The keys from the root document to this document. */
   readonly place: readonly Key[];
+  /** `true` when the position of the document declares an address. */
+  readonly address?: boolean;
   /**
    * This function resolves a path from the context of the document.
    *
@@ -847,7 +851,7 @@ function evaluatorOf(world: World, envelope: Envelope | undefined, found: Lookup
 /** The meta of a node of a compilation without a trace. Only a trace reads the meta of a node. */
 const NO_META: Meta = Object.freeze({ path: [], doc: { type: "?", value: null }, declared: false, answer: NO_ANSWER, side: "derive" });
 
-function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number): { readonly code: Code; readonly run: RunCode } {
+function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number, address = false): { readonly code: Code; readonly run: RunCode } {
   const envelope = isEnvelope(value) ? (value as Envelope) : undefined;
   const doc: Envelope = envelope ?? { type: declared ?? "?", value: value as Json };
   const meta0: Meta = c.traced ? { path: place.map(String), doc, declared: envelope === undefined, answer: NO_ANSWER, side: "derive" } : NO_META;
@@ -888,7 +892,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   }
   const parts: CompiledPart[] = split.parts.map((slot) => {
     const item = slot.item;
-    const compiled = compileNode(c, item, place.concat(slot.path), slot.of, depth + 1);
+    const compiled = compileNode(c, item, place.concat(slot.path), slot.of, depth + 1, slot.address === true);
     // The binding name is in the header of an envelope. Most parts have no name, thus the cheap test comes first.
     const header = typeof (item as { readonly name?: unknown } | null)?.name === "string" && isEnvelope(item) ? (item as { readonly name: string }).name : undefined;
     return header === undefined
@@ -906,6 +910,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     place,
     machine: c.machine,
     fill: fillOf(split, doc),
+    ...(address ? { address: true } : {}),
   };
   if (runner !== undefined) {
     const inner: RunCode = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
@@ -971,6 +976,7 @@ function fillOf(split: Extract<Split, { readonly ok: true }>, doc: Envelope): <P
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
   const { kind, typePath, doc, data, place } = input;
+  const address = input.address === true ? { address: true } : {};
   const compiled = input.parts;
   const hasParts = compiled.length > 0;
   return (ctx, rt) => {
@@ -989,6 +995,7 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
       parts,
       context: ctx,
       place,
+      ...address,
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.effect(ctx, effectKind, payload, place),
       fill: input.fill,

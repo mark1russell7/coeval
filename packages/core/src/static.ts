@@ -12,25 +12,33 @@ export interface DocVisit {
   readonly place: readonly Key[];
   /** The keys from the root JSON value to this document. A change at this path changes this document. */
   readonly at: readonly Key[];
+  /** The visit of the document that holds this document as a part. The root has none. */
+  readonly parent?: DocVisit | undefined;
+  /** The keys from the value of the parent to this document: the path of the part. The root has none. */
+  readonly slot: readonly Key[];
   /** The document. A bare value has the type that its position declares. */
   readonly doc: Envelope;
   /** `true` when the type came from the position and not from an envelope. */
   readonly declared: boolean;
   /** The kind of the document, when the world has it. */
-  readonly kind?: Kind;
+  readonly kind?: Kind | undefined;
   /** The keys of the kind after each alias. */
-  readonly typePath?: readonly Key[];
+  readonly typePath?: readonly Key[] | undefined;
   /** The number of documents around this document. The root has 0. */
   readonly depth: number;
   /** The names that the kinds around this document bind for it. */
   readonly names: ReadonlySet<string>;
   /** The names that a sequence around this document binds only for the parts after it. */
   readonly later: ReadonlySet<string>;
+  /** `true` when the position of the document declares an address: a reference there is not a read of a value. */
+  readonly address?: true | undefined;
 }
 
 /** A position that a walk cannot read as a document. */
 export interface WalkProblem {
+  /** The keys from the root document to the document with the problem. */
   readonly place: readonly Key[];
+  /** The keys from the root JSON value to the value with the problem. */
   readonly at: readonly Key[];
   readonly code: "#PART?" | "#VALUE!";
   readonly reason: string;
@@ -120,10 +128,66 @@ function withoutNames(options: WalkOptions): WalkOptions {
   return rest;
 }
 
+/** A path that shares its start with other paths: the keys of one step, and the path before them. */
+interface Trail {
+  readonly up: Trail | undefined;
+  readonly keys: readonly Key[];
+  full?: readonly Key[];
+}
+
+/** This function gives the keys of a trail, from its start. It keeps the result in the trail. */
+function keysOf(trail: Trail | undefined): readonly Key[] {
+  if (trail === undefined) return [];
+  if (trail.full !== undefined) return trail.full;
+  const steps: Trail[] = [];
+  let here: Trail | undefined = trail;
+  while (here !== undefined && here.full === undefined) {
+    steps.push(here);
+    here = here.up;
+  }
+  const keys: Key[] = here?.full === undefined ? [] : [...here.full];
+  for (let index = steps.length - 1; index >= 0; index -= 1) for (const key of (steps[index] as Trail).keys) keys.push(key);
+  trail.full = keys;
+  return keys;
+}
+
+/** A visit with its paths as trails. It makes the keys of a path only when a reader asks for them. */
+class Visit implements DocVisit {
+  readonly #place: Trail | undefined;
+  readonly #at: Trail | undefined;
+
+  constructor(
+    place: Trail | undefined,
+    at: Trail | undefined,
+    readonly doc: Envelope,
+    readonly declared: boolean,
+    readonly depth: number,
+    readonly names: ReadonlySet<string>,
+    readonly later: ReadonlySet<string>,
+    readonly slot: readonly Key[],
+    readonly parent: DocVisit | undefined,
+    readonly kind: Kind | undefined,
+    readonly typePath: readonly Key[] | undefined,
+    readonly address: true | undefined,
+  ) {
+    this.#place = place;
+    this.#at = at;
+  }
+
+  get place(): readonly Key[] {
+    return keysOf(this.#place);
+  }
+
+  get at(): readonly Key[] {
+    return keysOf(this.#at);
+  }
+}
+
 /**
  * This function visits each document of a document: the root and each part at each depth, by the contracts of the
  * kinds. A part of a kind that the world does not have is not visited. The walk uses no stack of the host for the
- * depth, thus a deep document cannot overflow it.
+ * depth, thus a deep document cannot overflow it. The time and the memory of a walk are linear in the size of the
+ * document. A visit makes the keys of its place and of its path only when a reader asks for them.
  *
  * @param world - The world of the kinds.
  * @param doc - The document, as JSON.
@@ -133,61 +197,80 @@ function withoutNames(options: WalkOptions): WalkOptions {
 export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => void | "skip", options: WalkOptions = {}): void {
   interface Item {
     readonly value: unknown;
-    readonly place: readonly Key[];
-    readonly at: readonly Key[];
+    readonly place: Trail | undefined;
+    readonly at: Trail | undefined;
     readonly declared: string | undefined;
     readonly depth: number;
     readonly names: ReadonlySet<string>;
     readonly later: ReadonlySet<string>;
+    readonly address: boolean;
+    readonly slot: readonly Key[];
+    readonly parent: DocVisit | undefined;
   }
-  const names: ReadonlySet<string> = options.names === undefined || options.names.length === 0 ? NO_NAMES : new Set(options.names);
-  const stack: Item[] = [{ value: doc, place: [], at: [], declared: options.declaredType, depth: 0, names, later: NO_NAMES }];
+  const stack: Item[] = [
+    {
+      value: doc,
+      place: undefined,
+      at: undefined,
+      declared: options.declaredType,
+      depth: 0,
+      names: options.names === undefined || options.names.length === 0 ? NO_NAMES : new Set(options.names),
+      later: NO_NAMES,
+      address: false,
+      slot: [],
+      parent: undefined,
+    },
+  ];
   while (stack.length > 0) {
     const item = stack.pop() as Item;
     const envelope = isEnvelope(item.value) ? (item.value as Envelope) : undefined;
     if (envelope === undefined && item.declared === undefined) {
-      options.problem?.({ place: item.place, at: item.at, code: "#PART?", reason: "The value has no envelope, and its position declares no type." });
+      options.problem?.({ place: keysOf(item.place), at: keysOf(item.at), code: "#PART?", reason: "The value has no envelope, and its position declares no type." });
       continue;
     }
     const doc: Envelope = envelope ?? { type: item.declared ?? "?", value: item.value as Json };
     const found = lookupKind(world, doc.type);
     const kind = found.ok ? found.kind : undefined;
-    const seen: DocVisit =
-      kind === undefined
-        ? { place: item.place, at: item.at, doc, declared: envelope === undefined, depth: item.depth, names: item.names, later: item.later }
-        : {
-            place: item.place,
-            at: item.at,
-            doc,
-            declared: envelope === undefined,
-            kind,
-            typePath: found.ok ? found.path : [],
-            depth: item.depth,
-            names: item.names,
-            later: item.later,
-          };
-    const answer = visit(seen);
+    const here = new Visit(
+      item.place,
+      item.at,
+      doc,
+      envelope === undefined,
+      item.depth,
+      item.names,
+      item.later,
+      item.slot,
+      item.parent,
+      kind,
+      found.ok ? found.path : undefined,
+      item.address ? true : undefined,
+    );
+    const answer = visit(here);
     if (answer === "skip" || kind === undefined) continue;
     const split = splitParts(kind.parts, doc.value);
+    const base: Trail | undefined = envelope === undefined ? item.at : { up: item.at, keys: ["value"] };
     if (!split.ok) {
       const at = split.at.length === 0 ? "" : ` (at ${split.at.join(".")})`;
-      options.problem?.({ place: item.place, at: item.at, code: "#VALUE!", reason: `${split.reason}${at} The kind is ${typeName(doc.type)}.` });
+      const where = keysOf({ up: base, keys: split.at });
+      options.problem?.({ place: keysOf(item.place), at: where, code: "#VALUE!", reason: `${split.reason}${at} The kind is ${typeName(doc.type)}.` });
       continue;
     }
     const { sees, later } = scopesOf(kind.scope, doc.value, split.parts);
-    const base = envelope === undefined ? item.at : [...item.at, "value"];
     for (let index = split.parts.length - 1; index >= 0; index -= 1) {
       const slot = split.parts[index] as PartSlot;
       const extra = sees[index] ?? [];
       const hidden = later[index] ?? [];
       stack.push({
         value: slot.item,
-        place: [...item.place, ...slot.path],
-        at: [...base, ...slot.path],
+        place: slot.path.length === 0 ? item.place : { up: item.place, keys: slot.path },
+        at: slot.path.length === 0 ? base : { up: base, keys: slot.path },
         declared: slot.of,
         depth: item.depth + 1,
         names: extra.length === 0 ? item.names : new Set([...item.names, ...extra]),
         later: hidden.length === 0 ? item.later : new Set([...item.later, ...hidden]),
+        address: slot.address === true,
+        slot: slot.path,
+        parent: here,
       });
     }
   }
@@ -195,6 +278,8 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
 
 /** One reference of a document. */
 export interface RefUse {
+  /** The visit of the reference document: its parent, its depth and the names that it sees. */
+  readonly visit: DocVisit;
   /** The place of the reference document, through the parts. */
   readonly place: readonly Key[];
   /** The keys from the root JSON value to the reference document. */
@@ -204,12 +289,14 @@ export interface RefUse {
   readonly root: string;
   /** `false` when a kind around the reference binds its first name. A reference to another root is free. */
   readonly free: boolean;
+  /** `true` when the reference is an address: its position declares it. An address does not read a value. */
+  readonly address: boolean;
 }
 
 /**
  * This function finds each reference of a document: each document of the type `ref` that a walk reaches. A
  * reference to a name that a kind around it binds is not free. The others are what the document reads from
- * outside: its dependencies.
+ * outside: its dependencies. When the kind `ref` has parts, the walk also finds the references in its step documents.
  *
  * @param world - The world of the kinds.
  * @param doc - The document, as JSON.
@@ -229,8 +316,13 @@ export function refsOf(world: World, doc: unknown, options: WalkOptions = {}): r
       const root = typeof path[0] === "string" ? path[0] : "";
       const first = path[1];
       const bound = root === "names" && isKey(first) && v.names.has(String(first));
-      out.push({ place: v.place, at: v.at, path, root, free: !bound });
-      return "skip";
+      // The place and the path of a reference are made only when a reader asks for them.
+      const use = { path, root, free: !bound, address: v.address === true } as RefUse;
+      Object.defineProperty(use, "place", { enumerable: true, get: () => v.place });
+      Object.defineProperty(use, "at", { enumerable: true, get: () => v.at });
+      Object.defineProperty(use, "visit", { enumerable: false, value: v });
+      out.push(use);
+      return undefined;
     },
     rest,
   );
@@ -278,6 +370,8 @@ export interface Issue {
   /** The keys from the root document to the document with the problem. */
   readonly place: readonly Key[];
   readonly reason: string;
+  /** The keys from the root JSON value to the value with the problem. */
+  readonly at?: readonly Key[];
 }
 
 /** The options of a check. */
@@ -319,34 +413,40 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
     doc,
     (v) => {
       if (v.depth > maxDepth) {
-        issues.push({ code: "#DEPTH!", place: v.place, reason: `The nesting is deeper than ${maxDepth} documents.` });
+        issues.push({ code: "#DEPTH!", place: v.place, reason: `The nesting is deeper than ${maxDepth} documents.`, at: v.at });
         return "skip";
       }
       const header = v.declared ? {} : v.doc;
       const answer = ask(machine.world, header, "eval", v.declared ? { declaredType: typeName(v.doc.type) } : {});
       if (answer.error === "unknown-kind") {
-        issues.push({ code: "#KIND?", place: v.place, reason: `The world has no kind ${typeName(v.doc.type)}.` });
+        issues.push({ code: "#KIND?", place: v.place, reason: `The world has no kind ${typeName(v.doc.type)}.`, at: v.at });
         return "skip";
       }
       const name = answer.evaluator;
       if (name === undefined || (!has(machine.evaluators, name) && !has(machine.runners, name))) {
-        issues.push({ code: "#NOEVAL", place: v.place, reason: `No rung gives an evaluator for ${typeName(v.doc.type)}.` });
+        issues.push({ code: "#NOEVAL", place: v.place, reason: `No rung gives an evaluator for ${typeName(v.doc.type)}.`, at: v.at });
       }
       if (options.caps !== undefined && v.kind?.effects !== undefined) {
         const kinds: readonly (readonly Key[])[] = v.kind.effects === "type" ? [v.typePath ?? []] : v.kind.effects.map((kind) => kind.split("."));
         for (const kind of kinds) {
-          if (!permits(options.caps, kind)) issues.push({ code: "#CAP!", place: v.place, reason: `The capabilities do not permit the effect ${kind.join(".")}.` });
+          if (!permits(options.caps, kind)) issues.push({ code: "#CAP!", place: v.place, reason: `The capabilities do not permit the effect ${kind.join(".")}.`, at: v.at });
         }
       }
-      if (!isRef(v.doc)) return undefined;
+      const isPath = isRef(v.doc);
+      if (!isPath && v.typePath?.length === 1 && v.typePath[0] === "ref") {
+        issues.push({ code: "#VALUE!", place: v.place, reason: "The value of ref is a path: a list that starts with a root.", at: [...v.at, ...(v.declared ? [] : ["value"])] });
+      }
+      if (!isPath) return undefined;
       const path = v.doc.value as readonly Json[];
       const root = path[0];
+      // The JSON path of a problem of a path goes to its step.
+      const stepAt = (index: number): readonly Key[] => [...v.at, "value", ...(index < path.length ? [index] : [])];
       if (typeof root !== "string" || !(ROOTS as readonly string[]).includes(root)) {
-        issues.push({ code: "#REF!", place: v.place, reason: `A path starts with a root: ${ROOTS.join(", ")}.` });
+        issues.push({ code: "#REF!", place: v.place, reason: `A path starts with a root: ${ROOTS.join(", ")}.`, at: stepAt(0) });
         return "skip";
       }
       if (!roots.includes(root)) {
-        issues.push({ code: "#REF!", place: v.place, reason: `The root ${root} is not open here. The open roots are ${roots.join(", ")}.` });
+        issues.push({ code: "#REF!", place: v.place, reason: `The root ${root} is not open here. The open roots are ${roots.join(", ")}.`, at: stepAt(0) });
       }
       const first = path[1];
       if (root === ("names" as Root) && !anyName && isKey(first) && !v.names.has(String(first))) {
@@ -355,22 +455,24 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
           code: "#NAME?",
           place: v.place,
           reason: later ? `The name ${String(first)} is bound by a later step.` : `Nothing binds the name ${String(first)}.`,
+          at: stepAt(1),
         });
       }
-      path.slice(1).forEach((step) => {
-        if (isKey(step)) return;
+      path.forEach((step, index) => {
+        if (index === 0 || isKey(step)) return;
         const found = isEnvelope(step) ? lookupKind(machine.world, step.type) : undefined;
         const walker = found?.ok === true && Object.hasOwn(found.kind.verbs, "step") ? found.kind.verbs["step"] : undefined;
         if (walker === undefined || !has(machine.walkers, walker)) {
-          issues.push({ code: "#STEP?", place: v.place, reason: "A step is a key, or a document of a kind with the verb step." });
+          issues.push({ code: "#STEP?", place: v.place, reason: "A step is a key, or a document of a kind with the verb step.", at: stepAt(index) });
         }
       });
-      return "skip";
+      // The step documents of the path are parts when the kind ref has a deep shape. The walk checks them too.
+      return undefined;
     },
     {
       ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
       ...(Array.isArray(options.names) ? { names: options.names } : {}),
-      problem: (problem) => issues.push({ code: problem.code, place: problem.place, reason: problem.reason }),
+      problem: (problem) => issues.push({ code: problem.code, place: problem.place, reason: problem.reason, at: problem.at }),
     },
   );
   return issues;
