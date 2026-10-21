@@ -1,7 +1,7 @@
-import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, isRecord, typeName } from "./doc.ts";
+import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName } from "./doc.ts";
 import { splitParts } from "./parts.ts";
 import { ask, type Answer } from "./ladder.ts";
-import { type Side, lookupKind } from "./world.ts";
+import { type Lookup, type Side, type World, lookupKind } from "./world.ts";
 import { type ErrorCode, type EvalError, type Result, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
@@ -830,23 +830,50 @@ function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly c
   return { code: tracedCode, run: tracedRun };
 }
 
+/**
+ * This function finds the evaluator of the verb `eval` without the record of the rungs, for a compilation without a
+ * trace. It gives the same evaluator as `ask`: the own entry, then the kind, then the default of the world.
+ */
+function evaluatorOf(world: World, envelope: Envelope | undefined, found: Lookup): { readonly name?: string; readonly unknown: boolean } {
+  const own = envelope?.own;
+  const ownName = own !== undefined && Object.hasOwn(own, "eval") ? own["eval"] : undefined;
+  if (ownName !== undefined) return { name: ownName, unknown: false };
+  if (!found.ok) return { unknown: true };
+  const verbs = found.kind.verbs;
+  const name = Object.hasOwn(verbs, "eval") ? verbs["eval"] : Object.hasOwn(world.defaults, "eval") ? world.defaults["eval"] : undefined;
+  return name === undefined ? { unknown: false } : { name, unknown: false };
+}
+
+/** The meta of a node of a compilation without a trace. Only a trace reads the meta of a node. */
+const NO_META: Meta = Object.freeze({ path: [], doc: { type: "?", value: null }, declared: false, answer: NO_ANSWER, side: "derive" });
+
 function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number): { readonly code: Code; readonly run: RunCode } {
   const envelope = isEnvelope(value) ? (value as Envelope) : undefined;
   const doc: Envelope = envelope ?? { type: declared ?? "?", value: value as Json };
-  const path = place.map(String);
-  const meta0: Meta = { path, doc, declared: envelope === undefined, answer: NO_ANSWER, side: "derive" };
+  const meta0: Meta = c.traced ? { path: place.map(String), doc, declared: envelope === undefined, answer: NO_ANSWER, side: "derive" } : NO_META;
   if (envelope === undefined && declared === undefined) {
     return failing(c, meta0, place, "#PART?", "The value has no envelope, and its position declares no type.");
   }
   if (depth > c.maxDepth) return failing(c, meta0, place, "#DEPTH!", `The nesting is deeper than ${c.maxDepth} documents.`);
 
-  const answer = ask(c.machine.world, envelope ?? {}, "eval", declared === undefined ? {} : { declaredType: declared });
-  const found = lookupKind(c.machine.world, doc.type);
+  const world = c.machine.world;
+  const found = lookupKind(world, doc.type);
   const kind = found.ok ? found.kind : undefined;
-  const meta: Meta = { ...meta0, answer, side: kind?.side ?? "derive" };
+  let meta = meta0;
+  let name: string | undefined;
+  let unknown: boolean;
+  if (c.traced) {
+    const answer = ask(world, envelope ?? {}, "eval", declared === undefined ? {} : { declaredType: declared });
+    meta = { ...meta0, answer, side: kind?.side ?? "derive" };
+    name = answer.evaluator;
+    unknown = answer.error === "unknown-kind";
+  } else {
+    const quick = evaluatorOf(world, envelope, found);
+    name = quick.name;
+    unknown = quick.unknown;
+  }
   const kindText = typeName(doc.type);
-  if (answer.error === "unknown-kind") return failing(c, meta, place, "#KIND?", `The world has no kind ${kindText}.`);
-  const name = answer.evaluator;
+  if (unknown) return failing(c, meta, place, "#KIND?", `The world has no kind ${kindText}.`);
   const runners = c.machine.runners ?? {};
   const runner = name !== undefined && Object.hasOwn(runners, name) ? runners[name] : undefined;
   const evaluator = name !== undefined && Object.hasOwn(c.machine.evaluators, name) ? c.machine.evaluators[name] : undefined;
@@ -860,9 +887,13 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     return failing(c, meta, place, "#VALUE!", `${split.reason}${at} The kind is ${kindText}.`);
   }
   const parts: CompiledPart[] = split.parts.map((slot) => {
-    const compiled = compileNode(c, slot.item, [...place, ...slot.path], slot.of, depth + 1);
-    const header = isEnvelope(slot.item) && isRecord(slot.item) && typeof slot.item["name"] === "string" ? slot.item["name"] : undefined;
-    return { key: slot.key, path: slot.path, ...(header === undefined ? {} : { name: header }), code: compiled.code, run: compiled.run };
+    const item = slot.item;
+    const compiled = compileNode(c, item, place.concat(slot.path), slot.of, depth + 1);
+    // The binding name is in the header of an envelope. Most parts have no name, thus the cheap test comes first.
+    const header = typeof (item as { readonly name?: unknown } | null)?.name === "string" && isEnvelope(item) ? (item as { readonly name: string }).name : undefined;
+    return header === undefined
+      ? { key: slot.key, path: slot.path, code: compiled.code, run: compiled.run }
+      : { key: slot.key, path: slot.path, name: header, code: compiled.code, run: compiled.run };
   });
   const typePath = found.ok ? found.path : [];
   const input: CompileInput = {
@@ -876,8 +907,6 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     machine: c.machine,
     fill: (items) => (split.parts.length === 0 ? doc.value : split.fill(items)),
   };
-  const who = `the evaluator ${name}`;
-
   if (runner !== undefined) {
     const inner: RunCode = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
     const run: RunCode = function* (ctx, rt) {
@@ -901,7 +930,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     try {
       return placed(inner(ctx, rt), place);
     } catch (error) {
-      return placed(thrown(error, who), place);
+      return placed(thrown(error, `the evaluator ${name}`), place);
     }
   };
   return finish(c, meta, code, function* (ctx, rt) {
@@ -996,8 +1025,8 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
     machine,
     traced: c.traced,
     root: compiled,
-    evaluate(context: Context = makeContext(), evalOptions: EvalOptions = {}): Result {
-      const s = new Session(machine, false, c.traced, undefined, undefined, evalOptions.effects);
+    evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
+      const s = new Session(machine, false, c.traced, undefined, undefined, evalOptions?.effects);
       return root.code(rootContext(machine, context), s);
     },
     run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {

@@ -111,6 +111,15 @@ function scopesOf(rules: readonly ScopeRule[] | undefined, value: unknown, slots
   return { sees, later };
 }
 
+/** The names of a walk without names. A walk does not change a set at any time: it makes a new set to add names. */
+const NO_NAMES: ReadonlySet<string> = new Set();
+
+/** This function gives the options of a walk without the names of the host. */
+function withoutNames(options: WalkOptions): WalkOptions {
+  const { names: _host, ...rest } = options;
+  return rest;
+}
+
 /**
  * This function visits each document of a document: the root and each part at each depth, by the contracts of the
  * kinds. A part of a kind that the world does not have is not visited. The walk uses no stack of the host for the
@@ -131,9 +140,8 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     readonly names: ReadonlySet<string>;
     readonly later: ReadonlySet<string>;
   }
-  const stack: Item[] = [
-    { value: doc, place: [], at: [], declared: options.declaredType, depth: 0, names: new Set(options.names ?? []), later: new Set() },
-  ];
+  const names: ReadonlySet<string> = options.names === undefined || options.names.length === 0 ? NO_NAMES : new Set(options.names);
+  const stack: Item[] = [{ value: doc, place: [], at: [], declared: options.declaredType, depth: 0, names, later: NO_NAMES }];
   while (stack.length > 0) {
     const item = stack.pop() as Item;
     const envelope = isEnvelope(item.value) ? (item.value as Envelope) : undefined;
@@ -144,16 +152,21 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     const doc: Envelope = envelope ?? { type: item.declared ?? "?", value: item.value as Json };
     const found = lookupKind(world, doc.type);
     const kind = found.ok ? found.kind : undefined;
-    const answer = visit({
-      place: item.place,
-      at: item.at,
-      doc,
-      declared: envelope === undefined,
-      ...(kind === undefined ? {} : { kind, typePath: found.ok ? found.path : [] }),
-      depth: item.depth,
-      names: item.names,
-      later: item.later,
-    });
+    const seen: DocVisit =
+      kind === undefined
+        ? { place: item.place, at: item.at, doc, declared: envelope === undefined, depth: item.depth, names: item.names, later: item.later }
+        : {
+            place: item.place,
+            at: item.at,
+            doc,
+            declared: envelope === undefined,
+            kind,
+            typePath: found.ok ? found.path : [],
+            depth: item.depth,
+            names: item.names,
+            later: item.later,
+          };
+    const answer = visit(seen);
     if (answer === "skip" || kind === undefined) continue;
     const split = splitParts(kind.parts, doc.value);
     if (!split.ok) {
@@ -206,7 +219,7 @@ export interface RefUse {
 export function refsOf(world: World, doc: unknown, options: WalkOptions = {}): readonly RefUse[] {
   const out: RefUse[] = [];
   // The walk gets no names of the host: a name that the host binds is a dependency, thus its reference is free.
-  const { names: _host, ...rest } = options;
+  const rest: WalkOptions = options.names === undefined ? options : withoutNames(options);
   walk(
     world,
     doc,

@@ -124,6 +124,18 @@ describe("the formula kit", () => {
     expect(strict(doc)).toEqual(ok(900));
   });
 
+  it("[PLAN.COMPILE-SPEED] a compilation without a trace is quick, and a record keeps a field named __proto__", () => {
+    const machine = formulaMachine({ ops: OPS });
+    const record = (n: number): unknown => ({ type: "record", value: { a: ref("names", "x"), b: op("add", n, 1), ["__proto__"]: n } });
+    expect(prepare(machine, JSON.parse(JSON.stringify(record(1)))).evaluate(context({ names: { x: 0 } }))).toSatisfy((result: Result) => {
+      const value = result.ok ? (result.value as Record<string, unknown>) : {};
+      return Object.hasOwn(value, "__proto__") && value["__proto__"] === 1 && Object.getPrototypeOf(value) === Object.prototype;
+    });
+    const start = performance.now();
+    for (let index = 0; index < 20000; index += 1) prepare(machine, record(index));
+    expect(performance.now() - start).toBeLessThan(2000);
+  });
+
   it("[FORMULA.SPEED] a plan evaluates a small formula many times quickly", () => {
     const plan = prepare(formulaMachine({ ops: OPS }), op("add", ref("names", "x"), op("add", ref("names", "y"), 1)));
     const ctx = context({ names: { x: 1, y: 2 } });

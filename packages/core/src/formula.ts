@@ -84,8 +84,13 @@ function strictTruthy(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+/**
+ * This function sets an own data property. Only the key `__proto__` needs `defineProperty`: an assignment to it
+ * changes the prototype. An assignment is faster for each other key of a new plain object.
+ */
 function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  if (key === "__proto__") Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  else target[key] = value;
 }
 
 function compiled(compile: (input: CompileInput) => Code): CompiledEvaluator {
@@ -193,16 +198,18 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
     }),
 
     "formula.record": compiled(({ value }) => {
-      const fields = Object.entries(partsOf(value));
+      const fields = partsOf(value);
+      const keys = Object.keys(fields);
+      const codes = keys.map((key) => (fields[key] as CompiledPart).code);
       return (ctx, rt) => {
         const out: Record<string, unknown> = {};
-        for (const [key, part] of fields) {
-          const result = part.code(ctx, rt);
+        for (let index = 0; index < keys.length; index += 1) {
+          const result = (codes[index] as Code)(ctx, rt);
           if (!result.ok) {
             if (omit !== undefined && omit(result.error)) continue;
             return result;
           }
-          setOwn(out, key, result.value);
+          setOwn(out, keys[index] as string, result.value);
         }
         return ok(out);
       };
