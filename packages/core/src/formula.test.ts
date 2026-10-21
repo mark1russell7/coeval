@@ -73,8 +73,14 @@ describe("the formula kit", () => {
     expect(strict(doc(true))).toEqual(ok("yes"));
     expect(strict(doc(1))).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
     expect(evalWith({ truthy: jsTruthy }, doc(1))).toEqual(ok("yes"));
-    expect(evalWith({ otherwise: undefined }, { type: "if", value: { test: false, then: 1 } })).toEqual(ok(null));
-    expect(evalWith({ otherwise: "none" }, { type: "if", value: { test: false, then: 1 } })).toEqual(ok("none"));
+  });
+
+  it("[FORMULA.OTHERWISE] a profile gives the value of an if without else, also undefined", () => {
+    const doc = { type: "if", value: { test: false, then: 1 } };
+    expect(evalWith({}, doc)).toEqual(ok(null));
+    expect(evalWith({ otherwise: "none" }, doc)).toEqual(ok("none"));
+    expect(evalWith({ otherwise: undefined }, doc)).toEqual(ok(undefined));
+    expect(evalWith({ otherwise: undefined }, { type: "if", value: { test: false, then: 1, else: 2 } })).toEqual(ok(2));
   });
 
   it("[FORMULA.LOGIC] and and or stop early; a profile can give the value that decided", () => {

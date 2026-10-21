@@ -147,6 +147,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | FORMULA.LET | Each binding of a `let` sees the names around the `let`. A failed binding fails only when a term reads it. |
 | FORMULA.FN | `fn` makes a function, and `call` applies it. An operation of the host can call the function. |
 | FORMULA.IF | `if` evaluates only the branch that the test selects. A profile gives the truth of a value. |
+| FORMULA.OTHERWISE | A profile gives the value of an `if` without `else`. A profile with the key `otherwise` gives its value, also `undefined`. |
 | FORMULA.LOGIC | `and` and `or` stop early. A profile can give the value that decided. |
 | FORMULA.OPS | An operation gets the values of its arguments, in order. It stops at the first error. |
 | FORMULA.LAZY | A lazy operation evaluates only the arguments that it needs. |
