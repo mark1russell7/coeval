@@ -42,9 +42,13 @@ class Bad {
   ) {}
 }
 
+/** This function sets an own data property. Only the key `__proto__` needs `defineProperty`. */
 function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  if (key === "__proto__") Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  else target[key] = value;
 }
+
+const NO_SLOTS: readonly PartSlot[] = Object.freeze([]);
 
 function hasSlots(template: Template): boolean {
   return template.t !== "data";
@@ -59,6 +63,8 @@ function hasSlots(template: Template): boolean {
  * @returns The parts and a way to fill their places, or the reason why the value does not have the shape.
  */
 export function splitParts(shape: Shape | undefined, value: Json): Split {
+  // A value without parts is data: the split needs no template.
+  if (shape === undefined || shape.shape === "none") return { ok: true, parts: NO_SLOTS, data: value, fill: () => value };
   const parts: PartSlot[] = [];
   const slot = (item: Json, path: readonly Key[], of: string | undefined): Template => {
     parts.push({ path, key: path.join("."), item, ...(of === undefined ? {} : { of }) });

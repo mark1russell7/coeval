@@ -106,6 +106,7 @@ export function typePath(type: TypeRef): readonly Key[] | undefined {
  * @returns The text, for example `git.push`.
  */
 export function typeName(type: TypeRef): string {
+  if (typeof type === "string") return type;
   return typePath(type)?.join(".") ?? "(computed)";
 }
 
@@ -126,9 +127,12 @@ function headerFits(value: JsonRecord): boolean {
  * @returns `true` when the value has the form of an envelope.
  */
 export function isEnvelope(value: unknown): value is JsonRecord & Envelope {
-  if (!isRecord(value) || !headerFits(value)) return false;
-  for (const key in value) if (Object.hasOwn(value, key) && !(ENVELOPE_KEYS as readonly string[]).includes(key)) return false;
-  return true;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  // The keys come first: most values that are not envelopes have another key, thus the check stops early.
+  for (const key in value) {
+    if (key !== "type" && key !== "value" && key !== "name" && key !== "own" && Object.hasOwn(value, key)) return false;
+  }
+  return isRecord(value) && headerFits(value);
 }
 
 /** A stored document: an envelope, and the keys of its store beside it, for example `_id`. */
