@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName } from "./doc.ts";
-import { splitParts } from "./parts.ts";
+import { type Split, splitParts } from "./parts.ts";
 import { ask, type Answer } from "./ladder.ts";
 import { type Lookup, type Side, type World, lookupKind } from "./world.ts";
 import { type ErrorCode, type EvalError, type Result, fail, ok, placed, thrown, describe } from "./errors.ts";
@@ -905,38 +905,69 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     parts,
     place,
     machine: c.machine,
-    fill: (items) => (split.parts.length === 0 ? doc.value : split.fill(items)),
+    fill: fillOf(split, doc),
   };
   if (runner !== undefined) {
     const inner: RunCode = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
-    const run: RunCode = function* (ctx, rt) {
-      try {
-        return placed(yield* inner(ctx, rt), place);
-      } catch (error) {
-        return placed(thrown(error, `the runner ${name}`), place);
-      }
-    };
-    const code: Code = (ctx, rt) =>
-      rt.running
-        ? fail("#CALC!", `${kindText} waits for effects, and its parent cannot wait. Give the parent a runner.`, { place })
-        : drive(run(ctx, rt));
-    return finish(c, meta, code, run);
+    const run = placedRun(inner, place, name);
+    return finish(c, meta, runnerCode(run, place, kindText), run);
   }
 
   const inner: Code = isCompiledEvaluator(evaluator as Evaluator)
     ? (evaluator as CompiledEvaluator).compile(input)
     : interpret(evaluator as EvalFn, input, split.fill);
-  const code: Code = (ctx, rt) => {
+  const code = placedCode(inner, place, name);
+  return finish(c, meta, code, runOf(code));
+}
+
+/*
+ * The helpers below make the closures that a plan keeps. Each one has its own small scope. A closure that a
+ * compilation made in its own scope keeps each variable of that scope that any closure there reads, for example
+ * the split of the value. Thus a plan with these helpers keeps only its code.
+ */
+
+/** This function gives the code of a document: the code of its evaluator, with the place of each error and of each exception. */
+function placedCode(inner: Code, place: readonly Key[], name: string): Code {
+  return (ctx, rt) => {
     try {
       return placed(inner(ctx, rt), place);
     } catch (error) {
       return placed(thrown(error, `the evaluator ${name}`), place);
     }
   };
-  return finish(c, meta, code, function* (ctx, rt) {
-    return code(ctx, rt);
-  });
 }
+
+/** This function gives the steps of a runner, with the place of each error and of each exception. */
+function placedRun(inner: RunCode, place: readonly Key[], name: string): RunCode {
+  return function* (ctx, rt) {
+    try {
+      return placed(yield* inner(ctx, rt), place);
+    } catch (error) {
+      return placed(thrown(error, `the runner ${name}`), place);
+    }
+  };
+}
+
+/** This function gives the code of a runner in an evaluation: its steps, which cannot wait. */
+function runnerCode(run: RunCode, place: readonly Key[], kindText: string): Code {
+  return (ctx, rt) =>
+    rt.running
+      ? fail("#CALC!", `${kindText} waits for effects, and its parent cannot wait. Give the parent a runner.`, { place })
+      : drive(run(ctx, rt));
+}
+
+/** This function gives the steps of a run of an evaluator. The code runs at the first step, and it does not wait. */
+function runOf(code: Code): RunCode {
+  return function* (ctx, rt) {
+    return code(ctx, rt);
+  };
+}
+
+/** This function gives the fill of a compile input: the value with an item in the place of each part. */
+function fillOf(split: Extract<Split, { readonly ok: true }>, doc: Envelope): <P>(items: readonly P[]) => unknown {
+  return (items) => (split.parts.length === 0 ? doc.value : split.fill(items));
+}
+
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
   const { kind, typePath, doc, data, place } = input;
@@ -1021,16 +1052,21 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
     };
   }
   const compiled: CompiledPart = { key: "", path: [], code: root.code, run: root.run };
+  return planOf(machine, c.traced, compiled);
+}
+
+/** This function makes the object of a plan. Its closures keep only the machine and the compiled root. */
+function planOf(machine: Machine, traced: boolean, root: CompiledPart): Plan {
   return {
     machine,
-    traced: c.traced,
-    root: compiled,
+    traced,
+    root,
     evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
-      const s = new Session(machine, false, c.traced, undefined, undefined, evalOptions?.effects);
+      const s = new Session(machine, false, traced, undefined, undefined, evalOptions?.effects);
       return root.code(rootContext(machine, context), s);
     },
     run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {
-      const s = new Session(machine, true, c.traced, runOptions.perform, runOptions.signal, undefined);
+      const s = new Session(machine, true, traced, runOptions.perform, runOptions.signal, undefined);
       return driveWaiting(root.run(rootContext(machine, context), s), runOptions.signal);
     },
   };

@@ -1,8 +1,11 @@
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   type CompiledEvaluator,
   type Effect,
   type Machine,
+  type Plan,
   type Result,
   type Runner,
   type Steps,
@@ -12,6 +15,7 @@ import {
   evaluate,
   fail,
   failures,
+  formulaMachine,
   makeContext,
   narrow,
   ok,
@@ -53,6 +57,21 @@ describe("plans", () => {
     const plan = prepare(STD_MACHINE, { type: "add", value: [1, { type: "nothing", value: 2 }] });
     const result = plan.evaluate();
     expect(result).toMatchObject({ ok: false, error: { code: "#KIND?", place: [1] } });
+  });
+
+  it("[PLAN.LEAN] a plan keeps its code, and not the document or the split of its value", async () => {
+    setFlagsFromString("--expose-gc");
+    const gc = runInNewContext("gc") as () => void;
+    const make = (): { readonly plan: Plan; readonly doc: WeakRef<object> } => {
+      const doc = { type: "lit", value: { big: Array.from({ length: 10 }, (_, index) => index) } };
+      return { plan: prepare(formulaMachine(), doc), doc: new WeakRef(doc) };
+    };
+    const { plan, doc } = make();
+    // A weak reference keeps its target until the end of the job that made it
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gc();
+    expect(doc.deref()).toBeUndefined();
+    expect(plan.evaluate()).toEqual({ ok: true, value: { big: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] } });
   });
 
   it("[PLAN.TRACE] a traced plan gives the trace of evaluate, an untraced one gives none", () => {
