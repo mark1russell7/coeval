@@ -26,6 +26,8 @@ export interface DocVisit {
   readonly names: ReadonlySet<string>;
   /** The names that a sequence around this document binds only for the parts after it. */
   readonly later: ReadonlySet<string>;
+  /** `true` when the position of the document declares an address: a reference there is not a read of a value. */
+  readonly address?: true;
 }
 
 /** A position that a walk cannot read as a document. */
@@ -139,9 +141,10 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     readonly depth: number;
     readonly names: ReadonlySet<string>;
     readonly later: ReadonlySet<string>;
+    readonly address: boolean;
   }
   const names: ReadonlySet<string> = options.names === undefined || options.names.length === 0 ? NO_NAMES : new Set(options.names);
-  const stack: Item[] = [{ value: doc, place: [], at: [], declared: options.declaredType, depth: 0, names, later: NO_NAMES }];
+  const stack: Item[] = [{ value: doc, place: [], at: [], declared: options.declaredType, depth: 0, names, later: NO_NAMES, address: false }];
   while (stack.length > 0) {
     const item = stack.pop() as Item;
     const envelope = isEnvelope(item.value) ? (item.value as Envelope) : undefined;
@@ -154,7 +157,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     const kind = found.ok ? found.kind : undefined;
     const seen: DocVisit =
       kind === undefined
-        ? { place: item.place, at: item.at, doc, declared: envelope === undefined, depth: item.depth, names: item.names, later: item.later }
+        ? { place: item.place, at: item.at, doc, declared: envelope === undefined, depth: item.depth, names: item.names, later: item.later, ...(item.address ? { address: true as const } : {}) }
         : {
             place: item.place,
             at: item.at,
@@ -165,6 +168,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
             depth: item.depth,
             names: item.names,
             later: item.later,
+            ...(item.address ? { address: true as const } : {}),
           };
     const answer = visit(seen);
     if (answer === "skip" || kind === undefined) continue;
@@ -188,6 +192,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         depth: item.depth + 1,
         names: extra.length === 0 ? item.names : new Set([...item.names, ...extra]),
         later: hidden.length === 0 ? item.later : new Set([...item.later, ...hidden]),
+        address: slot.address === true,
       });
     }
   }
@@ -204,12 +209,14 @@ export interface RefUse {
   readonly root: string;
   /** `false` when a kind around the reference binds its first name. A reference to another root is free. */
   readonly free: boolean;
+  /** `true` when the reference is an address: its position declares it. An address does not read a value. */
+  readonly address: boolean;
 }
 
 /**
  * This function finds each reference of a document: each document of the type `ref` that a walk reaches. A
  * reference to a name that a kind around it binds is not free. The others are what the document reads from
- * outside: its dependencies.
+ * outside: its dependencies. When the kind `ref` has parts, the walk also finds the references in its step documents.
  *
  * @param world - The world of the kinds.
  * @param doc - The document, as JSON.
@@ -229,8 +236,8 @@ export function refsOf(world: World, doc: unknown, options: WalkOptions = {}): r
       const root = typeof path[0] === "string" ? path[0] : "";
       const first = path[1];
       const bound = root === "names" && isKey(first) && v.names.has(String(first));
-      out.push({ place: v.place, at: v.at, path, root, free: !bound });
-      return "skip";
+      out.push({ place: v.place, at: v.at, path, root, free: !bound, address: v.address === true });
+      return undefined;
     },
     rest,
   );
@@ -365,7 +372,8 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
           issues.push({ code: "#STEP?", place: v.place, reason: "A step is a key, or a document of a kind with the verb step." });
         }
       });
-      return "skip";
+      // The step documents of the path are parts when the kind ref has a deep shape. The walk checks them too.
+      return undefined;
     },
     {
       ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),

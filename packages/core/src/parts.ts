@@ -9,6 +9,8 @@ export interface PartSlot {
   readonly key: string;
   readonly item: Json;
   readonly of?: string;
+  /** `true` when the position of the part declares an address: a reference there gives what its path reaches. */
+  readonly address?: true;
 }
 
 type Template =
@@ -66,8 +68,8 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
   // A value without parts is data: the split needs no template.
   if (shape === undefined || shape.shape === "none") return { ok: true, parts: NO_SLOTS, data: value, fill: () => value };
   const parts: PartSlot[] = [];
-  const slot = (item: Json, path: readonly Key[], of: string | undefined): Template => {
-    parts.push({ path, key: path.join("."), item, ...(of === undefined ? {} : { of }) });
+  const slot = (item: Json, path: readonly Key[], of: string | undefined, address = false): Template => {
+    parts.push({ path, key: path.join("."), item, ...(of === undefined ? {} : { of }), ...(address ? { address: true as const } : {}) });
     return { t: "slot", index: parts.length - 1 };
   };
 
@@ -86,7 +88,7 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
 
   const walk = (spec: Shape | undefined, item: Json, path: readonly Key[]): Template => {
     if (spec === undefined || spec.shape === "none") return { t: "data", value: item };
-    if (spec.shape === "term") return slot(item, path, spec.of);
+    if (spec.shape === "term") return slot(item, path, spec.of, spec.address === true);
     if (spec.shape === "deep") return deep(item, path, spec.of);
     if (spec.shape === "list") {
       if (!Array.isArray(item)) throw new Bad("The value must be a list.", path);

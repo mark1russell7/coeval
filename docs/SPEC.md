@@ -64,6 +64,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | DEREF.ADOPT | A navigation can adopt each value that a path reaches as a thing, also a value that a `let` binds. |
 | DEREF.HOPS | A resolution can skip the record of its hops. |
 | DEREF.SYMBOL | The brand of a host thing is a global symbol. Two copies of the kernel know the things of each other. |
+| DEREF.WALK-CODE | A walker can give the code of its failure, for example `#REF!` for a position outside a space. The default code is `#N/A`. |
 | TREE.PARENT | A node of a tree reads its parent through the field `parent`. |
 | TREE.NEAREST-SELF | A walk `nearest` with `self: true` starts at the node itself. |
 | TREE.NEAREST-MATCH | A host can give the walker `nearest` its own test of a type and its own limit of hops. |
@@ -139,6 +140,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
 | STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. |
+| STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |
 
 ## The formula kit
 
@@ -155,6 +157,9 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | FORMULA.LOGIC | `and` and `or` stop early. A profile can give the value that decided. |
 | FORMULA.OPS | An operation gets the values of its arguments, in order. It stops at the first error. |
 | FORMULA.LAZY | A lazy operation evaluates only the arguments that it needs. |
+| FORMULA.STEPS | A language can give the kind `ref` a deep shape. Then each step document of a path is a part. The parts evaluate first, in order, and the first error is the result. The walker gets the values. |
+| FORMULA.ADDRESS | A term shape can declare an address. A reference there gives what its path reaches, not its value. Thus a host thing stays a thing. |
+| FORMULA.EXT-CONTEXT | An extension gets the context of its document, for example the position of `self`. |
 | FORMULA.EXT | The standard extensions give the values that JSON cannot write. |
 | FORMULA.DEPTH | A deep formula evaluates up to the limit of the depth. |
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. |

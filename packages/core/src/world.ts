@@ -14,10 +14,12 @@ export type Side = "derive" | "run";
  * - `record`: the value is a record. Each named field has its shape. A list of names makes each named field a
  *   part. The other fields have the shape `rest` (the default is data). `required` names the fields that must be.
  * - `deep`: each envelope at any depth of the value is a part, and the rest is data.
+ *
+ * A `term` with `address: true` is an address: a reference there gives what its path reaches, not the value.
  */
 export type Shape =
   | { readonly shape: "none" }
-  | { readonly shape: "term"; readonly of?: string }
+  | { readonly shape: "term"; readonly of?: string; readonly address?: boolean }
   | { readonly shape: "list"; readonly of?: string; readonly item?: Shape }
   | { readonly shape: "map"; readonly of?: string; readonly item?: Shape }
   | {

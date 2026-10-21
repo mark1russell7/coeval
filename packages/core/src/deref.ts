@@ -1,5 +1,6 @@
 import { type Envelope, type Json, type JsonRecord, type Key, type TypeRef, field, isEnvelope, isKey, isRecord, typePath } from "./doc.ts";
 import { type World, entriesAsJson, lookupKind } from "./world.ts";
+import type { ErrorCode } from "./errors.ts";
 
 /**
  * The brand of a host thing: an object of the host that answers the steps of a path itself. The brand is a
@@ -83,8 +84,11 @@ export interface Context {
 /** The code of a `deref` evaluator: it answers one step of a path on a document of its kind. */
 export type DerefCode = (doc: Envelope, key: Key) => Thing | undefined;
 
-/** The result of a step document: what it reached, or the reason of a failure. */
-export type WalkResult = { readonly ok: true; readonly thing: Thing } | { readonly ok: false; readonly reason: string };
+/**
+ * The result of a step document: what it reached, or the reason of a failure. A failure can give its code, for
+ * example `#REF!` for a position outside a space. The default code is `#N/A`.
+ */
+export type WalkResult = { readonly ok: true; readonly thing: Thing } | { readonly ok: false; readonly reason: string; readonly code?: ErrorCode };
 
 /** The input of a walker: the code of a step document, for example `nearest`. */
 export interface WalkInput {
@@ -134,13 +138,13 @@ export interface Hop {
   readonly by: HopBy;
 }
 
-/** The codes of a failed resolution. */
+/** The codes that a resolution gives itself. A walker can give another code for its failure. */
 export type ResolveCode = "#REF!" | "#NAME?" | "#N/A" | "#CYCLE!" | "#STEP?";
 
 /** The result of a resolution: what the path reached, with each hop, or an error with the hops before it. */
 export type Resolution =
   | { readonly ok: true; readonly thing: Thing; readonly hops: readonly Hop[] }
-  | { readonly ok: false; readonly code: ResolveCode; readonly reason: string; readonly hops: readonly Hop[] };
+  | { readonly ok: false; readonly code: ResolveCode | ErrorCode; readonly reason: string; readonly hops: readonly Hop[] };
 
 /** The options of a resolution. */
 export interface ResolveOptions {
@@ -333,7 +337,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
   }
   const hops: Hop[] | undefined = options.hops === false ? undefined : [];
   const done = hops ?? NO_HOPS;
-  const failed = (code: ResolveCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
+  const failed = (code: ResolveCode | ErrorCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;
   const adopt = nav.adopt ?? ((value: unknown): Thing => value);
 
@@ -399,7 +403,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
             return reached === undefined ? undefined : adopt(reached.thing);
           },
         });
-        if (!result.ok) return failed("#N/A", result.reason);
+        if (!result.ok) return failed(result.code ?? "#N/A", result.reason);
         here = adopt(result.thing);
         hops?.push({ step: envelope as Json, thing: here, by: "step" });
       }
