@@ -138,6 +138,21 @@ describe("references", () => {
     expect(found).toMatchObject({ ok: true, thing: "c1" });
   });
 
+  it("[DEREF.ADOPT] a navigation can adopt each value that a path reaches, also a value that a let binds", () => {
+    const lensed = (value: unknown): unknown => {
+      if (typeof value !== "object" || value === null || !Object.hasOwn(value, "lens")) return value;
+      const lens = (value as { readonly lens: Readonly<Record<string, unknown>> }).lens;
+      const thing: HostThing = { [THING]: true, label: "lensed", deref: (key) => lens[String(key)], toJson: () => value };
+      return thing;
+    };
+    const card = { lens: { width: 300 }, width: "raw" };
+    expect(resolve({ world, adopt: lensed }, context({ names: { card } }), ["names", "card", "width"])).toMatchObject({ ok: true, thing: 300 });
+    expect(resolve({ world }, context({ names: { card } }), ["names", "card", "width"])).toMatchObject({ ok: true, thing: "raw" });
+    const adopting = formulaMachine({}, { adopt: lensed });
+    const doc = { type: "let", value: { bind: { c: { type: "ref", value: ["names", "card"] } }, body: { type: "ref", value: ["names", "c", "width"] } } };
+    expect(prepare(adopting, doc).evaluate(context({ names: { card } }))).toEqual({ ok: true, value: 300 });
+  });
+
   it("[DEREF.HOPS] a resolution can skip the record of hops", () => {
     const ctx = context({ names: { a: { b: 1 } } });
     expect(resolve({ world }, ctx, ["names", "a", "b"], { hops: false }).hops).toEqual([]);
