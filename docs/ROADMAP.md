@@ -57,7 +57,7 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | M3 | Events: each handler is a run document of the one run language (D9) | done (2026-10-20) | M1 |
 | M4 | Types: the layout rules and the kinds are paths into a world, with namespaces and aliases | in progress (the layout rules are done, the kinds come with M6) | M1 |
 | M5 | Overrides: each override names its target with a path, not with a dotted text | done (2026-10-20) | M2 |
-| M6 | Trees: each node of a tree of components is an envelope | later | M4, M5 |
+| M6 | Trees: each node of a tree of components is an envelope | done (2026-10-20) | M4, M5 |
 | M7 | The program format of procedures: a call is an envelope, and a reference is a path (D9, D10) | in progress (done on a branch, the push waits) | K4 |
 | M8 | An adapter for the addresses of a formula language: its moves become paths | later | K4 |
 | M9 | The first npm release of `@mark1russell7/coeval` | waiting (the owner bootstraps the new package) | |
