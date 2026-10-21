@@ -145,10 +145,22 @@ export interface Runtime {
    * This function drives several steps at the same time. When one waits, the others go on.
    *
    * @param list - One function for each item. Each function starts the steps of its item.
-   * @param options - The most items that run at the same time. The default is each item.
+   * @param options - The most items that run at the same time, and the stop at the first failure.
    * @returns The steps that give each result, in the order of the list.
    */
-  all(list: readonly (() => Steps)[], options?: { readonly concurrency?: number }): Generator<Promise<unknown>, readonly Result[], unknown>;
+  all(list: readonly (() => Steps)[], options?: AllOptions): Generator<Promise<unknown>, readonly Result[], unknown>;
+}
+
+/**
+ * The options of a drive of parts at the same time.
+ *
+ * - `concurrency`: the most parts that run at the same time. The default is each part.
+ * - `failFast`: `true` stops at the first part that fails. The parts that did not start do not start, the parts that
+ *   run stop at their wait, and the results come at once. Each part without a result gives `#ABORT`.
+ */
+export interface AllOptions {
+  readonly concurrency?: number;
+  readonly failFast?: boolean;
 }
 
 /** Compiled code: the evaluation of a document in a context. */
@@ -187,6 +199,14 @@ export interface CompileInput {
   /** The keys from the root document to this document. */
   readonly place: readonly Key[];
   readonly machine: Machine;
+  /**
+   * This function gives the value of the document with an item in the place of each part. The containers on the way
+   * to a part are new. The data around the parts stays the same objects.
+   *
+   * @param items - One item for each part, in the order of `parts`, for example the results of the parts.
+   * @returns The value with the items.
+   */
+  fill(items: readonly unknown[]): unknown;
 }
 
 /**
@@ -243,6 +263,14 @@ export interface EvalInput {
    * @returns The payload, or the error `#CAP!`.
    */
   effect(kind: Cap, payload: unknown): Result;
+  /**
+   * This function gives the value of the document with an item in the place of each part, for example the result of
+   * each part. The containers on the way to a part are new. The data around the parts stays the same objects.
+   *
+   * @param items - One item for each part, in the order of `parts`.
+   * @returns The value with the items.
+   */
+  fill(items: readonly unknown[]): unknown;
 }
 
 /** A part for a runner. Its evaluation can wait for the effects in it. */
@@ -284,13 +312,22 @@ export interface RunInput {
    */
   effect(kind: Cap, payload: unknown): Steps;
   /**
-   * This function evaluates parts at the same time. Take the results with `yield*`.
+   * This function evaluates parts at the same time. Take the results with `yield*`. A runner can give its own parts,
+   * for example a part with a different context: each part needs only the function `evaluate`.
    *
    * @param parts - The parts.
-   * @param options - The most parts that run at the same time.
+   * @param options - The most parts that run at the same time, and the stop at the first failure.
    * @returns The steps that give each result, in the order of the parts.
    */
-  all(parts: readonly RunPart[], options?: { readonly concurrency?: number }): Generator<Promise<unknown>, readonly Result[], unknown>;
+  all(parts: readonly RunPart[], options?: AllOptions): Generator<Promise<unknown>, readonly Result[], unknown>;
+  /**
+   * This function gives the value of the document with an item in the place of each part, for example the result of
+   * each part. The containers on the way to a part are new. The data around the parts stays the same objects.
+   *
+   * @param items - One item for each part, in the order of `parts`.
+   * @returns The value with the items.
+   */
+  fill(items: readonly unknown[]): unknown;
 }
 
 /** An evaluator that is a function of its input. The kernel calls it for each evaluation. */
@@ -520,9 +557,11 @@ class Session implements Runtime {
     return (yield done.then((value: unknown) => ok(value), failed)) as Result;
   }
 
-  *all(list: readonly (() => Steps)[], options: { readonly concurrency?: number } = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
+  *all(list: readonly (() => Steps)[], options: AllOptions = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
     const results: Result[] = new Array<Result>(list.length);
     const limit = Math.max(1, options.concurrency ?? list.length);
+    const failFast = options.failFast === true;
+    let failed = false;
     interface Active {
       readonly index: number;
       readonly steps: Steps;
@@ -530,16 +569,20 @@ class Session implements Runtime {
     }
     const active: Active[] = [];
     let next = 0;
+    const settle = (index: number, result: Result): void => {
+      results[index] = result;
+      if (failFast && !result.ok) failed = true;
+    };
     const advance = (index: number, steps: Steps, input: { readonly value?: unknown; readonly error?: unknown; readonly threw: boolean }): void => {
       let step: IteratorResult<Promise<unknown>, Result>;
       try {
         step = input.threw ? steps.throw(input.error) : steps.next(input.value);
       } catch (error) {
-        results[index] = thrown(error, "a part");
+        settle(index, thrown(error, "a part"));
         return;
       }
       if (step.done === true) {
-        results[index] = step.value;
+        settle(index, step.value);
         return;
       }
       const item: Active = { index, steps, pending: Promise.resolve() };
@@ -550,7 +593,7 @@ class Session implements Runtime {
       active.push(item);
     };
     const start = (): void => {
-      while (active.length < limit && next < list.length) {
+      while (!failed && active.length < limit && next < list.length) {
         const index = next;
         next += 1;
         const begin = list[index] as () => Steps;
@@ -558,14 +601,14 @@ class Session implements Runtime {
         try {
           steps = begin();
         } catch (error) {
-          results[index] = thrown(error, "a part");
+          settle(index, thrown(error, "a part"));
           continue;
         }
         advance(index, steps, { threw: false });
       }
     };
     start();
-    while (active.length > 0) {
+    while (active.length > 0 && !failed) {
       const settled = (yield Promise.race(active.map((item) => item.pending))) as {
         readonly item: Active;
         readonly value?: unknown;
@@ -576,6 +619,16 @@ class Session implements Runtime {
       advance(settled.item.index, settled.item.steps, settled);
       start();
     }
+    if (!failed) return results;
+    const stopped = fail("#ABORT", "The part stopped: a part before it failed, and the parts run with failFast.");
+    for (const item of active) {
+      try {
+        item.steps.return(stopped);
+      } catch {
+        // The finally code of a part threw. The part stops with the abort.
+      }
+    }
+    for (let index = 0; index < list.length; index += 1) if (results[index] === undefined) results[index] = stopped;
     return results;
   }
 
@@ -821,6 +874,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     parts,
     place,
     machine: c.machine,
+    fill: (items) => (split.parts.length === 0 ? doc.value : split.fill(items)),
   };
   const who = `the evaluator ${name}`;
 
@@ -877,6 +931,7 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
       place,
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.effect(ctx, effectKind, payload, place),
+      fill: input.fill,
     });
   };
 }
@@ -904,6 +959,7 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.runEffect(ctx, effectKind, payload, place),
       all: (list, options) => rt.all(list.map((part) => () => part.evaluate()), options),
+      fill: input.fill,
     });
   };
 }

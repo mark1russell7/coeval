@@ -68,6 +68,21 @@ describe("shapes", () => {
     expect(lookupKind(world, ["ops"])).toMatchObject({ ok: false, reason: "not-a-kind" });
     expect(lookupKind(world, "nothing")).toMatchObject({ ok: false, reason: "unknown" });
   });
+
+  it("[WORLD.OPEN] a world with a fallback answers each first key that it does not have", () => {
+    const call = { verbs: { eval: "call" }, parts: { shape: "deep" }, effects: "type" } as const;
+    const open = { kinds: { ...formulaKinds(), git: { kinds: {}, fallback: call }, alias: { type: "ref", value: ["world", "lit"] } }, defaults: {}, fallback: call } as const;
+    expect(lookupKind(open, ["fs", "read.json"])).toMatchObject({ ok: true, kind: call, path: ["fs", "read.json"] });
+    expect(lookupKind(open, "anything")).toMatchObject({ ok: true, kind: call });
+    expect(lookupKind(open, "lit")).toMatchObject({ ok: true, path: ["lit"] });
+    expect(lookupKind(open, ["git", "push"])).toMatchObject({ ok: true, kind: call });
+    expect(lookupKind(open, "alias")).toMatchObject({ ok: true, path: ["lit"], aliases: 1 });
+    // The fallback answers only a first key: a namespace without a fallback still refuses its unknown keys
+    expect(lookupKind(open, ["ops", "x"])).toMatchObject({ ok: true });
+    expect(lookupKind({ ...open, kinds: { closed: { kinds: {} } } }, ["closed", "x"])).toMatchObject({ ok: false, reason: "unknown" });
+    const docMachine: Machine = { world: open, evaluators: { call: () => ({ ok: true, value: "called" }) } };
+    expect(check(docMachine, { type: ["fs", "read"], value: { path: "a" } })).toEqual([]);
+  });
 });
 
 describe("documents", () => {
