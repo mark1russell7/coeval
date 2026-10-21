@@ -248,7 +248,7 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
                 </section>
                 <section>
                   <h4 className="cv-panel-head">2. Its context</h4>
-                  <ContextStrip scope={focus.scope} caps={focus.caps} />
+                  <ContextStrip scope={focus.scope as Readonly<Record<string, Json>>} caps={focus.caps.map((cap) => (typeof cap === "string" ? cap : cap.join(".")))} />
                 </section>
                 <section>
                   <h4 className="cv-panel-head">3. What its evaluator gets</h4>

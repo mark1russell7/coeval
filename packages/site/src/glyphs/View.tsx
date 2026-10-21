@@ -4,6 +4,7 @@ import {
   ask,
   fromJson,
   isRecord,
+  kindDocument,
   kindNamed,
   splitParts,
   typeName,
@@ -50,13 +51,7 @@ export function useWorld(): World {
  * @returns The document of type `kind`.
  */
 export function kindDoc(name: string, kind: Kind): Envelope {
-  const parts: Json =
-    kind.parts === undefined || kind.parts.shape === "none"
-      ? "none"
-      : kind.parts.shape === "list"
-        ? `a list${kind.parts.of === undefined ? "" : ` of ${kind.parts.of}`}`
-        : `the fields ${kind.parts.fields.join(", ")}`;
-  return typed("kind", { name, verbs: { ...kind.verbs }, parts, side: kind.side ?? "derive", summary: kind.summary ?? "" });
+  return kindDocument(name, kind);
 }
 
 /** The props of a view. */

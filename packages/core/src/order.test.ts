@@ -10,7 +10,7 @@ const steps: readonly StepSpec[] = [
 ];
 
 describe("order of a sequence", () => {
-  it("gives the data edges and the effect edges", () => {
+  it("[ORDER.EDGES] gives the data edges and the effect edges", () => {
     expect(dataEdges(steps)).toEqual([
       ["a", "c"],
       ["b", "c"],
@@ -19,7 +19,7 @@ describe("order of a sequence", () => {
     expect(effectEdges(steps)).toEqual([["d", "e"]]);
   });
 
-  it("allows each order that obeys the edges", () => {
+  it("[ORDER.ALLOWED] allows each order that obeys the edges", () => {
     expect(isAllowedOrder(steps, ["a", "b", "c", "d", "e"])).toBe(true);
     expect(isAllowedOrder(steps, ["d", "b", "a", "c", "e"])).toBe(true);
     expect(isAllowedOrder(steps, ["c", "a", "b", "d", "e"])).toBe(false);
@@ -28,11 +28,11 @@ describe("order of a sequence", () => {
     expect(isAllowedOrder(steps, ["a", "a", "c", "d", "e"])).toBe(false);
   });
 
-  it("puts independent steps in one layer", () => {
+  it("[ORDER.LAYERS] puts independent steps in one layer", () => {
     expect(layers(steps)).toEqual([["a", "b", "d"], ["c"], ["e"]]);
   });
 
-  it("finds a read of a later step and a read of an unknown name", () => {
+  it("[ORDER.CHECK] finds a read of a later step and a read of an unknown name", () => {
     expect(
       checkSteps([
         { id: "x", reads: ["y"], effect: false },

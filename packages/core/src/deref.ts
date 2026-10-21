@@ -1,8 +1,11 @@
-import { type Envelope, type Json, type Key, field, fromJson, isKey, isRecord, typePath } from "./doc.ts";
+import { type Envelope, type Json, type JsonRecord, type Key, type TypeRef, field, isEnvelope, isKey, isRecord, typePath } from "./doc.ts";
 import { type World, entriesAsJson, lookupKind } from "./world.ts";
 
-/** The brand of a host thing: an object of the host that answers the steps of a path itself. */
-export const THING: unique symbol = Symbol("coeval.thing");
+/**
+ * The brand of a host thing: an object of the host that answers the steps of a path itself. The brand is a
+ * global symbol, thus two copies of the kernel in one program know the things of each other.
+ */
+export const THING: unique symbol = Symbol.for("coeval.thing") as never;
 
 /**
  * A host thing: an object that answers the steps of a path itself, for example a node of a live tree. It is the
@@ -16,7 +19,7 @@ export interface HostThing {
    * This function answers one step.
    *
    * @param key - The key of the step.
-   * @returns What the step reaches, or `undefined`.
+   * @returns What the step reaches, or `undefined` when it reaches nothing.
    */
   deref(key: Key): Thing | undefined;
   /**
@@ -24,11 +27,19 @@ export interface HostThing {
    *
    * @returns The value.
    */
-  toJson(): Json;
+  toJson(): unknown;
+  /**
+   * This optional function answers all the steps of a path that are keys, in one call. A store uses it to read a
+   * path without one call for each step.
+   *
+   * @param keys - The keys.
+   * @returns What the keys reach, or `undefined` when they reach nothing.
+   */
+  resolve?(keys: readonly Key[]): { readonly thing: Thing } | undefined;
 }
 
-/** Something that a path can reach: a JSON value, or a host thing. */
-export type Thing = Json | HostThing;
+/** Something that a path can reach: any value of the host, or a host thing. */
+export type Thing = unknown;
 
 /**
  * This function tells if a thing is a host thing.
@@ -36,8 +47,8 @@ export type Thing = Json | HostThing;
  * @param thing - The thing.
  * @returns `true` for a host thing.
  */
-export function isHostThing(thing: Thing | undefined): thing is HostThing {
-  return typeof thing === "object" && thing !== null && !Array.isArray(thing) && (thing as Partial<HostThing>)[THING] === true;
+export function isHostThing(thing: unknown): thing is HostThing {
+  return typeof thing === "object" && thing !== null && (thing as Partial<HostThing>)[THING] === true;
 }
 
 /** The roots of a context. Each path starts with one of them. */
@@ -45,6 +56,12 @@ export const ROOTS = ["self", "names", "world", "event", "caps"] as const;
 
 /** One root of a context. */
 export type Root = (typeof ROOTS)[number];
+
+/**
+ * A capability: the name of a kind of effect, or its keys. A capability permits its kind and each kind under it.
+ * Keys are necessary when a key has a dot in it.
+ */
+export type Cap = string | readonly Key[];
 
 /**
  * The context of a term: a record with five roots. A reference reaches outside its term only through them.
@@ -57,10 +74,10 @@ export type Root = (typeof ROOTS)[number];
  */
 export interface Context {
   readonly self: Thing;
-  readonly names: Readonly<Record<string, Json>>;
+  readonly names: Readonly<Record<string, unknown>>;
   readonly world: Thing;
   readonly event: Thing;
-  readonly caps: readonly string[];
+  readonly caps: readonly Cap[];
 }
 
 /** The code of a `deref` evaluator: it answers one step of a path on a document of its kind. */
@@ -89,11 +106,19 @@ export interface WalkInput {
 /** A walker: the code of the verb `step` of a kind of step documents. */
 export type Walker = (input: WalkInput) => WalkResult;
 
-/** What a resolution needs: the world, and the code of the `deref` evaluators and of the walkers. */
+/**
+ * What a resolution needs: the world, and the code of the `deref` evaluators and of the walkers.
+ *
+ * - `plain`: `true` when the values are data. Then a step does not ask the kind of an envelope, and a reference
+ *   that a step reaches stays a value (no collapse).
+ * - `roots`: the roots that a path can start at. The default is each root.
+ */
 export interface Navigator {
   readonly world: World;
   readonly derefs?: Readonly<Record<string, DerefCode>>;
   readonly walkers?: Readonly<Record<string, Walker>>;
+  readonly plain?: boolean;
+  readonly roots?: readonly Root[];
 }
 
 /** The way that one hop of a path was answered. */
@@ -106,42 +131,57 @@ export interface Hop {
   readonly by: HopBy;
 }
 
+/** The codes of a failed resolution. */
+export type ResolveCode = "#REF!" | "#NAME?" | "#N/A" | "#CYCLE!" | "#STEP?";
+
 /** The result of a resolution: what the path reached, with each hop, or an error with the hops before it. */
 export type Resolution =
   | { readonly ok: true; readonly thing: Thing; readonly hops: readonly Hop[] }
-  | { readonly ok: false; readonly code: "#REF!" | "#CYCLE!" | "#STEP?"; readonly reason: string; readonly hops: readonly Hop[] };
+  | { readonly ok: false; readonly code: ResolveCode; readonly reason: string; readonly hops: readonly Hop[] };
+
+/** The options of a resolution. */
+export interface ResolveOptions {
+  /** `false`: do not record the hops. The default is `true`. */
+  readonly hops?: boolean;
+}
 
 function entryOf(verbs: Readonly<Record<string, string>> | undefined, verb: string): string | undefined {
   return verbs !== undefined && Object.hasOwn(verbs, verb) ? verbs[verb] : undefined;
 }
 
-function plainStep(thing: Json, key: Key): Json | undefined {
+/** The own fields of a value: the items and the length of a list, and the own properties of an object. */
+function plainStep(thing: unknown, key: Key): { readonly found: true; readonly value: unknown } | undefined {
   if (Array.isArray(thing)) {
+    if (key === "length") return { found: true, value: thing.length };
     const index = typeof key === "number" ? key : /^\d+$/.test(key) ? Number(key) : -1;
-    return index >= 0 ? (thing as readonly Json[])[index] : undefined;
+    return index >= 0 && index < thing.length ? { found: true, value: (thing as readonly unknown[])[index] } : undefined;
   }
-  if (isRecord(thing) && typeof key === "string") return field(thing, key);
+  if (typeof thing === "object" && thing !== null) {
+    const name = String(key);
+    return Object.hasOwn(thing, name) ? { found: true, value: (thing as Readonly<Record<string, unknown>>)[name] } : undefined;
+  }
   return undefined;
 }
 
 /**
  * This function answers one step of a path on a thing, through the ladder of the verb `deref`. A host thing
- * answers for itself (own). A document asks its own entry, then its kind. The default goes into the value: a field
- * of a record, or an item of a list.
+ * answers for itself (own). A document asks its own entry, then its kind. The default goes into the value: an own
+ * field of an object, or an item of a list.
  *
  * @param nav - The world and the code of the evaluators.
  * @param thing - The thing that the path reached.
  * @param key - The key of the step.
- * @returns What the step reaches and the rung that answered, or `undefined`.
+ * @returns What the step reaches and the rung that answered, or `undefined` when it reaches nothing.
  */
 export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly thing: Thing; readonly by: HopBy } | undefined {
   if (isHostThing(thing)) {
     const reached = thing.deref(key);
     return reached === undefined ? undefined : { thing: reached, by: "own" };
   }
-  const envelope = fromJson(thing);
-  if (envelope !== undefined) {
-    const own = entryOf(envelope.own, "deref");
+  if (nav.plain !== true && isEnvelope(thing)) {
+    const envelope = thing as JsonRecord & Envelope;
+    const ownEntries = field(envelope, "own");
+    const own = isRecord(ownEntries) ? entryOf(ownEntries as Readonly<Record<string, string>>, "deref") : undefined;
     const ownCode = own === undefined ? undefined : nav.derefs?.[own];
     if (ownCode !== undefined) {
       const reached = ownCode(envelope, key);
@@ -155,35 +195,41 @@ export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly th
       return reached === undefined ? undefined : { thing: reached, by: "kind" };
     }
     const reached = plainStep(envelope.value, key);
-    return reached === undefined ? undefined : { thing: reached, by: "default" };
+    return reached === undefined ? undefined : { thing: reached.value, by: "default" };
   }
   const reached = plainStep(thing, key);
-  return reached === undefined ? undefined : { thing: reached, by: "default" };
+  return reached === undefined ? undefined : { thing: reached.value, by: "default" };
 }
 
 /**
- * This function tells if a thing is a reference document: an envelope of the type `ref`.
+ * This function tells if a thing is a reference document: an envelope of the type `ref` with a list for its path.
  *
  * @param thing - The thing.
  * @returns `true` for a reference document.
  */
-export function isRef(thing: Thing | undefined): thing is Envelope & { readonly value: readonly Json[] } {
-  if (thing === undefined || isHostThing(thing)) return false;
-  const envelope = fromJson(thing);
-  if (envelope === undefined || !Array.isArray(envelope.value)) return false;
-  const path = typePath(envelope.type);
+export function isRef(thing: unknown): thing is Envelope & { readonly value: readonly Json[] } {
+  if (!isEnvelope(thing) || !Array.isArray(thing.value)) return false;
+  const path = typePath(thing.type as TypeRef);
   return path !== undefined && path.length === 1 && path[0] === "ref";
 }
 
+const worlds = new WeakMap<World, Json>();
+
 /**
  * This function makes the thing of the root `world`: the entries of the world as JSON. An alias is a reference
- * document in it, thus a walk through the world follows each alias (collapse).
+ * document in it, thus a walk through the world follows each alias (collapse). The thing of a world is made one
+ * time.
  *
  * @param world - The world.
  * @returns The thing.
  */
 export function worldThing(world: World): Json {
-  return entriesAsJson(world.kinds);
+  let thing = worlds.get(world);
+  if (thing === undefined) {
+    thing = entriesAsJson(world.kinds);
+    worlds.set(world, thing);
+  }
+  return thing;
 }
 
 /**
@@ -203,6 +249,41 @@ export function context(parts: Partial<Context> = {}): Context {
 }
 
 const MAX_COLLAPSE = 64;
+const NO_HOPS: readonly Hop[] = Object.freeze([]);
+
+/** A value that can be a reference document: a record with the type `ref`. The full check comes after. */
+function mayBeRef(thing: unknown): boolean {
+  return typeof thing === "object" && thing !== null && (thing as { readonly type?: unknown }).type === "ref";
+}
+
+/**
+ * This function resolves the common path without a record of hops: a root, then keys, through plain values. It
+ * gives `undefined` when the path needs the full algorithm. Examples are a host thing, an envelope, a reference to
+ * follow, a step document and a failure (for its exact reason).
+ */
+function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): Resolution | undefined {
+  const root = path[0];
+  if (root !== "names" && root !== "self" && root !== "event") return undefined;
+  if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return undefined;
+  let here: unknown = ctx[root];
+  const plain = nav.plain === true;
+  for (let index = 1; index < path.length; index += 1) {
+    if (typeof here !== "object" || here === null) return undefined;
+    if (!plain && mayBeRef(here)) return undefined;
+    if ((here as Partial<HostThing>)[THING] === true) return undefined;
+    const step = path[index];
+    if (Array.isArray(here)) {
+      if (typeof step !== "number" || !Number.isInteger(step) || step < 0 || step >= here.length) return undefined;
+      here = (here as readonly unknown[])[step];
+      continue;
+    }
+    if (typeof step !== "string" || !Object.hasOwn(here, step)) return undefined;
+    if (!plain && isEnvelope(here)) return undefined;
+    here = (here as Readonly<Record<string, unknown>>)[step];
+  }
+  if (!plain && mayBeRef(here)) return undefined;
+  return { ok: true, thing: here, hops: NO_HOPS };
+}
 
 /**
  * This function resolves a path from a context, and records each hop.
@@ -210,53 +291,83 @@ const MAX_COLLAPSE = 64;
  * The first step is a root of the context. Each later step is a key or a step document. A key goes up the ladder
  * of the verb `deref` on the thing that the path reached. A step document is evaluated by the walker of its kind,
  * with the thing that the path reached. After each hop, a reference document is followed until the path reaches
- * something else (collapse).
+ * something else (collapse), except in a plain navigation.
+ *
+ * The codes of a failure:
+ *
+ * - `#REF!`: the path has no root, or a root that is not open here.
+ * - `#NAME?`: the root `names` has no such name.
+ * - `#N/A`: a step reaches nothing.
+ * - `#STEP?`: a step is not a key and not a step document.
+ * - `#CYCLE!`: the references form a cycle.
  *
  * @param nav - The world and the code of the evaluators.
  * @param ctx - The context.
  * @param path - The steps.
+ * @param options - `hops: false` does not record the hops.
  * @returns What the path reached and each hop, or an error.
  */
-export function resolve(nav: Navigator, ctx: Context, path: readonly Json[]): Resolution {
-  const hops: Hop[] = [];
+export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], options: ResolveOptions = {}): Resolution {
+  if (options.hops === false) {
+    const quick = resolveQuick(nav, ctx, path);
+    if (quick !== undefined) return quick;
+  }
+  const hops: Hop[] | undefined = options.hops === false ? undefined : [];
+  const done = hops ?? NO_HOPS;
+  const failed = (code: ResolveCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;
 
   const collapse = (thing: Thing): Resolution => {
     let here = thing;
+    if (nav.plain === true) return { ok: true, thing: here, hops: done };
     while (isRef(here)) {
       collapses += 1;
-      if (collapses > MAX_COLLAPSE) return { ok: false, code: "#CYCLE!", reason: "The references form a cycle.", hops };
+      if (collapses > MAX_COLLAPSE) return failed("#CYCLE!", "The references form a cycle.");
       const inner = walk(here.value);
       if (!inner.ok) return inner;
       here = inner.thing;
-      hops.push({ step: here === null ? null : "collapse", thing: here, by: "collapse" });
+      hops?.push({ step: "collapse", thing: here, by: "collapse" });
     }
-    return { ok: true, thing: here, hops };
+    return { ok: true, thing: here, hops: done };
   };
 
-  const walk = (steps: readonly Json[]): Resolution => {
-    const [root, ...rest] = steps;
+  const walk = (steps: readonly unknown[]): Resolution => {
+    const root = steps[0];
     if (typeof root !== "string" || !(ROOTS as readonly string[]).includes(root)) {
-      return { ok: false, code: "#REF!", reason: `A path starts with a root: ${ROOTS.join(", ")}.`, hops };
+      return failed("#REF!", `A path starts with a root: ${ROOTS.join(", ")}.`);
     }
-    let here: Thing = ctx[root as Root] as Thing;
-    hops.push({ step: root, thing: here, by: "root" });
+    if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) {
+      return failed("#REF!", `The root ${root} is not open here. The open roots are ${nav.roots.join(", ")}.`);
+    }
+    let here: Thing = ctx[root as Root];
+    hops?.push({ step: root, thing: here, by: "root" });
     const first = collapse(here);
     if (!first.ok) return first;
     here = first.thing;
-    for (const step of rest) {
+    for (let index = 1; index < steps.length; index += 1) {
+      const step = steps[index];
+      if (isHostThing(here) && here.resolve !== undefined && steps.slice(index).every(isKey)) {
+        const keys = steps.slice(index) as readonly Key[];
+        const reached = here.resolve(keys);
+        if (reached === undefined) return failed("#N/A", `The path ${keys.join(".")} reaches nothing.`);
+        hops?.push({ step: keys as readonly Json[], thing: reached.thing, by: "own" });
+        return collapse(reached.thing);
+      }
       if (isKey(step)) {
         const reached = derefStep(nav, here, step);
-        if (reached === undefined) return { ok: false, code: "#REF!", reason: `The step ${String(step)} reaches nothing.`, hops };
-        hops.push({ step, thing: reached.thing, by: reached.by });
+        if (reached === undefined) {
+          if (root === "names" && index === 1) return failed("#NAME?", `The context has no name ${String(step)}.`);
+          return failed("#N/A", `The step ${String(step)} reaches nothing.`);
+        }
+        hops?.push({ step, thing: reached.thing, by: reached.by });
         here = reached.thing;
       } else {
-        const envelope = fromJson(step);
+        const envelope = isEnvelope(step) ? step : undefined;
         const found = envelope === undefined ? undefined : lookupKind(nav.world, envelope.type);
         const name = found?.ok === true ? entryOf(found.kind.verbs, "step") : undefined;
         const walker = name === undefined ? undefined : nav.walkers?.[name];
         if (envelope === undefined || walker === undefined) {
-          return { ok: false, code: "#STEP?", reason: "A step is a key, or a document of a kind with the verb step.", hops };
+          return failed("#STEP?", "A step is a key, or a document of a kind with the verb step.");
         }
         const result = walker({
           data: envelope.value,
@@ -264,27 +375,27 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly Json[]): Re
           context: ctx,
           deref: (thing, key) => derefStep(nav, thing, key)?.thing,
         });
-        if (!result.ok) return { ok: false, code: "#REF!", reason: result.reason, hops };
-        hops.push({ step, thing: result.thing, by: "step" });
+        if (!result.ok) return failed("#N/A", result.reason);
+        hops?.push({ step: envelope as Json, thing: result.thing, by: "step" });
         here = result.thing;
       }
       const next = collapse(here);
       if (!next.ok) return next;
       here = next.thing;
     }
-    return { ok: true, thing: here, hops };
+    return { ok: true, thing: here, hops: done };
   };
 
-  if (path.length === 0) return { ok: false, code: "#REF!", reason: "A path has at least one step: its root.", hops };
+  if (path.length === 0) return failed("#REF!", "A path has at least one step: its root.");
   return walk(path);
 }
 
 /**
- * This function gives the value of a thing: the thing itself for JSON, or the value that a host thing gives.
+ * This function gives the value of a thing: the value that a host thing gives, or else the thing itself.
  *
  * @param thing - The thing.
  * @returns The value.
  */
-export function valueOfThing(thing: Thing): Json {
+export function valueOfThing(thing: Thing): unknown {
   return isHostThing(thing) ? thing.toJson() : thing;
 }

@@ -1,4 +1,4 @@
-/** A JSON value. */
+/** A JSON value. A document is JSON. */
 export type Json = null | boolean | number | string | readonly Json[] | { readonly [key: string]: Json };
 
 /** A JSON record. */
@@ -38,13 +38,16 @@ export type Envelope = {
 export const ENVELOPE_KEYS = ["type", "value", "name", "own"] as const;
 
 /**
- * This function tells if a value is a JSON record (not an array and not null).
+ * This function tells if a value is a plain record: an object with the prototype of a plain object, or with no
+ * prototype. A list, `null`, a date, a map and an instance of a class are not plain records.
  *
  * @param value - The value to examine.
- * @returns `true` for a record.
+ * @returns `true` for a plain record.
  */
-export function isRecord(value: Json | undefined): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+export function isRecord(value: unknown): value is JsonRecord {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 /**
@@ -64,7 +67,7 @@ export function field(record: JsonRecord, key: string): Json | undefined {
  * @param value - The value to examine.
  * @returns `true` for a key.
  */
-export function isKey(value: Json | undefined): value is Key {
+export function isKey(value: unknown): value is Key {
   return typeof value === "string" || (typeof value === "number" && Number.isInteger(value) && value >= 0);
 }
 
@@ -75,9 +78,9 @@ export function isKey(value: Json | undefined): value is Key {
  * @param value - The value to examine.
  * @returns `true` for a reference to a type.
  */
-export function isTypeRef(value: Json | undefined): boolean {
+export function isTypeRef(value: unknown): value is TypeRef {
   if (typeof value === "string") return value !== "";
-  if (Array.isArray(value)) return value.length > 0 && (value as readonly Json[]).every(isKey);
+  if (Array.isArray(value)) return value.length > 0 && (value as readonly unknown[]).every(isKey);
   if (!isRecord(value)) return false;
   const path = field(value, "value");
   return field(value, "type") === "ref" && Array.isArray(path) && (path as readonly Json[])[0] === "world";
@@ -106,6 +109,14 @@ export function typeName(type: TypeRef): string {
   return typePath(type)?.join(".") ?? "(computed)";
 }
 
+function headerFits(value: JsonRecord): boolean {
+  if (!isTypeRef(field(value, "type")) || !Object.hasOwn(value, "value")) return false;
+  const name = field(value, "name");
+  if (name !== undefined && typeof name !== "string") return false;
+  const own = field(value, "own");
+  return own === undefined || isRecord(own);
+}
+
 /**
  * This function tells if a value has the form of an envelope. That form is a record with a reference to a type
  * and a `value`. It has no other keys than the keys of an envelope. A contract decides where an envelope is
@@ -114,14 +125,38 @@ export function typeName(type: TypeRef): string {
  * @param value - The value to examine.
  * @returns `true` when the value has the form of an envelope.
  */
-export function isEnvelope(value: Json | undefined): value is JsonRecord & Envelope {
-  if (!isRecord(value)) return false;
-  if (!isTypeRef(field(value, "type")) || !Object.hasOwn(value, "value")) return false;
-  const name = field(value, "name");
-  if (name !== undefined && typeof name !== "string") return false;
-  const own = field(value, "own");
-  if (own !== undefined && !isRecord(own)) return false;
-  return Object.keys(value).every((key) => (ENVELOPE_KEYS as readonly string[]).includes(key));
+export function isEnvelope(value: unknown): value is JsonRecord & Envelope {
+  if (!isRecord(value) || !headerFits(value)) return false;
+  for (const key in value) if (Object.hasOwn(value, key) && !(ENVELOPE_KEYS as readonly string[]).includes(key)) return false;
+  return true;
+}
+
+/** A stored document: an envelope, and the keys of its store beside it, for example `_id`. */
+export interface Stored {
+  readonly envelope: Envelope;
+  /** The keys of the store, with their values. */
+  readonly header: Readonly<Record<string, Json>>;
+}
+
+/**
+ * This function reads a stored document: an envelope that also has the keys of a store, for example `{ _id, type,
+ * value }`. Only the keys in the list can be beside the keys of the envelope.
+ *
+ * @param value - The value to examine.
+ * @param header - The keys of the store that the document can have.
+ * @returns The envelope and the keys of the store, or `undefined` when the value has another form.
+ */
+export function stored(value: unknown, header: readonly string[]): Stored | undefined {
+  if (!isRecord(value) || !headerFits(value)) return undefined;
+  const keys: Record<string, Json> = {};
+  const own: Record<string, Json> = {};
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue;
+    if ((ENVELOPE_KEYS as readonly string[]).includes(key)) own[key] = value[key] as Json;
+    else if (header.includes(key)) keys[key] = value[key] as Json;
+    else return undefined;
+  }
+  return { envelope: fromJson(own) as Envelope, header: keys };
 }
 
 /**
@@ -167,7 +202,7 @@ export function toJson(doc: Envelope): JsonRecord {
  * @param value - The JSON value.
  * @returns The envelope, or `undefined`.
  */
-export function fromJson(value: Json | undefined): Envelope | undefined {
+export function fromJson(value: unknown): Envelope | undefined {
   if (!isEnvelope(value)) return undefined;
   const own = field(value, "own");
   const ownEntries: Record<string, string> = {};
@@ -179,4 +214,38 @@ export function fromJson(value: Json | undefined): Envelope | undefined {
     ...(typeof name === "string" ? { name } : {}),
     ...(isRecord(own) ? { own: ownEntries } : {}),
   });
+}
+
+/**
+ * This function tells if two JSON values are equal. Equal values have the same texts, numbers and truth values,
+ * the same items in the same order, and the same fields. The order of the fields does not matter. It does not use the stack for the
+ * depth, thus a deep document cannot overflow it.
+ *
+ * @param a - The first value.
+ * @param b - The second value.
+ * @returns `true` when the values are equal.
+ */
+export function docEquals(a: unknown, b: unknown): boolean {
+  const stack: [unknown, unknown][] = [[a, b]];
+  while (stack.length > 0) {
+    const [x, y] = stack.pop() as [unknown, unknown];
+    if (Object.is(x, y)) continue;
+    if (typeof x !== "object" || typeof y !== "object" || x === null || y === null) return false;
+    if (Array.isArray(x) !== Array.isArray(y)) return false;
+    if (Array.isArray(x)) {
+      const ys = y as readonly unknown[];
+      if (x.length !== ys.length) return false;
+      for (let index = 0; index < x.length; index += 1) stack.push([x[index], ys[index]]);
+      continue;
+    }
+    const xr = x as Readonly<Record<string, unknown>>;
+    const yr = y as Readonly<Record<string, unknown>>;
+    const keys = Object.keys(xr);
+    if (keys.length !== Object.keys(yr).length) return false;
+    for (const key of keys) {
+      if (!Object.hasOwn(yr, key)) return false;
+      stack.push([xr[key], yr[key]]);
+    }
+  }
+  return true;
 }

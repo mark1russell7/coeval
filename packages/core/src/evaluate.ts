@@ -1,11 +1,14 @@
-import { type Envelope, type Json, fromJson, typed, typeName } from "./doc.ts";
+import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, isRecord, typeName } from "./doc.ts";
 import { splitParts } from "./parts.ts";
-import { ask, kindOf, type Answer } from "./ladder.ts";
-import type { Side } from "./world.ts";
+import { ask, type Answer } from "./ladder.ts";
+import { type Side, lookupKind } from "./world.ts";
+import { type ErrorCode, type EvalError, type Result, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
+  type Cap,
   type Context,
   type Navigator,
   type Resolution,
+  type ResolveOptions,
   type Thing,
   context as makeRootContext,
   isHostThing,
@@ -14,51 +17,8 @@ import {
 } from "./deref.ts";
 
 export type { Context } from "./deref.ts";
-
-/** The code of an error value. */
-export type ErrorCode =
-  | "#KIND?"
-  | "#NOEVAL"
-  | "#PART?"
-  | "#NAME?"
-  | "#REF!"
-  | "#CYCLE!"
-  | "#STEP?"
-  | "#VALUE!"
-  | "#ARGS"
-  | "#CAP!"
-  | "#CALC!"
-  | "#DEPTH!";
-
-/** An error value: a code and a reason. An evaluation gives an error value, and it does not throw. */
-export interface EvalError {
-  readonly code: ErrorCode;
-  readonly reason: string;
-}
-
-/** The result of an evaluation: a value, or an error value. */
-export type Result = { readonly ok: true; readonly value: Json } | { readonly ok: false; readonly error: EvalError };
-
-/**
- * This function makes a result with a value.
- *
- * @param value - The value.
- * @returns The result.
- */
-export function ok(value: Json): Result {
-  return { ok: true, value };
-}
-
-/**
- * This function makes a result with an error value.
- *
- * @param code - The code of the error.
- * @param reason - One sentence that tells the cause.
- * @returns The result.
- */
-export function fail(code: ErrorCode, reason: string): Result {
-  return { ok: false, error: { code, reason } };
-}
+export type { ErrorCode, EvalError, Result } from "./errors.ts";
+export { fail, ok } from "./errors.ts";
 
 /**
  * This function makes a context with names and capabilities. The other roots are empty, and an evaluation sets
@@ -69,8 +29,164 @@ export function fail(code: ErrorCode, reason: string): Result {
  * @param self - The node of the term, if it has one.
  * @returns The context.
  */
-export function makeContext(names: Readonly<Record<string, Json>> = {}, caps: readonly string[] = [], self: Thing = null): Context {
+export function makeContext(names: Readonly<Record<string, unknown>> = {}, caps: readonly Cap[] = [], self: Thing = null): Context {
   return makeRootContext({ names, caps, self });
+}
+
+/**
+ * This function gives the keys of a capability or of a kind of effect: a text is split at its dots.
+ *
+ * @param kind - The text or the keys.
+ * @returns The keys, as texts.
+ */
+export function capKeys(kind: Cap): readonly string[] {
+  return typeof kind === "string" ? kind.split(".") : kind.map(String);
+}
+
+/**
+ * This function tells if the capabilities permit an effect. A capability permits the kind of its name, and each kind
+ * under it: `store` permits `store.update`. The comparison is key by key, thus `fs.read` does not permit the
+ * kind with the keys `fs` and `read.json`.
+ *
+ * @param caps - The capabilities of the context.
+ * @param kind - The kind of the effect: a text with dots, or its keys.
+ * @returns `true` when one capability permits it.
+ */
+export function permits(caps: readonly Cap[], kind: Cap): boolean {
+  const want = capKeys(kind);
+  return caps.some((cap) => {
+    const have = capKeys(cap);
+    return have.length <= want.length && have.every((key, index) => key === want[index]);
+  });
+}
+
+/**
+ * This function narrows a context for a part: the part keeps only the capabilities that the context of its parent
+ * permits. Thus an evaluator cannot give a part more effects than it has.
+ *
+ * @param parent - The context of the parent.
+ * @param next - The context that the evaluator gives the part.
+ * @returns The context of the part.
+ */
+export function narrow(parent: Context, next: Context): Context {
+  if (next === parent || next.caps === parent.caps) return next;
+  const caps = next.caps.filter((cap) => permits(parent.caps, cap));
+  return caps.length === next.caps.length ? next : { ...next, caps };
+}
+
+/**
+ * The steps of an evaluation that can wait. It yields a promise only when the host makes it wait. A runner takes the
+ * result of a part with `yield*`, thus a run goes on at once until an effect waits. A runner does not yield a
+ * promise itself: it uses `yield*` on the steps that the kernel gives.
+ */
+export type Steps = Generator<Promise<unknown>, Result, unknown>;
+
+/** An effect that an evaluation caused, in the order of the effects. */
+export interface Effect {
+  readonly index: number;
+  /** The kind of the effect, as a text with dots. */
+  readonly kind: string;
+  /** The keys of the kind of the effect. */
+  readonly path: readonly Key[];
+  readonly payload: unknown;
+  /** The ID of the trace node that caused the effect, or -1 without a trace. */
+  readonly node: number;
+  /** The number of events before the effect. The effect comes before the end of its node. */
+  readonly at: number;
+  /** The keys from the root document to the document that caused the effect. */
+  readonly place: readonly Key[];
+  /** The context of the document that caused the effect: its names, its node and its capabilities. */
+  readonly context: Context;
+}
+
+/** The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value. */
+export type Perform = (effect: Effect) => unknown;
+
+/**
+ * The runtime of one evaluation or run. Compiled code gets it with the context, and asks it to resolve paths and
+ * to cause effects.
+ */
+export interface Runtime {
+  readonly machine: Machine;
+  /** `true` in a run: the host does each effect, and a part that waits needs a parent that can wait. */
+  readonly running: boolean;
+  /**
+   * This function resolves a path from a context.
+   *
+   * @param ctx - The context.
+   * @param path - The steps. The first step is a root.
+   * @param options - `hops: true` records each hop. The default records them only in a traced evaluation.
+   * @returns What the path reached, or an error.
+   */
+  resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution;
+  /**
+   * This function causes an effect from an evaluator. In a run, an evaluator cannot cause an effect: the host does
+   * each effect, thus only a runner can wait for it.
+   *
+   * @param ctx - The context of the document.
+   * @param kind - The kind of the effect.
+   * @param payload - The data of the effect.
+   * @param place - The place of the document.
+   * @returns The payload, or an error value.
+   */
+  effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result;
+  /**
+   * This function causes an effect from a runner. In a run, the host does it, and the steps wait when the host
+   * waits.
+   *
+   * @param ctx - The context of the document.
+   * @param kind - The kind of the effect.
+   * @param payload - The data of the effect.
+   * @param place - The place of the document.
+   * @returns The steps that give the result of the host, or an error value.
+   */
+  runEffect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps;
+  /**
+   * This function drives several steps at the same time. When one waits, the others go on.
+   *
+   * @param list - One function for each item. Each function starts the steps of its item.
+   * @param options - The most items that run at the same time. The default is each item.
+   * @returns The steps that give each result, in the order of the list.
+   */
+  all(list: readonly (() => Steps)[], options?: { readonly concurrency?: number }): Generator<Promise<unknown>, readonly Result[], unknown>;
+}
+
+/** Compiled code: the evaluation of a document in a context. */
+export type Code = (ctx: Context, rt: Runtime) => Result;
+
+/** Compiled code that can wait: the run of a document in a context. */
+export type RunCode = (ctx: Context, rt: Runtime) => Steps;
+
+/** A compiled part: its place in its parent, its binding name, and its code. It has no field with its value. */
+export interface CompiledPart {
+  /** The path in the value of the parent as one text, for example `0` or `bind.x`. */
+  readonly key: string;
+  /** The keys from the value of the parent to the part. */
+  readonly path: readonly Key[];
+  /** The binding name from the header of the part. */
+  readonly name?: string;
+  /** The code that evaluates the part. */
+  readonly code: Code;
+  /** The code that runs the part. Its steps can wait. */
+  readonly run: RunCode;
+}
+
+/** The input of a compiler: the document, its kind, and its parts, compiled. */
+export interface CompileInput {
+  /** The text of the type of the document, for example `add` or `math.sum` after its alias. */
+  readonly kind: string;
+  /** The keys of the kind after each alias. */
+  readonly typePath: readonly Key[];
+  readonly doc: Envelope;
+  /** The value of the document with a compiled part in the place of each part. */
+  readonly value: unknown;
+  /** The value of the document without its parts. */
+  readonly data: Json;
+  /** The compiled parts, in the order of the value. */
+  readonly parts: readonly CompiledPart[];
+  /** The keys from the root document to this document. */
+  readonly place: readonly Key[];
+  readonly machine: Machine;
 }
 
 /**
@@ -78,8 +194,10 @@ export function makeContext(names: Readonly<Record<string, Json>> = {}, caps: re
  * part, thus two parts that give the same results can replace each other.
  */
 export interface Part {
-  /** The position of the part in its parent: an index of a list, or a field of a record. */
+  /** The path in the value of the parent as one text, for example `0` or `bind.x`. */
   readonly key: string;
+  /** The keys from the value of the parent to the part. */
+  readonly path: readonly Key[];
   /** The binding name from the header of the part. */
   readonly name?: string;
   /**
@@ -95,19 +213,27 @@ export interface Part {
 export interface EvalInput {
   /** The text of the type of the document, for example `add` or `math.sum` after its alias. */
   readonly kind: string;
+  /** The keys of the kind after each alias. */
+  readonly typePath: readonly Key[];
+  readonly doc: Envelope;
+  /** The value of the document with a sealed part in the place of each part. */
+  readonly value: unknown;
   /** The value of the document without its parts. */
   readonly data: Json;
   /** The parts, in the order of the value. */
   readonly parts: readonly Part[];
   /** The context of the document. */
   readonly context: Context;
+  /** The keys from the root document to this document. */
+  readonly place: readonly Key[];
   /**
    * This function resolves a path from the context of the document.
    *
    * @param path - The steps. The first step is a root.
-   * @returns What the path reached, with each hop.
+   * @param options - `hops: true` records each hop.
+   * @returns What the path reached, or an error.
    */
-  resolve(path: readonly Json[]): Resolution;
+  resolve(path: readonly unknown[], options?: ResolveOptions): Resolution;
   /**
    * This function causes an effect. The context must have the capability for the kind of the effect. In a run, an
    * evaluator cannot cause an effect: the host does each effect, thus only a runner can wait for it.
@@ -116,22 +242,15 @@ export interface EvalInput {
    * @param payload - The data of the effect.
    * @returns The payload, or the error `#CAP!`.
    */
-  effect(kind: string, payload: Json): Result;
+  effect(kind: Cap, payload: unknown): Result;
 }
-
-/** An evaluator: a function from the input of a document to a result. */
-export type Evaluator = (input: EvalInput) => Result;
-
-/**
- * The steps of an evaluation that can wait. It yields a promise only when the host makes it wait. A runner takes the
- * result of a part with `yield*`, thus a run goes on at once until an effect waits.
- */
-export type Steps = Generator<Promise<Result>, Result, Result>;
 
 /** A part for a runner. Its evaluation can wait for the effects in it. */
 export interface RunPart {
-  /** The position of the part in its parent: an index of a list, or a field of a record. */
+  /** The path in the value of the parent as one text. */
   readonly key: string;
+  /** The keys from the value of the parent to the part. */
+  readonly path: readonly Key[];
   /** The binding name from the header of the part. */
   readonly name?: string;
   /**
@@ -145,86 +264,90 @@ export interface RunPart {
 
 /** The input of a runner: the input of an evaluator, with parts and effects that can wait. */
 export interface RunInput {
-  /** The text of the type of the document. */
   readonly kind: string;
-  /** The value of the document without its parts. */
+  readonly typePath: readonly Key[];
+  readonly doc: Envelope;
+  /** The value of the document with a part for a runner in the place of each part. */
+  readonly value: unknown;
   readonly data: Json;
-  /** The parts, in the order of the value. */
   readonly parts: readonly RunPart[];
-  /** The context of the document. */
   readonly context: Context;
+  readonly place: readonly Key[];
+  resolve(path: readonly unknown[], options?: ResolveOptions): Resolution;
   /**
-   * This function resolves a path from the context of the document.
-   *
-   * @param path - The steps. The first step is a root.
-   * @returns What the path reached, with each hop.
-   */
-  resolve(path: readonly Json[]): Resolution;
-  /**
-   * This function causes an effect. The context must have the capability. In a run, the host does the effect,
-   * and the steps wait when the host waits. In an evaluation, the effect gives its payload. Take its result with
-   * `yield*`.
+   * This function causes an effect. In a run, the host does the effect, and the steps wait when the host waits. In
+   * an evaluation, the effect gives its payload. Take its result with `yield*`.
    *
    * @param kind - The kind of the effect, for example `log`.
    * @param payload - The data of the effect.
    * @returns The steps that give the result of the host, or an error value.
    */
-  effect(kind: string, payload: Json): Steps;
+  effect(kind: Cap, payload: unknown): Steps;
+  /**
+   * This function evaluates parts at the same time. Take the results with `yield*`.
+   *
+   * @param parts - The parts.
+   * @param options - The most parts that run at the same time.
+   * @returns The steps that give each result, in the order of the parts.
+   */
+  all(parts: readonly RunPart[], options?: { readonly concurrency?: number }): Generator<Promise<unknown>, readonly Result[], unknown>;
+}
+
+/** An evaluator that is a function of its input. The kernel calls it for each evaluation. */
+export type EvalFn = (input: EvalInput) => Result;
+
+/** An evaluator that compiles a document one time into code. The code then evaluates it many times. */
+export interface CompiledEvaluator {
+  /**
+   * This function compiles a document.
+   *
+   * @param input - The document, its kind and its compiled parts.
+   * @returns The code that evaluates the document.
+   */
+  readonly compile: (input: CompileInput) => Code;
+}
+
+/** An evaluator: a function of its input, or a compiler. */
+export type Evaluator = EvalFn | CompiledEvaluator;
+
+/** A runner that is a generator function of its input. */
+export type RunFn = (input: RunInput) => Steps;
+
+/** A runner that compiles a document one time into code that can wait. */
+export interface CompiledRunner {
+  /**
+   * This function compiles a document.
+   *
+   * @param input - The document, its kind and its compiled parts.
+   * @returns The code that runs the document.
+   */
+  readonly compileRun: (input: CompileInput) => RunCode;
 }
 
 /**
- * A runner: the code of a kind whose parts or effects can wait, as a generator function. The same runner serves an
- * evaluation, which does not wait at any time, and a run, in which the host does each effect.
+ * A runner: the code of a kind whose parts or effects can wait. The same runner serves an evaluation, which does
+ * not wait at any time, and a run, in which the host does each effect.
  */
-export type Runner = (input: RunInput) => Steps;
+export type Runner = RunFn | CompiledRunner;
 
-/** A machine: a world of kinds, and the code of each evaluator name, of each `deref` and of each walker. */
+/**
+ * A machine: a world of kinds, and the code of each evaluator name, of each `deref` and of each walker.
+ *
+ * - `maxDepth`: the deepest nesting of documents. The default is 1000.
+ * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities.
+ */
 export interface Machine extends Navigator {
   readonly evaluators: Readonly<Record<string, Evaluator>>;
   /** The runners, by evaluator name. A runner wins over an evaluator of the same name. */
   readonly runners?: Readonly<Record<string, Runner>>;
-  /** The deepest nesting of evaluations. The default is 200. */
   readonly maxDepth?: number;
-}
-
-/** An effect that an evaluation caused, in the order of the effects. */
-export interface Effect {
-  readonly index: number;
-  readonly kind: string;
-  readonly payload: Json;
-  /** The ID of the trace node that caused the effect. */
-  readonly node: number;
-  /** The number of events before the effect. The effect comes before the end of its node. */
-  readonly at: number;
-}
-
-/** The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value. */
-export type Perform = (effect: Effect) => Json | Promise<Json>;
-
-/** The options of a run. */
-export interface RunOptions {
-  /** The host code that does each effect. Without it, an effect gives its payload, as in an evaluation. */
-  readonly perform?: Perform;
-  /** The type of a bare root value. */
-  readonly declaredType?: string;
-}
-
-/**
- * This function tells if the capabilities permit an effect. A capability permits the kind of its name, and each kind
- * in its namespace: `store` permits `store.update`.
- *
- * @param caps - The capabilities of the context.
- * @param kind - The kind of the effect.
- * @returns `true` when one capability permits it.
- */
-export function permits(caps: readonly string[], kind: string): boolean {
-  return caps.some((cap) => cap === kind || kind.startsWith(`${cap}.`));
+  readonly permits?: (caps: readonly Cap[], kind: readonly Key[], context: Context) => boolean;
 }
 
 /** One evaluation in a trace. The children are the evaluations of its parts, in the order that they started. */
 export interface TraceNode {
   readonly id: number;
-  /** The keys from the root document to this document. */
+  /** The keys from the root document to this document, as texts. */
   readonly path: readonly string[];
   /** The document. A bare value has the type that its position declares. */
   readonly doc: Envelope;
@@ -236,9 +359,9 @@ export interface TraceNode {
   /** The names that the document could read when its evaluation started. */
   readonly names: readonly string[];
   /** The names and their values when the evaluation started. */
-  readonly scope: Readonly<Record<string, Json>>;
+  readonly scope: Readonly<Record<string, unknown>>;
   /** The capabilities that the document had when its evaluation started. */
-  readonly caps: readonly string[];
+  readonly caps: readonly Cap[];
   /** A short text for the root `self` when the evaluation started. */
   readonly self: string;
   /** The time of the start. Each start and each end takes one tick. */
@@ -268,8 +391,8 @@ interface Building {
   answer: Answer;
   side: Side;
   names: readonly string[];
-  scope: Readonly<Record<string, Json>>;
-  caps: readonly string[];
+  scope: Readonly<Record<string, unknown>>;
+  caps: readonly Cap[];
   self: string;
   enter: number;
   exit: number;
@@ -278,177 +401,200 @@ interface Building {
   effects: number[];
 }
 
+/** What a trace node knows from the compilation. */
+interface Meta {
+  readonly path: readonly string[];
+  readonly doc: Envelope;
+  readonly declared: boolean;
+  readonly answer: Answer;
+  readonly side: Side;
+}
+
 function selfLabel(self: Thing): string {
-  if (isHostThing(self)) return self.label;
-  return self === null ? "none" : JSON.stringify(self).slice(0, 40);
+  try {
+    if (isHostThing(self)) return self.label;
+    if (self === null || self === undefined) return "none";
+    return (JSON.stringify(self) ?? describe(self)).slice(0, 40);
+  } catch {
+    return describe(self).slice(0, 40);
+  }
 }
 
 const NO_ANSWER: Answer = { verb: "eval", error: "no-answer", steps: [] };
 
-/** The state of one evaluation or run: the machine, the effects and the clock. */
-interface Session {
-  readonly machine: Machine;
-  /** `true` in a run: the runners take part, and the host does each effect. */
-  readonly running: boolean;
-  readonly perform: Perform | undefined;
+/** A signal of the host that stops a run: the shape of the standard `AbortSignal`. */
+export interface StopSignal {
+  readonly aborted: boolean;
+  readonly reason?: unknown;
+  addEventListener(type: "abort", listener: () => void, options?: { readonly once?: boolean }): void;
+}
+
+/** The options of a run. */
+export interface RunOptions {
+  /** The host code that does each effect. Without it, an effect gives its payload, as in an evaluation. */
+  readonly perform?: Perform;
+  /** The type of a bare root value. */
+  readonly declaredType?: string;
+  /** A signal of the host. When it aborts, the run stops with `#ABORT`. */
+  readonly signal?: StopSignal;
+}
+
+/** The options of an evaluation of a plan. */
+export interface EvalOptions {
+  /** A list that gets each effect, in its order. */
+  readonly effects?: Effect[];
+}
+
+/** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
+class Session implements Runtime {
   readonly effects: Effect[];
-  tick: number;
-  nextId: number;
-}
+  tick = 0;
+  nextId = 0;
+  current: Building | undefined;
+  readonly holder: Building | undefined;
 
-/** This function drives steps that cannot wait. */
-function drive(steps: Steps): Result {
-  const step = steps.next();
-  if (step.done === true) return step.value;
-  void step.value.catch(() => undefined);
-  return fail("#CALC!", "A part waited, and its parent cannot wait.");
-}
-
-/** This function drives steps that can wait. The steps before the first wait happen at once, in the call. */
-async function driveWaiting(steps: Steps): Promise<Result> {
-  let step = steps.next();
-  while (step.done !== true) {
-    let value: Result;
-    try {
-      value = await step.value;
-    } catch (error) {
-      step = steps.throw(error);
-      continue;
-    }
-    step = steps.next(value);
-  }
-  return step.value;
-}
-
-function* visit(
-  s: Session,
-  value: Json,
-  path: readonly string[],
-  declared: string | undefined,
-  ctx: Context,
-  parent: Building,
-  canWait: boolean,
-): Steps {
-  const envelope = fromJson(value);
-  const doc: Envelope = envelope ?? typed(declared ?? "?", value);
-  const node: Building = {
-    id: s.nextId,
-    path,
-    doc,
-    declared: envelope === undefined,
-    answer: NO_ANSWER,
-    side: "derive",
-    names: Object.keys(ctx.names),
-    scope: ctx.names,
-    caps: ctx.caps,
-    self: selfLabel(ctx.self),
-    enter: s.tick,
-    exit: s.tick,
-    result: fail("#NOEVAL", "The evaluation did not end."),
-    children: [],
-    effects: [],
-  };
-  s.nextId += 1;
-  s.tick += 1;
-  parent.children.push(node);
-  const finish = (result: Result): Result => {
-    node.result = result;
-    node.exit = s.tick;
-    s.tick += 1;
-    return result;
-  };
-
-  if (envelope === undefined && declared === undefined) {
-    return finish(fail("#PART?", "The value has no envelope, and its position declares no type."));
-  }
-  const maxDepth = s.machine.maxDepth ?? 200;
-  if (path.length > maxDepth) return finish(fail("#DEPTH!", `The nesting is deeper than ${maxDepth} documents.`));
-
-  const answer = ask(s.machine.world, envelope ?? {}, "eval", declared === undefined ? {} : { declaredType: declared });
-  node.answer = answer;
-  const kind = kindOf(s.machine.world, doc.type);
-  node.side = kind?.side ?? "derive";
-  if (answer.error === "unknown-kind") return finish(fail("#KIND?", `The world has no kind ${typeName(doc.type)}.`));
-  const name = answer.evaluator;
-  const runners = s.machine.runners ?? {};
-  const hasRunner = name !== undefined && Object.hasOwn(runners, name);
-  const runner = hasRunner ? runners[name] : undefined;
-  const code = name !== undefined && Object.hasOwn(s.machine.evaluators, name) ? s.machine.evaluators[name] : undefined;
-  if (name === undefined || (runner === undefined && code === undefined)) {
-    return finish(fail("#NOEVAL", `No rung gives an evaluator for ${typeName(doc.type)}.`));
-  }
-  if (runner !== undefined && s.running && !canWait) {
-    return finish(fail("#CALC!", `${typeName(doc.type)} waits for effects, and its parent cannot wait. Give the parent a runner.`));
+  constructor(
+    readonly machine: Machine,
+    readonly running: boolean,
+    readonly traced: boolean,
+    readonly perform: Perform | undefined,
+    readonly signal: StopSignal | undefined,
+    effects: Effect[] | undefined,
+  ) {
+    this.effects = effects ?? [];
+    this.holder = traced ? holderNode() : undefined;
+    this.current = this.holder;
   }
 
-  const split = splitParts(kind?.parts, doc.value);
-  if (!split.ok) return finish(fail("#VALUE!", `${split.reason} The kind is ${typeName(doc.type)}.`));
-  const slots = split.parts.map((slot) => ({ slot, header: fromJson(slot.item) }));
-  const record = (effectKind: string, payload: Json): Result | Effect => {
-    if (!permits(ctx.caps, effectKind)) return fail("#CAP!", `The context has no capability for the effect ${effectKind}.`);
-    const effect: Effect = { index: s.effects.length, kind: effectKind, payload, node: node.id, at: s.tick };
-    s.effects.push(effect);
-    node.effects.push(effect.index);
+  resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
+    return resolve(this.machine, ctx, path, { hops: options?.hops ?? this.traced });
+  }
+
+  private permitted(ctx: Context, keys: readonly Key[]): boolean {
+    return this.machine.permits === undefined ? permits(ctx.caps, keys) : this.machine.permits(ctx.caps, keys, ctx);
+  }
+
+  private record(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result | Effect {
+    const keys = typeof kind === "string" ? kind.split(".") : kind;
+    const text = keys.join(".");
+    if (!this.permitted(ctx, keys)) return fail("#CAP!", `The context has no capability for the effect ${text}.`, { place });
+    const node = this.current;
+    const effect: Effect = { index: this.effects.length, kind: text, path: keys, payload, node: node?.id ?? -1, at: this.tick, place, context: ctx };
+    this.effects.push(effect);
+    if (node !== undefined) node.effects.push(effect.index);
     return effect;
-  };
-  const kindText = typeName(doc.type);
-  const resolveHere = (steps: readonly Json[]): Resolution => resolve(s.machine, ctx, steps);
-
-  if (runner !== undefined) {
-    const parts: RunPart[] = slots.map(({ slot, header }) => ({
-      key: slot.key,
-      ...(header?.name === undefined ? {} : { name: header.name }),
-      evaluate: (override?: Context) => visit(s, slot.item, [...path, slot.key], slot.of, override ?? ctx, node, true),
-    }));
-    const input: RunInput = {
-      kind: kindText,
-      data: split.data,
-      parts,
-      context: ctx,
-      resolve: resolveHere,
-      effect: function* (effectKind: string, payload: Json): Steps {
-        const made = record(effectKind, payload);
-        if ("ok" in made) return made;
-        if (!s.running || s.perform === undefined) return ok(payload);
-        const failed = (error: unknown): Result => fail("#CALC!", `The host failed the effect ${effectKind}: ${String(error)}`);
-        let done: Json | Promise<Json>;
-        try {
-          done = s.perform(made);
-        } catch (error) {
-          return failed(error);
-        }
-        if (!(done instanceof Promise)) return ok(done ?? null);
-        return yield done.then((result) => ok(result ?? null), failed);
-      },
-    };
-    try {
-      return finish(yield* runner(input));
-    } catch (error) {
-      return finish(fail("#CALC!", `The runner ${name} threw: ${String(error)}`));
-    }
   }
 
-  const parts: Part[] = slots.map(({ slot, header }) => ({
-    key: slot.key,
-    ...(header?.name === undefined ? {} : { name: header.name }),
-    evaluate: (override?: Context) => drive(visit(s, slot.item, [...path, slot.key], slot.of, override ?? ctx, node, false)),
-  }));
-  const input: EvalInput = {
-    kind: kindText,
-    data: split.data,
-    parts,
-    context: ctx,
-    resolve: resolveHere,
-    effect: (effectKind: string, payload: Json) => {
-      if (s.running) return fail("#CALC!", `The effect ${effectKind} needs a runner: in a run, the host does each effect.`);
-      const made = record(effectKind, payload);
-      return "ok" in made ? made : ok(payload);
-    },
-  };
-  try {
-    return finish((code as Evaluator)(input));
-  } catch (error) {
-    return finish(fail("#CALC!", `The evaluator ${name} threw: ${String(error)}`));
+  effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
+    const text = typeof kind === "string" ? kind : kind.join(".");
+    if (this.running) return fail("#CALC!", `The effect ${text} needs a runner: in a run, the host does each effect.`, { place });
+    const made = this.record(ctx, kind, payload, place);
+    return "ok" in made ? made : ok(payload);
+  }
+
+  *runEffect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps {
+    const made = this.record(ctx, kind, payload, place);
+    if ("ok" in made) return made;
+    const perform = this.perform;
+    if (!this.running || perform === undefined) return ok(payload);
+    const failed = (error: unknown): Result => fail("#CALC!", `The host failed the effect ${made.kind}: ${describe(error)}`, { place, cause: error });
+    let done: unknown;
+    try {
+      done = perform(made);
+    } catch (error) {
+      return failed(error);
+    }
+    if (!(done instanceof Promise)) return ok(done);
+    return (yield done.then((value: unknown) => ok(value), failed)) as Result;
+  }
+
+  *all(list: readonly (() => Steps)[], options: { readonly concurrency?: number } = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
+    const results: Result[] = new Array<Result>(list.length);
+    const limit = Math.max(1, options.concurrency ?? list.length);
+    interface Active {
+      readonly index: number;
+      readonly steps: Steps;
+      pending: Promise<unknown>;
+    }
+    const active: Active[] = [];
+    let next = 0;
+    const advance = (index: number, steps: Steps, input: { readonly value?: unknown; readonly error?: unknown; readonly threw: boolean }): void => {
+      let step: IteratorResult<Promise<unknown>, Result>;
+      try {
+        step = input.threw ? steps.throw(input.error) : steps.next(input.value);
+      } catch (error) {
+        results[index] = thrown(error, "a part");
+        return;
+      }
+      if (step.done === true) {
+        results[index] = step.value;
+        return;
+      }
+      const item: Active = { index, steps, pending: Promise.resolve() };
+      item.pending = step.value.then(
+        (value) => ({ item, value, threw: false }),
+        (error: unknown) => ({ item, error, threw: true }),
+      );
+      active.push(item);
+    };
+    const start = (): void => {
+      while (active.length < limit && next < list.length) {
+        const index = next;
+        next += 1;
+        const begin = list[index] as () => Steps;
+        let steps: Steps;
+        try {
+          steps = begin();
+        } catch (error) {
+          results[index] = thrown(error, "a part");
+          continue;
+        }
+        advance(index, steps, { threw: false });
+      }
+    };
+    start();
+    while (active.length > 0) {
+      const settled = (yield Promise.race(active.map((item) => item.pending))) as {
+        readonly item: Active;
+        readonly value?: unknown;
+        readonly error?: unknown;
+        readonly threw: boolean;
+      };
+      active.splice(active.indexOf(settled.item), 1);
+      advance(settled.item.index, settled.item.steps, settled);
+      start();
+    }
+    return results;
+  }
+
+  enter(meta: Meta, ctx: Context): Building {
+    const node: Building = {
+      id: this.nextId,
+      path: meta.path,
+      doc: meta.doc,
+      declared: meta.declared,
+      answer: meta.answer,
+      side: meta.side,
+      names: Object.keys(ctx.names),
+      scope: ctx.names,
+      caps: ctx.caps,
+      self: selfLabel(ctx.self),
+      enter: this.tick,
+      exit: this.tick,
+      result: fail("#NOEVAL", "The evaluation did not end."),
+      children: [],
+      effects: [],
+    };
+    this.nextId += 1;
+    this.tick += 1;
+    (this.current ?? (this.holder as Building)).children.push(node);
+    return node;
+  }
+
+  exit(node: Building, result: Result): void {
+    node.result = result;
+    node.exit = this.tick;
+    this.tick += 1;
   }
 }
 
@@ -456,7 +602,7 @@ function holderNode(): Building {
   return {
     id: -1,
     path: [],
-    doc: typed("?", null),
+    doc: { type: "?", value: null },
     declared: false,
     answer: NO_ANSWER,
     side: "derive",
@@ -472,14 +618,361 @@ function holderNode(): Building {
   };
 }
 
-function rootContext(machine: Machine, context: Context): Context {
-  return context.world === null ? { ...context, world: worldThing(machine.world) } : context;
+/** This function drives steps that cannot wait. */
+function drive(steps: Steps): Result {
+  const step = steps.next();
+  if (step.done === true) return step.value;
+  void step.value.catch(() => undefined);
+  void steps.return(fail("#CALC!", "A part waited, and its parent cannot wait."));
+  return fail("#CALC!", "A part waited, and its parent cannot wait.");
 }
 
-function record(s: Session, holder: Building, result: Result): Run {
-  const root = holder.children[0];
+const ABORTED = Symbol("aborted");
+
+/** This function drives steps that can wait. The steps before the first wait happen at once, in the call. */
+async function driveWaiting(steps: Steps, signal: StopSignal | undefined): Promise<Result> {
+  const abort = (): Result => {
+    const reason = fail("#ABORT", `The host stopped the run: ${describe(signal?.reason ?? "no reason")}`, { cause: signal?.reason });
+    try {
+      steps.return(reason);
+    } catch {
+      // The finally code of a runner threw. The run stops with the abort.
+    }
+    return reason;
+  };
+  const aborted =
+    signal === undefined
+      ? undefined
+      : new Promise<typeof ABORTED>((resolve) => {
+          if (signal.aborted) resolve(ABORTED);
+          else signal.addEventListener("abort", () => resolve(ABORTED), { once: true });
+        });
+  if (signal?.aborted === true) return abort();
+  let step = steps.next();
+  while (step.done !== true) {
+    let value: unknown;
+    try {
+      value = aborted === undefined ? await step.value : await Promise.race([step.value, aborted]);
+    } catch (error) {
+      step = steps.throw(error);
+      continue;
+    }
+    if (value === ABORTED) return abort();
+    step = steps.next(value);
+  }
+  return step.value;
+}
+
+function isCompiledEvaluator(evaluator: Evaluator): evaluator is CompiledEvaluator {
+  return typeof evaluator === "object" && evaluator !== null && typeof (evaluator as CompiledEvaluator).compile === "function";
+}
+
+function isCompiledRunner(runner: Runner): runner is CompiledRunner {
+  return typeof runner === "object" && runner !== null && typeof (runner as CompiledRunner).compileRun === "function";
+}
+
+/** The options of a compilation. */
+export interface PrepareOptions {
+  /** The type of a bare root value. */
+  readonly declaredType?: string;
+  /** `true`: each evaluation records a trace. The default is `false`. */
+  readonly trace?: boolean;
+}
+
+/** A compiled document. It evaluates many times, and it does the work of the ladder one time. */
+export interface Plan {
+  readonly machine: Machine;
+  /** `true` when each evaluation records a trace. */
+  readonly traced: boolean;
+  /** The compiled root document. */
+  readonly root: CompiledPart;
+  /**
+   * This function evaluates the document. It does not wait, and the host does no effect.
+   *
+   * @param context - The names and the capabilities at the root.
+   * @param options - A list that gets the effects.
+   * @returns The result.
+   */
+  evaluate(context?: Context, options?: EvalOptions): Result;
+  /**
+   * This function runs the document: the host does each effect, and the run waits when the host waits.
+   *
+   * @param context - The names and the capabilities at the root.
+   * @param options - The host code that does the effects, and a signal to stop the run.
+   * @returns The result, when the run ends.
+   */
+  run(context?: Context, options?: RunOptions): Promise<Result>;
+}
+
+interface Compiler {
+  readonly machine: Machine;
+  readonly traced: boolean;
+  readonly maxDepth: number;
+}
+
+function failing(c: Compiler, meta: Meta, place: readonly Key[], code: ErrorCode, reason: string): { readonly code: Code; readonly run: RunCode } {
+  const result = fail(code, reason, { place });
+  const plain: Code = () => result;
+  return finish(c, meta, plain, function* () {
+    return result;
+  });
+}
+
+function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly code: Code; readonly run: RunCode } {
+  if (!c.traced) return { code, run };
+  const tracedCode: Code = (ctx, rt) => {
+    const s = rt as Session;
+    const node = s.enter(meta, ctx);
+    const before = s.current;
+    s.current = node;
+    let result: Result;
+    try {
+      result = code(ctx, rt);
+    } finally {
+      s.current = before;
+    }
+    s.exit(node, result);
+    return result;
+  };
+  const tracedRun: RunCode = function* (ctx, rt) {
+    const s = rt as Session;
+    const node = s.enter(meta, ctx);
+    const steps = run(ctx, rt);
+    let input: unknown;
+    let threw = false;
+    for (;;) {
+      const before = s.current;
+      s.current = node;
+      let step: IteratorResult<Promise<unknown>, Result>;
+      try {
+        step = threw ? steps.throw(input) : steps.next(input);
+      } finally {
+        s.current = before;
+      }
+      if (step.done === true) {
+        s.exit(node, step.value);
+        return step.value;
+      }
+      try {
+        input = yield step.value;
+        threw = false;
+      } catch (error) {
+        input = error;
+        threw = true;
+      }
+    }
+  };
+  return { code: tracedCode, run: tracedRun };
+}
+
+function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number): { readonly code: Code; readonly run: RunCode } {
+  const envelope = isEnvelope(value) ? (value as Envelope) : undefined;
+  const doc: Envelope = envelope ?? { type: declared ?? "?", value: value as Json };
+  const path = place.map(String);
+  const meta0: Meta = { path, doc, declared: envelope === undefined, answer: NO_ANSWER, side: "derive" };
+  if (envelope === undefined && declared === undefined) {
+    return failing(c, meta0, place, "#PART?", "The value has no envelope, and its position declares no type.");
+  }
+  if (depth > c.maxDepth) return failing(c, meta0, place, "#DEPTH!", `The nesting is deeper than ${c.maxDepth} documents.`);
+
+  const answer = ask(c.machine.world, envelope ?? {}, "eval", declared === undefined ? {} : { declaredType: declared });
+  const found = lookupKind(c.machine.world, doc.type);
+  const kind = found.ok ? found.kind : undefined;
+  const meta: Meta = { ...meta0, answer, side: kind?.side ?? "derive" };
+  const kindText = typeName(doc.type);
+  if (answer.error === "unknown-kind") return failing(c, meta, place, "#KIND?", `The world has no kind ${kindText}.`);
+  const name = answer.evaluator;
+  const runners = c.machine.runners ?? {};
+  const runner = name !== undefined && Object.hasOwn(runners, name) ? runners[name] : undefined;
+  const evaluator = name !== undefined && Object.hasOwn(c.machine.evaluators, name) ? c.machine.evaluators[name] : undefined;
+  if (name === undefined || (runner === undefined && evaluator === undefined)) {
+    return failing(c, meta, place, "#NOEVAL", `No rung gives an evaluator for ${kindText}.`);
+  }
+
+  const split = splitParts(kind?.parts, doc.value);
+  if (!split.ok) {
+    const at = split.at.length === 0 ? "" : ` (at ${split.at.join(".")})`;
+    return failing(c, meta, place, "#VALUE!", `${split.reason}${at} The kind is ${kindText}.`);
+  }
+  const parts: CompiledPart[] = split.parts.map((slot) => {
+    const compiled = compileNode(c, slot.item, [...place, ...slot.path], slot.of, depth + 1);
+    const header = isEnvelope(slot.item) && isRecord(slot.item) && typeof slot.item["name"] === "string" ? slot.item["name"] : undefined;
+    return { key: slot.key, path: slot.path, ...(header === undefined ? {} : { name: header }), code: compiled.code, run: compiled.run };
+  });
+  const typePath = found.ok ? found.path : [];
+  const input: CompileInput = {
+    kind: kindText,
+    typePath,
+    doc,
+    value: split.parts.length === 0 ? doc.value : split.fill(parts),
+    data: split.data,
+    parts,
+    place,
+    machine: c.machine,
+  };
+  const who = `the evaluator ${name}`;
+
+  if (runner !== undefined) {
+    const inner: RunCode = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
+    const run: RunCode = function* (ctx, rt) {
+      try {
+        return placed(yield* inner(ctx, rt), place);
+      } catch (error) {
+        return placed(thrown(error, `the runner ${name}`), place);
+      }
+    };
+    const code: Code = (ctx, rt) =>
+      rt.running
+        ? fail("#CALC!", `${kindText} waits for effects, and its parent cannot wait. Give the parent a runner.`, { place })
+        : drive(run(ctx, rt));
+    return finish(c, meta, code, run);
+  }
+
+  const inner: Code = isCompiledEvaluator(evaluator as Evaluator)
+    ? (evaluator as CompiledEvaluator).compile(input)
+    : interpret(evaluator as EvalFn, input, split.fill);
+  const code: Code = (ctx, rt) => {
+    try {
+      return placed(inner(ctx, rt), place);
+    } catch (error) {
+      return placed(thrown(error, who), place);
+    }
+  };
+  return finish(c, meta, code, function* (ctx, rt) {
+    return code(ctx, rt);
+  });
+}
+
+function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
+  const { kind, typePath, doc, data, place } = input;
+  const compiled = input.parts;
+  const hasParts = compiled.length > 0;
+  return (ctx, rt) => {
+    const parts: Part[] = compiled.map((part) => ({
+      key: part.key,
+      path: part.path,
+      ...(part.name === undefined ? {} : { name: part.name }),
+      evaluate: (override?: Context) => part.code(override === undefined ? ctx : narrow(ctx, override), rt),
+    }));
+    return fn({
+      kind,
+      typePath,
+      doc,
+      value: hasParts ? fill(parts) : doc.value,
+      data,
+      parts,
+      context: ctx,
+      place,
+      resolve: (path, options) => rt.resolve(ctx, path, options),
+      effect: (effectKind, payload) => rt.effect(ctx, effectKind, payload, place),
+    });
+  };
+}
+
+function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): RunCode {
+  const { kind, typePath, doc, data, place } = input;
+  const compiled = input.parts;
+  const hasParts = compiled.length > 0;
+  return (ctx, rt) => {
+    const parts: RunPart[] = compiled.map((part) => ({
+      key: part.key,
+      path: part.path,
+      ...(part.name === undefined ? {} : { name: part.name }),
+      evaluate: (override?: Context) => part.run(override === undefined ? ctx : narrow(ctx, override), rt),
+    }));
+    return fn({
+      kind,
+      typePath,
+      doc,
+      value: hasParts ? fill(parts) : doc.value,
+      data,
+      parts,
+      context: ctx,
+      place,
+      resolve: (path, options) => rt.resolve(ctx, path, options),
+      effect: (effectKind, payload) => rt.runEffect(ctx, effectKind, payload, place),
+      all: (list, options) => rt.all(list.map((part) => () => part.evaluate()), options),
+    });
+  };
+}
+
+function rootContext(machine: Machine, ctx: Context): Context {
+  return ctx.world === null ? { ...ctx, world: worldThing(machine.world) } : ctx;
+}
+
+/**
+ * This function compiles a document into a plan. The ladder, the kinds and the parts are known after it. A plan
+ * evaluates many times. A document that does not compile gives a plan that fails with the reason, when it evaluates.
+ *
+ * @param machine - The world and the code of the evaluators.
+ * @param doc - The document, as JSON.
+ * @param options - The type of a bare root value, and a trace.
+ * @returns The plan.
+ */
+export function prepare(machine: Machine, doc: unknown, options: PrepareOptions = {}): Plan {
+  const c: Compiler = { machine, traced: options.trace === true, maxDepth: machine.maxDepth ?? 1000 };
+  let root: { readonly code: Code; readonly run: RunCode };
+  try {
+    root = compileNode(c, doc, [], options.declaredType, 0);
+  } catch (error) {
+    const result = thrown(error, "the compilation");
+    root = {
+      code: () => result,
+      run: function* () {
+        return result;
+      },
+    };
+  }
+  const compiled: CompiledPart = { key: "", path: [], code: root.code, run: root.run };
+  return {
+    machine,
+    traced: c.traced,
+    root: compiled,
+    evaluate(context: Context = makeContext(), evalOptions: EvalOptions = {}): Result {
+      const s = new Session(machine, false, c.traced, undefined, undefined, evalOptions.effects);
+      return root.code(rootContext(machine, context), s);
+    },
+    run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {
+      const s = new Session(machine, true, c.traced, runOptions.perform, runOptions.signal, undefined);
+      return driveWaiting(root.run(rootContext(machine, context), s), runOptions.signal);
+    },
+  };
+}
+
+/**
+ * This function makes a cache of plans for one machine. A document object compiles one time. Use it only for
+ * documents that do not change after they are made.
+ *
+ * @param machine - The machine.
+ * @param options - The options of each compilation.
+ * @returns A function that gives the plan of a document.
+ */
+export function planner(machine: Machine, options: PrepareOptions = {}): (doc: unknown) => Plan {
+  const objects = new WeakMap<object, Plan>();
+  const values = new Map<unknown, Plan>();
+  return (doc) => {
+    if (typeof doc === "object" && doc !== null) {
+      let plan = objects.get(doc);
+      if (plan === undefined) {
+        plan = prepare(machine, doc, options);
+        objects.set(doc, plan);
+      }
+      return plan;
+    }
+    let plan = values.get(doc);
+    if (plan === undefined) {
+      plan = prepare(machine, doc, options);
+      if (values.size > 1000) values.clear();
+      values.set(doc, plan);
+    }
+    return plan;
+  };
+}
+
+function record(s: Session, result: Result): Run {
+  const root = s.holder?.children[0];
   if (root === undefined) throw new Error("The evaluation made no trace.");
-  return { result, trace: root, effects: s.effects, time: s.tick };
+  return { result, trace: root as TraceNode, effects: s.effects, time: s.tick };
 }
 
 /**
@@ -495,29 +988,29 @@ function record(s: Session, holder: Building, result: Result): Run {
  * @param declaredType - The type of a bare root value.
  * @returns The result, the trace and the effects in their order.
  */
-export function evaluate(machine: Machine, doc: Json, context: Context = makeContext(), declaredType?: string): Run {
-  const s: Session = { machine, running: false, perform: undefined, effects: [], tick: 0, nextId: 0 };
-  const holder = holderNode();
-  const result = drive(visit(s, doc, [], declaredType, rootContext(machine, context), holder, false));
-  return record(s, holder, result);
+export function evaluate(machine: Machine, doc: unknown, context: Context = makeContext(), declaredType?: string): Run {
+  const plan = prepare(machine, doc, { trace: true, ...(declaredType === undefined ? {} : { declaredType }) });
+  const s = new Session(machine, false, true, undefined, undefined, undefined);
+  const result = plan.root.code(rootContext(machine, context), s);
+  return record(s, result);
 }
 
 /**
  * This function runs a document: an evaluation in which the host does each effect. A runner waits for its
  * parts and for its effects, thus a step can read the result of the step before. The part of the run before the
- * first wait happens at once, in the call.
+ * first wait happens at once, in the call. The run records a trace.
  *
  * @param machine - The world, the evaluators and the runners.
  * @param doc - The document, as JSON.
  * @param context - The names and the capabilities at the root.
- * @param options - The host code that does the effects, and the type of a bare root value.
+ * @param options - The host code that does the effects, the type of a bare root value, and a signal.
  * @returns The result, the trace and the effects in their order, when the run ends.
  */
-export async function run(machine: Machine, doc: Json, context: Context = makeContext(), options: RunOptions = {}): Promise<Run> {
-  const s: Session = { machine, running: true, perform: options.perform, effects: [], tick: 0, nextId: 0 };
-  const holder = holderNode();
-  const result = await driveWaiting(visit(s, doc, [], options.declaredType, rootContext(machine, context), holder, true));
-  return record(s, holder, result);
+export async function run(machine: Machine, doc: unknown, context: Context = makeContext(), options: RunOptions = {}): Promise<Run> {
+  const plan = prepare(machine, doc, { trace: true, ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }) });
+  const s = new Session(machine, true, true, options.perform, options.signal, undefined);
+  const result = await driveWaiting(plan.root.run(rootContext(machine, context), s), options.signal);
+  return record(s, result);
 }
 
 /**
@@ -527,11 +1020,17 @@ export async function run(machine: Machine, doc: Json, context: Context = makeCo
  * @param path - The keys from the root.
  * @returns The first evaluation at that path, or `undefined` when the document did not evaluate.
  */
-export function nodeAt(trace: TraceNode, path: readonly string[]): TraceNode | undefined {
+export function nodeAt(trace: TraceNode, path: readonly Key[]): TraceNode | undefined {
+  const want = path.map(String);
   let node: TraceNode | undefined = trace;
-  for (const key of path) {
-    node = node?.children.find((child) => child.path[child.path.length - 1] === key);
-    if (node === undefined) return undefined;
+  let at = 0;
+  while (node !== undefined && at < want.length) {
+    const here: TraceNode = node;
+    node = here.children.find((child) => {
+      const tail = child.path.slice(here.path.length);
+      return tail.length > 0 && tail.every((key, index) => key === want[at + index]);
+    });
+    if (node !== undefined) at += node.path.length - here.path.length;
   }
   return node;
 }
@@ -544,10 +1043,27 @@ export function nodeAt(trace: TraceNode, path: readonly string[]): TraceNode | u
  */
 export function flatten(trace: TraceNode): readonly TraceNode[] {
   const out: TraceNode[] = [];
-  const walk = (node: TraceNode): void => {
+  const stack: TraceNode[] = [trace];
+  while (stack.length > 0) {
+    const node = stack.pop() as TraceNode;
     out.push(node);
-    node.children.forEach(walk);
-  };
-  walk(trace);
+    for (let index = node.children.length - 1; index >= 0; index -= 1) stack.push(node.children[index] as TraceNode);
+  }
   return out.sort((a, b) => a.enter - b.enter);
 }
+
+/**
+ * This function lists the errors of a trace: each node whose result is an error and whose parts did not fail
+ * the same way. These nodes are where each error started.
+ *
+ * @param trace - The root of the trace.
+ * @returns The errors, in the order of their start.
+ */
+export function failures(trace: TraceNode): readonly EvalError[] {
+  return flatten(trace)
+    .filter((node) => !node.result.ok && !node.children.some((child) => !child.result.ok && child.result.error === (node.result as { error: EvalError }).error))
+    .map((node) => (node.result as { readonly error: EvalError }).error);
+}
+
+/** The type of a document as a reference: re-exported for the compilers. */
+export type { TypeRef };

@@ -9,6 +9,7 @@ import {
   ref,
   resolve,
   worldThing,
+  type EvalFn,
   type Hop,
   type Json,
   type Machine,
@@ -42,7 +43,7 @@ function treeWalks(): readonly { readonly path: readonly Json[]; readonly resolu
           const path: readonly Json[] = input.data;
           seen.push({ path, resolution: input.resolve(path) });
         }
-        return base === undefined ? { ok: false, error: { code: "#NOEVAL", reason: "No evaluator." } } : base(input);
+        return base === undefined ? { ok: false, error: { code: "#NOEVAL", reason: "No evaluator." } } : (base as EvalFn)(input);
       },
     },
   };

@@ -47,7 +47,7 @@
 }
 
 [data-part="names"] { --part: var(--ce-names); }
-[data-part="focus"] { --part: var(--ce-focus); }
+[data-part="focus"], [data-part="self"] { --part: var(--ce-focus); }
 [data-part="world"] { --part: var(--ce-world); }
 [data-part="event"] { --part: var(--ce-event); }
 [data-part="caps"] { --part: var(--ce-caps); }

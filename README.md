@@ -8,22 +8,23 @@ coeval is a base for declarative languages. Each language keeps its programs as 
 
 ## Status
 
-The project is in the design stage. The model package is small, and its API changes without notice. The packages are not on npm. The plan is in [`docs/ROADMAP.md`](./docs/ROADMAP.md), and the decisions are in [`docs/DECISIONS.md`](./docs/DECISIONS.md).
+The kernel is on npm as `@mark1russell7/coeval`. Its API is not stable before version 1.0. Since version 0.2, each language evaluates through the kernel (decision D13). The plan is in [`docs/ROADMAP.md`](./docs/ROADMAP.md), the decisions are in [`docs/DECISIONS.md`](./docs/DECISIONS.md), and each rule has an ID in [`docs/SPEC.md`](./docs/SPEC.md).
 
-## The model in six rules
+## The model in seven rules
 
 1. **A program is a document.** It is a value in an envelope: `{ "type": "add", "value": [2, 3] }`. The type names a kind.
 2. **A question finds the meaning.** The answer comes from the own entry of the document, then from its kind, then from the default.
 3. **An evaluator evaluates its parts, and does not look inside them.** Thus equal parts can replace each other.
-4. **A context is the only door.** A term reaches outside itself through five parts: names, focus, world, event and capabilities.
+4. **A context is the only door.** A term reaches outside itself through five roots: `self`, `names`, `world`, `event` and `caps`.
 5. **Order has a meaning only for effects.** Pure work runs in any order that obeys its data. Effects keep their written order.
 6. **A reference is a path from a root of the context.** Each step is a question to the thing that the path reached. A type is a path into the world.
+7. **A language evaluates through the kernel.** The kernel compiles a document one time into a plan, checks it before a run, and evaluates the shared constructs. A language gives its operations and its own rules.
 
 ## Packages
 
 | Package | Contents |
 | --- | --- |
-| [`@mark1russell7/coeval`](./packages/core) | The model: envelopes, the ladder, sealed parts, the evaluation with its trace, error values, a small standard world, the order of a sequence and the parts of a context |
+| [`@mark1russell7/coeval`](./packages/core) | The kernel: envelopes, the ladder, kind contracts, sealed parts, plans, the run side with capabilities, error values with a place, the static kit, the formula kit and a small standard world |
 | [`@coeval/site`](./packages/site) | The site: a visual grammar where each concept has one glyph, a guide that adds glyphs one page at a time, and a playground. GitHub Pages serves it. |
 
 ## Commands

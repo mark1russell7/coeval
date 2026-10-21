@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONSTRUCTS, PARTS, PART_INFO } from "./index.ts";
+import { CONSTRUCTS, PARTS, PART_INFO, isTypeRef } from "./index.ts";
 
 describe("context data", () => {
   it("describes each part one time, in order", () => {
@@ -19,6 +19,6 @@ describe("context data", () => {
   });
 
   it("gives each example a type in its envelope", () => {
-    for (const construct of CONSTRUCTS) expect(typeof construct.example.type, construct.id).toBe("string");
+    for (const construct of CONSTRUCTS) expect(isTypeRef(construct.example.type), construct.id).toBe(true);
   });
 });
