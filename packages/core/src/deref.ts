@@ -112,6 +112,8 @@ export type Walker = (input: WalkInput) => WalkResult;
  * - `plain`: `true` when the values are data. Then a step does not ask the kind of an envelope, and a reference
  *   that a step reaches stays a value (no collapse).
  * - `roots`: the roots that a path can start at. The default is each root.
+ * - `adopt`: the thing of each value that a path reaches. A host gives its own values a host thing with this
+ *   function, for example a value whose fields read through signals. A host thing is not followed as a reference.
  */
 export interface Navigator {
   readonly world: World;
@@ -119,6 +121,7 @@ export interface Navigator {
   readonly walkers?: Readonly<Record<string, Walker>>;
   readonly plain?: boolean;
   readonly roots?: readonly Root[];
+  readonly adopt?: (value: unknown) => Thing;
 }
 
 /** The way that one hop of a path was answered. */
@@ -265,6 +268,7 @@ function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): R
   const root = path[0];
   if (root !== "names" && root !== "self" && root !== "event") return undefined;
   if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return undefined;
+  if (nav.adopt !== undefined) return undefined;
   let here: unknown = ctx[root];
   const plain = nav.plain === true;
   for (let index = 1; index < path.length; index += 1) {
@@ -316,6 +320,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
   const done = hops ?? NO_HOPS;
   const failed = (code: ResolveCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;
+  const adopt = nav.adopt ?? ((value: unknown): Thing => value);
 
   const collapse = (thing: Thing): Resolution => {
     let here = thing;
@@ -325,7 +330,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
       if (collapses > MAX_COLLAPSE) return failed("#CYCLE!", "The references form a cycle.");
       const inner = walk(here.value);
       if (!inner.ok) return inner;
-      here = inner.thing;
+      here = adopt(inner.thing);
       hops?.push({ step: "collapse", thing: here, by: "collapse" });
     }
     return { ok: true, thing: here, hops: done };
@@ -339,7 +344,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
     if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) {
       return failed("#REF!", `The root ${root} is not open here. The open roots are ${nav.roots.join(", ")}.`);
     }
-    let here: Thing = ctx[root as Root];
+    let here: Thing = adopt(ctx[root as Root]);
     hops?.push({ step: root, thing: here, by: "root" });
     const first = collapse(here);
     if (!first.ok) return first;
@@ -350,8 +355,9 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
         const keys = steps.slice(index) as readonly Key[];
         const reached = here.resolve(keys);
         if (reached === undefined) return failed("#N/A", `The path ${keys.join(".")} reaches nothing.`);
-        hops?.push({ step: keys as readonly Json[], thing: reached.thing, by: "own" });
-        return collapse(reached.thing);
+        const thing = adopt(reached.thing);
+        hops?.push({ step: keys as readonly Json[], thing, by: "own" });
+        return collapse(thing);
       }
       if (isKey(step)) {
         const reached = derefStep(nav, here, step);
@@ -359,8 +365,8 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
           if (root === "names" && index === 1) return failed("#NAME?", `The context has no name ${String(step)}.`);
           return failed("#N/A", `The step ${String(step)} reaches nothing.`);
         }
-        hops?.push({ step, thing: reached.thing, by: reached.by });
-        here = reached.thing;
+        here = adopt(reached.thing);
+        hops?.push({ step, thing: here, by: reached.by });
       } else {
         const envelope = isEnvelope(step) ? step : undefined;
         const found = envelope === undefined ? undefined : lookupKind(nav.world, envelope.type);
@@ -373,11 +379,14 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
           data: envelope.value,
           here,
           context: ctx,
-          deref: (thing, key) => derefStep(nav, thing, key)?.thing,
+          deref: (thing, key) => {
+            const reached = derefStep(nav, thing, key);
+            return reached === undefined ? undefined : adopt(reached.thing);
+          },
         });
         if (!result.ok) return failed("#N/A", result.reason);
-        hops?.push({ step: envelope as Json, thing: result.thing, by: "step" });
-        here = result.thing;
+        here = adopt(result.thing);
+        hops?.push({ step: envelope as Json, thing: here, by: "step" });
       }
       const next = collapse(here);
       if (!next.ok) return next;

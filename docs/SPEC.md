@@ -58,6 +58,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | DEREF.PATH | A host thing can answer all the keys of a path in one call. |
 | DEREF.PLAIN | A plain navigation reads a value with the shape of a reference as data. |
 | DEREF.ROOTS | A navigation can close roots. A path from a closed root gives `#REF!`. |
+| DEREF.ADOPT | A navigation can adopt each value that a path reaches as a thing, also a value that a `let` binds. |
 | DEREF.HOPS | A resolution can skip the record of its hops. |
 | DEREF.SYMBOL | The brand of a host thing is a global symbol. Two copies of the kernel know the things of each other. |
 | TREE.PARENT | A node of a tree reads its parent through the field `parent`. |
