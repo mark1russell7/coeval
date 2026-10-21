@@ -78,6 +78,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | PLAN.TRACE | A traced evaluation records each document. An evaluation of a plan without a trace records nothing. |
 | PLAN.CACHE | A planner compiles one document object one time. |
 | PLAN.COMPILE-SPEED | A compilation without a trace does not record the rungs of the ladder, thus it compiles a small document quickly. |
+| PLAN.LEAN | A plan keeps only its compiled code. It does not keep its document or the split of the value, thus a store can keep many plans. |
 | PLAN.DEPTH | The nesting of documents has a limit. The default is 1000. |
 | EVAL.DECLARED | A bare value in a list gets the type that the list declares. |
 | EVAL.LAZY-IF | The kind `if` evaluates only the branch that the test selects. |
