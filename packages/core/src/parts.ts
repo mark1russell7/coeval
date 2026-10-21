@@ -1,4 +1,4 @@
-import { type Json, type Key, isEnvelope, isRecord } from "./doc.ts";
+import { type Json, type Key, docEquals, isEnvelope, isRecord, typeName, typePath } from "./doc.ts";
 import type { Shape } from "./world.ts";
 
 /** One part of a value: its place in the value, the JSON of the part, and the type that its position declares. */
@@ -9,6 +9,8 @@ export interface PartSlot {
   readonly key: string;
   readonly item: Json;
   readonly of?: string;
+  /** `true` when the position of the part declares an address: a reference there gives what its path reaches. */
+  readonly address?: true;
 }
 
 type Template =
@@ -54,6 +56,27 @@ function hasSlots(template: Template): boolean {
   return template.t !== "data";
 }
 
+/** This function gives the reason why a value is not data of a shape, or `undefined` when it is. */
+function dataFault(spec: Extract<Shape, { readonly shape: "text" | "number" | "one" }>, item: Json): string | undefined {
+  if (spec.shape === "text") return typeof item === "string" ? undefined : "The value must be a text.";
+  if (spec.shape === "one") return spec.values.some((value) => docEquals(value, item)) ? undefined : `The value must be one of ${JSON.stringify(spec.values)}.`;
+  if (typeof item !== "number") return "The value must be a number.";
+  if (spec.whole === true && !Number.isInteger(item)) return "The value must be a whole number.";
+  if (spec.min !== undefined && !(item >= spec.min)) return `The value must be ${String(spec.min)} or more.`;
+  if (spec.max !== undefined && !(item <= spec.max)) return `The value must be ${String(spec.max)} or less.`;
+  return undefined;
+}
+
+/** This function stops a split when a part has a type that its position does not permit. */
+function kindFault(kinds: readonly (readonly Key[])[], item: Json, of: string | undefined, path: readonly Key[]): void {
+  const type = isEnvelope(item) ? typePath(item.type) : of === undefined ? undefined : [of];
+  const fits = type !== undefined && kinds.some((kind) => kind.length <= type.length && kind.every((key, index) => String(key) === String(type[index])));
+  if (fits) return;
+  const names = kinds.map((kind) => kind.join(".")).join(", ");
+  const what = isEnvelope(item) ? `The kind ${typeName(item.type)} is not permitted here.` : "A value without an envelope is not permitted here.";
+  throw new Bad(`${what} The permitted kinds are ${names}.`, path);
+}
+
 /**
  * This function splits a value into its parts, by the shape that its kind declares. The evaluator, the view and
  * the static kit use the same split, thus each one sees the same parts.
@@ -66,8 +89,8 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
   // A value without parts is data: the split needs no template.
   if (shape === undefined || shape.shape === "none") return { ok: true, parts: NO_SLOTS, data: value, fill: () => value };
   const parts: PartSlot[] = [];
-  const slot = (item: Json, path: readonly Key[], of: string | undefined): Template => {
-    parts.push({ path, key: path.join("."), item, ...(of === undefined ? {} : { of }) });
+  const slot = (item: Json, path: readonly Key[], of: string | undefined, address = false): Template => {
+    parts.push({ path, key: path.join("."), item, ...(of === undefined ? {} : { of }), ...(address ? { address: true as const } : {}) });
     return { t: "slot", index: parts.length - 1 };
   };
 
@@ -86,12 +109,25 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
 
   const walk = (spec: Shape | undefined, item: Json, path: readonly Key[]): Template => {
     if (spec === undefined || spec.shape === "none") return { t: "data", value: item };
-    if (spec.shape === "term") return slot(item, path, spec.of);
+    if (spec.shape === "text" || spec.shape === "number" || spec.shape === "one") {
+      const reason = dataFault(spec, item);
+      if (reason !== undefined) throw new Bad(reason, path);
+      return { t: "data", value: item };
+    }
+    if (spec.shape === "term") {
+      if (spec.kinds !== undefined) kindFault(spec.kinds, item, spec.of, path);
+      return slot(item, path, spec.of, spec.address === true);
+    }
     if (spec.shape === "deep") return deep(item, path, spec.of);
     if (spec.shape === "list") {
       if (!Array.isArray(item)) throw new Bad("The value must be a list.", path);
+      const list = item as readonly Json[];
+      if (spec.distinct === true) {
+        const twice = list.findIndex((child, index) => list.slice(0, index).some((before) => docEquals(before, child)));
+        if (twice !== -1) throw new Bad("The items of the list must be different.", [...path, twice]);
+      }
       const each: Shape = spec.item ?? { shape: "term", ...(spec.of === undefined ? {} : { of: spec.of }) };
-      return { t: "list", items: (item as readonly Json[]).map((child, index) => walk(each, child, [...path, index])) };
+      return { t: "list", items: list.map((child, index) => walk(each, child, [...path, index])) };
     }
     if (!isRecord(item)) throw new Bad("The value must be a record.", path);
     if (spec.shape === "map") {
@@ -106,6 +142,7 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
       : (spec.fields as Readonly<Record<string, Shape>>);
     const fields: (readonly [string, Template])[] = [];
     for (const key of Object.keys(item)) {
+      if (spec.closed === true && !Object.hasOwn(named, key)) throw new Bad(`The field ${key} is not a field of this kind.`, [...path, key]);
       const fieldShape = Object.hasOwn(named, key) ? named[key] : spec.rest;
       fields.push([key, walk(fieldShape, item[key] as Json, [...path, key])]);
     }

@@ -254,7 +254,7 @@ describe("the static kit", () => {
       ],
     };
     const issues = check(STD_MACHINE, seq);
-    expect(issues).toEqual([{ code: "#NAME?", place: [0, 0], reason: "The name later is bound by a later step." }]);
+    expect(issues).toEqual([{ code: "#NAME?", place: [0, 0], reason: "The name later is bound by a later step.", at: ["value", 0, "value", 0, "value", 1] }]);
   });
 
   it("[STATIC.CAP] check finds an effect that the capabilities do not permit", () => {
@@ -263,7 +263,7 @@ describe("the static kit", () => {
       world: { kinds: { ...STD_MACHINE.world.kinds, git: { kinds: {}, fallback: { verbs: { eval: "data.text" }, effects: "type" } } }, defaults: {} },
     };
     const issues = check(callWorld, { type: ["git", "push"], value: "main" }, { caps: ["git.pull"] });
-    expect(issues).toEqual([{ code: "#CAP!", place: [], reason: "The capabilities do not permit the effect git.push." }]);
+    expect(issues).toEqual([{ code: "#CAP!", place: [], reason: "The capabilities do not permit the effect git.push.", at: [] }]);
     expect(check(callWorld, { type: ["git", "push"], value: "main" }, { caps: ["git"] })).toEqual([]);
   });
 

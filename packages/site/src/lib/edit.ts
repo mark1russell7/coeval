@@ -104,7 +104,8 @@ export function declaredAt(world: World, root: Json, path: readonly string[]): s
   const parent = fromJson(getAt(root, path.slice(0, -1)));
   if (parent === undefined) return undefined;
   const parts = kindNamed(world, parent.type)?.parts;
-  return parts === undefined || parts.shape === "none" ? undefined : parts.of;
+  // A data shape has no parts, so it declares no type.
+  return parts === undefined || !("of" in parts) ? undefined : parts.of;
 }
 
 /**
