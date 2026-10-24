@@ -135,6 +135,7 @@ export type Steps = Generator<Promise<unknown>, Result, unknown>;
 
 /** An effect that an evaluation caused, in the order of the effects. */
 export interface Effect {
+  /** The number of effects before this effect. Under `all`, this number follows the order of the host. */
   readonly index: number;
   /** The kind of the effect, as a text with dots. */
   readonly kind: string;
@@ -149,10 +150,100 @@ export interface Effect {
   readonly place: readonly Key[];
   /** The context of the document that caused the effect: its names, its node and its capabilities. */
   readonly context: Context;
+  /**
+   * The stable address of the effect (RUN.ADDRESS). The order of the host does not change it. The address is the
+   * place of the document and the count of the earlier effects at that place, for example `1/bind/x#0`. Inside an
+   * item of `all`, a step such as `all0.1/` comes first: the item 1 of the first `all` around the effect. The kernel
+   * gives each effect its address.
+   */
+  readonly address?: string;
+  /**
+   * The outcome of the effect: the result that it gave its document (RUN.OUTCOME). The kernel sets it when the host
+   * answers. It stays `undefined` when the run stopped first, for example at an abort.
+   */
+  readonly outcome?: Result;
 }
 
-/** The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value. */
+/**
+ * The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value. In an
+ * evaluation, it is a mock: it answers at once, and a promise from it gives `#CALC!` (RUN.MOCK).
+ */
 export type Perform = (effect: Effect) => unknown;
+
+/** The key of the journal of a recorder or of a replayer, on its function. Two copies of the kernel share it. */
+export const JOURNAL: unique symbol = Symbol.for("coeval.journal") as never;
+
+/**
+ * The journal of a recorder or of a replayer. The kernel tells it the order in which the waits of each `all` settle,
+ * and it asks the journal for that order in a replay (RUN.RECORD, RUN.REPLAY).
+ */
+export interface Journal {
+  /**
+   * This function gets the item whose wait settled.
+   *
+   * @param all - The address of the `all`, for example `all0` or `all0.1/all0`.
+   * @param item - The index of the item.
+   */
+  readonly settled?: (all: string, item: number) => void;
+  /**
+   * This function gives the item whose wait settles next.
+   *
+   * @param all - The address of the `all`.
+   * @param waiting - The indices of the items that wait.
+   * @returns The index of an item, or `undefined` for the order of the host.
+   */
+  readonly next?: (all: string, waiting: readonly number[]) => number | undefined;
+}
+
+/** This function gives the journal of a perform, when it has one. */
+function journalOf(perform: Perform | undefined): Journal | undefined {
+  return perform === undefined ? undefined : (perform as { readonly [JOURNAL]?: Journal })[JOURNAL];
+}
+
+/** The brand of the error of a replayer for an effect that its log does not have. Two copies of the kernel share it. */
+export const MISMATCH: unique symbol = Symbol.for("coeval.replay.mismatch") as never;
+
+/** This function gives the error value of a host that failed an effect. The mismatch of a replayer gives `#REPLAY!`. */
+function hostFailed(kind: string, place: readonly Key[], error: unknown): Result {
+  if (typeof error === "object" && error !== null && (error as { readonly [MISMATCH]?: unknown })[MISMATCH] === true) {
+    return fail("#REPLAY!", describeMismatch(error), { place });
+  }
+  return fail("#CALC!", `The host failed the effect ${kind}: ${describe(error)}`, { place, cause: error });
+}
+
+function describeMismatch(error: object): string {
+  const message = (error as { readonly message?: unknown }).message;
+  return typeof message === "string" ? message : "The run asks for an effect that the log does not have.";
+}
+
+/**
+ * The scope of the addresses of effects (RUN.ADDRESS). The root of a run is one scope, and each item of `all` is a
+ * scope. The code of one scope does not interleave with itself, thus its counts do not depend on the host.
+ */
+interface Scope {
+  /** The text before each place, for example `all0.1/`. */
+  readonly prefix: string;
+  /** The number of earlier effects at each place, by the text of the place. */
+  counts: Map<string, number> | undefined;
+  /** The number of earlier calls of `all` in the scope. */
+  alls: number;
+}
+
+/** The texts of the places. A place is the same list at each evaluation of its document, thus one text serves. */
+const placeTexts = new WeakMap<readonly Key[], string>();
+
+/** This function gives the text of a place: each key, with a slash between two keys. An unusual text gets quotes. */
+function placeText(place: readonly Key[]): string {
+  let text = placeTexts.get(place);
+  if (text === undefined) {
+    text = place.map((key) => (typeof key === "number" || /^[A-Za-z0-9_$-]+$/.test(key) ? String(key) : JSON.stringify(key))).join("/");
+    placeTexts.set(place, text);
+  }
+  return text;
+}
+
+/** An effect while the kernel waits for its outcome. */
+type Recorded = { -readonly [K in keyof Effect]: Effect[K] };
 
 /**
  * The runtime of one evaluation or run. Compiled code gets it with the context, and asks it to resolve paths and
@@ -179,7 +270,7 @@ export interface Runtime {
    * @param kind - The kind of the effect.
    * @param payload - The data of the effect.
    * @param place - The place of the document.
-   * @returns The payload, or an error value.
+   * @returns The answer of the mock, the payload without a mock, or an error value.
    */
   effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result;
   /**
@@ -316,7 +407,7 @@ export interface EvalInput {
    *
    * @param kind - The kind of the effect, for example `log`.
    * @param payload - The data of the effect.
-   * @returns The payload, or the error `#CAP!`.
+   * @returns The answer of the mock, the payload without a mock, or an error value such as `#CAP!`.
    */
   effect(kind: Cap, payload: unknown): Result;
   /**
@@ -360,7 +451,7 @@ export interface RunInput {
   resolve(path: readonly unknown[], options?: ResolveOptions): Resolution;
   /**
    * This function causes an effect. In a run, the host does the effect, and the steps wait when the host waits. In
-   * an evaluation, the effect gives its payload. Take its result with `yield*`.
+   * an evaluation, a mock answers the effect at once, or the effect gives its payload. Take its result with `yield*`.
    *
    * @param kind - The kind of the effect, for example `log`.
    * @param payload - The data of the effect.

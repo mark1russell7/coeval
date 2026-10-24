@@ -16,7 +16,8 @@ export type KernelCode =
   | "#CAP!"
   | "#CALC!"
   | "#DEPTH!"
-  | "#ABORT";
+  | "#ABORT"
+  | "#REPLAY!";
 
 /** The code of an error value. A language can add its own codes. Each code starts with `#`. */
 export type ErrorCode = KernelCode | `#${string}`;
