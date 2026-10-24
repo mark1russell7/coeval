@@ -50,7 +50,7 @@ function setOwn(target: Record<string, unknown>, key: string, value: unknown): v
   else target[key] = value;
 }
 
-const NO_SLOTS: readonly PartSlot[] = Object.freeze([]);
+const NO_SLOTS: readonly PartSlot[] = /* @__PURE__ */ Object.freeze([]);
 
 function hasSlots(template: Template): boolean {
   return template.t !== "data";

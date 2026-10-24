@@ -127,7 +127,7 @@ function scopesOf(rules: readonly ScopeRule[] | undefined, value: unknown, slots
 }
 
 /** The names of a walk without names. A walk does not change a set at any time: it makes a new set to add names. */
-const NO_NAMES: ReadonlySet<string> = new Set();
+const NO_NAMES: ReadonlySet<string> = /* @__PURE__ */ new Set();
 
 /** This function gives the options of a walk without the names of the host. */
 function withoutNames(options: WalkOptions): WalkOptions {

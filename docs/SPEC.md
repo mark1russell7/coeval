@@ -241,3 +241,9 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | FORMULA.DEPTH | A deep formula evaluates up to the limit of the depth. |
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
+
+## The package
+
+| ID | Rule |
+| --- | --- |
+| PKG.PURE | An import of the package does nothing. Each statement at the top of a module is free of side effects, or its expression has the mark `/* @__PURE__ */`. Thus a bundler that does not examine functions, for example esbuild, removes each unused part. |

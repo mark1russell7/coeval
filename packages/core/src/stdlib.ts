@@ -122,9 +122,9 @@ function dataOf(type: "number" | "string" | "boolean"): Evaluator {
 
 /** The code of the evaluators of the standard world, by name. */
 export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
-  "data.number": dataOf("number"),
-  "data.text": dataOf("string"),
-  "data.bool": dataOf("boolean"),
+  "data.number": /* @__PURE__ */ dataOf("number"),
+  "data.text": /* @__PURE__ */ dataOf("string"),
+  "data.bool": /* @__PURE__ */ dataOf("boolean"),
   "math.add": ({ parts }) => {
     const all = allValues(parts.map((part) => part.evaluate()));
     if ("error" in all) return all.error;
@@ -164,7 +164,7 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
  */
 
 /** The brand of a node of the decorated tree. Its value is the state that the kit reads. */
-const TREE_NODE: unique symbol = Symbol.for("coeval.tree.node") as never;
+const TREE_NODE: unique symbol = /* @__PURE__ */ Symbol.for("coeval.tree.node") as never;
 
 /** One tree in one evaluation. It is open until its root gives the JSON of the tree. */
 interface TreeBuild {
@@ -189,7 +189,7 @@ interface NodeState {
 /** The memo cell of one attribute: in evaluation, or done with its result. */
 type Cell = { readonly busy: true } | { readonly busy: false; readonly result: Result };
 
-const BUSY: Cell = Object.freeze({ busy: true });
+const BUSY: Cell = /* @__PURE__ */ Object.freeze({ busy: true });
 
 /** One attribute in evaluation. The text names it in the reason of a cycle. */
 interface Demand {
@@ -392,7 +392,7 @@ export function nearestWalker(options: NearestOptions = {}): Walker {
   };
 }
 
-const nearest: Walker = nearestWalker();
+const nearest: Walker = /* @__PURE__ */ nearestWalker();
 
 /** The walkers of the standard world, by name. */
 export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest };

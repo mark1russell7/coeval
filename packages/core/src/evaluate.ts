@@ -75,10 +75,10 @@ export function narrow(parent: Context, next: Context): Context {
 }
 
 /** No capabilities. One list serves each masked part. */
-const NO_CAPS: readonly Cap[] = Object.freeze([]);
+const NO_CAPS: readonly Cap[] = /* @__PURE__ */ Object.freeze([]);
 
 /** No capability rules. One list serves each part that no rule narrows. */
-const NO_RULES: readonly CapsRule[] = Object.freeze([]);
+const NO_RULES: readonly CapsRule[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
  * This function gives the capabilities that two lists both permit. An effect is permitted by the result when each
@@ -550,8 +550,8 @@ export interface EvalOptions {
 }
 
 /** The options of a resolution without a record of hops, and with one. One object of each serves each call. */
-const WITHOUT_HOPS: ResolveOptions = Object.freeze({ hops: false });
-const WITH_HOPS: ResolveOptions = Object.freeze({ hops: true });
+const WITHOUT_HOPS: ResolveOptions = /* @__PURE__ */ Object.freeze({ hops: false });
+const WITH_HOPS: ResolveOptions = /* @__PURE__ */ Object.freeze({ hops: true });
 
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
@@ -759,7 +759,7 @@ function drive(steps: Steps): Result {
   return fail("#CALC!", "A part waited, and its parent cannot wait.");
 }
 
-const ABORTED = Symbol("aborted");
+const ABORTED = /* @__PURE__ */ Symbol("aborted");
 
 /** This function drives steps that can wait. The steps before the first wait happen at once, in the call. */
 async function driveWaiting(steps: Steps, signal: StopSignal | undefined): Promise<Result> {
@@ -916,7 +916,7 @@ function evaluatorOf(world: World, envelope: Envelope | undefined, kind: Kind | 
 }
 
 /** The meta of a node of a compilation without a trace. Only a trace reads the meta of a node. */
-const NO_META: Meta = Object.freeze({ path: [], doc: { type: "?", value: null }, declared: false, answer: NO_ANSWER, side: "derive" });
+const NO_META: Meta = /* @__PURE__ */ Object.freeze({ path: [], doc: { type: "?", value: null }, declared: false, answer: NO_ANSWER, side: "derive" });
 
 function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number, address = false): { readonly code: Code; readonly run: RunCode } {
   const world = c.machine.world;

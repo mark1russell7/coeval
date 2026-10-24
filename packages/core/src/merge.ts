@@ -55,7 +55,7 @@ export class MergeError extends Error {
 
 type Known = NonNullable<Machine["known"]>;
 
-const NONE: ReadonlySet<string> = new Set();
+const NONE: ReadonlySet<string> = /* @__PURE__ */ new Set();
 
 function keyOf(path: MergePath): string {
   return JSON.stringify(path.map(String));
@@ -246,7 +246,7 @@ export function mergeWorlds(...parts: readonly (WorldPart | ((prev: World) => Wo
 }
 
 /** The fields of a machine that merge by their own rules. Each other field is one value, or a conflict. */
-const TABLES = new Set(["world", "evaluators", "runners", "derefs", "walkers", "known", "replaces"]);
+const TABLES = /* @__PURE__ */ new Set(["world", "evaluators", "runners", "derefs", "walkers", "known", "replaces"]);
 
 interface MachineDraft {
   readonly world: WorldDraft;
