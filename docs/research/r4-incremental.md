@@ -206,7 +206,7 @@ export function necessary<Id>(graph: NodeGraph<Id>, observed: Iterable<Id>): Rea
 
 - **What.** `factsOf` walks a document one time (STATIC.LINEAR) and gives the facts of the sketch. A cache by document object keeps them, as PLAN.CACHE keeps plans.
 - **Lazy parts.** A shape can mark a part `lazy: true`. `if` marks `then` and `else`, `and` and `or` mark each item after the first, and a lazy operation marks each argument.
-- **Contracts.** A kind declares `pure` (shared with R1 P3) and `volatile`. A profile names its pure operations and its volatile operations.
+- **Contracts.** A kind declares `pure` (shared with K13) and `volatile`. A profile names its pure operations and its volatile operations.
 - **Kernel parts.** `Shape` and `Kind` in `world.ts`, `DocVisit`, `static.ts`, `formula.ts`, and SPEC (SCHED.FACTS).
 - **Risk.** A wrong mark `pure` gives stale values.
 - **Test.** SCHED.FACTS on the examples. SCHED.COVER links P2 and P3: each recorded read of a closed document starts with the keys of a static read.
@@ -223,7 +223,7 @@ export function necessary<Id>(graph: NodeGraph<Id>, observed: Iterable<Id>): Rea
 
 ### P4: a harness for one meaning across schedules (effort M, value high)
 
-- **What.** A model-based property test with [fast-check](https://fast-check.dev/). A generator makes a store of named nodes from the formula generator of R1 P1, with references between nodes, `if` and some cycles. The commands change a value, edit a document or read a node.
+- **What.** A model-based property test with [fast-check](https://fast-check.dev/). A generator makes a store of named nodes from the document generator of K9 (R1 P1), with references between nodes, `if` and some cycles. The commands change a value, edit a document or read a node.
 - **Schedules.** Once, demand with a memo, push-pull with dirty marks, push by height with a cutoff, and verifying traces. Each one obeys the five rules above, and P3 gives the epoch of each read for the glitch check.
 - **For the hosts.** The kit exports `agreeSchedule(engine)`, thus each host tests its own engine in its own repository (S3).
 - **Kernel parts.** A test kit, SPEC (SCHED.AGREE, SCHED.GLITCH, SCHED.RUN-ONCE), and a CI job with `workflow_dispatch`.
@@ -244,7 +244,7 @@ export function necessary<Id>(graph: NodeGraph<Id>, observed: Iterable<Id>): Rea
 - **The rules that it proves, for the documentation of S3.**
   1. A plan keeps no value across evaluations (PLAN.LEAN), thus the library sees each read.
   2. A memo that lives longer than one evaluation is a signal: the memo cells of R3 P3.
-  3. A fold of R1 P3 reads nothing outside, thus it is safe. A root that R1 P4 resolves at compile time must not hold signals.
+  3. A fold of K13 (R1 P3) reads nothing outside, thus it is safe. A root that K14 (R1 P4) resolves at compile time must not hold signals.
   4. With `adopt`, `resolve` skips its quick path (DEREF.QUICK). A host thing with `resolve` still answers a path of keys with one signal read (DEREF.PATH).
 - **Kernel parts.** Tests only. The diagram C3 can then get its graph from `factsOf`.
 - **Test.** SCHED.SIGNALS: a change computes only its readers, and an equal result stops at the cutoff.
