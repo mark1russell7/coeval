@@ -17,6 +17,7 @@ import {
   type TraceNode,
 } from "@mark1russell7/coeval";
 import { Port } from "./Card.tsx";
+import { valueText } from "./Value.tsx";
 import { ContextStrip, EffectsLog, LadderGlyph, SealedPart } from "./Panels.tsx";
 import { View, SITE_WORLD, WorldContext } from "./View.tsx";
 import { OverlayContext, pathKey, type Overlay } from "./overlay.ts";
@@ -79,7 +80,7 @@ function describe(node: TraceNode | undefined, ended: boolean): string {
       : `The evaluation of ${what} starts. The ${rung === "own" ? "own entry" : rung} gives the evaluator ${node.answer.evaluator ?? "?"}.`;
   }
   return node.result.ok
-    ? `The evaluation of ${what} ends with ${JSON.stringify(node.result.value)}.`
+    ? `The evaluation of ${what} ends with ${valueText(node.result.value)}.`
     : `The evaluation of ${what} ends with the error ${node.result.error.code}: ${node.result.error.reason}`;
 }
 

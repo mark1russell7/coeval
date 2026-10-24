@@ -14,6 +14,7 @@ import {
   type Result,
   type Steps,
   type TierResult,
+  STD_DEFINITIONS,
   STD_MACHINE,
   THING,
   agree,
@@ -26,6 +27,7 @@ import {
   formulaMachine,
   generate,
   isRef,
+  isStackOverflow,
   jsTruthy,
   lookupKind,
   ok,
@@ -292,20 +294,19 @@ function boxes(a: unknown, b: unknown): boolean | undefined {
   return a instanceof Box && b instanceof Box ? sameValue(a.v, b.v, boxes) : undefined;
 }
 
-/**
- * This function tells if a value is deeper than a limit. A part of the standard `tree.node` that reads its own node
- * recurses until the stack of the host overflows, and the node hides the overflow in a deep value. This is the known
- * gap that L2a fixes (R3 P1). The tiers use different numbers of frames, thus their values have different depths.
+/*
+ * Trees: mostly nodes, lists and references from self, with the attributes of the tree kinds as keys and longer paths.
+ * Thus a path reads an attribute of the node, of its parent, of a child or of a sibling, and some paths form cycles.
  */
-function deeper(value: unknown, limit: number): boolean {
-  let here: unknown = value;
-  for (let depth = 0; depth < limit; depth += 1) {
-    if (typeof here !== "object" || here === null) return false;
-    const values = Object.values(here);
-    here = values.find((item) => typeof item === "object" && item !== null);
-  }
-  return true;
-}
+const TREE_OPTIONS: Omit<GenerateOptions, "seed"> = {
+  ...STD_OPTIONS,
+  types: [["panel"], ["panel"], ["box"], ["box"], ["list"], ["ref"], ["ref"], ["add"], ["number"], ["if"], ["greater"], ["nearest"]],
+  roots: ["self"],
+  keys: ["width", "height", "children", "children", "parent", "parent", 0, 1, "type", "a"],
+  steps: 4,
+  maxDepth: 5,
+  maxSize: 30,
+};
 
 /* The configurations of the harness. */
 
@@ -338,6 +339,7 @@ const LOOSE = PROFILES["loose"] as FormulaProfile;
 
 const CONFIGS: readonly Config[] = [
   { name: "standard", machine: waiting, options: STD_OPTIONS, agree: { strict: true } },
+  { name: "trees", machine: STD_MACHINE, options: TREE_OPTIONS, agree: { strict: true } },
   {
     name: "standard, depth 3 and a rule of the host",
     machine: { ...STD_MACHINE, maxDepth: 3, permits: (caps, kind) => kind[0] !== "write" && caps.length > 0 },
@@ -424,10 +426,6 @@ function harness(config: Config, total: number): Outcome {
     walk(config.machine.world, doc, (visit) => count(kinds, typeName(visit.doc.type)), declared);
     const ctx = CONTEXTS[index % CONTEXTS.length] as Context;
     const outcome = agree(config.machine, doc, ctx, config.agree);
-    if (!outcome.ok && (deeper(outcome.plan.ok ? outcome.plan.value : null, 64) || deeper(outcome.other.ok ? outcome.other.value : null, 64))) {
-      count(codes, "tree.node cycle (L2a)");
-      continue;
-    }
     if (!outcome.ok) {
       findings.push({ seed, reason: outcome.reason, doc, plan: outcome.plan, other: outcome.other, tier: outcome.tier });
       continue;
@@ -438,9 +436,11 @@ function harness(config: Config, total: number): Outcome {
     if (result.ok || config.machine.permits !== undefined) continue;
     const error = result.error;
     const same = sameInCheck(config.machine, doc, error, declared);
-    if (!STATIC_CODES.has(error.code) && same === undefined) continue;
+    // An overflow of the stack of the host gives #DEPTH! too, but check finds only a nesting deeper than the limit.
+    const staticCode = STATIC_CODES.has(error.code) && !(error.code === "#DEPTH!" && isStackOverflow(error.cause));
+    if (!staticCode && same === undefined) continue;
     const issues = check(config.machine, doc, { ...declared, names: Object.keys(ctx.names), caps: ctx.caps });
-    if (STATIC_CODES.has(error.code) && issues.length === 0) {
+    if (staticCode && issues.length === 0) {
       unchecked.push({ seed, reason: `check passed the document, and the plan gives ${error.code}.`, doc, plan: result, tier: "check" });
     }
     const place = error.place ?? [];
@@ -487,6 +487,9 @@ describe("one meaning", () => {
       expect(outcome.codes.get("value") ?? 0, config.name).toBeGreaterThan(COUNT / 10);
       expect(errors.length, `${config.name}: ${show(Object.fromEntries(outcome.codes))}`).toBeGreaterThanOrEqual(4);
     }
+    // The trees read attributes, and some reads form a cycle (TREE.CYCLE).
+    const trees = outcomeOf(CONFIGS.find((config) => config.name === "trees") as Config);
+    expect(trees.codes.get("#CYCLE!") ?? 0, show(Object.fromEntries(trees.codes))).toBeGreaterThan(0);
   });
 });
 
@@ -557,6 +560,35 @@ describe("the reference interpreter", () => {
 
   it("[REF.FORMULA] formulaDefinitions gives a definition for each evaluator of the formula kit", () => {
     expect(Object.keys(formulaDefinitions().evaluators ?? {}).sort()).toEqual(Object.keys(formulaEvaluators()).sort());
+  });
+
+  it("[REF.TREE] the reference reads the decorated tree with its own definition, also without the option definitions", () => {
+    const definition = STD_DEFINITIONS.evaluators?.["tree.node"];
+    expect(typeof definition).toBe("function");
+    expect(definition).not.toBe(STD_MACHINE.evaluators["tree.node"]);
+    // The kind probe tells how many symbol keys the node of its self has. The two readings make different nodes.
+    const probe: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, probe: { verbs: { eval: "test.probe" } } } },
+      evaluators: { ...STD_MACHINE.evaluators, "test.probe": ({ context: ctx }) => ok(Object.getOwnPropertySymbols(ctx.self).length) },
+    };
+    const doc = { type: "panel", value: { width: { type: "probe", value: null } } };
+    expect(prepare(probe, doc).evaluate()).toEqual(ok({ width: 2 }));
+    expect(reference(probe, doc)).toEqual(ok({ width: 1 }));
+    // A machine with another evaluator under the name tree.node gets that evaluator in the reference too.
+    let calls = 0;
+    const other: Machine = {
+      ...STD_MACHINE,
+      evaluators: {
+        ...STD_MACHINE.evaluators,
+        "tree.node": () => {
+          calls += 1;
+          return ok("mine");
+        },
+      },
+    };
+    expect(reference(other, doc)).toEqual(ok("mine"));
+    expect(calls).toBe(1);
   });
 
   it("[REF.EFFECTS] the reference records each effect with its kind, payload and place, and narrows the capabilities by the contracts", () => {
@@ -668,6 +700,23 @@ describe("the generator", () => {
     const a = random(7);
     const b = random(7);
     expect(Array.from({ length: 5 }, () => a.next())).toEqual(Array.from({ length: 5 }, () => b.next()));
+  });
+
+  it("[GEN.PATHS] the options roots and steps limit the roots and the length of the paths", () => {
+    const lengths = new Set<number>();
+    for (let seed = 0; seed < 200; seed += 1) {
+      const doc = generate(STD_MACHINE.world, { ...TREE_OPTIONS, seed, malformed: 0 });
+      walk(STD_MACHINE.world, doc, (visit) => {
+        const path = visit.doc.value;
+        if (!isRef(visit.doc) || !Array.isArray(path)) return undefined;
+        expect(path[0]).toBe("self");
+        lengths.add(path.length - 1);
+        return undefined;
+      });
+    }
+    expect(Math.max(...lengths)).toBe(4);
+    const short = generate(STD_MACHINE.world, { ...STD_OPTIONS, seed: 1 });
+    expect(docEquals(short, generate(STD_MACHINE.world, { ...STD_OPTIONS, seed: 1, roots: ["self", "names", "world", "event", "caps"], steps: 2 }))).toBe(true);
   });
 
   it("[GEN.CONTRACTS] without malformed choices, each document follows the contracts of its kinds: check finds no problem", () => {

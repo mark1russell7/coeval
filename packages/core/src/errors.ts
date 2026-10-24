@@ -105,9 +105,11 @@ export class Failure extends Error {
  */
 export function isStackOverflow(error: unknown): boolean {
   try {
-    return error instanceof RangeError && /call stack/i.test(error.message);
+    // A regular expression that compiles near the limit of the stack throws a SyntaxError with the same message.
+    // Thus the test reads the message with includes, and it accepts a SyntaxError.
+    return (error instanceof RangeError || error instanceof SyntaxError) && error.message.includes("call stack");
   } catch {
-    // Near the limit of the stack, the test itself overflows: the regular expression throws a SyntaxError.
+    // Near the limit of the stack, the test itself can overflow.
     return true;
   }
 }

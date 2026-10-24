@@ -1,5 +1,6 @@
 import { type Json, type Key, field, isRecord } from "./doc.ts";
-import { type Context, type Evaluator, type Machine, type Part, type Result, type RunPart, type Runner, type Steps, fail, ok } from "./evaluate.ts";
+import { type Context, type EvalInput, type Evaluator, type Machine, type Part, type Result, type RunPart, type Runner, type Steps, fail, ok } from "./evaluate.ts";
+import { Failure } from "./errors.ts";
 import { type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
 
@@ -44,12 +45,15 @@ export const STD_WORLD: World = {
     panel: {
       verbs: { eval: "tree.node", view: "view.op" },
       parts: { shape: "record", fields: ["width", "height", "children"], of: "number" },
-      summary: "A node of a tree. Its parts see it as self, and each node links to its parent.",
+      // An attribute evaluates on demand, thus in an order that is not the order of the document. It causes no effect.
+      caps: [{ rule: "mask" }],
+      summary: "A node of a tree. Each part is an attribute that evaluates on demand, one time, with the node as self.",
     },
     box: {
       verbs: { eval: "tree.node", view: "view.op" },
       parts: { shape: "record", fields: ["width", "height", "children"], of: "number" },
-      summary: "A node of a tree, as panel. A formula in a box can read the parent of the box.",
+      caps: [{ rule: "mask" }],
+      summary: "A node of a tree, as panel. A formula in a box can read its parent and its siblings.",
     },
     math: {
       kinds: {
@@ -149,51 +153,200 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     const found = resolve(data as readonly Json[]);
     return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
   },
-  "tree.node": (input) => treeNode(input.parts, input.context, input.kind),
+  "tree.node": (input) => treeNode(input),
 };
 
-/**
- * This function evaluates a node of a tree. The node is a host thing. A step `parent` reaches the node that holds
- * it. A step with the name of a part evaluates that part on demand, one time. Each part sees the node as self.
+/*
+ * The decorated tree (TREE.*, R3 P1). Each node is a host thing, and each part of a node is an attribute. An attribute
+ * evaluates on demand, with the node as self. One memo cell for each node and attribute keeps its result for one
+ * evaluation. The structure comes first: a node inside an attribute of an open tree gives its thing and evaluates
+ * nothing. The root gives the JSON of the tree. Thus a reference to a sibling reads the finished list of children.
  */
-function treeNode(parts: readonly Part[], context: Context, type: string): Result {
-  const memo = new Map<string, Result>();
+
+/** The brand of a node of the decorated tree. Its value is the state that the kit reads. */
+const TREE_NODE: unique symbol = Symbol.for("coeval.tree.node") as never;
+
+/** One tree in one evaluation. It is open until its root gives the JSON of the tree. */
+interface TreeBuild {
+  open: boolean;
+}
+
+/** The state of a node behind its brand. */
+interface NodeState {
+  readonly build: TreeBuild;
+  readonly type: string;
+  readonly place: readonly Key[];
+  /**
+   * This function gives the JSON of the node: each attribute in the order of the parts, with the JSON of each node in
+   * its value.
+   *
+   * @param path - The nodes and the containers whose JSON is in progress. A node on it gives `#CYCLE!`.
+   * @returns The JSON, or the first error.
+   */
+  json(path: Set<object>): Result;
+}
+
+/** The memo cell of one attribute: in evaluation, or done with its result. */
+type Cell = { readonly busy: true } | { readonly busy: false; readonly result: Result };
+
+const BUSY: Cell = Object.freeze({ busy: true });
+
+/** One attribute in evaluation. The text names it in the reason of a cycle. */
+interface Demand {
+  readonly cells: Map<string, Cell>;
+  readonly key: string;
+  readonly text: string;
+}
+
+/** The attributes in evaluation, in the order of their demands. An evaluation does not wait, thus one list serves. */
+const demands: Demand[] = [];
+
+function attributeText(key: string, type: string, place: readonly Key[]): string {
+  return `${key} of ${type} at [${place.join(", ")}]`;
+}
+
+/** This function gives the `#CYCLE!` of a demand that reached an attribute in evaluation, with the chain of demands. */
+function cycleAt(cells: Map<string, Cell>, key: string, text: string): Result {
+  const first = demands.findIndex((demand) => demand.cells === cells && demand.key === key);
+  const chain = first === -1 ? [text] : demands.slice(first).map((demand) => demand.text);
+  chain.push(text);
+  return fail("#CYCLE!", `The attributes form a cycle: ${chain.join(" -> ")}.`);
+}
+
+function stateOf(thing: unknown): NodeState | undefined {
+  return typeof thing === "object" && thing !== null ? (thing as { readonly [TREE_NODE]?: NodeState })[TREE_NODE] : undefined;
+}
+
+/** This function sets an own field, also the field `__proto__` (SHAPE.PROTO). */
+function putField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/**
+ * This function gives a value with the JSON of each node of a tree in it. A list or a plain record is new only when
+ * it holds a node. A container that holds itself stays as it is.
+ */
+function plainOf(value: unknown, path: Set<object>): Result {
+  const state = stateOf(value);
+  if (state !== undefined) {
+    if (path.has(value as object)) return fail("#CYCLE!", `The JSON of the node ${state.type} at [${state.place.join(", ")}] holds the node itself.`);
+    return state.json(path);
+  }
+  if (typeof value !== "object" || value === null || path.has(value) || isHostThing(value)) return ok(value);
+  if (!Array.isArray(value) && !isRecord(value)) return ok(value);
+  path.add(value);
+  try {
+    if (Array.isArray(value)) {
+      let list: unknown[] | undefined;
+      for (let index = 0; index < value.length; index += 1) {
+        const item = plainOf(value[index], path);
+        if (!item.ok) return item;
+        if (item.value !== value[index]) (list ??= [...(value as readonly unknown[])])[index] = item.value;
+      }
+      return ok(list ?? value);
+    }
+    const record = value as Readonly<Record<string, unknown>>;
+    let out: Record<string, unknown> | undefined;
+    for (const key of Object.keys(record)) {
+      const item = plainOf(record[key], path);
+      if (!item.ok) return item;
+      if (item.value === record[key]) continue;
+      if (out === undefined) {
+        out = {};
+        for (const other of Object.keys(record)) putField(out, other, record[other]);
+      }
+      putField(out, key, item.value);
+    }
+    return ok(out ?? value);
+  } finally {
+    path.delete(value);
+  }
+}
+
+/**
+ * This function makes a node of the decorated tree. A step `parent` gives the self of the context of the node, and a
+ * step `type` gives its type. A step with the key of a part reads that attribute. A failed attribute throws `Failure`
+ * with its own error, thus a reference to it gives that error.
+ */
+function treeThing(parts: readonly Part[], context: Context, type: string, place: readonly Key[], build: TreeBuild): HostThing {
+  const cells = new Map<string, Cell>();
   const read = (key: string): Result | undefined => {
-    const known = memo.get(key);
-    if (known !== undefined) return known;
+    const cell = cells.get(key);
+    if (cell !== undefined) return cell.busy ? cycleAt(cells, key, attributeText(key, type, place)) : cell.result;
     const part = parts.find((item) => item.key === key);
     if (part === undefined) return undefined;
-    const result = part.evaluate({ ...context, self: me });
-    memo.set(key, result);
+    cells.set(key, BUSY);
+    demands.push({ cells, key, text: attributeText(key, type, place) });
+    let result: Result;
+    try {
+      result = part.evaluate({ ...context, self: node });
+    } catch (error) {
+      // An exception of the host, for example an overflow of the stack, leaves the attribute without a result.
+      cells.delete(key);
+      throw error;
+    } finally {
+      demands.pop();
+    }
+    cells.set(key, { busy: false, result });
     return result;
   };
-  const me: HostThing & { readonly type: string } = {
+  const state: NodeState = {
+    build,
+    type,
+    place,
+    json(path) {
+      path.add(node);
+      try {
+        const out: Record<string, unknown> = {};
+        for (const part of parts) {
+          const result = read(part.key) as Result;
+          if (!result.ok) return result;
+          const value = plainOf(result.value, path);
+          if (!value.ok) return value;
+          putField(out, part.key, value.value);
+        }
+        return ok(out);
+      } finally {
+        path.delete(node);
+      }
+    },
+  };
+  const node: HostThing & { readonly type: string; readonly [TREE_NODE]: NodeState } = {
     [THING]: true,
+    [TREE_NODE]: state,
     type,
     label: `node ${type}`,
     deref(key: Key): Thing | undefined {
       if (key === "parent") return context.self;
       if (key === "type") return type;
       const result = read(String(key));
-      return result?.ok === true ? result.value : undefined;
+      if (result === undefined) return undefined;
+      if (!result.ok) throw new Failure(result.error);
+      return result.value;
     },
     toJson(): unknown {
-      const out: Record<string, unknown> = {};
-      for (const part of parts) {
-        const result = read(part.key);
-        out[part.key] = result?.ok === true ? result.value : null;
-      }
-      return out;
+      const result = state.json(new Set());
+      if (!result.ok) throw new Failure(result.error);
+      return result.value;
     },
   };
-  const out: Record<string, unknown> = {};
-  for (const part of parts) {
-    const result = read(part.key);
-    if (result === undefined) continue;
-    if (!result.ok) return result;
-    out[part.key] = result.value;
+  return node;
+}
+
+/**
+ * This function evaluates a node of the decorated tree. Inside an attribute of an open tree, the node gives its host
+ * thing, and no attribute evaluates. Else the node is the root of a new tree, and it gives the JSON of the tree.
+ */
+function treeNode({ parts, context, kind, place }: EvalInput): Result {
+  const above = stateOf(context.self);
+  if (above !== undefined && above.build.open) return ok(treeThing(parts, context, kind, place, above.build));
+  const build: TreeBuild = { open: true };
+  const root = treeThing(parts, context, kind, place, build);
+  try {
+    return (stateOf(root) as NodeState).json(new Set());
+  } finally {
+    build.open = false;
   }
-  return ok(out);
 }
 
 /** The options of a walker `nearest`. */

@@ -33,7 +33,7 @@ The evaluators differ in how they change the context for their parts. The refere
 
 A step does not carry a meaning of its own. The walk asks the thing that it reached: "what is this key on you?" The question goes up the ladder of the verb `deref`.
 
-- **Own:** a node of a tree answers itself. It answers `parent` with the node that holds it, as any other field.
+- **Own:** a node of a tree answers itself. It answers `parent` with the node that holds it, as any other field. A field of a node evaluates when the step reads it.
 - **Kind:** a kind can name a `deref` evaluator for its documents.
 - **Default:** a record answers with a field, and a list answers with an item.
 

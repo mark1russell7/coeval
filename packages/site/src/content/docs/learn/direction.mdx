@@ -25,6 +25,15 @@ A formula over a structure reads by position. It starts at a focus and moves: to
 
 In a tree of components, data and the box of a parent go down. The size of a child and its events go up. A reference goes sideways, to another branch. The theory of attribute grammars names these inherited, synthesized and reference attributes.
 
+In coeval, a node of a tree (`panel` or `box`) is a decorated tree. Each field of a node is an attribute:
+
+- The structure comes first. The parent, the children and the siblings exist before any attribute evaluates.
+- An attribute evaluates when something reads it, one time in each evaluation. A memo keeps its result.
+- A child reads its parent with `["self", "parent", "width"]`, and a sibling with `["self", "parent", "children", 0, "width"]`.
+- An attribute that reads itself, also through other attributes, gives `#CYCLE!`. The reason gives the chain of attributes.
+- A failed attribute keeps its own error. A reference to it gives the same code, reason and place.
+- An attribute causes no effect, because the order of the reads is not the order of the document.
+
 ## One path grammar
 
 A name is also a position. A variable is a path up the program to the place of its binding. The previous step is a path to the sibling before. Thus one grammar of paths can name all three shapes. A path is a list of moves from the place of the reference.
