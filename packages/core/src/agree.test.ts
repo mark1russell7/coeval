@@ -11,6 +11,7 @@ import {
   type Json,
   type Key,
   type Machine,
+  type MachinePart,
   type Result,
   type Steps,
   type TierResult,
@@ -30,6 +31,7 @@ import {
   isStackOverflow,
   jsTruthy,
   lookupKind,
+  mergeMachines,
   ok,
   prepare,
   random,
@@ -238,6 +240,8 @@ function formulaOptions(machine: Machine): Omit<GenerateOptions, "seed"> {
 /* A language on the formula kit: a deep shape for ref with step documents, an address, permitted kinds and data shapes. */
 
 const language: Machine = formulaMachine(PROFILES["loose"], {
+  // The kind ref of the language replaces the kind ref of the kit (WORLD.REPLACE).
+  replaces: [["world", "kinds", "ref"]],
   world: {
     kinds: {
       ref: { verbs: { eval: "formula.ref" }, parts: { shape: "deep" } },
@@ -337,6 +341,34 @@ function adopt(value: unknown): unknown {
 const STRICT = PROFILES["strict"] as FormulaProfile;
 const LOOSE = PROFILES["loose"] as FormulaProfile;
 
+/* Two languages in one machine (MACHINE.AGREES): the formula kit, and a language that extends the namespace ops and adds kinds. */
+
+const SECOND: MachinePart = {
+  world: {
+    kinds: {
+      ops: { kinds: { twice: { verbs: { eval: "second.twice" }, parts: { shape: "list", of: "lit" } } } },
+      shout: { verbs: { eval: "second.shout" }, parts: { shape: "list", of: "lit" }, effects: ["log"] },
+      double: { type: "ref", value: ["world", "ops", "twice"] },
+    },
+  },
+  evaluators: {
+    "second.twice": ({ parts }) => {
+      const results = parts.map((part) => part.evaluate());
+      const failed = results.find((result) => !result.ok);
+      if (failed !== undefined) return failed;
+      const [first] = results;
+      return first?.ok === true && typeof first.value === "number" ? ok(first.value * 2) : fail("#VALUE!", "twice needs one number.");
+    },
+    "second.shout": ({ parts, effect }) => {
+      const results = parts.map((part) => part.evaluate());
+      const failed = results.find((result) => !result.ok);
+      return failed ?? effect("log", results.map((result) => (result.ok ? result.value : null)));
+    },
+  },
+};
+
+const composed: Machine = mergeMachines(formulaMachine(STRICT), SECOND);
+
 const CONFIGS: readonly Config[] = [
   { name: "standard", machine: waiting, options: STD_OPTIONS, agree: { strict: true } },
   { name: "trees", machine: STD_MACHINE, options: TREE_OPTIONS, agree: { strict: true } },
@@ -350,6 +382,12 @@ const CONFIGS: readonly Config[] = [
   formulaConfig("formula, plain values", STRICT, { plain: true }),
   formulaConfig("formula, closed roots", STRICT, { roots: ["names", "world"] }),
   formulaConfig("formula, adopted things", STRICT, { adopt }),
+  {
+    name: "two languages in one machine",
+    machine: composed,
+    options: { ...formulaOptions(composed), types: [...typesOf(composed.world), ...OP_TYPES, ...EXT_TYPES, ["ops", "twice"]] },
+    agree: { strict: true, definitions: formulaDefinitions(STRICT), declaredType: "lit", observe: () => calls.splice(0), equal: boxes },
+  },
   {
     name: "language",
     machine: language,
@@ -473,6 +511,15 @@ describe("one meaning", () => {
       expect(report(outcome.findings), `results ${show(Object.fromEntries(outcome.codes))}`).toEqual([]);
     }, 300_000);
   }
+
+  it("[MACHINE.AGREES] a merged machine of two languages evaluates through the plan, the reference and agree, on generated documents", () => {
+    const config = CONFIGS.find((item) => item.machine === composed) as Config;
+    const outcome = outcomeOf(config);
+    expect(report(outcome.findings)).toEqual([]);
+    expect(report(outcome.unchecked)).toEqual([]);
+    // The documents reach the kinds of both languages: the kit, the namespace that the second language extends, and its alias.
+    for (const kind of ["let", "ops.add", "ops.twice", "double", "shout"]) expect(outcome.kinds.get(kind) ?? 0, kind).toBeGreaterThan(0);
+  });
 
   it("[STATIC.AGREES] a generated document that check passes gives none of the errors that check finds", () => {
     for (const config of CONFIGS) expect(report(outcomeOf(config).unchecked), config.name).toEqual([]);
@@ -677,7 +724,7 @@ describe("agree", () => {
       },
     };
     for (const [name, mutant] of Object.entries(mutants)) {
-      const machine = formulaMachine(STRICT, { evaluators: { [name]: mutant } });
+      const machine = formulaMachine(STRICT, { evaluators: { [name]: mutant }, replaces: [["evaluators", name]] });
       const options = formulaOptions(machine);
       let found = false;
       // A document that shows the mutant of if is rare: a branch that the test does not select must call the host.

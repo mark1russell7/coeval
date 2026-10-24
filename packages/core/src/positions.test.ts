@@ -35,6 +35,7 @@ const at: Walker = ({ data, here }) => {
 const machine: Machine = formulaMachine(
   { ops: { add: (a: number, b: number) => a + b } },
   {
+    replaces: [["world", "kinds", "ref"]],
     world: {
       kinds: {
         ref: { verbs: { eval: "formula.ref" }, parts: { shape: "deep" } },

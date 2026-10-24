@@ -3,6 +3,7 @@ import type { Kind, WorldEntry } from "./world.ts";
 import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine } from "./evaluate.ts";
+import { type MachinePart, mergeMachines } from "./merge.ts";
 
 /** An operation of a formula language: a function of the values of its arguments. */
 export type OpFn = (...args: never[]) => unknown;
@@ -507,27 +508,20 @@ export function formulaKnown(profile: FormulaProfile = {}): (path: readonly Key[
 }
 
 /**
- * This function makes a machine for a formula language. The machine has the kinds and the evaluators of the
- * formula kit. It also has the kinds, the evaluators and the walkers that the language adds. Its hook `known` comes
- * from the profile (`formulaKnown`). A hook `known` of the language answers each name that the kit knows.
+ * This function makes a machine for a formula language. It merges the kit and the parts that the language adds with
+ * `mergeMachines`. Thus a kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and
+ * the fallback of the kit stays. The hook `known` of the kit comes from the profile (`formulaKnown`). A hook `known`
+ * of the language answers after it.
+ *
+ * A kind or an evaluator of the language that differs from the entry of the kit with its name is a conflict. The
+ * language names the path in `replaces` to replace the entry, for example `["world", "kinds", "ref"]` or
+ * `["evaluators", "formula.op"]`. Then the hook of the kit does not answer for a replaced evaluator.
  *
  * @param profile - The operations and the rules of the language.
- * @param more - The parts of a machine that the language adds. Its kinds win over the kinds of the kit.
+ * @param more - The parts of a machine that the language adds, with the paths of the entries that it replaces.
  * @returns The machine.
+ * @throws {MergeError} The language and the kit have a conflict.
  */
-export function formulaMachine(profile: FormulaProfile = {}, more: Partial<Machine> = {}): Machine {
-  const kit = formulaKnown(profile);
-  // An evaluator or a runner of the language with the name of an evaluator of the kit replaces it, and the kit does not answer for it.
-  const replaced = (name: string): boolean => (more.evaluators !== undefined && Object.hasOwn(more.evaluators, name)) || (more.runners !== undefined && Object.hasOwn(more.runners, name));
-  const theirs = more.known;
-  const known = (path: readonly Key[], evaluator: string): true | string => {
-    const answer = replaced(evaluator) ? true : kit(path, evaluator);
-    return answer === true && theirs !== undefined ? theirs(path, evaluator) : answer;
-  };
-  return {
-    ...more,
-    world: { kinds: { ...formulaKinds(), ...more.world?.kinds }, defaults: { ...more.world?.defaults } },
-    evaluators: { ...formulaEvaluators(profile), ...more.evaluators },
-    known,
-  };
+export function formulaMachine(profile: FormulaProfile = {}, more: MachinePart = {}): Machine {
+  return mergeMachines({ world: { kinds: formulaKinds() }, evaluators: formulaEvaluators(profile), known: formulaKnown(profile) }, more);
 }
