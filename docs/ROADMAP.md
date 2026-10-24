@@ -50,6 +50,8 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 
 ## The migration of the languages
 
+Since 2026-10-24, the work of each language on its integration happens in the repository of that language. This repository adds to the kernel what a language needs, with a requirement ID and a test for each rule.
+
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
 | M1 | A language that uses coeval gets the package from npm, or from a pinned reference to this repository | done (2026-10-20, a pinned reference, and npm after M9) | K4 |
@@ -63,9 +65,9 @@ The statuses are: `done`, `in progress`, `next`, `waiting` (on a decision of the
 | M10 | The reactive formula language reads and writes documents (D12) | done (2026-10-21) | D12 |
 | M11 | The formula language of positions reads and writes documents (D12) | done (2026-10-21) | D12 |
 | M9 | The first npm release of `@mark1russell7/coeval` | done (2026-10-21, version 0.1.0) | |
-| M12 | Version 0.2.0 on npm: the kernel that the languages evaluate through (D13) | in progress | K2, K3, L1, L4 |
-| M13 | The reactive formula language evaluates through the formula kit, and its analysis uses the static kit | next | M12 |
-| M14 | The program format of procedures runs on `run`, and its checker uses the static kit | next | M12 |
-| M15 | The formula language of positions reads documents with the static kit, and the kernel is its reference interpreter | in progress (the kernel 0.4.0: computed steps, addresses, data contracts and errors that combine) | M12 |
-| M16 | The defs of a user interface: bindings through the formula kit, one world for paths and runs, and checks from the static kit | next | M12 |
+| M12 | Version 0.2.0 on npm: the kernel that the languages evaluate through (D13) | done (2026-10-21, and the versions 0.2.1 to 0.4.0 added what the languages needed) | K2, K3, L1, L4 |
+| M13 | The reactive formula language evaluates through the formula kit, and its analysis uses the static kit | in progress, in the repository of the language | M12 |
+| M14 | The program format of procedures runs on `run`, and its checker uses the static kit | in progress, in the repository of the language (a pull request is open) | M12 |
+| M15 | The formula language of positions reads documents with the static kit, and the kernel is its reference interpreter | in progress, in the repository of the language (the kernel side is done in 0.4.0) | M12 |
+| M16 | The defs of a user interface: bindings through the formula kit, one world for paths and runs, and checks from the static kit | in progress, in the repository of the host | M12 |
 
