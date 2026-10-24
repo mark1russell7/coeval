@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package",
   "name": "@mark1russell7/coeval",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "coeval: the kernel of declarative languages. Documents in envelopes, a ladder that finds the evaluator, kind contracts, compiled plans, a static kit, a formula kit and a run side with capabilities.",
   "type": "module",
   "main": "./src/index.ts",

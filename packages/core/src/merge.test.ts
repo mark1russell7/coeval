@@ -30,6 +30,8 @@ import {
   ok,
   prepare,
   random,
+  restrictMachine,
+  restrictWorld,
 } from "./index.ts";
 
 /** This function gives the conflicts of a merge, or no conflicts when the merge succeeds. */
@@ -303,6 +305,69 @@ describe("the merge of machines", () => {
     expect(check(mergeMachines({ world, evaluators: { a: one, b: one }, known: first }, { known: second }), { type: "b", value: null })).toEqual([
       { code: "#NAME?", place: [], reason: "The second part has no a or b.", at: [] },
     ]);
+  });
+});
+
+describe("the restrictions of worlds and machines", () => {
+  it("[WORLD.RESTRICT] restrictWorld removes the entries at the paths, and it does not change the world", () => {
+    const add: Kind = { verbs: { eval: "formula.op" }, summary: "add" };
+    const fallback: Kind = { verbs: { eval: "formula.op" } };
+    const world: World = deepFreeze({
+      kinds: { number: num, text: txt, ops: { kinds: { add, mul: add }, fallback }, sum: alias("ops", "add"), size: alias("number") },
+      defaults: { view: "view.card", format: "format.plain" },
+      fallback: call,
+    });
+    const restricted = restrictWorld(world, [["kinds", "text"], ["kinds", "ops", "kinds", "add"], ["kinds", "ops", "fallback"], ["defaults", "view"], ["fallback"], ["kinds", "number"]]);
+    expect(Object.keys(restricted.kinds)).toEqual(["ops", "sum", "size"]);
+    expect(restricted.defaults).toEqual({ format: "format.plain" });
+    expect(Object.hasOwn(restricted, "fallback")).toBe(false);
+    // The namespace keeps its other keys, and without its fallback it knows only them.
+    expect(lookupKind(restricted, ["ops", "mul"])).toMatchObject({ ok: true, kind: add });
+    expect(lookupKind(restricted, ["ops", "neg"])).toMatchObject({ ok: false, reason: "unknown" });
+    // An alias to a removed entry names no kind, and the closed world has no kind for an unknown key.
+    expect(lookupKind(restricted, ["sum"])).toMatchObject({ ok: false, reason: "unknown" });
+    expect(lookupKind(restricted, ["size"])).toMatchObject({ ok: false, reason: "unknown" });
+    expect(lookupKind(restricted, ["git", "status"])).toMatchObject({ ok: false, reason: "unknown" });
+    // A path that names no entry changes nothing, and an entry that stays is the same object.
+    const same = restrictWorld(world, [["kinds", "zzz"], ["kinds", "number", "kinds", "x"], ["kinds", "ops", "kinds", "zzz"], ["kinds"], ["defaults", "zzz"], ["zzz"]]);
+    expect(docEquals(same, world)).toBe(true);
+    expect(same.kinds["ops"]).toBe(world.kinds["ops"]);
+    expect(restrictWorld(world, [["kinds", "text"]]).kinds["number"]).toBe(num);
+    // A removed namespace goes with each entry in it. In the open world, the fallback of the world then answers.
+    expect(lookupKind(restrictWorld(world, [["kinds", "ops"]]), ["ops", "mul"])).toMatchObject({ ok: true, kind: call });
+    expect(lookupKind(restrictWorld(world, [["kinds", "ops"], ["fallback"]]), ["ops", "mul"])).toMatchObject({ ok: false, reason: "unknown" });
+    // The key __proto__ is a key as each other key.
+    const proto = mergeWorlds({ kinds: JSON.parse('{"__proto__": {"verbs": {"eval": "x"}}, "a": {"verbs": {"eval": "a"}}}') as Record<string, WorldEntry> });
+    expect(Object.keys(restrictWorld(proto, [["kinds", "__proto__"]]).kinds)).toEqual(["a"]);
+  });
+
+  it("[MACHINE.RESTRICT] restrictMachine removes entries of the world and the code of names, thus an own entry cannot reach the code", () => {
+    const walkA: Walker = () => ({ ok: true, thing: 1 });
+    const derefA: DerefCode = () => undefined;
+    const machine: Machine = deepFreeze({
+      world: { kinds: { x: { verbs: { eval: "x" } }, y: { verbs: { eval: "y" } } }, defaults: {} },
+      evaluators: { x: one, y: two },
+      runners: { x: runner },
+      derefs: { d: derefA },
+      walkers: { w: walkA },
+      maxDepth: 10,
+    });
+    const restricted = restrictMachine(machine, [["world", "kinds", "x"], ["evaluators", "x"], ["derefs", "d"], ["walkers", "w"]]);
+    expect(Object.keys(restricted.world.kinds)).toEqual(["y"]);
+    // The evaluator and the runner of a name are its code: a path to either one removes both.
+    expect(restricted).toMatchObject({ evaluators: { y: two }, runners: {}, derefs: {}, walkers: {}, maxDepth: 10 });
+    expect(Object.keys(restricted.evaluators)).toEqual(["y"]);
+    expect(restrictMachine(machine, [["runners", "x"]]).evaluators).toEqual({ y: two });
+    // An own entry names an evaluator directly. Only the removal of the code refuses it.
+    const own = { type: "y", own: { eval: "x" }, value: null };
+    expect(prepare(restrictMachine(machine, [["world", "kinds", "x"]]), own).evaluate()).toEqual(ok("runner"));
+    expect(check(restricted, own).map((issue) => issue.code)).toEqual(["#NOEVAL"]);
+    expect(prepare(restricted, own).evaluate()).toMatchObject({ ok: false, error: { code: "#NOEVAL" } });
+    // A path that names no entry changes nothing. Each other field stays.
+    const same = restrictMachine(machine, [["evaluators", "zzz"], ["maxDepth"], ["world", "zzz"], ["evaluators", "x", "more"]]);
+    expect(sameMachine(same, machine)).toBe(true);
+    expect(same.runners).toEqual({ x: runner });
+    expect(Object.hasOwn(restrictMachine({ world: { kinds: {}, defaults: {} }, evaluators: { x: one } }, [["evaluators", "x"]]), "runners")).toBe(false);
   });
 });
 

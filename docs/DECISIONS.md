@@ -191,3 +191,16 @@ The study asked two open questions. Does a merge find each collision of evaluato
 **Why.** A conflict is an error of the host that builds the machine, not of a document. A machine with a conflict has two meanings for one name, thus no part of the result is safe to use. `check` gives a list of issues because a document with problems still evaluates to error values. A merge has no such result.
 
 One error with the full list shows each conflict at one time, as `check` does. A tool that wants the list catches the error and reads `conflicts`. The mark `replaces` is a list of paths, not a field of an entry. Thus it can name an evaluator, a default or a field of the machine, and the entries stay unchanged. Before 1.0, a merge that throws where a spread replaced can break a caller, thus the version is 0.6.0.
+
+## D18 (2026-10-24): a restriction removes entries by path, and it removes their code too
+
+**Context.** The composition checklist (K34, R6 P1) has the mode "restriction": a language that removes constructs of its base. The merge of D17 only adds or replaces entries. It cannot remove an entry.
+
+**Decision.**
+
+- `restrictWorld` and `restrictMachine` remove entries. A path names an entry as `replaces` names it.
+- A path that names no entry changes nothing, as an unused mark `replaces` does.
+- A path to the evaluator or to the runner of a name removes both, because they are the code of the name (MACHINE.RUNNER).
+- A restriction is a separate step, not a mark of a part of a merge.
+
+**Why.** An own entry names an evaluator directly (LADDER.OWN). Thus a world without the kind `call` still evaluates a document whose own entry names `formula.call`. A safe restriction removes the code too. A removal depends on the order of the parts, thus a mark in a merge breaks the laws of the merge (WORLD.LAWS). A separate function keeps them.
