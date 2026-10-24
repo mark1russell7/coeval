@@ -8,19 +8,21 @@ The studies in `docs/research/` rank proposals for the kernel and the kits. Each
 
 ## The order of the next work
 
-The plan does the next work in this order (2026-10-24). It takes up the studies R1 to R5.
+The plan does the next work in this order (2026-10-24). It takes up the studies R1 to R6.
 
 1. K8: `check` narrows the capabilities of the parts as the kinds do (done, 2026-10-24).
 2. K9: a harness for one meaning (R1 P1, in progress).
-3. K20 and K21 together, two correctness fixes:
+3. K20 and K21 together, two correctness fixes, and the helper `partsOf`, a request of a language:
    - K20: `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1). Today an unknown `ops.*` or `ext.*` passes `check` and fails with `#NAME?` in a run.
    - K21: `docEquals` compares the values that are not plain JSON by identity (R4). Today it compares only the own keys, thus two different dates or maps are equal.
-4. L2a: the decorated tree (R3 P1).
-5. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
-6. K12: compiled paths (R1 P2).
-7. K22 and K23: `sameResult`, a safe equality for an early cutoff (R4 P1), and value types and value domains, the base of the type work (R5 P2).
+4. K32: one merge function for worlds, with conflict rules (R6 P2). Two equal entries merge, and two namespaces merge key by key. Each other conflict is an error, unless the entry has a mark to replace. Today `formulaMachine` merges with a shallow spread. Thus a later kind replaces an earlier kind without a message, and the `ops` of a language replace the namespace of the kit.
+5. L2a: the decorated tree (R3 P1).
+6. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
+7. K12: compiled paths (R1 P2).
+8. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
+9. K22 and K23: `sameResult`, a safe equality for an early cutoff (R4 P1), and value types and value domains, the base of the type work (R5 P2).
 
-On the site, C10 is next too (R4). Each other proposal of the five studies is a row with the status `later`.
+On the site, C10 is next too (R4). K34, the composition checklist as spec tests, is next after K32 (R6 P1). Each other proposal of the six studies is a row with the status `later`.
 
 ## The design and the site
 
@@ -36,6 +38,7 @@ On the site, C10 is next too (R4). Each other proposal of the five studies is a 
 | C8 | The playground: build a document from the kinds, and open each picture of the guide in it | done (2026-10-20) | C6 |
 | C9 | Reference arrows on each picture (done), and arrows for each move of a path on each picture | in progress | C6 |
 | C10 | The schedule diagram (C3) computes its dependencies with the kernel (`refsOf`), as the site rule says (R4) | next | C3 |
+| C11 | A structured editor in the playground from the kind contracts. An empty position holds a document of a kind `hole`, thus each state of an edit evaluates (R6 P6). | later | C8 |
 
 ## The kernel
 
@@ -72,6 +75,13 @@ On the site, C10 is next too (R4). Each other proposal of the five studies is a 
 | K29 | Types of the run side: a procedure gets an input type, an output type and its effects, and `seq` gives each step its type (R5 P8) | later | K25, L1 |
 | K30 | Generic signatures with type variables, thus `check` finds the parameter types of a function argument, as for `map` (R5 P9) | later | K24 |
 | K31 | Intervals of numbers that widen in a cycle, and type rules as documents that the tree kit evaluates (R5 P10) | later (low value today) | K24, L2a |
+| K32 | One merge function for worlds and machines, with conflict rules. Equal entries merge, namespaces merge key by key, and each other conflict is an error without a mark `replaces` (R6 P2). | next | K2 |
+| K33 | Each verb through the kernel: `prepare` and `check` take a verb, one ladder serves each verb, and a verb `format` is the demonstration (R6 P3) | next | K32 |
+| K34 | The composition checklist as spec tests: one test `COMPOSE.*` for each mode of composition, with two small languages (R6 P1) | next (after K32) | K32 |
+| K35 | Verb entries for the kinds of another language: a language adds a verb that it owns to a foreign kind, through the merge of K32 (R6 P4) | later | K32, K33 |
+| K36 | A check of verb coverage: `checkWorld` lists each kind with no entry and no default for a verb that the language declares (R6 P5) | later | K33 |
+| K37 | A language package format: `defineLanguage` gives one value with a name, a version and a hash, and `compose` merges languages through K32 (R6 P7) | later | K32 |
+| K38 | A boundary kind `lang` for a part in another language, as the module boundary of Racket (R6 P8) | later (low value today, and a decision of the owner first) | K37 |
 
 ## The kits
 
@@ -143,5 +153,5 @@ Each study answers one research question and ranks its proposals. The folder `do
 | R3 | [Attribute grammars and the tree kit](research/r3-attribute-grammars.md) | done (2026-10-24) | L2a to L2i |
 | R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1a to S1c, S2, S3a to S3c, C10. R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
 | R5 | [Types and abstract interpretation for `check`](research/r5-types.md) | done (2026-10-24) | K20, K23 to K31 |
-| R6 | [Language workbenches and extensibility](research/r6-workbenches.md) | in progress | |
+| R6 | [Language workbenches and extensibility](research/r6-workbenches.md) | done (2026-10-24) | K32 to K38, C11 |
 
