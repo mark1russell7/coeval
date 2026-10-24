@@ -4,6 +4,7 @@ import {
   type CompiledEvaluator,
   type Context,
   type Effect,
+  type EvalError,
   type FormulaProfile,
   type GenerateOptions,
   type HostThing,
@@ -24,7 +25,9 @@ import {
   formulaEvaluators,
   formulaMachine,
   generate,
+  isRef,
   jsTruthy,
+  lookupKind,
   ok,
   prepare,
   random,
@@ -373,6 +376,30 @@ interface Outcome {
 /** The codes that `check` finds before a run. A document that `check` passes does not give them (STATIC.AGREES). */
 const STATIC_CODES = new Set(["#KIND?", "#PART?", "#NOEVAL", "#CAP!", "#DEPTH!"]);
 
+/**
+ * This function tells if `check` must give the error of a run at the same place (STATIC.AGREES). An unknown
+ * operation or extension (STATIC.KNOWN) and a value without its shape (FORMULA.FN-PARAMS) also have the same reason.
+ * A name that nothing binds has the same code and place, when the reference at the place names it itself and the
+ * host adopts no values.
+ */
+function sameInCheck(machine: Machine, doc: unknown, error: EvalError, declared: { readonly declaredType?: string }): "reason" | "place" | undefined {
+  if (error.code === "#NAME?" && /^The language has no (operation|extension) /.test(error.reason)) return "reason";
+  if (error.code === "#VALUE!" && / The kind is .+\.$/.test(error.reason)) return "reason";
+  const name = /^The context has no name (.+)\.$/.exec(error.reason)?.[1];
+  // A host that adopts the names answers their steps itself (DEREF.ADOPT). Its deref cannot give a name whose value
+  // is undefined, thus such a name is unbound in a run and bound for check.
+  if (error.code !== "#NAME?" || name === undefined || machine.adopt !== undefined) return undefined;
+  // A reference that a path reaches and follows can name an unbound name too (DEREF.COLLAPSE). check cannot know it.
+  let named = false;
+  walk(machine.world, doc, (visit) => {
+    if (!docEquals(visit.place, error.place ?? [])) return undefined;
+    const path = visit.doc.value;
+    named ||= isRef(visit.doc) && Array.isArray(path) && path[0] === "names" && String(path[1]) === name;
+    return "skip";
+  }, declared);
+  return named ? "place" : undefined;
+}
+
 function show(value: unknown): string {
   try {
     return JSON.stringify(value, (_key, item: unknown) => (typeof item === "function" ? "<fn>" : item === undefined ? "<undefined>" : item));
@@ -408,9 +435,17 @@ function harness(config: Config, total: number): Outcome {
     const result = outcome.result;
     count(codes, result.ok ? "value" : result.error.code);
     // A rule of the host for effects (CAP.HOOK) is outside check, thus such a machine skips this test.
-    if (result.ok || !STATIC_CODES.has(result.error.code) || config.machine.permits !== undefined) continue;
-    if (check(config.machine, doc, { ...declared, names: Object.keys(ctx.names), caps: ctx.caps }).length === 0) {
-      unchecked.push({ seed, reason: `check passed the document, and the plan gives ${result.error.code}.`, doc, plan: result, tier: "check" });
+    if (result.ok || config.machine.permits !== undefined) continue;
+    const error = result.error;
+    const same = sameInCheck(config.machine, doc, error, declared);
+    if (!STATIC_CODES.has(error.code) && same === undefined) continue;
+    const issues = check(config.machine, doc, { ...declared, names: Object.keys(ctx.names), caps: ctx.caps });
+    if (STATIC_CODES.has(error.code) && issues.length === 0) {
+      unchecked.push({ seed, reason: `check passed the document, and the plan gives ${error.code}.`, doc, plan: result, tier: "check" });
+    }
+    const place = error.place ?? [];
+    if (same !== undefined && !issues.some((issue) => issue.code === error.code && docEquals(issue.place, place) && (same === "place" || issue.reason === error.reason))) {
+      unchecked.push({ seed, reason: `the plan gives ${error.code} at [${place.join(", ")}] ("${error.reason}"), and check does not give it there.`, doc, plan: result, tier: "check" });
     }
   }
   return { findings, unchecked, kinds, codes };
@@ -613,7 +648,8 @@ describe("agree", () => {
       const machine = formulaMachine(STRICT, { evaluators: { [name]: mutant } });
       const options = formulaOptions(machine);
       let found = false;
-      for (let seed = 0; seed < 2000 && !found; seed += 1) {
+      // A document that shows the mutant of if is rare: a branch that the test does not select must call the host.
+      for (let seed = 0; seed < 10000 && !found; seed += 1) {
         const doc = generate(machine.world, { ...options, seed });
         found = !agree(machine, doc, CONTEXTS[0], { definitions: formulaDefinitions(STRICT), declaredType: "lit", observe: () => calls.splice(0), equal: boxes }).ok;
       }
@@ -636,9 +672,15 @@ describe("the generator", () => {
 
   it("[GEN.CONTRACTS] without malformed choices, each document follows the contracts of its kinds: check finds no problem", () => {
     const strict = formulaMachine(STRICT);
+    // The types of the options name some unknown operations on purpose. The machine knows the others (STATIC.KNOWN).
+    const knownBy = (machine: Machine, types: readonly (readonly Key[])[]): readonly (readonly Key[])[] =>
+      types.filter((type) => {
+        const found = lookupKind(machine.world, type);
+        return !found.ok || machine.known === undefined || machine.known(found.path, found.kind.verbs["eval"] ?? "") === true;
+      });
     const cases: readonly (readonly [Machine, Omit<GenerateOptions, "seed">])[] = [
-      [strict, { ...formulaOptions(strict), own: [], malformed: 0 }],
-      [language, { ...formulaOptions(language), types: LANGUAGE_TYPES, own: [], malformed: 0 }],
+      [strict, { ...formulaOptions(strict), types: knownBy(strict, formulaOptions(strict).types ?? []), own: [], malformed: 0 }],
+      [language, { ...formulaOptions(language), types: knownBy(language, LANGUAGE_TYPES), own: [], malformed: 0 }],
     ];
     for (const [machine, options] of cases) {
       for (let seed = 0; seed < 300; seed += 1) {
@@ -648,12 +690,21 @@ describe("the generator", () => {
     }
   });
 
-  it("[GEN.MALFORMED] malformed choices give unknown kinds, bad shapes, values without a type and names that nothing binds", () => {
+  it("[GEN.MALFORMED] malformed choices give unknown kinds, unknown operations, bad shapes, values without a type and names that nothing binds", () => {
     const found = new Set<string>();
     for (let seed = 0; seed < 300; seed += 1) {
       const doc = generate(STD_MACHINE.world, { ...STD_OPTIONS, seed, malformed: 0.2 });
       for (const issue of check(STD_MACHINE, doc, { names: Object.keys(NAMES) })) found.add(issue.code);
     }
     expect([...found]).toEqual(expect.arrayContaining(["#KIND?", "#NAME?", "#PART?", "#REF!", "#VALUE!"]));
+    // The options name only known operations. The generator adds an unknown name under each namespace with a fallback.
+    const strict = formulaMachine(STRICT);
+    const types = typesOf(strict.world).concat(OP_TYPES.slice(0, 4));
+    const reasons = new Set<string>();
+    for (let seed = 0; seed < 300; seed += 1) {
+      const doc = generate(strict.world, { ...formulaOptions(strict), types, seed, malformed: 0.2 });
+      for (const issue of check(strict, doc, { declaredType: "lit", names: Object.keys(NAMES) })) reasons.add(issue.reason);
+    }
+    expect([...reasons]).toEqual(expect.arrayContaining(["The language has no operation nope.", "The language has no extension nope."]));
   });
 });

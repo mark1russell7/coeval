@@ -1,4 +1,4 @@
-import { type Json, type Key, docEquals, isEnvelope } from "./doc.ts";
+import { type Json, type Key, docEquals, isEnvelope, typePath } from "./doc.ts";
 import { type Kind, type ScopeRule, type Shape, type World, type WorldEntry, isAlias, isKind, isNamespace, lookupKind } from "./world.ts";
 import { pathMatches } from "./parts.ts";
 import { ROOTS } from "./deref.ts";
@@ -125,8 +125,9 @@ interface Scope {
 /**
  * This function builds a random document for a world from the contracts of its kinds. It reads the shapes of the
  * parts, the declared types, the permitted kinds and the names that the scope rules bind. Some choices are malformed
- * on purpose. Examples are an unknown kind, a value without its shape, a bare value without a type and a name that
- * nothing binds. The depth and the size have limits.
+ * on purpose, for example an unknown kind or an unknown name under a namespace with a fallback. Other examples are a
+ * value without its shape, a bare value without a type and a name that nothing binds. The depth and the size have
+ * limits.
  *
  * @param world - The world.
  * @param options - The seed, the types, the limits and the data of the leaves.
@@ -143,6 +144,13 @@ export function generate(world: World, options: GenerateOptions): unknown {
     const found = lookupKind(world, type);
     return found.ok && Object.hasOwn(found.kind.verbs, "step");
   });
+  // A name under each namespace with a fallback that no evaluator knows, for example ["ops", "nope"].
+  const unknownNames: readonly (readonly Key[])[] = Object.keys(world.kinds)
+    .filter((key) => {
+      const entry = world.kinds[key];
+      return isNamespace(entry) && entry.fallback !== undefined;
+    })
+    .map((key) => [key, "nope"]);
   let size = 0;
 
   const kindOf = (type: readonly Key[]): Kind | undefined => {
@@ -332,9 +340,18 @@ export function generate(world: World, options: GenerateOptions): unknown {
     }
   };
 
-  /** A malformed document: an unknown kind, a bad shape, a bare value without a type, or a bad reference. */
+  /**
+   * A malformed document: an unknown kind, or an unknown name under a namespace with a fallback. It can also be a
+   * bad shape, a bare value without a type, or a bad reference.
+   */
   const brokenAt = (pos: Position): Json => {
     const roll = rng.int(5);
+    if (roll === 0 && unknownNames.length > 0 && rng.chance(0.5)) {
+      // The fallback kind answers the name, and its evaluator does not know it, for example an unknown operation.
+      const type = rng.pick(unknownNames);
+      const kind = kindOf(type);
+      return envelope(type, kind?.parts === undefined ? dataOf(type) : valueOf(kind.parts, [], pos, scopeOf(kind), type));
+    }
     if (roll === 0) return { type: rng.pick<Json>(["nothing", ["no", "such"]]), value: 1 };
     if (roll === 1) return pos.declared === undefined ? rng.pick<Json>([7, "bare", [1]]) : { type: "ref", value: ["names", "unbound"] };
     if (roll === 2) {
@@ -349,7 +366,11 @@ export function generate(world: World, options: GenerateOptions): unknown {
     size += 1;
     const leaf = pos.depth >= maxDepth || size >= maxSize;
     if (rng.chance(malformed)) return brokenAt(pos);
-    if (pos.declared !== undefined && rng.chance(leaf ? 0.7 : 0.3)) return dataOf([pos.declared]);
+    if (pos.declared !== undefined && rng.chance(leaf ? 0.7 : 0.3)) {
+      const bare = dataOf([pos.declared]);
+      // A bare value with the form of an envelope is a document of its own type, and the position must permit that type.
+      if (!isEnvelope(bare) || permitted(typePath(bare.type) ?? [], pos.kinds)) return bare;
+    }
     let candidates = types.filter((type) => permitted(type, pos.kinds) && (!leaf || leafKind(kindOf(type))));
     if (pos.hint !== undefined && rng.chance(0.6)) {
       const hinted = candidates.filter((type) => pos.hint?.some((hint) => hint.length === type.length && hint.every((key, index) => key === type[index])));

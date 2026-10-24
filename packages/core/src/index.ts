@@ -95,7 +95,7 @@ export {
   worldThing,
 } from "./deref.ts";
 export { type Classification, type Shape, classify, tag } from "./classify.ts";
-export { type PartSlot, type Split, pathMatches, splitParts } from "./parts.ts";
+export { type DocParts, type PartSlot, type Split, partsOf, pathMatches, splitParts } from "./parts.ts";
 export {
   type AllOptions,
   type Code,
@@ -181,6 +181,7 @@ export {
   STD_EXT,
   formulaEvaluators,
   formulaKinds,
+  formulaKnown,
   formulaMachine,
   isClosure,
   jsTruthy,

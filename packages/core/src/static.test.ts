@@ -3,6 +3,7 @@ import {
   type HostThing,
   type Json,
   type Machine,
+  type Result,
   type Runner,
   STD_CAPS,
   STD_MACHINE,
@@ -11,6 +12,7 @@ import {
   check,
   context,
   docEquals,
+  formulaDefinitions,
   formulaKinds,
   formulaMachine,
   isKind,
@@ -18,10 +20,13 @@ import {
   makeContext,
   mapRefs,
   nearestWalker,
+  partsOf,
   prepare,
+  reference,
   refsOf,
   resolve,
   run,
+  sameValue,
   splitParts,
   stored,
   walk,
@@ -109,6 +114,68 @@ describe("documents", () => {
 
   it("[DOC.RECORD] only a plain object is a record", () => {
     expect(splitParts({ shape: "map" }, new Date(0) as never)).toMatchObject({ ok: false });
+  });
+
+  it("[DOC.HOST-EQUALS] a value that is not plain JSON is equal only to itself, and a cycle does not stop the comparison", () => {
+    class Point {
+      constructor(readonly x: number) {}
+    }
+    const date = new Date(0);
+    // Each pair has no own keys, or the same own keys, thus a comparison of the own keys finds them equal.
+    const pairs: readonly (readonly [unknown, unknown])[] = [
+      [new Date(0), new Date(1)],
+      [new Map([["a", 1]]), new Map([["a", 2]])],
+      [new Set([1]), new Set([2])],
+      [new Point(1), new Point(1)],
+      [() => 1, () => 1],
+      [{ at: new Date(0) }, { at: new Date(0) }],
+      [[new Point(1)], [new Point(1)]],
+      [new Point(1), { x: 1 }],
+    ];
+    for (const [a, b] of pairs) expect(docEquals(a, b), String(a)).toBe(false);
+    expect(docEquals(date, date)).toBe(true);
+    expect(docEquals({ at: date, list: [date] }, { list: [date], at: date })).toBe(true);
+    const bare = Object.assign(Object.create(null) as Record<string, unknown>, { a: [1] });
+    expect(docEquals(bare, { a: [1] })).toBe(true);
+    expect(docEquals([1], { 0: 1 })).toBe(false);
+    // A cycle of records ends: the pairs that the comparison already visits are not compared again.
+    const x: Record<string, unknown> = { n: 1 };
+    x["self"] = x;
+    const y: Record<string, unknown> = { n: 1 };
+    y["self"] = y;
+    expect(docEquals(x, y)).toBe(true);
+    expect(docEquals(x, { n: 1, self: { n: 2, self: null } })).toBe(false);
+    // A list shape with distinct items sees two different dates as different items.
+    expect(splitParts({ shape: "list", item: { shape: "none" }, distinct: true }, [new Date(0), new Date(0)] as never)).toMatchObject({ ok: true });
+    // sameValue of agree uses the same rules, and it adds a rule for closures: the same parameters are the same.
+    for (const [a, b] of pairs) expect(sameValue(a, b), String(a)).toBe(false);
+    const two = (body: number): unknown => {
+      const result = prepare(machine, { type: "fn", value: { params: ["n"], body } }).evaluate();
+      return result.ok ? result.value : undefined;
+    };
+    expect(sameValue(two(1), two(2))).toBe(true);
+    expect(docEquals(two(1), two(1))).toBe(false);
+  });
+
+  it("[DOC.PARTS-OF] partsOf gives the kind and the parts of a document, and the plan, the reference and check read it the same way", () => {
+    const aliased = { kinds: { ...formulaKinds(), sum: { type: "ref", value: ["world", "ops", "add"] } }, defaults: {} } as const;
+    const read = partsOf(aliased, { type: "sum", value: [1, { type: "ref", value: ["names", "a"] }] });
+    expect(read).toMatchObject({ ok: true, declared: false, typePath: ["ops", "add"], kind: { verbs: { eval: "formula.op" } } });
+    if (!read.ok || !read.split.ok) throw new Error("The document has parts.");
+    expect(read.split.parts.map((part) => part.key)).toEqual(["0", "1"]);
+    expect(partsOf(world, 7, "lit")).toMatchObject({ ok: true, doc: { type: "lit", value: 7 }, declared: true, typePath: ["lit"] });
+    expect(partsOf(world, 7)).toEqual({ ok: false, code: "#PART?", reason: "The value has no envelope, and its position declares no type." });
+    // A kind that the world does not have gives no kind, and the value is data.
+    expect(partsOf(world, { type: "nothing", value: [1] })).toMatchObject({ ok: true, kind: undefined, typePath: undefined, split: { ok: true, parts: [] } });
+    // The reason of a value without its shape names the kind. A run, the reference and check give the same reason.
+    const bad = { type: "let", value: { bind: { a: 1 } } };
+    const reason = "The field body is missing. The kind is let.";
+    expect(partsOf(world, bad)).toMatchObject({ ok: true, split: { ok: false, reason, at: [] } });
+    expect(prepare(machine, bad).evaluate()).toEqual({ ok: false, error: { code: "#VALUE!", reason, place: [] } });
+    expect(reference(machine, bad, makeContext(), { definitions: formulaDefinitions({}) })).toEqual({ ok: false, error: { code: "#VALUE!", reason, place: [] } });
+    expect(check(machine, bad)).toEqual([{ code: "#VALUE!", place: [], reason, at: ["value"] }]);
+    const deep = partsOf(world, { type: "fn", value: { params: ["a", 2], body: 1 } });
+    expect(deep).toMatchObject({ ok: true, split: { ok: false, reason: "The value must be a text. (at params.1) The kind is fn.", at: ["params", 1] } });
   });
 });
 
@@ -301,6 +368,71 @@ describe("the static kit", () => {
         expect(issues[0]?.place, label).toEqual(done.result.error.place);
       }
     }
+  });
+
+  it("[STATIC.KNOWN] check gives the #NAME? of an operation or an extension that the language does not have, as a run does", () => {
+    const seven = (): number => 7;
+    const profile = {
+      ops: { add: (a: number, b: number) => a + b },
+      lazy: { first: (args: readonly (() => Result)[]) => args[0]?.() ?? { ok: true as const, value: null } },
+      ext: { now: () => ({ ok: true as const, value: "today" }) },
+    };
+    const language = formulaMachine(profile, { world: { kinds: { minus: { type: "ref", value: ["world", "ops", "sub"] } }, defaults: {} } });
+    const op = (name: string, ...args: Json[]): Json => ({ type: ["ops", ...name.split(".")], value: args });
+    const cases: readonly (readonly [Json, string | undefined])[] = [
+      [op("add", 1, 2), undefined],
+      [op("first", 1), undefined],
+      [{ type: ["ext", "now"], value: null }, undefined],
+      [{ type: ["ext", "number"], value: "NaN" }, undefined],
+      [op("nope", 1), "The language has no operation nope."],
+      [op("math.max", 1), "The language has no operation math.max."],
+      [{ type: ["ext", "nope"], value: 1 }, "The language has no extension nope."],
+      // The path of the kind comes after each alias, as in a run.
+      [{ type: "minus", value: [1] }, "The language has no operation sub."],
+      [{ type: "list", value: [1, op("nope")] }, "The language has no operation nope."],
+    ];
+    for (const [doc, reason] of cases) {
+      const issues = check(language, doc);
+      const result = prepare(language, doc).evaluate();
+      const direct = reference(language, doc, makeContext(), { definitions: formulaDefinitions(profile) });
+      const label = JSON.stringify(doc);
+      if (reason === undefined) {
+        expect(issues, label).toEqual([]);
+        expect(result.ok, label).toBe(true);
+        continue;
+      }
+      const place = (doc as { readonly type: unknown }).type === "list" ? [1] : [];
+      expect(issues, label).toEqual([{ code: "#NAME?", place, reason, at: place.length === 0 ? [] : ["value", 1] }]);
+      expect(result, label).toEqual({ ok: false, error: { code: "#NAME?", reason, place } });
+      expect(direct, label).toEqual(result);
+    }
+    // A profile whose ops is a function answers through a call. A call that throws gives #CALC! in a run, not #NAME?.
+    const table = formulaMachine({
+      ops: (name) => {
+        if (name === "trap") throw new Error("no trap");
+        return name === "seven" ? seven : undefined;
+      },
+    });
+    expect(check(table, op("seven"))).toEqual([]);
+    expect(check(table, op("six")).map((issue) => issue.reason)).toEqual(["The language has no operation six."]);
+    expect(check(table, op("trap"))).toEqual([]);
+    expect(prepare(table, op("trap")).evaluate()).toMatchObject({ ok: false, error: { code: "#CALC!" } });
+    // An own entry answers first, thus the evaluator of the operation does not run.
+    expect(check(language, { type: ["ops", "nope"], value: [1], own: { eval: "formula.list" } })).toEqual([]);
+    // A language adds its own hook for its own evaluators, and it can replace an evaluator of the kit.
+    const moves = formulaMachine(profile, {
+      world: { kinds: { moves: { kinds: {}, fallback: { verbs: { eval: "test.move" } } } }, defaults: {} },
+      evaluators: { "test.move": ({ typePath }) => (typePath[1] === "up" ? { ok: true, value: "up" } : { ok: false, error: { code: "#NAME?", reason: "No such move." } }) },
+      known: (path, evaluator) => (evaluator !== "test.move" || path[1] === "up" ? true : "No such move."),
+    });
+    expect(check(moves, { type: ["moves", "left"], value: null })).toEqual([{ code: "#NAME?", place: [], reason: "No such move.", at: [] }]);
+    expect(check(moves, { type: ["moves", "up"], value: null })).toEqual([]);
+    expect(check(moves, op("nope"))).toHaveLength(1);
+    const replaced = formulaMachine(profile, { evaluators: { "formula.op": () => ({ ok: true, value: 0 }) } });
+    expect(check(replaced, op("nope"))).toEqual([]);
+    // A machine without the hook does not check the names.
+    const { known: _known, ...plain } = language;
+    expect(check(plain, op("nope"))).toEqual([]);
   });
 
   it("[STATIC.NARROW] check tests each effect against the capabilities of its own document, as the kinds narrow them", () => {

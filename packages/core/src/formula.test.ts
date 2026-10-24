@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type FormulaProfile, type Result, context, fail, formulaMachine, isClosure, jsTruthy, ok, prepare } from "./index.ts";
+import { type FormulaProfile, type Result, check, context, fail, formulaDefinitions, formulaMachine, isClosure, jsTruthy, ok, prepare, reference } from "./index.ts";
 
 const ref = (...path: unknown[]): unknown => ({ type: "ref", value: path });
 const op = (name: string, ...args: unknown[]): unknown => ({ type: ["ops", ...name.split(".")], value: args });
@@ -66,6 +66,26 @@ describe("the formula kit", () => {
     expect(strict(op("map", failing, { type: "list", value: [1] }))).toMatchObject({ ok: false, error: { code: "#NAME?" } });
     expect(strict({ type: "fn", value: { params: ["a", "a"], body: 1 } })).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
     expect(strict({ type: "call", value: { fn: 3, args: [] } })).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
+  });
+
+  it("[FORMULA.FN-PARAMS] the contract of fn declares params as a list of different texts, thus check and a run give the same #VALUE!", () => {
+    const machine = formulaMachine({ ops: OPS });
+    const fn = (params: unknown): unknown => ({ type: "fn", value: { params, body: 1 } });
+    const cases: readonly (readonly [unknown, string, readonly (string | number)[]])[] = [
+      [fn([1]), "The value must be a text. (at params.0) The kind is fn.", ["params", 0]],
+      [fn(["a", "a"]), "The items of the list must be different. (at params.1) The kind is fn.", ["params", 1]],
+      [fn("a"), "The value must be a list. (at params) The kind is fn.", ["params"]],
+    ];
+    for (const [doc, reason, at] of cases) {
+      const label = JSON.stringify(doc);
+      expect(check(machine, doc), label).toEqual([{ code: "#VALUE!", place: [], reason, at: ["value", ...at] }]);
+      expect(prepare(machine, doc).evaluate(), label).toEqual({ ok: false, error: { code: "#VALUE!", reason, place: [] } });
+      expect(reference(machine, doc, context(), { definitions: formulaDefinitions({ ops: OPS }) }), label).toEqual({ ok: false, error: { code: "#VALUE!", reason, place: [] } });
+    }
+    // A list of texts stays data, also when it is empty: a function without parameters works.
+    const none = { type: "call", value: { fn: { type: "fn", value: { params: [], body: 7 } }, args: [] } };
+    expect(check(machine, none)).toEqual([]);
+    expect(strict(none)).toEqual(ok(7));
   });
 
   it("[FORMULA.IF] if evaluates only the branch that the test selects; a profile gives the truth of a value", () => {

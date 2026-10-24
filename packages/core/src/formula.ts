@@ -1,4 +1,4 @@
-import { type Json, isRecord } from "./doc.ts";
+import { type Json, type Key, isRecord } from "./doc.ts";
 import type { Kind, WorldEntry } from "./world.ts";
 import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
@@ -142,7 +142,7 @@ export function formulaKinds(): Readonly<Record<string, WorldEntry>> {
     },
     fn: {
       verbs: { eval: "formula.fn" },
-      parts: { shape: "record", fields: { body: term }, required: ["params", "body"] },
+      parts: { shape: "record", fields: { params: { shape: "list", item: { shape: "text" }, distinct: true }, body: term }, required: ["params", "body"] },
       scope: [{ names: { listAt: ["params"] }, in: [["body"]] }],
       summary: "A function: its parameters are names for its body.",
     },
@@ -475,17 +475,59 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
 }
 
 /**
+ * This function makes the hook `known` of the formula kit for one profile (STATIC.KNOWN). The evaluator
+ * `formula.op` knows an operation of `lazy` or of `ops`. A profile whose `ops` is a function answers through a call
+ * of that function. A function that throws counts as an answer, because the run then gives `#CALC!`. The evaluator
+ * `formula.ext` knows an extension of `ext` and each standard extension. The hook knows each name of the other
+ * evaluators.
+ *
+ * @param profile - The operations and the extensions of the language.
+ * @returns The hook: `true`, or the reason of the `#NAME?` that the evaluator gives in a run.
+ */
+export function formulaKnown(profile: FormulaProfile = {}): (path: readonly Key[], evaluator: string) => true | string {
+  const hasOp = (name: string): boolean => {
+    if (profile.lazy !== undefined && Object.hasOwn(profile.lazy, name)) return true;
+    const ops = profile.ops;
+    if (ops === undefined) return false;
+    if (typeof ops !== "function") return Object.hasOwn(ops, name);
+    try {
+      return ops(name) !== undefined;
+    } catch {
+      return true;
+    }
+  };
+  const hasExt = (name: string): boolean => (profile.ext !== undefined && Object.hasOwn(profile.ext, name)) || Object.hasOwn(STD_EXT, name);
+  return (path, evaluator) => {
+    if (evaluator !== "formula.op" && evaluator !== "formula.ext") return true;
+    // The evaluators give the same reasons when they do not find the name.
+    const name = path.slice(1).join(".");
+    if (evaluator === "formula.op") return hasOp(name) ? true : `The language has no operation ${name}.`;
+    return hasExt(name) ? true : `The language has no extension ${name}.`;
+  };
+}
+
+/**
  * This function makes a machine for a formula language. The machine has the kinds and the evaluators of the
- * formula kit. It also has the kinds, the evaluators and the walkers that the language adds.
+ * formula kit. It also has the kinds, the evaluators and the walkers that the language adds. Its hook `known` comes
+ * from the profile (`formulaKnown`). A hook `known` of the language answers each name that the kit knows.
  *
  * @param profile - The operations and the rules of the language.
  * @param more - The parts of a machine that the language adds. Its kinds win over the kinds of the kit.
  * @returns The machine.
  */
 export function formulaMachine(profile: FormulaProfile = {}, more: Partial<Machine> = {}): Machine {
+  const kit = formulaKnown(profile);
+  // An evaluator or a runner of the language with the name of an evaluator of the kit replaces it, and the kit does not answer for it.
+  const replaced = (name: string): boolean => (more.evaluators !== undefined && Object.hasOwn(more.evaluators, name)) || (more.runners !== undefined && Object.hasOwn(more.runners, name));
+  const theirs = more.known;
+  const known = (path: readonly Key[], evaluator: string): true | string => {
+    const answer = replaced(evaluator) ? true : kit(path, evaluator);
+    return answer === true && theirs !== undefined ? theirs(path, evaluator) : answer;
+  };
   return {
     ...more,
     world: { kinds: { ...formulaKinds(), ...more.world?.kinds }, defaults: { ...more.world?.defaults } },
     evaluators: { ...formulaEvaluators(profile), ...more.evaluators },
+    known,
   };
 }
