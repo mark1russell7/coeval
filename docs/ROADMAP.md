@@ -8,15 +8,19 @@ The studies in `docs/research/` rank proposals for the kernel and the kits. Each
 
 ## The order of the next work
 
-The plan does the next work in this order (2026-10-24). It takes up the studies R1, R2 and R3.
+The plan does the next work in this order (2026-10-24). It takes up the studies R1 to R5.
 
 1. K8: `check` narrows the capabilities of the parts as the kinds do (done, 2026-10-24).
-2. K9: a harness for one meaning (R1 P1).
-3. L2a: the decorated tree (R3 P1).
-4. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
-5. K12: compiled paths (R1 P2).
+2. K9: a harness for one meaning (R1 P1, in progress).
+3. K20 and K21 together, two correctness fixes:
+   - K20: `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1). Today an unknown `ops.*` or `ext.*` passes `check` and fails with `#NAME?` in a run.
+   - K21: `docEquals` compares the values that are not plain JSON by identity (R4). Today it compares only the own keys, thus two different dates or maps are equal.
+4. L2a: the decorated tree (R3 P1).
+5. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
+6. K12: compiled paths (R1 P2).
+7. K22 and K23: `sameResult`, a safe equality for an early cutoff (R4 P1), and value types and value domains, the base of the type work (R5 P2).
 
-Each other proposal of the three studies is a row with the status `later`.
+On the site, C10 is next too (R4). Each other proposal of the five studies is a row with the status `later`.
 
 ## The design and the site
 
@@ -31,6 +35,7 @@ Each other proposal of the three studies is a row with the status `later`.
 | C7 | The guide: one page for each glyph, from documents to effects | done (2026-10-20) | C6 |
 | C8 | The playground: build a document from the kinds, and open each picture of the guide in it | done (2026-10-20) | C6 |
 | C9 | Reference arrows on each picture (done), and arrows for each move of a path on each picture | in progress | C6 |
+| C10 | The schedule diagram (C3) computes its dependencies with the kernel (`refsOf`), as the site rule says (R4) | next | C3 |
 
 ## The kernel
 
@@ -44,7 +49,7 @@ Each other proposal of the three studies is a row with the status `later`.
 | K6 | The explain trace of a question and of an evaluation | in progress (the trace is an optional pass over a plan, the explorer draws it) | K5 |
 | K7 | Sealed parts: the kernel gives an evaluator handles without the value of a part | done (2026-10-20) | |
 | K8 | check narrows the capabilities as the kinds do (a bug from the study R2) | done (2026-10-24) | K3 |
-| K9 | A harness for one meaning: a reference definitional interpreter for the tests, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1) | next | K2, K3 |
+| K9 | A harness for one meaning: a reference definitional interpreter for the tests, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1) | in progress | K2, K3 |
 | K10 | A synchronous mock `perform` for `evaluate`. Its answer becomes the result of the effect, and a promise from it gives `#CALC!` (R2 P1). | next | L1 |
 | K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | next | L1 |
 | K12 | Compiled paths: `compilePath` resolves one static path, and `derefStep` keeps a memo of `lookupKind` (R1 P2) | next | K4, K9 |
@@ -55,6 +60,18 @@ Each other proposal of the three studies is a row with the status `later`.
 | K17 | One plan at many positions with `plan.evaluateEach(contexts)` (R1 P7) | later (only after a language asks for it) | K9 |
 | K18 | Effect rules in kind contracts (`mask`, `grant` and `same`), and `effectsOf` for the effects that reach the host (R2 P3) | later | K8 |
 | K19 | A static check of the "can wait" bit: `check` reports a runner under a parent without a runner (R2 P4) | later | K3 |
+| K20 | `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1) | next | K3 |
+| K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | next | K3 |
+| K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | next | K5, K21 |
+| K23 | Value types and value domains: a new `types.ts` with open base types, the relation `fits`, and a membership test for each domain (R5 P2) | next | K2, K3 |
+| K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | later | K23 |
+| K25 | Types of the roots, of the names and of the paths, from the host, from a JSON Schema or from sample values (R5 P4) | later | K24 |
+| K26 | The agreement rule for types: in a traced evaluation of a document that checks, each value is in the type of its place (R5 P5) | later | K9, K24 |
+| K27 | Narrowing in `if`, `and` and `or`: a test with `proves` narrows the type of a path in its branch (R5 P6) | later | K25 |
+| K28 | Casts at the boundaries of `unknown`: with the option `guards`, `prepare` adds a membership test that gives `#VALUE!` at the boundary (R5 P7) | later | K25 |
+| K29 | Types of the run side: a procedure gets an input type, an output type and its effects, and `seq` gives each step its type (R5 P8) | later | K25, L1 |
+| K30 | Generic signatures with type variables, thus `check` finds the parameter types of a function argument, as for `map` (R5 P9) | later | K24 |
+| K31 | Intervals of numbers that widen in a cycle, and type rules as documents that the tree kit evaluates (R5 P10) | later (low value today) | K24, L2a |
 
 ## The kits
 
@@ -81,9 +98,15 @@ Each other proposal of the three studies is a row with the status `later`.
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
-| S1 | The interface of a schedule: the graph of the data and the side of each kind | later | K2 |
-| S2 | The static analysis: cycles, an order for a push schedule, and the independent groups | later | S1 |
-| S3 | Adapters to the reactive engines of the hosts | later | S1 |
+| S1 | The interface of a schedule: the graph of the data and the side of each kind | later (S1a and S1b first, from R4) | K2 |
+| S1a | `factsOf` gives the static facts of a document: its reads with marks for lazy parts, its side, its effects, and the marks `pure` and `volatile` (R4 P2) | later | K2, K3 |
+| S1b | A list of reads for each evaluation, and `verifyReads`, which keeps an old result when each read gives the same thing again (R4 P3) | later | K4 |
+| S1c | Two levels of durability: a host keeps one epoch for the structure and one for the data, thus a change of data compiles nothing (R4 P7) | later | S1a |
+| S2 | The static analysis: cycles, an order for a push schedule, and the independent groups, with a new `graph.ts` (R4 P5) | later | S1a |
+| S3 | Adapters to the reactive engines of the hosts | later (S3a and S3b first, from R4) | S1 |
+| S3a | A harness for one meaning across schedules: a model-based test, and `agreeSchedule(engine)` for the engine of each host (R4 P4) | later | K9, K22, S1b |
+| S3b | A reference adapter for signals in the tests, with `sameResult` as its `equals` (R4 P6) | later | K22 |
+| S3c | Derivatives of aggregates: an operation of a profile gives a derivative, thus an aggregate updates in a time that the size of the change sets (R4 P8) | later (only after a language over positions asks for it) | S3, L4 |
 | S4 | Equations for effect kinds: a contract declares which operations commute, so that a schedule can change the order of their steps (R2 P6) | later | S1 |
 
 ## The migration of the languages
@@ -118,7 +141,7 @@ Each study answers one research question and ranks its proposals. The folder `do
 | R1 | [Staging and partial evaluation](research/r1-staging.md) | done (2026-10-24) | K9, K12 to K17 |
 | R2 | [Algebraic effects, handlers and the run side](research/r2-effects.md) | done (2026-10-24) | K10, K11, K18, K19, L1a, L1b, S4 |
 | R3 | [Attribute grammars and the tree kit](research/r3-attribute-grammars.md) | done (2026-10-24) | L2a to L2i |
-| R4 | Incremental computation and schedules | in progress | |
-| R5 | Types and abstract interpretation for `check` | in progress | |
-| R6 | Language workbenches and extensibility | next | |
+| R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1a to S1c, S2, S3a to S3c, C10. R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
+| R5 | [Types and abstract interpretation for `check`](research/r5-types.md) | done (2026-10-24) | K20, K23 to K31 |
+| R6 | [Language workbenches and extensibility](research/r6-workbenches.md) | in progress | |
 
