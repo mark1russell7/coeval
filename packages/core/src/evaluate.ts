@@ -832,7 +832,11 @@ interface Compiler {
 }
 
 function failing(c: Compiler, meta: Meta, place: readonly Key[], code: ErrorCode, reason: string): { readonly code: Code; readonly run: RunCode } {
-  const result = fail(code, reason, { place });
+  return failingWith(c, meta, fail(code, reason, { place }));
+}
+
+/** This function gives the code of a document that fails with one result at each evaluation. */
+function failingWith(c: Compiler, meta: Meta, result: Result): { readonly code: Code; readonly run: RunCode } {
   const plain: Code = () => result;
   return finish(c, meta, plain, function* () {
     return result;
@@ -967,15 +971,24 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     fill: fillOf(split, doc),
     ...(address ? { address: true } : {}),
   };
+  // A compiler that throws fails its own document when that document evaluates, with its place (PLAN.FAIL-LATE).
   if (runner !== undefined) {
-    const inner: RunCode = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
+    let inner: RunCode;
+    try {
+      inner = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
+    } catch (error) {
+      return failingWith(c, meta, placed(thrown(error, `the runner ${name}`), place));
+    }
     const run = placedRun(inner, place, name);
     return finish(c, meta, runnerCode(run, place, kindText), run);
   }
 
-  const inner: Code = isCompiledEvaluator(evaluator as Evaluator)
-    ? (evaluator as CompiledEvaluator).compile(input)
-    : interpret(evaluator as EvalFn, input, split.fill);
+  let inner: Code;
+  try {
+    inner = isCompiledEvaluator(evaluator as Evaluator) ? (evaluator as CompiledEvaluator).compile(input) : interpret(evaluator as EvalFn, input, split.fill);
+  } catch (error) {
+    return failingWith(c, meta, placed(thrown(error, `the evaluator ${name}`), place));
+  }
   const code = placedCode(inner, place, name);
   return finish(c, meta, code, runOf(code));
 }
@@ -1022,12 +1035,15 @@ function placedRun(inner: RunCode, place: readonly Key[], name: string): RunCode
   };
 }
 
-/** This function gives the code of a runner in an evaluation: its steps, which cannot wait. */
+/**
+ * This function gives the code of a runner in an evaluation: its steps, which cannot wait. A step that waits gives
+ * `#CALC!` at the place of the runner, where the error started (RUN.WAIT).
+ */
 function runnerCode(run: RunCode, place: readonly Key[], kindText: string): Code {
   return (ctx, rt) =>
     rt.running
       ? fail("#CALC!", `${kindText} waits for effects, and its parent cannot wait. Give the parent a runner.`, { place })
-      : drive(run(ctx, rt));
+      : placed(drive(run(ctx, rt)), place);
 }
 
 /** This function gives the steps of a run of an evaluator. The code runs at the first step, and it does not wait. */
@@ -1119,7 +1135,7 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
   try {
     root = compileNode(c, doc, [], options.declaredType, 0);
   } catch (error) {
-    const result = thrown(error, "the compilation");
+    const result = placed(thrown(error, "the compilation"), []);
     root = {
       code: () => result,
       run: function* () {

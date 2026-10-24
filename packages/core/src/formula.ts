@@ -225,16 +225,18 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
         if (missing !== undefined && missing(reached)) return fail("#N/A", "The path reaches no value.");
         return ok(reached);
       };
-      // The step documents of a path are its parts when the kind ref has a deep shape. They evaluate first, in order.
-      const computed = parts.length > 0;
+      const held = (ctx: Context): Failed | undefined => {
+        if (head === undefined || !Object.hasOwn(ctx.names, head)) return undefined;
+        const bound = ctx.names[head];
+        return bound instanceof Held ? { ok: false, error: bound.error } : undefined;
+      };
+      if (parts.length === 0) return (ctx, rt) => held(ctx) ?? give(rt.resolve(ctx, path));
+      // The step documents of a path are its parts when the kind ref has a deep shape. They evaluate first, in order,
+      // thus the error of a step comes before the error of a binding that the path reads (FORMULA.STEPS).
       return (ctx, rt) => {
-        if (head !== undefined && Object.hasOwn(ctx.names, head)) {
-          const bound = ctx.names[head];
-          if (bound instanceof Held) return { ok: false, error: bound.error };
-        }
-        if (!computed) return give(rt.resolve(ctx, path));
         const steps = valuesOf(parts, ctx, rt);
-        return Array.isArray(steps) ? give(rt.resolve(ctx, fill(steps) as readonly unknown[])) : steps;
+        if (!Array.isArray(steps)) return steps;
+        return held(ctx) ?? give(rt.resolve(ctx, fill(steps) as readonly unknown[]));
       };
     }),
 

@@ -79,7 +79,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | ID | Rule |
 | --- | --- |
 | PLAN.ONCE | A plan compiles a document one time. It evaluates many times with the same result as `evaluate`. |
-| PLAN.FAIL-LATE | A document that does not compile gives a plan that fails when it evaluates. The error has its place. |
+| PLAN.FAIL-LATE | A document that does not compile gives a plan that fails when that document evaluates. A compiler that throws fails only its own document. The error has its place. |
 | PLAN.TRACE | A traced evaluation records each document. An evaluation of a plan without a trace records nothing. |
 | PLAN.CACHE | A planner compiles one document object one time. |
 | PLAN.COMPILE-SPEED | A compilation without a trace does not record the rungs of the ladder, thus it compiles a small document quickly. |
@@ -94,9 +94,29 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | EVAL.OWN | The own entry of a document answers first in an evaluation. |
 | VALUE.ANY | A value can be any value of the host, not only JSON. |
 | VALUE.THROW | An evaluator that throws gives `#CALC!`. The exception is the cause. |
-| VALUE.DEPTH | An overflow of the stack of the host gives `#DEPTH!`. |
+| VALUE.DEPTH | An overflow of the stack of the host gives `#DEPTH!`. This is also true when the test of the overflow overflows the stack. |
 | VALUE.FAILURES | The function `failures` lists the errors where they started. |
 | TRACE.ORDER | A trace is in the order of the starts. Each start comes before its end. |
+
+## One meaning
+
+A reference interpreter reads the rules of this file directly and compiles nothing. A plan, the traced plan and the second tier of a language must give its results (D15).
+
+| ID | Rule |
+| --- | --- |
+| PLAN.AGREES | A plan, a traced plan, a second evaluation of the plan and the reference interpreter give the same result for each generated document. |
+| REF.DIRECT | The reference interpreter evaluates a document by the rules, and it compiles nothing. A compiled evaluator needs a definition, or the reference gives `#NOEVAL`. |
+| REF.FORMULA | `formulaDefinitions` gives a definition for each evaluator of the formula kit: a function evaluator, written from this specification. |
+| REF.EFFECTS | The reference records each effect with its kind, its payload and its place. It narrows the capabilities by the contracts of the kinds. |
+| AGREE.VALUES | `sameValue` compares lists and plain records by their items and fields, and each other leaf with `Object.is`. Two closures of `fn` with the same parameters are the same. A rule of the caller compares other objects. Identity is not compared. |
+| AGREE.ERRORS | Two errors agree when they have the same code, and the same place when both have one. With `strict`, they also have the same reason, and each has a place. An overflow of the stack of the host is the one permitted difference. |
+| AGREE.EFFECTS | Two tiers agree only when they cause the same effects in the same order, with the same kinds, places and payloads. The host also sees the same calls. |
+| AGREE.TIER | A language gives `agree` its second tier as a function. `agree` names the first tier that disagrees with the plan, and the reason. |
+| AGREE.MUTANT | The harness finds a tier that changes the order of the parts, or that evaluates a branch that the reference does not evaluate. |
+| GEN.SEED | `generate` gives the same document for the same seed and options. Its random numbers need no package. |
+| GEN.CONTRACTS | Without malformed choices, a generated document follows the contracts of its kinds: the shapes, the declared types and the names in scope. `check` finds no problem in it. |
+| GEN.MALFORMED | Malformed choices give unknown kinds, values without their shape, bare values without a type, bad paths and names that nothing binds. |
+| GEN.REACH | The documents of the property test reach each kind of their world, and they give values and errors. |
 
 ## The run side and capabilities
 
@@ -109,7 +129,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | RUN.PURE | The kind `pure` refuses an effect, also in a run. |
 | RUN.SAME | A run gives the same derived values as an evaluation. |
 | RUN.NESTED-WAIT | A step that waits inside a part that cannot wait gives `#CALC!`. |
-| RUN.WAIT | A part that waits under an evaluator gives `#CALC!`. |
+| RUN.WAIT | A part that waits under an evaluator gives `#CALC!`. The error has the place of the part. |
 | RUN.EVAL | An evaluation of a run document records its effects, and it does none. |
 | RUN.EFFECT | An effect has its kind, its keys, its place and its context. |
 | RUN.CAUSE | An error of the host stays the cause of the error value. |
@@ -170,7 +190,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | FORMULA.OPS | An operation gets the values of its arguments, in order. It stops at the first error. |
 | FORMULA.LAZY | A lazy operation evaluates only the arguments that it needs. |
 | FORMULA.COMBINE | A profile can combine the errors of the parts of an operation, a `record` or a `list`. Then each part evaluates, and one failed part gives its own error. |
-| FORMULA.STEPS | A language can give the kind `ref` a deep shape. Then each step document of a path is a part. The parts evaluate first, in order, and the first error is the result. The walker gets the values. |
+| FORMULA.STEPS | A language can give the kind `ref` a deep shape. Then each step document of a path is a part. The parts evaluate first, in order, also before the path reads a name whose binding failed. The first error is the result. The walker gets the values. |
 | FORMULA.ADDRESS | A term shape can declare an address. A reference there gives what its path reaches, not its value. Thus a host thing stays a thing. |
 | FORMULA.EXT-CONTEXT | An extension gets the context of its document, for example the position of `self`. |
 | FORMULA.EXT | The standard extensions give the values that JSON cannot write. |

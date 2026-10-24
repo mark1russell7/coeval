@@ -33,6 +33,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | Errors | `Result`, `EvalError`, `Failure`, `failures` | An error value has a code, a reason, a place and a cause. An evaluation does not throw |
 | The static kit | `walk`, `refsOf`, `mapRefs`, `check` | The documents of a document in linear time, its free references, and its problems before a run, each with its place and its JSON path. A check narrows the capabilities as a run does |
 | The formula kit | `formulaMachine`, `FormulaProfile` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. An address gives a thing, not its value |
+| One meaning | `agree`, `reference`, `formulaDefinitions`, `generate` | A reference interpreter that compiles nothing, and `agree`, which compares a plan with it and with the second tier of a language. `generate` builds random documents from the kind contracts |
 
 Each rule has an ID in [`docs/SPEC.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://mark1russell7.github.io/coeval/) explains each idea with a live diagram.
 

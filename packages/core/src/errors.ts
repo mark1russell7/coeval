@@ -104,7 +104,12 @@ export class Failure extends Error {
  * @returns `true` for a stack overflow.
  */
 export function isStackOverflow(error: unknown): boolean {
-  return error instanceof RangeError && /call stack/i.test(error.message);
+  try {
+    return error instanceof RangeError && /call stack/i.test(error.message);
+  } catch {
+    // Near the limit of the stack, the test itself overflows: the regular expression throws a SyntaxError.
+    return true;
+  }
 }
 
 /**

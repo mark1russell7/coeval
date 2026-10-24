@@ -23,6 +23,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D12 | Each language reads and writes coeval documents. A formula language follows shared rules for literals, operations, references, moves and constructs. |
 | D13 | The languages evaluate through the kernel. A plan compiles a document one time. The static kit and the formula kit hold the shared machinery, and a language keeps only what is its own. |
 | D14 | The contract of a kind tells the capabilities of its parts: the same, none, or only a list. The kernel and `check` both narrow by the contract, thus they agree. |
+| D15 | A reference interpreter that compiles nothing is the oracle of one meaning. `agree` compares a plan with it, with the traced plan and with the second tier of a language. |
 
 ## Open
 
