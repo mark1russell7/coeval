@@ -124,6 +124,9 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | CAP.KEYS | A capability permits the kinds under it, key by key. A key with a dot is one key. |
 | CAP.NARROW | A part cannot get more capabilities than its parent. |
 | CAP.HOOK | A machine can give the rule of the host for an effect. |
+| CAP.CONTRACT | A kind declares in its contract the capabilities that it gives its parts: `same`, `mask` or `only`. The kernel narrows the context of each part by these rules, thus an evaluator cannot give the part more. |
+| CAP.ONLY | A rule `only` gives a part only the effects that the capabilities of its document and the list of the rule both permit. |
+| CAP.DECLARED | Each kind of the standard world that causes an effect declares the effect in its contract. Thus `check` finds a `#CAP!` for it. |
 
 ## Order of steps
 
@@ -145,6 +148,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
 | STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. |
+| STATIC.NARROW | `check` tests each effect against the capabilities of its own document: the capabilities at the root, narrowed by the rules of the kinds around it. |
 | STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. |
 | STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |
 | STATIC.AT | `check` gives the JSON path of each problem. For a value without its shape, the path goes to the value with the problem. |

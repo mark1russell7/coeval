@@ -121,3 +121,17 @@ No question waits on the owner.
 - The document form of D12 stays. This decision replaces only its clause "each language keeps its own evaluator".
 
 **Why.** One copy of each rule gives one meaning, and one set of tests proves it. A correction in the kernel corrects each language.
+
+## D14 (2026-10-24): the contract of a kind narrows the capabilities of its parts, and the kernel applies it
+
+**Context.** The study R2 (`docs/research/r2-effects.md`) found a bug. The runner of `pure` gave its part no capabilities, but `check` used the capabilities of the root at each document. Thus a call inside `pure` passed `check` and failed with `#CAP!` in a run. This broke STATIC.AGREES.
+
+**Decision.**
+
+- The contract of a kind has capability rules (`Kind.caps`), as it has scope rules for names. A rule is `same` (the default), `mask` (no capabilities) or `only` (a list).
+- A rule covers the parts that its patterns `in` match, or each part. A part that several rules cover gets only what each rule permits.
+- The kernel narrows the context of each part by the rules, before the evaluator of the part starts. Thus the contract is the one source, and an evaluator does not narrow the capabilities itself.
+- `walk` and `check` narrow the capabilities with the same function (`partCaps`). Thus a run and a check agree.
+- The rules only narrow (CAP.NARROW). The rule `grant` of the proposal P3, for a handler, comes later with P5.
+
+**Why.** Two places that narrow the capabilities can disagree. One declaration in the contract, which the kernel and the static kit both read, keeps one meaning. A kind that narrows the capabilities outside its contract can break STATIC.AGREES again, thus the kernel does it for each kind.

@@ -3,6 +3,7 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   type CompiledEvaluator,
+  type CompiledRunner,
   type Effect,
   type Machine,
   type Plan,
@@ -16,9 +17,12 @@ import {
   fail,
   failures,
   formulaMachine,
+  intersectCaps,
   makeContext,
   narrow,
+  nodeAt,
   ok,
+  partCaps,
   permits,
   planner,
   prepare,
@@ -150,6 +154,72 @@ describe("capabilities", () => {
     const parent = makeContext({}, ["log"]);
     expect(narrow(parent, { ...parent, caps: ["log", "write"] }).caps).toEqual(["log"]);
     expect(narrow(parent, { ...parent, caps: ["log.debug"] }).caps).toEqual(["log.debug"]);
+  });
+
+  it("[CAP.CONTRACT] the kernel narrows the context of each part by the capability rules of its kind", async () => {
+    const plain: Runner = function* ({ parts }) {
+      let last: Result = ok(null);
+      for (const part of parts) {
+        last = yield* part.evaluate();
+        if (!last.ok) return last;
+      }
+      return last;
+    };
+    // This runner tries to give its part more capabilities. The contract still masks them.
+    const leaky: Runner = function* ({ parts, context }) {
+      return yield* (parts[0] as (typeof parts)[number]).evaluate({ ...context, caps: ["log", "write"] });
+    };
+    const compiled: CompiledRunner = { compileRun: (input) => (ctx, rt) => (input.parts[0] as (typeof input.parts)[number]).run(ctx, rt) };
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: {
+        ...STD_MACHINE.world,
+        kinds: {
+          ...STD_MACHINE.world.kinds,
+          quiet: { verbs: { eval: "plain" }, parts: { shape: "list" }, caps: [{ rule: "mask" }] },
+          leaky: { verbs: { eval: "leaky" }, parts: { shape: "list" }, caps: [{ rule: "mask" }] },
+          sealed: { verbs: { eval: "compiled" }, parts: { shape: "list" }, caps: [{ rule: "mask" }] },
+          split: { verbs: { eval: "plain" }, parts: { shape: "record", fields: ["inner", "outer"] }, caps: [{ rule: "only", caps: ["log"], in: [["inner"]] }] },
+          open: { verbs: { eval: "plain" }, parts: { shape: "list" }, caps: [{ rule: "same" }] },
+        },
+      },
+      runners: { ...STD_MACHINE.runners, plain, leaky, compiled },
+    };
+    const log = { type: "log", value: ["x"] };
+    const write = { type: "write", value: { key: "k", value: { type: "number", value: 1 } } };
+    const ctx = makeContext({}, STD_CAPS);
+    for (const type of ["quiet", "leaky", "sealed"]) {
+      const done = await run(machine, { type, value: [log] }, ctx);
+      expect(done.result, type).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
+      expect(done.effects, type).toEqual([]);
+    }
+    expect(nodeAt((await run(machine, { type: "quiet", value: [log] }, ctx)).trace, [0])?.caps).toEqual([]);
+    expect((await run(machine, { type: "split", value: { inner: log, outer: write } }, ctx)).result).toMatchObject({ ok: true });
+    expect((await run(machine, { type: "split", value: { inner: write, outer: log } }, ctx)).result).toMatchObject({ ok: false, error: { code: "#CAP!", place: ["inner"] } });
+    expect((await run(machine, { type: "open", value: [log, write] }, ctx)).result).toMatchObject({ ok: true });
+    // An evaluation without a run narrows the same way.
+    expect(prepare(machine, { type: "quiet", value: [log] }).evaluate(ctx)).toMatchObject({ ok: false, error: { code: "#CAP!" } });
+  });
+
+  it("[CAP.ONLY] a rule only gives a part the effects that the capabilities of its document and the list both permit", () => {
+    expect(intersectCaps(["log", "write"], ["log"])).toEqual(["log"]);
+    expect(intersectCaps(["log"], ["log.debug", "write"])).toEqual(["log.debug"]);
+    expect(intersectCaps(["store"], ["fs"])).toEqual([]);
+    const narrowed = ["log.debug"];
+    expect(intersectCaps(narrowed, ["log"])).toBe(narrowed);
+    // The result permits exactly the effects that both lists permit.
+    const lists = [[], ["log"], ["log.debug"], ["log", "write"], ["write.disk", "log.debug"], [["fs", "read.json"]], ["fs"]] as const;
+    const kinds = ["log", "log.debug", "log.debug.deep", "write", "write.disk", "fs.read", ["fs", "read.json"], "other"] as const;
+    for (const a of lists) {
+      for (const b of lists) {
+        for (const kind of kinds) expect(permits(intersectCaps(a, b), kind), `${JSON.stringify(a)} ${JSON.stringify(b)} ${String(kind)}`).toBe(permits(a, kind) && permits(b, kind));
+      }
+    }
+    expect(partCaps([{ rule: "only", caps: ["log"] }], [0], STD_CAPS)).toEqual(["log"]);
+    expect(partCaps([{ rule: "only", caps: ["log"], in: [["inner"]] }], ["outer"], STD_CAPS)).toBe(STD_CAPS);
+    expect(partCaps([{ rule: "only", caps: ["log", "write.disk"] }, { rule: "only", caps: ["write"] }], [0], STD_CAPS)).toEqual(["write.disk"]);
+    expect(partCaps([{ rule: "only", caps: ["log"] }, { rule: "mask", in: [["*"]] }], [0], STD_CAPS)).toEqual([]);
+    expect(partCaps(undefined, [0], STD_CAPS)).toBe(STD_CAPS);
   });
 
   it("[CAP.HOOK] a machine can give the rule of the host for an effect", async () => {

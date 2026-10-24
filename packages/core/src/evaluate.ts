@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName } from "./doc.ts";
-import { type Split, splitParts } from "./parts.ts";
+import { type Split, pathMatches, splitParts } from "./parts.ts";
 import { ask, type Answer } from "./ladder.ts";
-import { type Lookup, type Side, type World, lookupKind } from "./world.ts";
+import { type CapsRule, type Lookup, type Side, type World, lookupKind } from "./world.ts";
 import { type ErrorCode, type EvalError, type Result, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
@@ -72,6 +72,58 @@ export function narrow(parent: Context, next: Context): Context {
   if (next === parent || next.caps === parent.caps) return next;
   const caps = next.caps.filter((cap) => permits(parent.caps, cap));
   return caps.length === next.caps.length ? next : { ...next, caps };
+}
+
+/** No capabilities. One list serves each masked part. */
+const NO_CAPS: readonly Cap[] = Object.freeze([]);
+
+/** No capability rules. One list serves each part that no rule narrows. */
+const NO_RULES: readonly CapsRule[] = Object.freeze([]);
+
+/**
+ * This function gives the capabilities that two lists both permit. An effect is permitted by the result when each
+ * list permits it. When the list `b` permits each capability of `a`, the result is the list `a` itself.
+ *
+ * @param a - The first list, for example the capabilities of a document.
+ * @param b - The second list, for example the list of a rule `only`.
+ * @returns The capabilities that both lists permit.
+ */
+export function intersectCaps(a: readonly Cap[], b: readonly Cap[]): readonly Cap[] {
+  if (a.every((cap) => permits(b, cap))) return a;
+  const out: Cap[] = [];
+  for (const cap of b) if (permits(a, cap)) out.push(cap);
+  for (const cap of a) if (permits(b, cap) && !permits(out, cap)) out.push(cap);
+  return out;
+}
+
+/** This function gives the capability rules of a kind that cover a part and change its capabilities. */
+function rulesFor(rules: readonly CapsRule[] | undefined, path: readonly Key[]): readonly CapsRule[] {
+  if (rules === undefined || rules.length === 0) return NO_RULES;
+  const out = rules.filter((rule) => rule.rule !== "same" && (rule.in === undefined || rule.in.some((pattern) => pathMatches(path, pattern))));
+  return out.length === 0 ? NO_RULES : out;
+}
+
+/** This function applies the rules that cover a part to the capabilities of its document. */
+function capsUnder(rules: readonly CapsRule[], caps: readonly Cap[]): readonly Cap[] {
+  let out = caps;
+  for (const rule of rules) {
+    if (rule.rule === "mask") return NO_CAPS;
+    if (rule.rule === "only") out = intersectCaps(out, rule.caps);
+  }
+  return out;
+}
+
+/**
+ * This function gives the capabilities that a kind gives one of its parts, by the capability rules of its contract.
+ * The kernel and the static kit both use it, thus a run and a check narrow the same way.
+ *
+ * @param rules - The capability rules of the kind (`Kind.caps`).
+ * @param path - The path of the part in the value of the document.
+ * @param caps - The capabilities of the document.
+ * @returns The capabilities of the part: the same list or a smaller one.
+ */
+export function partCaps(rules: readonly CapsRule[] | undefined, path: readonly Key[], caps: readonly Cap[]): readonly Cap[] {
+  return capsUnder(rulesFor(rules, path), caps);
 }
 
 /**
@@ -892,7 +944,10 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   }
   const parts: CompiledPart[] = split.parts.map((slot) => {
     const item = slot.item;
-    const compiled = compileNode(c, item, place.concat(slot.path), slot.of, depth + 1, slot.address === true);
+    // The capability rules of the contract narrow the context of the part, thus no evaluator can forget them.
+    const own = compileNode(c, item, place.concat(slot.path), slot.of, depth + 1, slot.address === true);
+    const rules = rulesFor(kind?.caps, slot.path);
+    const compiled = rules.length === 0 ? own : gated(rules, own);
     // The binding name is in the header of an envelope. Most parts have no name, thus the cheap test comes first.
     const header = typeof (item as { readonly name?: unknown } | null)?.name === "string" && isEnvelope(item) ? (item as { readonly name: string }).name : undefined;
     return header === undefined
@@ -940,6 +995,20 @@ function placedCode(inner: Code, place: readonly Key[], name: string): Code {
       return placed(thrown(error, `the evaluator ${name}`), place);
     }
   };
+}
+
+/**
+ * This function gives the code of a part that capability rules cover. The code narrows the context of the part by
+ * the rules before the part starts.
+ */
+function gated(rules: readonly CapsRule[], part: { readonly code: Code; readonly run: RunCode }): { readonly code: Code; readonly run: RunCode } {
+  const inner = part.code;
+  const steps = part.run;
+  const under = (ctx: Context): Context => {
+    const caps = capsUnder(rules, ctx.caps);
+    return caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0) ? ctx : { ...ctx, caps };
+  };
+  return { code: (ctx, rt) => inner(under(ctx), rt), run: (ctx, rt) => steps(under(ctx), rt) };
 }
 
 /** This function gives the steps of a runner, with the place of each error and of each exception. */
