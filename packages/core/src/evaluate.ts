@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName } from "./doc.ts";
-import { type Split, pathMatches, splitParts } from "./parts.ts";
+import { type Split, partsOf, pathMatches } from "./parts.ts";
 import { ask, type Answer } from "./ladder.ts";
-import { type CapsRule, type Lookup, type Side, type World, lookupKind } from "./world.ts";
+import type { CapsRule, Kind, Side, World } from "./world.ts";
 import { type ErrorCode, type EvalError, type Result, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
@@ -428,6 +428,7 @@ export type Runner = RunFn | CompiledRunner;
  *
  * - `maxDepth`: the deepest nesting of documents. The default is 1000.
  * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities.
+ * - `known`: the names that the evaluators know, for `check`. Without it, `check` does not check such names.
  */
 export interface Machine extends Navigator {
   readonly evaluators: Readonly<Record<string, Evaluator>>;
@@ -435,6 +436,16 @@ export interface Machine extends Navigator {
   readonly runners?: Readonly<Record<string, Runner>>;
   readonly maxDepth?: number;
   readonly permits?: (caps: readonly Cap[], kind: readonly Key[], context: Context) => boolean;
+  /**
+   * This function tells if an evaluator knows the name in the path of a kind. An example is the operation
+   * `["ops", "add"]` of a formula language: a fallback kind names it, and the evaluator finds it in a table.
+   * `check` asks it for each document with an evaluator. The function must be pure.
+   *
+   * @param path - The keys of the kind of the document, after each alias.
+   * @param evaluator - The name of the evaluator that the ladder gives the document.
+   * @returns `true` when the evaluator knows the name, or else the reason of the `#NAME?` that a run gives.
+   */
+  readonly known?: (path: readonly Key[], evaluator: string) => true | string;
 }
 
 /** One evaluation in a trace. The children are the evaluations of its parts, in the order that they started. */
@@ -894,12 +905,12 @@ function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly c
  * This function finds the evaluator of the verb `eval` without the record of the rungs, for a compilation without a
  * trace. It gives the same evaluator as `ask`: the own entry, then the kind, then the default of the world.
  */
-function evaluatorOf(world: World, envelope: Envelope | undefined, found: Lookup): { readonly name?: string; readonly unknown: boolean } {
+function evaluatorOf(world: World, envelope: Envelope | undefined, kind: Kind | undefined): { readonly name?: string; readonly unknown: boolean } {
   const own = envelope?.own;
   const ownName = own !== undefined && Object.hasOwn(own, "eval") ? own["eval"] : undefined;
   if (ownName !== undefined) return { name: ownName, unknown: false };
-  if (!found.ok) return { unknown: true };
-  const verbs = found.kind.verbs;
+  if (kind === undefined) return { unknown: true };
+  const verbs = kind.verbs;
   const name = Object.hasOwn(verbs, "eval") ? verbs["eval"] : Object.hasOwn(world.defaults, "eval") ? world.defaults["eval"] : undefined;
   return name === undefined ? { unknown: false } : { name, unknown: false };
 }
@@ -908,17 +919,17 @@ function evaluatorOf(world: World, envelope: Envelope | undefined, found: Lookup
 const NO_META: Meta = Object.freeze({ path: [], doc: { type: "?", value: null }, declared: false, answer: NO_ANSWER, side: "derive" });
 
 function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number, address = false): { readonly code: Code; readonly run: RunCode } {
-  const envelope = isEnvelope(value) ? (value as Envelope) : undefined;
-  const doc: Envelope = envelope ?? { type: declared ?? "?", value: value as Json };
-  const meta0: Meta = c.traced ? { path: place.map(String), doc, declared: envelope === undefined, answer: NO_ANSWER, side: "derive" } : NO_META;
-  if (envelope === undefined && declared === undefined) {
-    return failing(c, meta0, place, "#PART?", "The value has no envelope, and its position declares no type.");
+  const world = c.machine.world;
+  const read = partsOf(world, value, declared);
+  if (!read.ok) {
+    const meta: Meta = c.traced ? { path: place.map(String), doc: { type: "?", value: value as Json }, declared: true, answer: NO_ANSWER, side: "derive" } : NO_META;
+    return failing(c, meta, place, read.code, read.reason);
   }
+  const { doc, kind, split } = read;
+  const envelope = read.declared ? undefined : doc;
+  const meta0: Meta = c.traced ? { path: place.map(String), doc, declared: read.declared, answer: NO_ANSWER, side: "derive" } : NO_META;
   if (depth > c.maxDepth) return failing(c, meta0, place, "#DEPTH!", `The nesting is deeper than ${c.maxDepth} documents.`);
 
-  const world = c.machine.world;
-  const found = lookupKind(world, doc.type);
-  const kind = found.ok ? found.kind : undefined;
   let meta = meta0;
   let name: string | undefined;
   let unknown: boolean;
@@ -928,7 +939,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     name = answer.evaluator;
     unknown = answer.error === "unknown-kind";
   } else {
-    const quick = evaluatorOf(world, envelope, found);
+    const quick = evaluatorOf(world, envelope, kind);
     name = quick.name;
     unknown = quick.unknown;
   }
@@ -941,11 +952,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     return failing(c, meta, place, "#NOEVAL", `No rung gives an evaluator for ${kindText}.`);
   }
 
-  const split = splitParts(kind?.parts, doc.value);
-  if (!split.ok) {
-    const at = split.at.length === 0 ? "" : ` (at ${split.at.join(".")})`;
-    return failing(c, meta, place, "#VALUE!", `${split.reason}${at} The kind is ${kindText}.`);
-  }
+  if (!split.ok) return failing(c, meta, place, "#VALUE!", split.reason);
   const parts: CompiledPart[] = split.parts.map((slot) => {
     const item = slot.item;
     // The capability rules of the contract narrow the context of the part, thus no evaluator can forget them.
@@ -958,7 +965,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
       ? { key: slot.key, path: slot.path, code: compiled.code, run: compiled.run }
       : { key: slot.key, path: slot.path, name: header, code: compiled.code, run: compiled.run };
   });
-  const typePath = found.ok ? found.path : [];
+  const typePath = read.typePath ?? [];
   const input: CompileInput = {
     kind: kindText,
     typePath,

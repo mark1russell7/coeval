@@ -74,8 +74,14 @@ export type Agreement =
 /**
  * This function tells if two values are the same for `agree`. Lists and plain records compare item by item and field
  * by field, and the order of the fields does not matter. Each other leaf compares with `Object.is`, thus `-0` is not
- * `0`, and `NaN` is `NaN`. Two closures of `fn` are the same when they have the same parameters. Two `Held` values
- * are the same when their errors have the same code and place. Identity is not compared.
+ * `0`, and `NaN` is `NaN`. The identity of a list or of a plain record is not compared.
+ *
+ * Two closures of `fn` are the same when they have the same parameters. Two `Held` values are the same when their
+ * errors have the same code and place. Each other object is the same only as itself, unless the rule of the caller
+ * tells otherwise.
+ *
+ * `docEquals` uses the same rules for lists, plain records and the other objects. It has no rules for closures, for
+ * `Held` values and for a rule of the caller. Thus two closures are equal there only when they are the same function.
  *
  * @param a - The first value.
  * @param b - The second value.

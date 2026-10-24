@@ -9,6 +9,8 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | DOC.STORED | A stored document can have the keys of its store beside its envelope. Only the keys in the given list can be there. |
 | DOC.EQUALS | Two documents are equal when their values are equal. The order of the fields does not matter. A deep document does not overflow the stack. |
 | DOC.RECORD | Only a plain object is a record. A date, a map and an instance of a class are not records. |
+| DOC.HOST-EQUALS | `docEquals` compares only lists and plain records by their items and fields. Each other object, for example a date, a map or an instance of a class, is equal only to itself. A cycle does not stop the comparison. |
+| DOC.PARTS-OF | `partsOf` gives the document, its kind and the split of its value, with the declared type for a bare value. The plan, the reference interpreter and the static kit read each document with it. |
 
 ## The world and the ladder
 
@@ -115,7 +117,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | AGREE.MUTANT | The harness finds a tier that changes the order of the parts, or that evaluates a branch that the reference does not evaluate. |
 | GEN.SEED | `generate` gives the same document for the same seed and options. Its random numbers need no package. |
 | GEN.CONTRACTS | Without malformed choices, a generated document follows the contracts of its kinds: the shapes, the declared types and the names in scope. `check` finds no problem in it. |
-| GEN.MALFORMED | Malformed choices give unknown kinds, values without their shape, bare values without a type, bad paths and names that nothing binds. |
+| GEN.MALFORMED | Malformed choices give unknown kinds, unknown names under a namespace with a fallback, values without their shape, bare values without a type, bad paths and names that nothing binds. |
 | GEN.REACH | The documents of the property test reach each kind of their world, and they give values and errors. |
 
 ## The run side and capabilities
@@ -167,12 +169,13 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.CHECK | `check` finds the problems of a document before a run. Each problem has its place. |
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
-| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. |
+| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless the host adopts the names. |
 | STATIC.NARROW | `check` tests each effect against the capabilities of its own document: the capabilities at the root, narrowed by the rules of the kinds around it. |
 | STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. |
 | STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |
 | STATIC.AT | `check` gives the JSON path of each problem. For a value without its shape, the path goes to the value with the problem. |
 | STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |
+| STATIC.KNOWN | `check` asks the hook `known` of the machine about the kind and the evaluator of each document. A name that the evaluator does not know gives `#NAME?` with the reason of a run, for example an unknown operation. |
 
 ## The formula kit
 
@@ -184,6 +187,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | FORMULA.LIST | A list evaluates each item, and it stops at the first error. |
 | FORMULA.LET | Each binding of a `let` sees the names around the `let`. A failed binding fails only when a term reads it. |
 | FORMULA.FN | `fn` makes a function, and `call` applies it. An operation of the host can call the function. |
+| FORMULA.FN-PARAMS | The contract of `fn` declares `params` as a list of different texts. Thus `check` and a run give the same `#VALUE!` for bad parameters. |
 | FORMULA.IF | `if` evaluates only the branch that the test selects. A profile gives the truth of a value. |
 | FORMULA.OTHERWISE | A profile gives the value of an `if` without `else`. A profile with the key `otherwise` gives its value, also `undefined`. |
 | FORMULA.LOGIC | `and` and `or` stop early. A profile can give the value that decided. |

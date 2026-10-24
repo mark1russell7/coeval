@@ -221,9 +221,17 @@ export function fromJson(value: unknown): Envelope | undefined {
 }
 
 /**
- * This function tells if two JSON values are equal. Equal values have the same texts, numbers and truth values,
- * the same items in the same order, and the same fields. The order of the fields does not matter. It does not use the stack for the
- * depth, thus a deep document cannot overflow it.
+ * This function tells if two values are equal. Plain JSON compares by its structure. Equal values have the same
+ * texts, numbers and truth values, the same items in the same order, and the same fields. The order of the fields
+ * does not matter. Each leaf compares with `Object.is`, thus `-0` is not `0`, and `NaN` is `NaN`.
+ *
+ * Only lists and plain records (`isRecord`) compare by their items and fields. Each other object compares by
+ * identity: a date, a map, a function and an instance of a class are equal only to themselves. Thus an early cutoff
+ * with this function does not keep a stale host value.
+ *
+ * The function does not use the stack for the depth, thus a deep document cannot overflow it. A cycle of lists or
+ * records does not make it loop. `sameValue` of `agree` uses the same rules, and it adds rules for closures and for
+ * a rule of the caller.
  *
  * @param a - The first value.
  * @param b - The second value.
@@ -231,15 +239,25 @@ export function fromJson(value: unknown): Envelope | undefined {
  */
 export function docEquals(a: unknown, b: unknown): boolean {
   const stack: [unknown, unknown][] = [[a, b]];
+  // The pairs of containers that the comparison already visits. It is made at the first pair of containers.
+  let seen: Map<object, Set<object>> | undefined;
   while (stack.length > 0) {
     const [x, y] = stack.pop() as [unknown, unknown];
     if (Object.is(x, y)) continue;
-    if (typeof x !== "object" || typeof y !== "object" || x === null || y === null) return false;
-    if (Array.isArray(x) !== Array.isArray(y)) return false;
-    if (Array.isArray(x)) {
+    const list = Array.isArray(x);
+    if (list !== Array.isArray(y)) return false;
+    // An object that is not a list and not a plain record is a host value: Object.is above compared it.
+    if (!list && (!isRecord(x) || !isRecord(y))) return false;
+    seen ??= new Map();
+    const pairs = seen.get(x as object);
+    if (pairs?.has(y as object) === true) continue;
+    if (pairs === undefined) seen.set(x as object, new Set([y as object]));
+    else pairs.add(y as object);
+    if (list) {
+      const xs = x as readonly unknown[];
       const ys = y as readonly unknown[];
-      if (x.length !== ys.length) return false;
-      for (let index = 0; index < x.length; index += 1) stack.push([x[index], ys[index]]);
+      if (xs.length !== ys.length) return false;
+      for (let index = 0; index < xs.length; index += 1) stack.push([xs[index], ys[index]]);
       continue;
     }
     const xr = x as Readonly<Record<string, unknown>>;

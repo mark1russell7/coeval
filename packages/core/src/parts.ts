@@ -1,5 +1,5 @@
-import { type Json, type Key, docEquals, isEnvelope, isRecord, typeName, typePath } from "./doc.ts";
-import type { Shape } from "./world.ts";
+import { type Envelope, type Json, type Key, docEquals, isEnvelope, isRecord, typeName, typePath } from "./doc.ts";
+import { type Kind, type Shape, type World, lookupKind } from "./world.ts";
 
 /** One part of a value: its place in the value, the JSON of the part, and the type that its position declares. */
 export interface PartSlot {
@@ -54,6 +54,11 @@ const NO_SLOTS: readonly PartSlot[] = Object.freeze([]);
 
 function hasSlots(template: Template): boolean {
   return template.t !== "data";
+}
+
+/** This function tells if a shape holds only data: no value of the shape can hold a part. */
+function isData(shape: Shape): boolean {
+  return shape.shape === "none" || shape.shape === "text" || shape.shape === "number" || shape.shape === "one";
 }
 
 /** This function gives the reason why a value is not data of a shape, or `undefined` when it is. */
@@ -127,7 +132,9 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
         if (twice !== -1) throw new Bad("The items of the list must be different.", [...path, twice]);
       }
       const each: Shape = spec.item ?? { shape: "term", ...(spec.of === undefined ? {} : { of: spec.of }) };
-      return { t: "list", items: list.map((child, index) => walk(each, child, [...path, index])) };
+      const items = list.map((child, index) => walk(each, child, [...path, index]));
+      // A list of data is data, also when it is empty. Only a list that can hold parts gives null in the data.
+      return isData(each) ? { t: "data", value: item } : { t: "list", items };
     }
     if (!isRecord(item)) throw new Bad("The value must be a record.", path);
     if (spec.shape === "map") {
@@ -179,6 +186,55 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
   };
 
   return { ok: true, parts, data: strip(template) ?? null, fill: (handles) => fillWith(template, handles) };
+}
+
+/**
+ * The kind and the parts of one document: what `partsOf` gives. `ok` is `false` only when the value is not a
+ * document: it has no envelope, and its position declares no type. A value without the shape of its kind gives a
+ * failed `split`.
+ */
+export type DocParts =
+  | {
+      readonly ok: true;
+      /** The document. A bare value gets the type that its position declares. */
+      readonly doc: Envelope;
+      /** `true` when the type came from the position and not from an envelope. */
+      readonly declared: boolean;
+      /** The kind, or `undefined` when the world has no kind for the type. Then the value is data. */
+      readonly kind: Kind | undefined;
+      /** The keys of the kind after each alias, or `undefined` without a kind. */
+      readonly typePath: readonly Key[] | undefined;
+      /**
+       * The split of the value by the shape of the kind. The reason of a failed split is the reason of the `#VALUE!`
+       * of an evaluation: it names the kind. Its `at` gives the keys from the value to the problem.
+       */
+      readonly split: Split;
+    }
+  | { readonly ok: false; readonly code: "#PART?"; readonly reason: string };
+
+/**
+ * This function reads one document by the contracts of the world. It finds the kind of the type. A bare value gets
+ * the type that its position declares. Then the function splits the value by the shape of the kind. The plan, the
+ * reference interpreter and the static kit read each document with this function. Thus they see the same parts.
+ *
+ * @param world - The world of the kinds.
+ * @param value - The document, or a bare value.
+ * @param declaredType - The type that the position of a bare value declares.
+ * @returns The document, its kind and its parts, or the reason why the value is not a document.
+ */
+export function partsOf(world: World, value: unknown, declaredType?: string): DocParts {
+  const envelope = isEnvelope(value) ? (value as Envelope) : undefined;
+  if (envelope === undefined && declaredType === undefined) return { ok: false, code: "#PART?", reason: "The value has no envelope, and its position declares no type." };
+  const doc: Envelope = envelope ?? { type: declaredType as string, value: value as Json };
+  const found = lookupKind(world, doc.type);
+  const kind = found.ok ? found.kind : undefined;
+  const split = splitParts(kind?.parts, doc.value);
+  const typePath = found.ok ? found.path : undefined;
+  if (split.ok) return { ok: true, doc, declared: envelope === undefined, kind, typePath, split };
+  // The reason names the place in the value and the kind, as each reader of the document gives it.
+  const where = split.at.length === 0 ? "" : ` (at ${split.at.join(".")})`;
+  const reason = `${split.reason}${where} The kind is ${typeName(doc.type)}.`;
+  return { ok: true, doc, declared: envelope === undefined, kind, typePath, split: { ok: false, reason, at: split.at } };
 }
 
 /**

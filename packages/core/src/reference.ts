@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, isEnvelope, isRecord, typeName } from "./doc.ts";
 import { ask } from "./ladder.ts";
-import { type CapsRule, type Kind, lookupKind } from "./world.ts";
-import { type PartSlot, type Split, pathMatches, splitParts } from "./parts.ts";
+import type { CapsRule, Kind } from "./world.ts";
+import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type Resolution, type ResolveOptions, resolve, valueOfThing, worldThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, placed, thrown } from "./errors.ts";
 import {
@@ -104,25 +104,20 @@ function choose(env: Env, name: string): Chosen | undefined {
  */
 function examine(env: Env, at: At): Seen | Failed {
   const { place, declared } = at;
-  const envelope = isEnvelope(at.value) ? (at.value as Envelope) : undefined;
-  if (envelope === undefined && declared === undefined) return fail("#PART?", "The value has no envelope, and its position declares no type.", { place });
-  if (at.depth > env.maxDepth) return fail("#DEPTH!", `The nesting is deeper than ${env.maxDepth} documents.`, { place });
-  const doc: Envelope = envelope ?? { type: declared as string, value: at.value as Json };
-  const kindText = typeName(doc.type);
   const world = env.machine.world;
-  const answer = ask(world, envelope ?? {}, "eval", declared === undefined ? {} : { declaredType: declared });
+  // The lookup of the kind and the split of the value are definitions of the model (D15): partsOf gives both.
+  const read = partsOf(world, at.value, declared);
+  if (!read.ok) return fail(read.code, read.reason, { place });
+  if (at.depth > env.maxDepth) return fail("#DEPTH!", `The nesting is deeper than ${env.maxDepth} documents.`, { place });
+  const { doc, kind, split } = read;
+  const kindText = typeName(doc.type);
+  const answer = ask(world, read.declared ? {} : doc, "eval", declared === undefined ? {} : { declaredType: declared });
   if (answer.error === "unknown-kind") return fail("#KIND?", `The world has no kind ${kindText}.`, { place });
   const name = answer.evaluator;
   const chosen = name === undefined ? undefined : choose(env, name);
   if (name === undefined || chosen === undefined) return fail("#NOEVAL", `No rung gives an evaluator for ${kindText}.`, { place });
-  const found = lookupKind(world, doc.type);
-  const kind = found.ok ? found.kind : undefined;
-  const split = splitParts(kind?.parts, doc.value);
-  if (!split.ok) {
-    const where = split.at.length === 0 ? "" : ` (at ${split.at.join(".")})`;
-    return fail("#VALUE!", `${split.reason}${where} The kind is ${kindText}.`, { place });
-  }
-  return { doc, kindText, typePath: found.ok ? found.path : [], kind, name, chosen, split };
+  if (!split.ok) return fail("#VALUE!", split.reason, { place });
+  return { doc, kindText, typePath: read.typePath ?? [], kind, name, chosen, split };
 }
 
 /** This function gives the capabilities that the rules of a kind give one part (D14, CAP.CONTRACT, CAP.ONLY). */

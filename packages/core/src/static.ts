@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { type Kind, type NamesSource, type ScopeRule, type World, lookupKind } from "./world.ts";
 import { ask } from "./ladder.ts";
-import { type PartSlot, pathMatches, splitParts } from "./parts.ts";
+import { type PartSlot, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Root, ROOTS, isRef } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits } from "./evaluate.ts";
@@ -234,37 +234,32 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
   ];
   while (stack.length > 0) {
     const item = stack.pop() as Item;
-    const envelope = isEnvelope(item.value) ? (item.value as Envelope) : undefined;
-    if (envelope === undefined && item.declared === undefined) {
-      options.problem?.({ place: keysOf(item.place), at: keysOf(item.at), code: "#PART?", reason: "The value has no envelope, and its position declares no type." });
+    const read = partsOf(world, item.value, item.declared);
+    if (!read.ok) {
+      options.problem?.({ place: keysOf(item.place), at: keysOf(item.at), code: read.code, reason: read.reason });
       continue;
     }
-    const doc: Envelope = envelope ?? { type: item.declared ?? "?", value: item.value as Json };
-    const found = lookupKind(world, doc.type);
-    const kind = found.ok ? found.kind : undefined;
+    const { doc, kind, split } = read;
     const here = new Visit(
       item.place,
       item.at,
       doc,
-      envelope === undefined,
+      read.declared,
       item.depth,
       item.names,
       item.later,
       item.slot,
       item.parent,
       kind,
-      found.ok ? found.path : undefined,
+      read.typePath,
       item.address ? true : undefined,
       item.caps,
     );
     const answer = visit(here);
     if (answer === "skip" || kind === undefined) continue;
-    const split = splitParts(kind.parts, doc.value);
-    const base: Trail | undefined = envelope === undefined ? item.at : { up: item.at, keys: ["value"] };
+    const base: Trail | undefined = read.declared ? item.at : { up: item.at, keys: ["value"] };
     if (!split.ok) {
-      const at = split.at.length === 0 ? "" : ` (at ${split.at.join(".")})`;
-      const where = keysOf({ up: base, keys: split.at });
-      options.problem?.({ place: keysOf(item.place), at: where, code: "#VALUE!", reason: `${split.reason}${at} The kind is ${typeName(doc.type)}.` });
+      options.problem?.({ place: keysOf(item.place), at: keysOf({ up: base, keys: split.at }), code: "#VALUE!", reason: split.reason });
       continue;
     }
     const { sees, later } = scopesOf(kind.scope, doc.value, split.parts);
@@ -424,7 +419,8 @@ function capReason(v: DocVisit, kind: readonly Key[]): string {
  * - `#PART?`: a value without a type.
  * - `#DEPTH!`: too much nesting.
  * - `#REF!` and `#STEP?`: a bad path.
- * - `#NAME?`: a name that nothing binds.
+ * - `#NAME?`: a name that nothing binds. With the hook `known` of the machine, also a name that the language does not
+ *   have, for example an operation.
  * - `#CAP!`: an effect that the capabilities of its document do not permit. A kind around the document can narrow them.
  *
  * @param machine - The world and the code of the evaluators.
@@ -455,6 +451,10 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
       const name = answer.evaluator;
       if (name === undefined || (!has(machine.evaluators, name) && !has(machine.runners, name))) {
         issues.push({ code: "#NOEVAL", place: v.place, reason: `No rung gives an evaluator for ${typeName(v.doc.type)}.`, at: v.at });
+      } else if (machine.known !== undefined) {
+        // The evaluator gives #NAME? in a run for a name that the language does not have, for example an operation.
+        const known = machine.known(v.typePath ?? [], name);
+        if (known !== true) issues.push({ code: "#NAME?", place: v.place, reason: known, at: v.at });
       }
       const caps = v.caps;
       if (caps !== undefined && v.kind?.effects !== undefined) {
@@ -474,7 +474,8 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
       const stepAt = (index: number): readonly Key[] => [...v.at, "value", ...(index < path.length ? [index] : [])];
       if (typeof root !== "string" || !(ROOTS as readonly string[]).includes(root)) {
         issues.push({ code: "#REF!", place: v.place, reason: `A path starts with a root: ${ROOTS.join(", ")}.`, at: stepAt(0) });
-        return "skip";
+        // The step documents of the path are parts, and they evaluate before the path, thus the walk visits them.
+        return undefined;
       }
       if (!roots.includes(root)) {
         issues.push({ code: "#REF!", place: v.place, reason: `The root ${root} is not open here. The open roots are ${roots.join(", ")}.`, at: stepAt(0) });

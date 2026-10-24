@@ -12,9 +12,9 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 
 1. K8: `check` narrows the capabilities of the parts as the kinds do (done, 2026-10-24).
 2. K9: a harness for one meaning (R1 P1) (done, 2026-10-24). At its start, it found four bugs of the kernel, and version 0.4.2 corrects them.
-3. K20 and K21 together, two correctness fixes, and the helper `partsOf`, a request of a language:
-   - K20: `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1). Today an unknown `ops.*` or `ext.*` passes `check` and fails with `#NAME?` in a run.
-   - K21: `docEquals` compares the values that are not plain JSON by identity (R4). Today it compares only the own keys, thus two different dates or maps are equal.
+3. K20 and K21 together, two correctness fixes, and the helper `partsOf`, a request of a language (done, 2026-10-24, version 0.4.3):
+   - K20: `check` knows the names of operations and extensions through the hook `known` of the machine, and `fn` declares the shape of `params` (R5 P1). Before, an unknown `ops.*` or `ext.*` passed `check` and failed with `#NAME?` in a run.
+   - K21: `docEquals` compares the values that are not plain JSON by identity (R4). Before, it compared only the own keys, thus two different dates or maps were equal.
 4. K32: one merge function for worlds, with conflict rules (R6 P2). Two equal entries merge, and two namespaces merge key by key. Each other conflict is an error, unless the entry has a mark to replace. Today `formulaMachine` merges with a shallow spread. Thus a later kind replaces an earlier kind without a message, and the `ops` of a language replace the namespace of the kit.
 5. L2a: the decorated tree (R3 P1).
 6. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
@@ -63,8 +63,8 @@ On the site, C10 is next too (R4). K34, the composition checklist as spec tests,
 | K17 | One plan at many positions with `plan.evaluateEach(contexts)` (R1 P7) | later (only after a language asks for it) | K9 |
 | K18 | The rest of R2 P3: the rule `grant` for a handler, `effectsOf` for the effects that reach the host, the latent effects of procedure entries, and a check that uses the hook `permits` of the machine. K8 shipped the rules `same`, `mask` and `only` (`Kind.caps`, D14). | later | K8 |
 | K19 | A static check of the "can wait" bit: `check` reports a runner under a parent without a runner (R2 P4) | later | K3 |
-| K20 | `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1) | next | K3 |
-| K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | next | K3 |
+| K20 | `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1) | done (2026-10-24, version 0.4.3: the hook `known` of the machine, and `partsOf`) | K3 |
+| K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | done (2026-10-24, version 0.4.3) | K3 |
 | K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | next | K5, K21 |
 | K23 | Value types and value domains: a new `types.ts` with open base types, the relation `fits`, and a membership test for each domain (R5 P2) | next | K2, K3 |
 | K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | later | K23 |
@@ -137,7 +137,7 @@ Since 2026-10-24, the work of each language on its integration happens in the re
 | M11 | The formula language of positions reads and writes documents (D12) | done (2026-10-21) | D12 |
 | M9 | The first npm release of `@mark1russell7/coeval` | done (2026-10-21, version 0.1.0) | |
 | M12 | Version 0.2.0 on npm: the kernel that the languages evaluate through (D13) | done (2026-10-21, and the versions 0.2.1 to 0.4.0 added what the languages needed) | K2, K3, L1, L4 |
-| M13 | The reactive formula language evaluates through the formula kit, and its analysis uses the static kit | in progress, in the repository of the language | M12 |
+| M13 | The reactive formula language evaluates through the formula kit, and its analysis uses the static kit | done (2026-10-24: render evaluates through the kernel, its PR #13) | M12 |
 | M14 | The program format of procedures runs on `run`, and its checker uses the static kit | in progress, in the repository of the language (a pull request is open) | M12 |
 | M15 | The formula language of positions reads documents with the static kit, and the kernel is its reference interpreter | in progress, in the repository of the language (the kernel side is done in 0.4.0) | M12 |
 | M16 | The defs of a user interface: bindings through the formula kit, one world for paths and runs, and checks from the static kit | in progress, in the repository of the host | M12 |
