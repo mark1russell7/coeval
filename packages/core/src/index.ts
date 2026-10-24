@@ -55,7 +55,17 @@ export {
   looksLikeKind,
   lookupKind,
 } from "./world.ts";
-export { type MachinePart, type MergeConflict, type MergePath, type WorldPart, MergeError, mergeMachines, mergeWorlds } from "./merge.ts";
+export {
+  type MachinePart,
+  type MergeConflict,
+  type MergePath,
+  type WorldPart,
+  MergeError,
+  mergeMachines,
+  mergeWorlds,
+  restrictMachine,
+  restrictWorld,
+} from "./merge.ts";
 export {
   type Answer,
   type AskOptions,

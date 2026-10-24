@@ -385,3 +385,102 @@ export function mergeMachines(...parts: readonly (MachinePart | ((prev: Machine)
   if (m.conflicts.length > 0) throw new MergeError(m.conflicts);
   return machineOf(draft);
 }
+
+/** This function removes the entry at a path from a table of entries. It gives the same table when no entry is there. */
+function removeEntry(entries: Readonly<Record<string, WorldEntry>>, path: readonly Key[]): Readonly<Record<string, WorldEntry>> {
+  const [first, ...rest] = path;
+  if (first === undefined) return entries;
+  const key = String(first);
+  const entry = own(entries, key);
+  if (entry === undefined) return entries;
+  let next: WorldEntry | undefined;
+  if (rest.length > 0) {
+    if (!isNamespace(entry)) return entries;
+    if (rest.length === 1 && String(rest[0]) === "fallback") {
+      if (entry.fallback === undefined) return entries;
+      next = { kinds: entry.kinds };
+    } else {
+      if (String(rest[0]) !== "kinds") return entries;
+      const kinds = removeEntry(entry.kinds, rest.slice(1));
+      if (kinds === entry.kinds) return entries;
+      next = entry.fallback === undefined ? { kinds } : { kinds, fallback: entry.fallback };
+    }
+  }
+  const out: Record<string, WorldEntry> = { ...entries };
+  if (next === undefined) delete out[key];
+  else setOwn(out, key, next);
+  return out;
+}
+
+/**
+ * This function removes entries from a world, for a language that restricts another language. A path names an entry
+ * as `replaces` names it, for example `["kinds", "fn"]`, `["kinds", "ops", "kinds", "mul"]`,
+ * `["kinds", "ops", "fallback"]`, `["defaults", "view"]` or `["fallback"]`. A path that names no entry changes
+ * nothing. The function does not change the world.
+ *
+ * A removed kind gives `#KIND?`, also through an alias to it. A namespace without its fallback knows only its own keys.
+ * A world without its fallback is closed.
+ *
+ * @param world - The world.
+ * @param paths - The paths of the entries to remove.
+ * @returns The world without the entries.
+ */
+export function restrictWorld(world: World, paths: readonly MergePath[]): World {
+  let kinds = world.kinds;
+  const defaults: Record<string, string> = { ...world.defaults };
+  let fallback = world.fallback;
+  for (const path of paths) {
+    const [first, ...rest] = path.map(String);
+    if (first === "kinds") kinds = removeEntry(kinds, rest);
+    else if (first === "defaults" && rest.length === 1) delete defaults[rest[0] as string];
+    else if (first === "fallback" && rest.length === 0) fallback = undefined;
+  }
+  const out = { kinds: { ...kinds }, defaults };
+  return fallback === undefined ? out : { ...out, fallback };
+}
+
+/** The tables of the code of a machine, as the paths of a restriction name them. */
+const CODE_TABLES = ["evaluators", "runners", "derefs", "walkers"] as const;
+
+/**
+ * This function removes entries from a machine, for a language that restricts another language. A path names an
+ * entry as `replaces` names it:
+ *
+ * - A path that starts with `"world"` removes an entry of the world, with the rules of `restrictWorld`.
+ * - `["evaluators", name]` or `["runners", name]` removes the code of the name: its evaluator and its runner.
+ * - `["derefs", name]` and `["walkers", name]` remove one entry of their tables.
+ *
+ * A path that names no entry changes nothing. The function does not change the machine. An own entry names an
+ * evaluator directly, thus only a machine without the code of a name refuses each document that names it.
+ *
+ * @param machine - The machine.
+ * @param paths - The paths of the entries to remove.
+ * @returns The machine without the entries.
+ */
+export function restrictMachine(machine: Machine, paths: readonly MergePath[]): Machine {
+  const world = paths.filter((path) => String(path[0]) === "world").map((path) => path.slice(1));
+  const tables: Record<(typeof CODE_TABLES)[number], Record<string, unknown> | undefined> = {
+    evaluators: { ...machine.evaluators },
+    runners: machine.runners === undefined ? undefined : { ...machine.runners },
+    derefs: machine.derefs === undefined ? undefined : { ...machine.derefs },
+    walkers: machine.walkers === undefined ? undefined : { ...machine.walkers },
+  };
+  for (const path of paths) {
+    const [table, name, ...rest] = path.map(String);
+    if (name === undefined || rest.length > 0 || !(CODE_TABLES as readonly (string | undefined)[]).includes(table)) continue;
+    // The evaluator and the runner of a name are its code, as for a replacement (MACHINE.RUNNER).
+    const from = table === "evaluators" || table === "runners" ? ["evaluators", "runners"] : [table as string];
+    for (const key of from) {
+      const entries = tables[key as (typeof CODE_TABLES)[number]];
+      if (entries !== undefined) delete entries[name];
+    }
+  }
+  return {
+    ...machine,
+    world: world.length === 0 ? machine.world : restrictWorld(machine.world, world),
+    evaluators: tables.evaluators as Machine["evaluators"],
+    ...(tables.runners === undefined ? {} : { runners: tables.runners as NonNullable<Machine["runners"]> }),
+    ...(tables.derefs === undefined ? {} : { derefs: tables.derefs as NonNullable<Machine["derefs"]> }),
+    ...(tables.walkers === undefined ? {} : { walkers: tables.walkers as NonNullable<Machine["walkers"]> }),
+  };
+}

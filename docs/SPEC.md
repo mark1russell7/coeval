@@ -51,6 +51,22 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | MACHINE.RUNNER | A runner hides the evaluator of its name. Thus a name with a runner and an evaluator needs one part that gives both. A replacement of a name replaces its evaluator and its runner. |
 | MACHINE.KNOWN | The hooks `known` compose in the order of the parts. The first answer that is not `true` wins. A hook does not answer for a name whose code a later part replaces. |
 | MACHINE.AGREES | A merged machine of two languages evaluates through the plan, the reference interpreter and `agree`. The generated documents of its world agree. |
+| WORLD.RESTRICT | `restrictWorld` removes the entries of a world at the given paths: kinds, aliases, namespaces, fallbacks and defaults. A path names an entry as `replaces` names it. A path that names no entry changes nothing. |
+| MACHINE.RESTRICT | `restrictMachine` removes entries of the world and the code of names. A path to the evaluator or to the runner of a name removes both. Thus an own entry cannot reach the removed code. |
+
+## Composition
+
+The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through the study R6. [`COMPOSITION.md`](COMPOSITION.md) gives an example of each mode. A mode that does not work today has a skipped test with its target behavior.
+
+| ID | Rule |
+| --- | --- |
+| COMPOSE.EXTEND | A language extends a base with new kinds, aliases and operations. The base does not change, and it does not know the extension. The composed machine agrees with the reference. |
+| COMPOSE.RESTRICT | A language removes kinds and their code, closes a namespace, permits fewer kinds at a position, or masks the capabilities of a part. A restriction of the world alone keeps the code for own entries. |
+| COMPOSE.UNIFY | Two independent languages merge. Their equal kinds and their shared code give one entry, in each order. An alias and a kind of glue join them. |
+| COMPOSE.SELF-EXTEND | A host merges kinds that a document gives as JSON, when each verb names an evaluator of the machine. A document cannot bring code: an own entry with an unknown evaluator gives `#NOEVAL`. |
+| COMPOSE.EXTEND-UNIFY | Two independent extensions of one base compose without glue. Each order of the parts gives the same machine (WORLD.LAWS). Both extensions can add to one namespace of the base. |
+| COMPOSE.INCREMENTAL | A language extends an extension, also at run time. It reads the entry that it replaces through `prev`. A plan keeps its machine, and a new plan uses the new machine. |
+| COMPOSE.CONFLICT | Two extensions that each compose with the base can conflict. The merge throws one `MergeError` when the host builds the machine. The path of each conflict is the mark `replaces` that resolves it. |
 
 ## Parts and contracts
 
