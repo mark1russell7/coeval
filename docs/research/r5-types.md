@@ -26,7 +26,7 @@ Cousot and Cousot define a static analysis as an evaluation of a program over ab
 
 Cousot shows that a type is an abstract value, and a type rule is an abstract evaluator ([Cousot 1997](https://doi.org/10.1145/263699.263744)). Darais and others change only the monad of one definitional interpreter: one instance evaluates the program, and a second instance analyzes it ([Darais and others 2017](https://doi.org/10.1145/3110256)).
 
-For coeval, a type check is the walk of the plan with abstract values. The formula kit has no loops and no recursion, because a binding of `let` does not see the other bindings (FORMULA.LET). Thus one pass from the leaves to the root gives the result, without widening. Only cycles need widening: circular attributes of the tree kit (R3 P6), or formulas of a reactive store that read each other.
+For coeval, a type check is the walk of the plan with abstract values. The formula kit has no loops and no recursion, because a binding of `let` does not see the other bindings (FORMULA.LET). Thus one pass from the leaves to the root gives the result, without widening. Only cycles need widening: circular attributes of the tree kit (R3 P6, L2f), or formulas of a reactive store that read each other.
 
 ### JSON Schema as types
 
@@ -68,7 +68,7 @@ A refinement type is a base type with a predicate, for example `{ v: number | v 
 
 Lucassen and Gifford give each expression a type and an effect, and a function type carries its latent effect ([Lucassen and Gifford 1988](https://doi.org/10.1145/73560.73564)). Talpin and Jouvelot infer types, regions and effects together ([Talpin and Jouvelot 1992](https://doi.org/10.1017/S0956796800000393), [Talpin and Jouvelot 1994](https://doi.org/10.1006/inco.1994.1046)).
 
-For coeval, the judgment of `check` becomes "the document has the value type T and the effects E". R2 P3 and K8 give E from `effects` and from the capability rules of the contracts. A procedure in the world gets a type with its input, its output and its latent effects. The `fn` of the formula kit is pure (R2, question 3), thus its function types have no effects.
+For coeval, the judgment of `check` becomes "the document has the value type T and the effects E". K8 (D14) and R2 P3 (K18) give E from `effects` and from the capability rules of the contracts. A procedure in the world gets a type with its input, its output and its latent effects. The `fn` of the formula kit is pure (R2, question 3), thus its function types have no effects.
 
 ### Types from data
 
@@ -89,7 +89,7 @@ For coeval, the scope rules of a contract (K2) already build a scope graph, and 
 | Types of data | `text`, `number` with limits, `one`, `required` and `closed` | `world.ts` (`Shape`), SHAPE.DATA, SHAPE.CLOSED |
 | Syntactic sorts | A term shape names the kinds that it permits | SHAPE.KINDS |
 | A scope graph | Scope rules: `fixed`, `keysAt`, `listAt`, `textAt`, `headers` and `sequential` | `world.ts` (`ScopeRule`), STATIC.SEQ |
-| Effects | `side`, `effects` and the capability rules of K8 | STATIC.CAP, R2 P3 |
+| Effects | `side`, `effects` and the capability rules (`caps`) of K8 | STATIC.CAP, STATIC.NARROW, D14 |
 | Untyped operations | The profile maps a name to a host function | `formula.ts` (`FormulaProfile.ops`) |
 | A cast after an operation | The `check` of a profile tests each result, for example "finite" | `formula.ts` (`FormulaProfile.check`) |
 | Open values | A value is any value of the host | D13, VALUE.ANY |
@@ -285,17 +285,17 @@ The reference with the issue gets `unknown`, thus `upper` gives no second issue.
   3. No node gives a type error of the kernel. These are `#NAME?` of an operation, `#VALUE!` of a `call` or a test, and `#N/A` of a closed record.
 - **The obligations of a language.** Each `is` has no false positives. Each operation gives a member of its result type. Each type rule of code is sound for its kind.
 - **The local test.** EVAL.SEALED says that a part can change to a part with the same result. Thus a test changes each part of a kind to a `lit` of a sample of its type, and evaluates the kind. The result must be a member of the synthesized type. When each kind passes, the whole check is sound by induction on the tree.
-- **The generators.** The generator of R1 P1 reads the contracts. A typed generator selects, at each position, a kind whose result fits the expected type. A test kit gives samples for each domain.
+- **The generators.** The generator of K9 (R1 P1) reads the contracts. A typed generator selects, at each position, a kind whose result fits the expected type. A test kit gives samples for each domain.
 - **The gradual guarantee.** A test changes a random type of a contract or a root to `unknown`. The issues must not grow in number.
 - **Totality and precision.** `check` gets random JSON, and it must not throw. The share of type issues where the evaluation really fails is a measure that a CI job reports, not a rule.
-- **Kernel parts.** A new ID STATIC.TYPES-AGREE, and a helper that a language can import, next to `agree` of R1 P1.
+- **Kernel parts.** A new ID STATIC.TYPES-AGREE, and a helper that a language can import, next to `agree` of K9.
 - **Risk.** A weak generator gives false confidence. The harness counts how many times it reaches each kind and each signature.
 
 ### P6: narrowing in `if`, `and` and `or`
 
 - **What.** A test that applies an operation with `proves` to a reference narrows the type of that path in `then`, and the reverse in `else`. `and` narrows its later terms. A test of presence narrows an optional field. A path with a computed step does not narrow.
 - **Risk.** A host thing can give two different values to two reads of one path. On the run side, a step with an effect can change the world, thus a narrowing ends at that step.
-- **Test.** A new ID STATIC.NARROW.
+- **Test.** A new ID STATIC.OCCURRENCE.
 
 ### P7: casts at the boundaries of `unknown`
 
@@ -307,7 +307,7 @@ The reference with the issue gets `unknown`, thus `upper` gives no second issue.
 
 ### P8: types of the run side
 
-- **What.** A procedure in the world gets a type: its input from its JSON Schema, its output and its latent effects. The check of a call checks its value against the input, and gives the output. A `seq` gives each named step its type for the later steps, and `last` the type of the step before. The effects come from R2 P3 and K8.
+- **What.** A procedure in the world gets a type: its input from its JSON Schema, its output and its latent effects. The check of a call checks its value against the input, and gives the output. A `seq` gives each named step its type for the later steps, and `last` the type of the step before. The effects come from K8 and K18.
 - **Test.** A step that reads a field that the output of an earlier call does not have gives `#N/A` in `check`.
 
 ### P9: generic signatures and functions as arguments
