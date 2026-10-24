@@ -11,7 +11,7 @@ The studies in `docs/research/` rank proposals for the kernel and the kits. Each
 The plan does the next work in this order (2026-10-24). It takes up the studies R1 to R6.
 
 1. K8: `check` narrows the capabilities of the parts as the kinds do (done, 2026-10-24).
-2. K9: a harness for one meaning (R1 P1, in progress).
+2. K9: a harness for one meaning (R1 P1) (done, 2026-10-24). At its start, it found four bugs of the kernel, and version 0.4.2 corrects them.
 3. K20 and K21 together, two correctness fixes, and the helper `partsOf`, a request of a language:
    - K20: `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1). Today an unknown `ops.*` or `ext.*` passes `check` and fails with `#NAME?` in a run.
    - K21: `docEquals` compares the values that are not plain JSON by identity (R4). Today it compares only the own keys, thus two different dates or maps are equal.
@@ -52,7 +52,7 @@ On the site, C10 is next too (R4). K34, the composition checklist as spec tests,
 | K6 | The explain trace of a question and of an evaluation | in progress (the trace is an optional pass over a plan, the explorer draws it) | K5 |
 | K7 | Sealed parts: the kernel gives an evaluator handles without the value of a part | done (2026-10-20) | |
 | K8 | check narrows the capabilities as the kinds do (a bug from the study R2) | done (2026-10-24) | K3 |
-| K9 | A harness for one meaning: a reference definitional interpreter for the tests, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1) | in progress | K2, K3 |
+| K9 | A harness for one meaning: a reference interpreter that compiles nothing, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1, D15) | done (2026-10-24, version 0.4.2 with the corrections of four bugs that the harness found) | K2, K3 |
 | K10 | A synchronous mock `perform` for `evaluate`. Its answer becomes the result of the effect, and a promise from it gives `#CALC!` (R2 P1). | next | L1 |
 | K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | next | L1 |
 | K12 | Compiled paths: `compilePath` resolves one static path, and `derefStep` keeps a memo of `lookupKind` (R1 P2) | next | K4, K9 |
@@ -61,7 +61,7 @@ On the site, C10 is next too (R4). K34, the composition checklist as spec tests,
 | K15 | A tier of generated JavaScript for hot pure regions (R1 P5) | later (only behind a CI benchmark) | K9, K13 |
 | K16 | Nodes that specialize themselves: a compiled node keeps a small state, and this state gives profile data to K15 (R1 P6) | later | K9 |
 | K17 | One plan at many positions with `plan.evaluateEach(contexts)` (R1 P7) | later (only after a language asks for it) | K9 |
-| K18 | Effect rules in kind contracts (`mask`, `grant` and `same`), and `effectsOf` for the effects that reach the host (R2 P3) | later | K8 |
+| K18 | The rest of R2 P3: the rule `grant` for a handler, `effectsOf` for the effects that reach the host, the latent effects of procedure entries, and a check that uses the hook `permits` of the machine. K8 shipped the rules `same`, `mask` and `only` (`Kind.caps`, D14). | later | K8 |
 | K19 | A static check of the "can wait" bit: `check` reports a runner under a parent without a runner (R2 P4) | later | K3 |
 | K20 | `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1) | next | K3 |
 | K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | next | K3 |

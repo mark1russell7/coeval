@@ -135,3 +135,20 @@ No question waits on the owner.
 - The rules only narrow (CAP.NARROW). The rule `grant` of the proposal P3, for a handler, comes later with P5.
 
 **Why.** Two places that narrow the capabilities can disagree. One declaration in the contract, which the kernel and the static kit both read, keeps one meaning. A kind that narrows the capabilities outside its contract can break STATIC.AGREES again, thus the kernel does it for each kind.
+
+## D15 (2026-10-24): a reference interpreter is the oracle of one meaning, and `agree` ships for the languages
+
+**Context.** The traced plan and the plan share each compiler, thus a comparison of the two cannot find a bug in a compiler (R1). D13 lets a language keep a second tier, with the plan as its reference.
+
+**Decision.**
+
+- The kernel has a reference interpreter, `reference`. It reads the rules of `docs/SPEC.md` directly and compiles nothing.
+- The reference shares only the definitions of the model with the plan. These are the ladder, the lookup of a kind, the split of the parts and the resolution of a path.
+- The formula kit has a second reading of its constructs, `formulaDefinitions`: one function evaluator for each construct.
+- `agree` compares a plan with the reference, the traced plan, a second evaluation and the second tier of a language. It gives the first tier that disagrees.
+- Two results agree when their values are the same by `sameValue`, or when their errors have the same code and place. The effects must be the same, in the same order.
+- Identity is not part of the meaning. An overflow of the stack of the host is the one permitted difference, because the tiers use different numbers of frames.
+- `generate` builds random documents from the kind contracts. A property test examines a few thousand documents at each push, and more each night.
+- The reference covers evaluations, not runs. A run with a host that waits comes later.
+
+**Why.** Two independent readings of the rules find a bug in either one. At its start, the harness found four bugs of the kernel and one bug of the reference itself (K9).

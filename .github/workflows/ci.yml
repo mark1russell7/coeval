@@ -27,7 +27,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The property test of one meaning (K9) examines more documents in CI than in a local run
       - run: pnpm test
+        env:
+          COEVAL_AGREE_COUNT: "2000"
       # The npm build of each package that has one, with its publint check, as release.yml builds it
       - run: pnpm -r --if-present run build
       # The writing rules (ASD-STE100) of the README files and the doc comments

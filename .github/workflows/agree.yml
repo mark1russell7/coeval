@@ -1,0 +1,39 @@
+# The property test of one meaning (K9, D15) with many documents: each night, and by hand.
+# Each run of the schedule uses new seeds, thus the nights together examine new documents.
+# A failure names the seed and the document. COEVAL_AGREE_SEED reproduces it in a local run.
+name: One meaning
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: The number of documents for each configuration
+        default: "20000"
+
+permissions:
+  contents: read
+
+jobs:
+  agree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      # The pnpm version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run src/agree.test.ts
+        working-directory: packages/core
+        env:
+          COEVAL_AGREE_COUNT: ${{ inputs.count || '20000' }}
+          COEVAL_AGREE_SEED: ${{ github.run_number }}${{ matrix.part }}
