@@ -69,18 +69,21 @@ export const STD_WORLD: World = {
     pure: {
       verbs: { eval: "control.pure", view: "view.op" },
       parts: { shape: "list" },
+      caps: [{ rule: "mask" }],
       summary: "It evaluates its part without capabilities, thus an effect in it fails.",
     },
     log: {
       verbs: { eval: "effect.log", view: "view.op" },
       parts: { shape: "list", of: "text" },
       side: "run",
+      effects: ["log"],
       summary: "It writes the result of its part to the log. This is an effect.",
     },
     write: {
       verbs: { eval: "effect.write", view: "view.op" },
       parts: { shape: "record", fields: ["value"] },
       side: "run",
+      effects: ["write"],
       summary: "It writes the result of its part to the store, at its key. This is an effect.",
     },
   },
@@ -269,10 +272,11 @@ export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
     }
     return ok(last);
   },
-  "control.pure": function* ({ parts, context }) {
+  // The contract of pure masks the capabilities of its part, and the kernel applies it. Thus the runner does not.
+  "control.pure": function* ({ parts }) {
     const only = parts[0];
     if (only === undefined) return fail("#VALUE!", "pure needs one part.");
-    return yield* only.evaluate({ ...context, caps: [] });
+    return yield* only.evaluate();
   },
   "control.if": function* ({ parts }) {
     const test = parts.find((part) => part.key === "test");

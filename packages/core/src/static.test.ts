@@ -1,20 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
   type HostThing,
+  type Json,
   type Machine,
+  type Runner,
+  STD_CAPS,
   STD_MACHINE,
+  STD_WORLD,
   THING,
   check,
   context,
   docEquals,
   formulaKinds,
   formulaMachine,
+  isKind,
   lookupKind,
+  makeContext,
   mapRefs,
   nearestWalker,
   prepare,
   refsOf,
   resolve,
+  run,
   splitParts,
   stored,
   walk,
@@ -271,4 +278,81 @@ describe("the static kit", () => {
     const ok = prepare(machine, doc).evaluate(context({ names: { x: 2 }, world: { n1: 3 } }));
     expect(ok).toEqual({ ok: true, value: 5 });
   });
+
+  it("[STATIC.AGREES] check finds the #CAP! of a run at the same place, also when a kind narrows the capabilities", async () => {
+    const cases: readonly (readonly [Json, readonly string[]])[] = [
+      [{ type: "pure", value: [log] }, STD_CAPS],
+      [log, ["write"]],
+      [write, ["log"]],
+      [{ type: "seq", value: [log, { type: "pure", value: [{ type: "seq", value: [write] }] }] }, STD_CAPS],
+      [{ type: "seq", value: [log, write] }, STD_CAPS],
+      [{ type: "pure", value: [{ type: "add", value: [1, 2] }] }, STD_CAPS],
+      [{ type: "split", value: { inner: write, outer: log } }, STD_CAPS],
+      [{ type: "split", value: { inner: log, outer: write } }, STD_CAPS],
+      [{ type: "split", value: { inner: log, outer: { type: "pure", value: [write] } } }, ["log.debug", "write"]],
+    ];
+    for (const [doc, caps] of cases) {
+      const issues = check(splitMachine, doc, { caps }).filter((issue) => issue.code === "#CAP!");
+      const done = await run(splitMachine, doc, makeContext({}, caps), { perform: () => null });
+      const label = JSON.stringify(doc);
+      if (done.result.ok) expect(issues, label).toEqual([]);
+      else {
+        expect(done.result.error.code, label).toBe("#CAP!");
+        expect(issues[0]?.place, label).toEqual(done.result.error.place);
+      }
+    }
+  });
+
+  it("[STATIC.NARROW] check tests each effect against the capabilities of its own document, as the kinds narrow them", () => {
+    expect(check(STD_MACHINE, { type: "pure", value: [log] }, { caps: STD_CAPS })).toEqual([
+      { code: "#CAP!", place: [0], reason: "The capabilities do not permit the effect log here. The kind pure around it narrows them for its parts.", at: ["value", 0] },
+    ]);
+    const nested = { type: "seq", value: [log, { type: "pure", value: [{ type: "seq", value: [write] }] }] };
+    expect(check(STD_MACHINE, nested, { caps: STD_CAPS }).map((issue) => `${issue.code}@${issue.place.join(".")}`)).toEqual(["#CAP!@1.0.0"]);
+    expect(check(STD_MACHINE, nested)).toEqual([]);
+    const seen: string[] = [];
+    walk(STD_WORLD, nested, (v) => {
+      seen.push(`${v.place.join(".") || "root"}:${v.caps?.join(",") ?? "none"}`);
+    }, { caps: STD_CAPS });
+    expect(seen).toEqual(["root:log,write", "0:log,write", "0.0:log,write", "1:log,write", "1.0:", "1.0.0:", "1.0.0.value:"]);
+    const split = check(splitMachine, { type: "split", value: { inner: write, outer: write } }, { caps: STD_CAPS });
+    expect(split.map((issue) => `${issue.code}@${issue.place.join(".")}`)).toEqual(["#CAP!@inner"]);
+    expect(split[0]?.reason).toBe("The capabilities do not permit the effect write here. The kind split around it narrows them for its parts.");
+  });
+
+  it("[CAP.DECLARED] each kind of the standard world that causes an effect declares it, thus check finds a #CAP! for it", () => {
+    expect(check(STD_MACHINE, log, { caps: [] })).toEqual([{ code: "#CAP!", place: [], reason: "The capabilities do not permit the effect log.", at: [] }]);
+    expect(check(STD_MACHINE, write, { caps: ["log"] }).map((issue) => issue.reason)).toEqual(["The capabilities do not permit the effect write."]);
+    expect(check(STD_MACHINE, { type: "seq", value: [log, write] }, { caps: STD_CAPS })).toEqual([]);
+    for (const [name, entry] of Object.entries(STD_WORLD.kinds)) {
+      if (isKind(entry) && entry.side === "run") expect(entry.effects, name).toBeDefined();
+    }
+  });
 });
+
+const log = { type: "log", value: ["x"] };
+const write = { type: "write", value: { key: "k", value: { type: "number", value: 1 } } };
+
+/** This runner evaluates the parts of a record in order, and it gives the last result. */
+const inOrder: Runner = function* ({ parts }) {
+  let last: { readonly ok: true; readonly value: unknown } | undefined;
+  for (const part of parts) {
+    const result = yield* part.evaluate();
+    if (!result.ok) return result;
+    last = result;
+  }
+  return last ?? { ok: true, value: null };
+};
+
+/** The standard machine with a kind split: its part inner gets only the capability log. */
+const splitMachine: Machine = {
+  ...STD_MACHINE,
+  world: {
+    ...STD_MACHINE.world,
+    kinds: {
+      ...STD_MACHINE.world.kinds,
+      split: { verbs: { eval: "in-order" }, parts: { shape: "record", fields: ["inner", "outer"] }, caps: [{ rule: "only", caps: ["log"], in: [["inner"]] }] },
+    },
+  },
+  runners: { ...STD_MACHINE.runners, "in-order": inOrder },
+};

@@ -10,7 +10,7 @@ The studies in `docs/research/` rank proposals for the kernel and the kits. Each
 
 The plan does the next work in this order (2026-10-24). It takes up the studies R1, R2 and R3.
 
-1. K8: `check` narrows the capabilities of the parts as the kinds do.
+1. K8: `check` narrows the capabilities of the parts as the kinds do (done, 2026-10-24).
 2. K9: a harness for one meaning (R1 P1).
 3. L2a: the decorated tree (R3 P1).
 4. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
@@ -43,7 +43,7 @@ Each other proposal of the three studies is a row with the status `later`.
 | K5 | The result model: a value, or an error value with a code, a reason and a place | done (2026-10-21: the place and the cause) | K1 |
 | K6 | The explain trace of a question and of an evaluation | in progress (the trace is an optional pass over a plan, the explorer draws it) | K5 |
 | K7 | Sealed parts: the kernel gives an evaluator handles without the value of a part | done (2026-10-20) | |
-| K8 | `check` narrows the capabilities of the parts as the kinds do in a run | in progress (a pull request lands it) | K3, L1 |
+| K8 | check narrows the capabilities as the kinds do (a bug from the study R2) | done (2026-10-24) | K3 |
 | K9 | A harness for one meaning: a reference definitional interpreter for the tests, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1) | next | K2, K3 |
 | K10 | A synchronous mock `perform` for `evaluate`. Its answer becomes the result of the effect, and a promise from it gives `#CALC!` (R2 P1). | next | L1 |
 | K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | next | L1 |

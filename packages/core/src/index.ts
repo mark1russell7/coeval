@@ -36,6 +36,7 @@ export {
 } from "./errors.ts";
 export {
   type Alias,
+  type CapsRule,
   type Kind,
   type Lookup,
   type Namespace,
@@ -127,9 +128,11 @@ export {
   evaluate,
   failures,
   flatten,
+  intersectCaps,
   makeContext,
   narrow,
   nodeAt,
+  partCaps,
   permits,
   planner,
   prepare,

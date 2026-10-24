@@ -4,7 +4,7 @@ import { ask } from "./ladder.ts";
 import { type PartSlot, pathMatches, splitParts } from "./parts.ts";
 import { type Cap, type Root, ROOTS, isRef } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
-import { type Machine, permits } from "./evaluate.ts";
+import { type Machine, partCaps, permits } from "./evaluate.ts";
 
 /** One document that a walk visits. */
 export interface DocVisit {
@@ -32,6 +32,11 @@ export interface DocVisit {
   readonly later: ReadonlySet<string>;
   /** `true` when the position of the document declares an address: a reference there is not a read of a value. */
   readonly address?: true | undefined;
+  /**
+   * The capabilities of the document: the capabilities of the walk, narrowed by the capability rules of the kinds
+   * around it (`Kind.caps`). A walk without capabilities gives none here.
+   */
+  readonly caps?: readonly Cap[] | undefined;
 }
 
 /** A position that a walk cannot read as a document. */
@@ -50,6 +55,8 @@ export interface WalkOptions {
   readonly declaredType?: string;
   /** The names that the host binds at the root. */
   readonly names?: readonly string[];
+  /** The capabilities at the root. With them, each visit gets the capabilities of its document. */
+  readonly caps?: readonly Cap[];
   /**
    * This function gets each position that is not a document.
    *
@@ -169,6 +176,7 @@ class Visit implements DocVisit {
     readonly kind: Kind | undefined,
     readonly typePath: readonly Key[] | undefined,
     readonly address: true | undefined,
+    readonly caps: readonly Cap[] | undefined,
   ) {
     this.#place = place;
     this.#at = at;
@@ -185,14 +193,15 @@ class Visit implements DocVisit {
 
 /**
  * This function visits each document of a document: the root and each part at each depth, by the contracts of the
- * kinds. A part of a kind that the world does not have is not visited. The walk uses no stack of the host for the
+ * kinds. A part of a kind that the world does not have is not visited. With capabilities in the options, the walk
+ * narrows them for each part by the rules of its kind, as a run does. The walk uses no stack of the host for the
  * depth, thus a deep document cannot overflow it. The time and the memory of a walk are linear in the size of the
  * document. A visit makes the keys of its place and of its path only when a reader asks for them.
  *
  * @param world - The world of the kinds.
  * @param doc - The document, as JSON.
  * @param visit - The function that gets each document. It gives `"skip"` to not visit the parts of a document.
- * @param options - The type of a bare root value, the names of the host, and a function for the problems.
+ * @param options - The type of a bare root value, the names, the capabilities and a function for the problems.
  */
 export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => void | "skip", options: WalkOptions = {}): void {
   interface Item {
@@ -206,6 +215,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     readonly address: boolean;
     readonly slot: readonly Key[];
     readonly parent: DocVisit | undefined;
+    readonly caps: readonly Cap[] | undefined;
   }
   const stack: Item[] = [
     {
@@ -219,6 +229,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       address: false,
       slot: [],
       parent: undefined,
+      caps: options.caps,
     },
   ];
   while (stack.length > 0) {
@@ -244,6 +255,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       kind,
       found.ok ? found.path : undefined,
       item.address ? true : undefined,
+      item.caps,
     );
     const answer = visit(here);
     if (answer === "skip" || kind === undefined) continue;
@@ -271,6 +283,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         address: slot.address === true,
         slot: slot.path,
         parent: here,
+        caps: item.caps === undefined || kind.caps === undefined ? item.caps : partCaps(kind.caps, slot.path, item.caps),
       });
     }
   }
@@ -380,8 +393,25 @@ export interface CheckOptions {
   readonly declaredType?: string;
   /** The names that the host binds at the root. `"any"` does not check the names. The default is no names. */
   readonly names?: readonly string[] | "any";
-  /** The capabilities at the root. Without them, the check does not check the effects. */
+  /**
+   * The capabilities at the root. Without them, the check does not check the effects. The check narrows them for
+   * each part by the capability rules of the kinds, as a run does.
+   */
   readonly caps?: readonly Cap[];
+}
+
+/**
+ * This function gives the reason of a `#CAP!`. When a kind around the document narrowed the capabilities, the
+ * reason names the nearest such kind.
+ */
+function capReason(v: DocVisit, kind: readonly Key[]): string {
+  const text = kind.join(".");
+  for (let up = v.parent; up !== undefined; up = up.parent) {
+    if (up.caps !== undefined && permits(up.caps, kind)) {
+      return `The capabilities do not permit the effect ${text} here. The kind ${typeName(up.doc.type)} around it narrows them for its parts.`;
+    }
+  }
+  return `The capabilities do not permit the effect ${text}.`;
 }
 
 /**
@@ -395,7 +425,7 @@ export interface CheckOptions {
  * - `#DEPTH!`: too much nesting.
  * - `#REF!` and `#STEP?`: a bad path.
  * - `#NAME?`: a name that nothing binds.
- * - `#CAP!`: an effect that the capabilities do not permit.
+ * - `#CAP!`: an effect that the capabilities of its document do not permit. A kind around the document can narrow them.
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
@@ -426,10 +456,11 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
       if (name === undefined || (!has(machine.evaluators, name) && !has(machine.runners, name))) {
         issues.push({ code: "#NOEVAL", place: v.place, reason: `No rung gives an evaluator for ${typeName(v.doc.type)}.`, at: v.at });
       }
-      if (options.caps !== undefined && v.kind?.effects !== undefined) {
+      const caps = v.caps;
+      if (caps !== undefined && v.kind?.effects !== undefined) {
         const kinds: readonly (readonly Key[])[] = v.kind.effects === "type" ? [v.typePath ?? []] : v.kind.effects.map((kind) => kind.split("."));
         for (const kind of kinds) {
-          if (!permits(options.caps, kind)) issues.push({ code: "#CAP!", place: v.place, reason: `The capabilities do not permit the effect ${kind.join(".")}.`, at: v.at });
+          if (!permits(caps, kind)) issues.push({ code: "#CAP!", place: v.place, reason: capReason(v, kind), at: v.at });
         }
       }
       const isPath = isRef(v.doc);
@@ -472,6 +503,7 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
     {
       ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
       ...(Array.isArray(options.names) ? { names: options.names } : {}),
+      ...(options.caps === undefined ? {} : { caps: options.caps }),
       problem: (problem) => issues.push({ code: problem.code, place: problem.place, reason: problem.reason, at: problem.at }),
     },
   );

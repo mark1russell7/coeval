@@ -26,6 +26,8 @@ Only the effects have numbers. For pure parts, the order of the evaluation does 
 
 A term can cause an effect only when its context has the capability for that effect. A construct gives its parts the same capabilities or fewer. The kind `pure` gives its part no capability. Thus an effect inside `pure` fails with `#CAP!`, and the world does not change.
 
+The contract of a kind declares what it gives its parts. The kernel narrows the context of each part by that contract. `check` reads the same contract, thus it finds the `#CAP!` before a run.
+
 <Explorer
   client:visible
   doc={PURE}

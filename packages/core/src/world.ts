@@ -1,4 +1,5 @@
 import { type Envelope, type Json, type Key, type TypeRef, field, isRecord, typePath } from "./doc.ts";
+import type { Cap } from "./deref.ts";
 
 /** The two sides of evaluation. `derive` is pure. `run` causes effects in order. */
 export type Side = "derive" | "run";
@@ -69,6 +70,22 @@ export interface ScopeRule {
   readonly sequential?: boolean;
 }
 
+/**
+ * A capability rule of a kind: what the kind gives some of its parts from the capabilities of its document. A rule
+ * only narrows. A part does not get a capability that its document does not have (CAP.NARROW).
+ *
+ * - `same`: the parts get the capabilities of the document. This is the default.
+ * - `mask`: the parts get no capabilities, as the part of `pure`.
+ * - `only`: the parts get only the effects that the capabilities of the document and the list `caps` both permit.
+ *
+ * `in` names the parts that the rule covers, as patterns of their paths in the value. The key `"*"` matches each
+ * key. A rule without `in` covers each part.
+ */
+export type CapsRule =
+  | { readonly rule: "same"; readonly in?: readonly (readonly Key[])[] }
+  | { readonly rule: "mask"; readonly in?: readonly (readonly Key[])[] }
+  | { readonly rule: "only"; readonly caps: readonly Cap[]; readonly in?: readonly (readonly Key[])[] };
+
 /** A kind gives the name of an evaluator for each verb, and the contract of its value. */
 export interface Kind {
   readonly verbs: Readonly<Record<string, string>>;
@@ -76,6 +93,13 @@ export interface Kind {
   readonly parts?: Shape;
   /** The names that the kind binds for its parts. */
   readonly scope?: readonly ScopeRule[];
+  /**
+   * The capabilities that the kind gives its parts, as rules. A part that no rule covers gets the capabilities of
+   * the document. A part that several rules cover gets only what each rule permits. The static kit reads the rules,
+   * and the kernel narrows the context of each part by them. Thus an evaluator does not narrow the capabilities
+   * itself.
+   */
+  readonly caps?: readonly CapsRule[];
   /** The side of the kind. A kind of the run side causes effects. The default is `derive`. */
   readonly side?: Side;
   /**
