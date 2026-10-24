@@ -48,14 +48,14 @@ export interface FormulaProfile {
 }
 
 /** The mark of a field that the profile leaves out of a record. */
-const SKIPPED: unique symbol = Symbol("skipped");
+const SKIPPED: unique symbol = /* @__PURE__ */ Symbol("skipped");
 
 /** The value of a name whose binding failed. A reference to the name gives the error. */
 export class Held {
   constructor(readonly error: EvalError) {}
 }
 
-const CLOSURE: unique symbol = Symbol.for("coeval.closure") as never;
+const CLOSURE: unique symbol = /* @__PURE__ */ Symbol.for("coeval.closure") as never;
 
 /** A function that the construct `fn` made. It throws a `Failure` when its body fails. */
 export type Closure = ((...args: readonly unknown[]) => unknown) & { readonly [CLOSURE]: { readonly params: readonly string[] } };

@@ -6,7 +6,7 @@ import type { ErrorCode } from "./errors.ts";
  * The brand of a host thing: an object of the host that answers the steps of a path itself. The brand is a
  * global symbol, thus two copies of the kernel in one program know the things of each other.
  */
-export const THING: unique symbol = Symbol.for("coeval.thing") as never;
+export const THING: unique symbol = /* @__PURE__ */ Symbol.for("coeval.thing") as never;
 
 /**
  * A host thing: an object that answers the steps of a path itself, for example a node of a live tree. It is the
@@ -220,7 +220,7 @@ export function isRef(thing: unknown): thing is Envelope & { readonly value: rea
   return path !== undefined && path.length === 1 && path[0] === "ref";
 }
 
-const worlds = new WeakMap<World, Json>();
+const worlds = /* @__PURE__ */ new WeakMap<World, Json>();
 
 /**
  * This function makes the thing of the root `world`: the entries of the world as JSON. An alias is a reference
@@ -256,7 +256,7 @@ export function context(parts: Partial<Context> = {}): Context {
 }
 
 const MAX_COLLAPSE = 64;
-const NO_HOPS: readonly Hop[] = Object.freeze([]);
+const NO_HOPS: readonly Hop[] = /* @__PURE__ */ Object.freeze([]);
 
 /** A value that can be a reference document: a record with the type `ref`. The full check comes after. */
 function mayBeRef(thing: unknown): boolean {

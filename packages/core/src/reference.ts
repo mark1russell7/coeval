@@ -366,7 +366,7 @@ interface RefNode {
   readonly pending: Set<string>;
 }
 
-const refNodes = new WeakMap<object, RefNode>();
+const refNodes = /* @__PURE__ */ new WeakMap<object, RefNode>();
 
 /** The attributes in evaluation in the reference, in the order of their demands (TREE.CYCLE). */
 const inEvaluation: { readonly node: RefNode; readonly name: string }[] = [];
@@ -484,7 +484,7 @@ export const STD_DEFINITIONS: Definitions = { evaluators: { "tree.node": treeDef
 
 /* The definitions of the formula kit: one function evaluator for each construct, written from docs/SPEC.md. */
 
-const CLOSURE: unique symbol = Symbol.for("coeval.closure") as never;
+const CLOSURE: unique symbol = /* @__PURE__ */ Symbol.for("coeval.closure") as never;
 
 /** This function sets an own field, also the field `__proto__` (SHAPE.PROTO). */
 function setField(target: Record<string, unknown>, key: string, value: unknown): void {
@@ -696,7 +696,7 @@ export function formulaDefinitions(profile: FormulaProfile = {}): Definitions {
 }
 
 /** The mark of a field that the profile leaves out of a record (FORMULA.RECORD). */
-const SKIP: unique symbol = Symbol("skip");
+const SKIP: unique symbol = /* @__PURE__ */ Symbol("skip");
 
 /** The values of parts in order. The first error stops them, also with `combine` (FORMULA.STEPS, FORMULA.FN). */
 function valuesOfStrict(parts: readonly Part[]): { readonly values: readonly unknown[] } | Failed {

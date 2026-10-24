@@ -132,7 +132,7 @@ export function sameValue(a: unknown, b: unknown, equal?: (a: unknown, b: unknow
   return true;
 }
 
-const CLOSURE = Symbol.for("coeval.closure");
+const CLOSURE = /* @__PURE__ */ Symbol.for("coeval.closure");
 
 function closureParams(fn: object): unknown {
   return (fn as { readonly [CLOSURE]?: { readonly params: readonly string[] } })[CLOSURE]?.params;
