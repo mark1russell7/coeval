@@ -37,6 +37,21 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | CLASSIFY.NONE | A classifier reports a value that no shape matches. |
 | CLASSIFY.TAG | A tag puts a value in an envelope, and then the ladder answers by the type. |
 
+## The merge of worlds and machines
+
+`mergeWorlds` and `mergeMachines` are the one merge of worlds and machines (D17). Two languages compose only through them.
+
+| ID | Rule |
+| --- | --- |
+| WORLD.MERGE | `mergeWorlds` merges worlds in the order of the parts. Two entries that are equal by `docEquals` give one entry. Two namespaces merge key by key at each depth, and their fallbacks merge too. The defaults merge verb by verb. A merge does not change its parts. |
+| WORLD.CONFLICT | Two different entries at one path are a conflict. Examples are two different kinds, a kind and a namespace, and two different fallbacks or defaults. The merge throws one `MergeError` with each conflict, its path and its two parts. |
+| WORLD.REPLACE | A part names in `replaces` the paths of the entries that it replaces. At such a path, the later entry wins, with no merge below it. The path of a conflict is the path that `replaces` names. A part can be a function of the merge before it (`prev`). |
+| WORLD.LAWS | Without `replaces`, a merge of worlds or of machines is commutative, associative and idempotent. Parts in another order give an equal result, or a conflict in each order. |
+| MACHINE.MERGE | `mergeMachines` merges the worlds, and the tables of the code name by name: evaluators, runners, derefs and walkers. A function is equal only to itself. Each other field, for example `permits`, `roots` or `maxDepth`, is one value, or a conflict. |
+| MACHINE.RUNNER | A runner hides the evaluator of its name. Thus a name with a runner and an evaluator needs one part that gives both. A replacement of a name replaces its evaluator and its runner. |
+| MACHINE.KNOWN | The hooks `known` compose in the order of the parts. The first answer that is not `true` wins. A hook does not answer for a name whose code a later part replaces. |
+| MACHINE.AGREES | A merged machine of two languages evaluates through the plan, the reference interpreter and `agree`. The generated documents of its world agree. |
+
 ## Parts and contracts
 
 | ID | Rule |
@@ -203,9 +218,10 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | FORMULA.OPS | An operation gets the values of its arguments, in order. It stops at the first error. |
 | FORMULA.LAZY | A lazy operation evaluates only the arguments that it needs. |
 | FORMULA.COMBINE | A profile can combine the errors of the parts of an operation, a `record` or a `list`. Then each part evaluates, and one failed part gives its own error. |
-| FORMULA.STEPS | A language can give the kind `ref` a deep shape. Then each step document of a path is a part. The parts evaluate first, in order, also before the path reads a name whose binding failed. The first error is the result. The walker gets the values. |
+| FORMULA.STEPS | A language can replace the kind `ref` with a kind of a deep shape (WORLD.REPLACE). Then each step document of a path is a part. The parts evaluate first, in order, also before the path reads a name whose binding failed. The first error is the result. The walker gets the values. |
 | FORMULA.ADDRESS | A term shape can declare an address. A reference there gives what its path reaches, not its value. Thus a host thing stays a thing. |
 | FORMULA.EXT-CONTEXT | An extension gets the context of its document, for example the position of `self`. |
 | FORMULA.EXT | The standard extensions give the values that JSON cannot write. |
 | FORMULA.DEPTH | A deep formula evaluates up to the limit of the depth. |
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. |
+| FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |

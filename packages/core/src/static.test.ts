@@ -428,7 +428,7 @@ describe("the static kit", () => {
     expect(check(moves, { type: ["moves", "left"], value: null })).toEqual([{ code: "#NAME?", place: [], reason: "No such move.", at: [] }]);
     expect(check(moves, { type: ["moves", "up"], value: null })).toEqual([]);
     expect(check(moves, op("nope"))).toHaveLength(1);
-    const replaced = formulaMachine(profile, { evaluators: { "formula.op": () => ({ ok: true, value: 0 }) } });
+    const replaced = formulaMachine(profile, { evaluators: { "formula.op": () => ({ ok: true, value: 0 }) }, replaces: [["evaluators", "formula.op"]] });
     expect(check(replaced, op("nope"))).toEqual([]);
     // A machine without the hook does not check the names.
     const { known: _known, ...plain } = language;

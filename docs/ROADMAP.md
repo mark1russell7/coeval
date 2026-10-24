@@ -16,13 +16,14 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
    - K20: `check` knows the names of operations and extensions through the hook `known` of the machine, and `fn` declares the shape of `params` (R5 P1). Before, an unknown `ops.*` or `ext.*` passed `check` and failed with `#NAME?` in a run.
    - K21: `docEquals` compares the values that are not plain JSON by identity (R4). Before, it compared only the own keys, thus two different dates or maps were equal.
 4. L2a: the decorated tree (R3 P1) (done, 2026-10-24, version 0.5.0). Each field of a node of `panel` or `box` evaluates on demand, with one memo for each node and attribute. A sibling is a path through the parent, a cycle gives `#CYCLE!` with its chain, and a failed field keeps its error. The nightly agreement run is green again.
-5. K32: one merge function for worlds, with conflict rules (R6 P2). Two equal entries merge, and two namespaces merge key by key. Each other conflict is an error, unless the entry has a mark to replace. Today `formulaMachine` merges with a shallow spread. Thus a later kind replaces an earlier kind without a message, and the `ops` of a language replace the namespace of the kit.
-6. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
-7. K12: compiled paths (R1 P2).
-8. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
-9. K22 and K23: `sameResult`, a safe equality for an early cutoff (R4 P1), and value types and value domains, the base of the type work (R5 P2).
+5. K32: one merge function for worlds and machines, with conflict rules (R6 P2) (done, 2026-10-24, version 0.6.0, D17). `mergeWorlds` and `mergeMachines` merge equal entries, and namespaces key by key. Each other clash throws one `MergeError` with each conflict, unless the later part names its path in `replaces`. `formulaMachine` uses the merge, thus the `ops` of a language extend the namespace of the kit.
+6. K34: the composition checklist as spec tests (R6 P1). It comes right after K32 because it is small. It tests the new merge with two small languages before K33, K35 and K37 build on it.
+7. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
+8. K12: compiled paths (R1 P2).
+9. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
+10. K22 and K23: `sameResult`, a safe equality for an early cutoff (R4 P1), and value types and value domains, the base of the type work (R5 P2).
 
-On the site, C10 is next too (R4). K39 is next too: a small correction that K20 found. K34, the composition checklist as spec tests, is next after K32 (R6 P1). Each other proposal of the six studies is a row with the status `later`.
+On the site, C10 is next too (R4). K39 is next too: a small correction that K20 found. Each other proposal of the six studies is a row with the status `later`.
 
 ## The design and the site
 
@@ -75,9 +76,9 @@ On the site, C10 is next too (R4). K39 is next too: a small correction that K20 
 | K29 | Types of the run side: a procedure gets an input type, an output type and its effects, and `seq` gives each step its type (R5 P8) | later | K25, L1 |
 | K30 | Generic signatures with type variables, thus `check` finds the parameter types of a function argument, as for `map` (R5 P9) | later | K24 |
 | K31 | Intervals of numbers that widen in a cycle, and type rules as documents that the tree kit evaluates (R5 P10) | later (low value today) | K24, L2a |
-| K32 | One merge function for worlds and machines, with conflict rules. Equal entries merge, namespaces merge key by key, and each other conflict is an error without a mark `replaces` (R6 P2). | next | K2 |
+| K32 | One merge function for worlds and machines, with conflict rules. Equal entries merge, namespaces merge key by key, and each other conflict is an error without a mark `replaces` (R6 P2). | done (2026-10-24, version 0.6.0, D17: `mergeWorlds`, `mergeMachines` and `MergeError`) | K2 |
 | K33 | Each verb through the kernel: `prepare` and `check` take a verb, one ladder serves each verb, and a verb `format` is the demonstration (R6 P3) | next | K32 |
-| K34 | The composition checklist as spec tests: one test `COMPOSE.*` for each mode of composition, with two small languages (R6 P1) | next (after K32) | K32 |
+| K34 | The composition checklist as spec tests: one test `COMPOSE.*` for each mode of composition, with two small languages (R6 P1) | next | K32 |
 | K35 | Verb entries for the kinds of another language: a language adds a verb that it owns to a foreign kind, through the merge of K32 (R6 P4) | later | K32, K33 |
 | K36 | A check of verb coverage: `checkWorld` lists each kind with no entry and no default for a verb that the language declares (R6 P5) | later | K33 |
 | K37 | A language package format: `defineLanguage` gives one value with a name, a version and a hash, and `compose` merges languages through K32 (R6 P7) | later | K32 |
