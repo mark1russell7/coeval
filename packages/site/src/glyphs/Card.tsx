@@ -1,6 +1,6 @@
 import { createContext, useContext, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { typeName, type Envelope, type Json, type Result, type Rung, type Side } from "@mark1russell7/coeval";
-import ValueGlyph from "./Value.tsx";
+import { isHostThing, typeName, type Envelope, type Json, type Result, type Rung, type Side } from "@mark1russell7/coeval";
+import ValueGlyph, { valueText } from "./Value.tsx";
 import { pathKey, stateAt, useOverlay } from "./overlay.ts";
 
 /** The letter of each rung, for the tab of a card when the picture shows the rungs. */
@@ -52,7 +52,7 @@ export interface CardProps {
  * @returns The short form.
  */
 function compact(value: Json): { readonly scalar: boolean; readonly text: string } {
-  if (value === null || typeof value !== "object") return { scalar: true, text: "" };
+  if (value === null || typeof value !== "object" || isHostThing(value)) return { scalar: true, text: "" };
   if (Array.isArray(value)) {
     const count = (value as readonly Json[]).length;
     return { scalar: false, text: `[ ${count} ${count === 1 ? "item" : "items"} ]` };
@@ -73,7 +73,7 @@ export function Port({ result }: { readonly result: Result }) {
   const value = result.value as Json;
   const short = compact(value);
   return (
-    <span className="cv-port" data-ok="true" title={`The result of this document: ${JSON.stringify(value)}`}>
+    <span className="cv-port" data-ok="true" title={`The result of this document: ${valueText(value)}`}>
       <span className="cv-port-arrow" aria-hidden="true">
         =
       </span>

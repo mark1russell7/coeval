@@ -74,7 +74,14 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | TREE.PARENT | A node of a tree reads its parent through the field `parent`. |
 | TREE.NEAREST-SELF | A walk `nearest` with `self: true` starts at the node itself. |
 | TREE.NEAREST-MATCH | A host can give the walker `nearest` its own test of a type and its own limit of hops. |
-| TREE.ONCE | A field of a node evaluates one time, also when two readers ask for it. |
+| TREE.ONCE | An attribute of a node evaluates one time in an evaluation, also when two readers ask for it. |
+| TREE.LAZY | A node of a tree is a host thing, and each part of the node is an attribute. A node in an attribute of an open tree gives its thing. An attribute evaluates only when something reads it. |
+| TREE.SIBLING | A node reads an attribute of a sibling through its parent, for example `["self", "parent", "children", 0, "width"]`. The read does not recurse, also for a later sibling. |
+| TREE.CYCLE | A demand that reaches an attribute in evaluation gives `#CYCLE!`. The reason gives the chain of attributes. The error has the place of the reference that closed the cycle. |
+| TREE.ERROR | A reference to a failed attribute gives the error of that attribute, with its code, its reason, its place and its cause. |
+| TREE.MEMO | Each node keeps one memo for each attribute, for one evaluation. Each evaluation makes new nodes, thus nothing stays from an earlier evaluation. |
+| TREE.PURE | The kinds `panel` and `box` mask the capabilities of their parts. An attribute evaluates on demand, thus an effect in it gives `#CAP!`, and `check` finds it. |
+| TREE.RESULT | The root of a tree gives the JSON of the tree: each attribute in the order of the parts, with the JSON of each node in a value. A node of a closed tree starts a new tree. |
 
 ## Evaluation and plans
 
@@ -109,6 +116,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | PLAN.AGREES | A plan, a traced plan, a second evaluation of the plan and the reference interpreter give the same result for each generated document. |
 | REF.DIRECT | The reference interpreter evaluates a document by the rules, and it compiles nothing. A compiled evaluator needs a definition, or the reference gives `#NOEVAL`. |
 | REF.FORMULA | `formulaDefinitions` gives a definition for each evaluator of the formula kit: a function evaluator, written from this specification. |
+| REF.TREE | The reference has its own definition of the evaluator `tree.node` in `STD_DEFINITIONS`. It uses that definition for the standard evaluator, also without the option `definitions`. |
 | REF.EFFECTS | The reference records each effect with its kind, its payload and its place. It narrows the capabilities by the contracts of the kinds. |
 | AGREE.VALUES | `sameValue` compares lists and plain records by their items and fields, and each other leaf with `Object.is`. Two closures of `fn` with the same parameters are the same. A rule of the caller compares other objects. Identity is not compared. |
 | AGREE.ERRORS | Two errors agree when they have the same code, and the same place when both have one. With `strict`, they also have the same reason, and each has a place. An overflow of the stack of the host is the one permitted difference. |
@@ -119,6 +127,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | GEN.CONTRACTS | Without malformed choices, a generated document follows the contracts of its kinds: the shapes, the declared types and the names in scope. `check` finds no problem in it. |
 | GEN.MALFORMED | Malformed choices give unknown kinds, unknown names under a namespace with a fallback, values without their shape, bare values without a type, bad paths and names that nothing binds. |
 | GEN.REACH | The documents of the property test reach each kind of their world, and they give values and errors. |
+| GEN.PATHS | The option `roots` gives the roots of the paths, and the option `steps` gives their most steps. The defaults are each root and two steps. |
 
 ## The run side and capabilities
 
@@ -169,7 +178,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.CHECK | `check` finds the problems of a document before a run. Each problem has its place. |
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
-| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless the host adopts the names. |
+| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless the host adopts the names. A `#DEPTH!` from an overflow of the stack of the host is not an error of `check`. |
 | STATIC.NARROW | `check` tests each effect against the capabilities of its own document: the capabilities at the root, narrowed by the rules of the kinds around it. |
 | STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. |
 | STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |

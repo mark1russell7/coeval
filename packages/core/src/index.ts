@@ -186,6 +186,6 @@ export {
   isClosure,
   jsTruthy,
 } from "./formula.ts";
-export { type Definitions, type ReferenceOptions, formulaDefinitions, reference } from "./reference.ts";
+export { type Definitions, type ReferenceOptions, STD_DEFINITIONS, formulaDefinitions, reference } from "./reference.ts";
 export { type AgreeOptions, type Agreement, type Tier, type TierResult, agree, sameValue } from "./agree.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";

@@ -3,10 +3,18 @@ import {
   STD_CAPS,
   STD_MACHINE,
   THING,
+  agree,
+  check,
   context,
   evaluate,
+  fail,
+  flatten,
+  isHostThing,
   lookupKind,
   makeContext,
+  nodeAt,
+  ok,
+  prepare,
   ref,
   resolve,
   typed,
@@ -14,6 +22,8 @@ import {
   type HostThing,
   type Json,
   type Key,
+  type Machine,
+  type Result,
   type Thing,
 } from "./index.ts";
 
@@ -148,8 +158,128 @@ describe("trees: self, parent and nearest", () => {
 
   it("[TREE.ONCE] evaluates a field of a node only one time, also when two readers ask", () => {
     const out = run(tree);
-    const widthEvaluations = out.trace.children.filter((child) => child.path.at(-1) === "width");
+    // The JSON of the panel reads its width, and the first box reads it again.
+    const widthEvaluations = flatten(out.trace).filter((node) => node.path.join("/") === "width");
     expect(widthEvaluations).toHaveLength(1);
+  });
+});
+
+describe("the decorated tree", () => {
+  /** A machine with a kind `count`: its evaluator counts its evaluations and gives the count. */
+  const counted = (): { readonly machine: Machine; readonly count: () => number } => {
+    let count = 0;
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, count: { verbs: { eval: "test.count" } } } },
+      evaluators: {
+        ...STD_MACHINE.evaluators,
+        "test.count": () => {
+          count += 1;
+          return ok(count);
+        },
+      },
+    };
+    return { machine, count: () => count };
+  };
+  const box = (value: Record<string, Json>): Json => ({ type: "box", value });
+  const panel = (value: Record<string, Json>): Json => ({ type: "panel", value });
+  const children = (...items: Json[]): Json => ({ type: "list", value: items });
+  const path = (...steps: Json[]): Json => ({ type: "ref", value: steps });
+  /** The plan, the traced plan, a second evaluation and the reference give the same result, also the same reason. */
+  const agreed = (machine: Machine, doc: Json, caps: readonly string[] = STD_CAPS): Result => {
+    const outcome = agree(machine, doc, makeContext({}, caps), { strict: true });
+    expect(outcome, outcome.ok ? "" : outcome.reason).toMatchObject({ ok: true });
+    return outcome.ok ? outcome.result : fail("#N/A", "The tiers disagree.");
+  };
+
+  it("[TREE.LAZY] a node in an open tree gives its host thing, and an attribute that nothing reads does not evaluate", () => {
+    const { machine, count } = counted();
+    // add gets the thing of the box, not a number. Thus the width of the box does not evaluate.
+    const unread = panel({ width: { type: "add", value: [box({ width: { type: "count", value: null } }), 1] } });
+    expect(agreed(machine, unread)).toMatchObject({ ok: false, error: { code: "#VALUE!", place: ["width"], reason: "Part 0 of add is not a number." } });
+    expect(count()).toBe(0);
+    const out = evaluate(machine, panel({ children: children(box({ width: 1 })) }), makeContext());
+    const thing = nodeAt(out.trace, ["children", 0])?.result;
+    expect(thing?.ok === true && isHostThing(thing.value)).toBe(true);
+    expect(out.result).toEqual(ok({ children: [{ width: 1 }] }));
+  });
+
+  it("[TREE.SIBLING] a node reads an attribute of a sibling through its parent, before or after the sibling", () => {
+    const doc = panel({
+      children: children(
+        box({ width: path("self", "parent", "children", 1, "width") }),
+        box({ width: 120 }),
+        box({ width: { type: "add", value: [path("self", "parent", "children", 0, "width"), 10] } }),
+      ),
+    });
+    expect(agreed(STD_MACHINE, doc)).toEqual(ok({ children: [{ width: 120 }, { width: 120 }, { width: 130 }] }));
+  });
+
+  it("[TREE.CYCLE] a demand that reaches an attribute in evaluation gives #CYCLE!, with the chain of attributes", () => {
+    expect(agreed(STD_MACHINE, panel({ width: path("self", "width") }))).toEqual(
+      fail("#CYCLE!", "The attributes form a cycle: width of panel at [] -> width of panel at [].", { place: ["width"] }),
+    );
+    const chain = panel({ width: path("self", "children", 0, "width"), children: children(box({ width: path("self", "parent", "width") })) });
+    expect(agreed(STD_MACHINE, chain)).toEqual(
+      fail("#CYCLE!", "The attributes form a cycle: width of panel at [] -> width of box at [children, 0] -> width of panel at [].", {
+        place: ["children", 0, "width"],
+      }),
+    );
+    // The value of a node is its JSON, thus a reference to the node itself reads each of its attributes.
+    expect(agreed(STD_MACHINE, panel({ width: 1, height: path("self") }))).toEqual(
+      fail("#CYCLE!", "The attributes form a cycle: height of panel at [] -> height of panel at [].", { place: ["height"] }),
+    );
+  });
+
+  it("[TREE.ERROR] a reference to a failed attribute gives the error of the attribute: its code, reason, place and cause", () => {
+    const failed = agreed(STD_MACHINE, panel({ height: path("self", "width"), width: { type: "add", value: [1, true] } }));
+    expect(failed).toEqual(fail("#VALUE!", "The value must be a number.", { place: ["width", 1] }));
+    const boom = new Error("boom");
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, boom: { verbs: { eval: "test.boom" } } } },
+      evaluators: {
+        ...STD_MACHINE.evaluators,
+        "test.boom": () => {
+          throw boom;
+        },
+      },
+    };
+    const doc = panel({ children: children(box({ width: path("self", "parent", "children", 1, "width") }), box({ width: { type: "boom", value: null } })) });
+    const result = agreed(machine, doc);
+    expect(result).toMatchObject({ ok: false, error: { code: "#CALC!", place: ["children", 1, "width"], reason: "The evaluator test.boom threw: Error: boom" } });
+    expect(result.ok ? undefined : result.error.cause).toBe(boom);
+  });
+
+  it("[TREE.MEMO] each node keeps one memo for each attribute, for one evaluation", () => {
+    const { machine, count } = counted();
+    const doc = panel({
+      width: { type: "count", value: null },
+      children: children(box({ width: path("self", "parent", "width"), height: { type: "count", value: null } }), box({ width: path("self", "parent", "width") })),
+    });
+    const plan = prepare(machine, doc);
+    expect(plan.evaluate()).toEqual(ok({ width: 1, children: [{ width: 1, height: 2 }, { width: 1 }] }));
+    expect(count()).toBe(2);
+    // A second evaluation makes new nodes with new memos. Nothing stays between two evaluations.
+    expect(plan.evaluate()).toEqual(ok({ width: 3, children: [{ width: 3, height: 4 }, { width: 3 }] }));
+    expect(count()).toBe(4);
+  });
+
+  it("[TREE.PURE] an attribute causes no effect: an effect in it gives #CAP!, and check finds it", () => {
+    const doc = panel({ width: { type: "log", value: ["x"] } });
+    expect(agreed(STD_MACHINE, doc)).toMatchObject({ ok: false, error: { code: "#CAP!", place: ["width"] } });
+    expect(check(STD_MACHINE, doc, { caps: STD_CAPS })).toMatchObject([{ code: "#CAP!", place: ["width"] }]);
+  });
+
+  it("[TREE.RESULT] the root gives the JSON of the tree, and a node in a value gives its JSON there", () => {
+    const doc = panel({
+      width: 10,
+      height: { type: "list", value: [box({ width: 2 }), { type: "if", value: { test: { type: "bool", value: true }, then: box({ height: path("self", "parent", "width") }) } }] },
+    });
+    expect(agreed(STD_MACHINE, doc)).toEqual(ok({ width: 10, height: [{ width: 2 }, { height: 10 }] }));
+    // A node of a closed tree is the root of a new tree. Its reads see the finished attributes.
+    const first = prepare(STD_MACHINE, box({ children: children(box({ width: 3 })) }));
+    expect(first.evaluate()).toEqual(ok({ children: [{ width: 3 }] }));
   });
 });
 

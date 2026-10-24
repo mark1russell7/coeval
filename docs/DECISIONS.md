@@ -152,3 +152,21 @@ No question waits on the owner.
 - The reference covers evaluations, not runs. A run with a host that waits comes later.
 
 **Why.** Two independent readings of the rules find a bug in either one. At its start, the harness found four bugs of the kernel and one bug of the reference itself (K9).
+
+## D16 (2026-10-24): the standard tree is a decorated tree with lazy attributes
+
+**Context.** The study R3 (`docs/research/r3-attribute-grammars.md`) found three bugs in the standard `tree.node`. A reference to a sibling recursed until the stack of the host overflowed. A cycle ended at the limit of the stack, not at `#CYCLE!`. A failed field read as `#N/A`. The harness K9 found the same bugs.
+
+**Decision.**
+
+- `tree.node` becomes the decorated tree of R3 P1. It keeps its name, thus the kinds `panel` and `box` and the site do not change.
+- Each node is a host thing, and each part of a node is an attribute. An attribute evaluates on demand, with one memo cell for each node and attribute.
+- The memo cells last one evaluation. A host with signals keeps its cells only through P3 (L2c).
+- The structure comes first. A node in an attribute of an open tree gives its thing. The root gives the JSON of the tree.
+- A demand that reaches an attribute in evaluation gives `#CYCLE!`. The reason gives the chain of attributes. The place is the reference that closed the cycle.
+- A failed attribute throws `Failure` from `deref`, thus a reference to it gives the error of the attribute.
+- The kinds `panel` and `box` mask the capabilities of their parts. The order of the demands is not the order of the document, thus an effect there breaks D3.
+- A node reserves only the structural steps `parent` and `type`. Steps for `index`, `prev` and `next` wait for the first open question of R3.
+- The reference has its own definition of the tree (`STD_DEFINITIONS`), as D15 asks.
+
+**Why.** Demand evaluation with a memo is the reference meaning of attribute grammars (R3). It needs no schedule, as D3 asks. The old name keeps each document of the site and of the hosts. A nested node gives a host thing, and an effect in a tree gives `#CAP!`. Before 1.0, these two changes can break a caller, thus the version is 0.5.0.

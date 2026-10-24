@@ -15,14 +15,14 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 3. K20 and K21 together, two correctness fixes, and the helper `partsOf`, a request of a language (done, 2026-10-24, version 0.4.3):
    - K20: `check` knows the names of operations and extensions through the hook `known` of the machine, and `fn` declares the shape of `params` (R5 P1). Before, an unknown `ops.*` or `ext.*` passed `check` and failed with `#NAME?` in a run.
    - K21: `docEquals` compares the values that are not plain JSON by identity (R4). Before, it compared only the own keys, thus two different dates or maps were equal.
-4. K32: one merge function for worlds, with conflict rules (R6 P2). Two equal entries merge, and two namespaces merge key by key. Each other conflict is an error, unless the entry has a mark to replace. Today `formulaMachine` merges with a shallow spread. Thus a later kind replaces an earlier kind without a message, and the `ops` of a language replace the namespace of the kit.
-5. L2a: the decorated tree (R3 P1).
+4. L2a: the decorated tree (R3 P1) (done, 2026-10-24, version 0.5.0). Each field of a node of `panel` or `box` evaluates on demand, with one memo for each node and attribute. A sibling is a path through the parent, a cycle gives `#CYCLE!` with its chain, and a failed field keeps its error. The nightly agreement run is green again.
+5. K32: one merge function for worlds, with conflict rules (R6 P2). Two equal entries merge, and two namespaces merge key by key. Each other conflict is an error, unless the entry has a mark to replace. Today `formulaMachine` merges with a shallow spread. Thus a later kind replaces an earlier kind without a message, and the `ops` of a language replace the namespace of the kit.
 6. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
 7. K12: compiled paths (R1 P2).
 8. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
 9. K22 and K23: `sameResult`, a safe equality for an early cutoff (R4 P1), and value types and value domains, the base of the type work (R5 P2).
 
-On the site, C10 is next too (R4). K34, the composition checklist as spec tests, is next after K32 (R6 P1). Each other proposal of the six studies is a row with the status `later`.
+On the site, C10 is next too (R4). K39 is next too: a small correction that K20 found. K34, the composition checklist as spec tests, is next after K32 (R6 P1). Each other proposal of the six studies is a row with the status `later`.
 
 ## The design and the site
 
@@ -82,6 +82,7 @@ On the site, C10 is next too (R4). K34, the composition checklist as spec tests,
 | K36 | A check of verb coverage: `checkWorld` lists each kind with no entry and no default for a verb that the language declares (R6 P5) | later | K33 |
 | K37 | A language package format: `defineLanguage` gives one value with a name, a version and a hash, and `compose` merges languages through K32 (R6 P7) | later | K32 |
 | K38 | A boundary kind `lang` for a part in another language, as the module boundary of Racket (R6 P8) | later (low value today, and a decision of the owner first) | K37 |
+| K39 | A host thing can say that a field holds `undefined`. Today `deref` uses `undefined` for a missing field, so a host that adopts the names root hides a name bound to `undefined`. Found by K20. | next | K4 |
 
 ## The kits
 
@@ -90,8 +91,8 @@ On the site, C10 is next too (R4). K34, the composition checklist as spec tests,
 | L1 | The sequence kit: steps with names for the results of earlier steps, capabilities, and the order of effects | done (2026-10-21: parts at the same time, the error of the host, capabilities that only narrow, an abort) | K2 |
 | L1a | A handler kind `handle` with clauses that run in place, so that mocks, retries and logs are documents (R2 P5, and R2 drafts its decision) | later | K10, K18 |
 | L1b | Multi-shot by evaluation again: a kind `choose` evaluates its sealed body again for each branch, with a replay log (R2 P7) | later | K11, L1a |
-| L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | next (L2a first, from R3) | K2, K4 |
-| L2a | The decorated tree: demand evaluation with one memo for each node and attribute, `#CYCLE!` with its chain, and errors that stay errors. It fixes three bugs that R3 found in the standard `tree.node` (R3 P1). | next | K2, K4 |
+| L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later (L2a is done, and L2b to L2i come from R3) | K2, K4 |
+| L2a | The decorated tree: demand evaluation with one memo for each node and attribute, `#CYCLE!` with its chain, and errors that stay errors. It fixes three bugs that R3 found in the standard `tree.node` (R3 P1). | done (2026-10-24, version 0.5.0, D16) | K2, K4 |
 | L2b | Equations in kind contracts, with a ladder for attributes: the own field, the kind, the parent, a copy, then a default (R3 P2) | later | L2a |
 | L2c | Memo cells from the host: a host with signals keeps the cell of each attribute between evaluations (R3 P3) | later | L2a |
 | L2d | Static checks of attributes: unknown names, names outside `down`, reserved names and completeness (R3 P4) | later | L2b |

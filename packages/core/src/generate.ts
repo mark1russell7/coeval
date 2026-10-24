@@ -1,7 +1,7 @@
 import { type Json, type Key, docEquals, isEnvelope, typePath } from "./doc.ts";
 import { type Kind, type ScopeRule, type Shape, type World, type WorldEntry, isAlias, isKind, isNamespace, lookupKind } from "./world.ts";
 import { pathMatches } from "./parts.ts";
-import { ROOTS } from "./deref.ts";
+import { ROOTS, type Root } from "./deref.ts";
 
 /** A source of random numbers with a seed. The same seed gives the same numbers. */
 export interface Random {
@@ -70,6 +70,10 @@ export interface GenerateOptions {
   readonly own?: readonly string[];
   /** The keys for the steps of a path after its root and its name. */
   readonly keys?: readonly Key[];
+  /** The roots that a path can start at. The default is each root. */
+  readonly roots?: readonly Root[];
+  /** The most steps of a path after its root and its name. The default is 2. */
+  readonly steps?: number;
 }
 
 /**
@@ -140,6 +144,8 @@ export function generate(world: World, options: GenerateOptions): unknown {
   const maxSize = options.maxSize ?? 24;
   const malformed = options.malformed ?? 0.05;
   const keys = options.keys ?? KEYS;
+  const steps = options.steps ?? 2;
+  const roots: readonly Root[] = options.roots ?? ROOTS;
   const stepTypes = types.filter((type) => {
     const found = lookupKind(world, type);
     return found.ok && Object.hasOwn(found.kind.verbs, "step");
@@ -202,11 +208,13 @@ export function generate(world: World, options: GenerateOptions): unknown {
   /** A path from a root (D10). It uses the names in scope, and sometimes a step document. */
   const pathFor = (pos: Position, refKind: Kind | undefined): Json => {
     if (rng.chance(malformed)) return rng.pick<Json>(["names", [], { names: "a" }, ["nowhere", "a"]]);
-    const root = pos.names.length > 0 && rng.chance(0.75) ? "names" : rng.pick(ROOTS.filter((name) => name !== "names"));
+    const others = roots.filter((name) => name !== "names");
+    const named = roots.includes("names") && pos.names.length > 0 && (others.length === 0 || rng.chance(0.75));
+    const root = named || others.length === 0 ? "names" : rng.pick(others);
     const path: Json[] = [root];
     if (root === "names") path.push(pickName(pos.names));
     if (root === "world") path.push(String(rng.pick(types)[0]));
-    for (let index = rng.int(3); index > 0; index -= 1) {
+    for (let index = rng.int(steps + 1); index > 0; index -= 1) {
       if (stepTypes.length > 0 && rng.chance(0.2)) {
         const type = rng.pick(stepTypes);
         const kind = kindOf(type);

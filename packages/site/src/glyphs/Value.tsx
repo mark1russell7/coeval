@@ -1,4 +1,20 @@
-import type { Json } from "@mark1russell7/coeval";
+import { isHostThing, type Json } from "@mark1russell7/coeval";
+
+/**
+ * This function gives a short text for a result. A host thing, for example a node of a tree, gives its label. Each
+ * other value gives its JSON.
+ *
+ * @param value - The value.
+ * @returns The text.
+ */
+export function valueText(value: unknown): string {
+  if (isHostThing(value)) return value.label;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
 
 /** The props of a value glyph. */
 export interface ValueGlyphProps {
@@ -12,6 +28,14 @@ export interface ValueGlyphProps {
  * record show their items. Data has no tab, because data has no type of its own.
  */
 export default function ValueGlyph({ value, size = "small" }: ValueGlyphProps) {
+  // A node of an open tree is a host thing. The glyph shows its label, because its attributes evaluate on demand.
+  if (isHostThing(value)) {
+    return (
+      <span className="cv-value cv-thing" data-size={size} data-of="thing" title="A node of a tree">
+        {value.label}
+      </span>
+    );
+  }
   if (value === null) {
     return (
       <span className="cv-value" data-size={size} data-of="null" title="no value">

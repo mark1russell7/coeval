@@ -2,7 +2,8 @@ import { type Envelope, type Json, type Key, isEnvelope, isRecord, typeName } fr
 import { ask } from "./ladder.ts";
 import type { CapsRule, Kind } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
-import { type Cap, type Context, type Resolution, type ResolveOptions, resolve, valueOfThing, worldThing } from "./deref.ts";
+import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
+import { STD_EVALUATORS } from "./stdlib.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
@@ -82,7 +83,10 @@ function own<T>(table: Readonly<Record<string, T>> | undefined, name: string): T
   return table !== undefined && Object.hasOwn(table, name) ? table[name] : undefined;
 }
 
-/** This function finds the code of an evaluator name. A runner wins over an evaluator of the same name. */
+/**
+ * This function finds the code of an evaluator name. A runner wins over an evaluator of the same name. A standard
+ * evaluator gets the definition of the reference, unless the options give another definition (REF.TREE).
+ */
 function choose(env: Env, name: string): Chosen | undefined {
   const runner = own(env.machine.runners, name);
   if (runner !== undefined) {
@@ -92,7 +96,8 @@ function choose(env: Env, name: string): Chosen | undefined {
   }
   const evaluator = own(env.machine.evaluators, name);
   if (evaluator === undefined) return undefined;
-  const defined = own(env.definitions.evaluators, name);
+  const standard = evaluator === own(STD_EVALUATORS, name) ? own(STD_DEFINITIONS.evaluators, name) : undefined;
+  const defined = own(env.definitions.evaluators, name) ?? standard;
   if (defined !== undefined) return { evaluator: defined };
   return typeof evaluator === "function" ? { evaluator } : { gap: `The reference has no definition of the compiled evaluator ${name}.` };
 }
@@ -337,6 +342,145 @@ export function reference(machine: Machine, doc: unknown, context: Context = mak
     return placed(thrown(error, "the reference"), []);
   }
 }
+
+/*
+ * The definition of the decorated tree (TREE.*), written from docs/SPEC.md. It shares no code with `tree.node` of
+ * stdlib.ts: its nodes, its memo, its marks for attributes in evaluation and its JSON are its own.
+ */
+
+/** One tree of the reference in one evaluation. */
+interface RefTree {
+  open: boolean;
+}
+
+/** A node of the reference. Its host thing is the key of the table `refNodes`. */
+interface RefNode {
+  readonly tree: RefTree;
+  readonly kind: string;
+  readonly place: readonly Key[];
+  readonly parts: readonly Part[];
+  readonly ctx: Context;
+  /** The results of the attributes that ended. */
+  readonly values: Map<string, Result>;
+  /** The attributes in evaluation. */
+  readonly pending: Set<string>;
+}
+
+const refNodes = new WeakMap<object, RefNode>();
+
+/** The attributes in evaluation in the reference, in the order of their demands (TREE.CYCLE). */
+const inEvaluation: { readonly node: RefNode; readonly name: string }[] = [];
+
+function nameOfAttribute(node: RefNode, name: string): string {
+  return `${name} of ${node.kind} at [${node.place.join(", ")}]`;
+}
+
+function refNodeOf(thing: unknown): RefNode | undefined {
+  return typeof thing === "object" && thing !== null ? refNodes.get(thing) : undefined;
+}
+
+/** TREE.ONCE, TREE.MEMO and TREE.CYCLE: the result of one attribute, or `undefined` when the node has no such part. */
+function attributeOf(node: RefNode, self: HostThing, name: string): Result | undefined {
+  const done = node.values.get(name);
+  if (done !== undefined) return done;
+  if (node.pending.has(name)) {
+    const from = inEvaluation.findIndex((entry) => entry.node === node && entry.name === name);
+    const steps = from < 0 ? [nameOfAttribute(node, name)] : inEvaluation.slice(from).map((entry) => nameOfAttribute(entry.node, entry.name));
+    return fail("#CYCLE!", `The attributes form a cycle: ${[...steps, nameOfAttribute(node, name)].join(" -> ")}.`);
+  }
+  const part = node.parts.find((item) => item.key === name);
+  if (part === undefined) return undefined;
+  node.pending.add(name);
+  inEvaluation.push({ node, name });
+  try {
+    const result = part.evaluate({ ...node.ctx, self });
+    node.values.set(name, result);
+    return result;
+  } finally {
+    node.pending.delete(name);
+    inEvaluation.pop();
+  }
+}
+
+/** TREE.RESULT: the JSON of a node. `open` holds the nodes and the containers whose JSON is in progress. */
+function jsonOfNode(node: RefNode, self: HostThing, open: readonly object[]): Result {
+  const record: Record<string, unknown> = {};
+  for (const part of node.parts) {
+    const result = attributeOf(node, self, part.key) as Result;
+    if (!result.ok) return result;
+    const value = plainValue(result.value, [...open, self]);
+    if (!value.ok) return value;
+    setField(record, part.key, value.value);
+  }
+  return ok(record);
+}
+
+/** This function gives a copy of a value with the JSON of each node in it. */
+function plainValue(value: unknown, open: readonly object[]): Result {
+  const node = refNodeOf(value);
+  if (node !== undefined) {
+    if (open.includes(value as object)) return fail("#CYCLE!", `The JSON of the node ${node.kind} at [${node.place.join(", ")}] holds the node itself.`);
+    return jsonOfNode(node, value as HostThing, open);
+  }
+  if (typeof value !== "object" || value === null || isHostThing(value) || open.includes(value)) return ok(value);
+  if (Array.isArray(value)) {
+    const items: unknown[] = [];
+    for (const item of value) {
+      const plain = plainValue(item, [...open, value]);
+      if (!plain.ok) return plain;
+      items.push(plain.value);
+    }
+    return ok(items);
+  }
+  if (!isRecord(value)) return ok(value);
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const plain = plainValue(value[key], [...open, value]);
+    if (!plain.ok) return plain;
+    setField(copy, key, plain.value);
+  }
+  return ok(copy);
+}
+
+/**
+ * TREE.LAZY, TREE.PARENT, TREE.SIBLING and TREE.ERROR: a node of an open tree gives its thing, and the root of a new
+ * tree gives its JSON. A step on the thing reads an attribute, and a failed attribute throws its own error.
+ */
+const treeDefinition: EvalFn = ({ parts, context, kind, place }) => {
+  const outer = refNodeOf(context.self);
+  const nested = outer !== undefined && outer.tree.open;
+  const node: RefNode = { tree: nested ? outer.tree : { open: true }, kind, place, parts, ctx: context, values: new Map(), pending: new Set() };
+  const self: HostThing & { readonly type: string } = {
+    [THING]: true,
+    type: kind,
+    label: `node ${kind}`,
+    deref: (key): Thing | undefined => {
+      if (key === "parent") return context.self;
+      if (key === "type") return kind;
+      const result = attributeOf(node, self, String(key));
+      if (result === undefined || result.ok) return result?.ok === true ? result.value : undefined;
+      throw new Failure(result.error);
+    },
+    toJson: () => {
+      const result = jsonOfNode(node, self, []);
+      if (result.ok) return result.value;
+      throw new Failure(result.error);
+    },
+  };
+  refNodes.set(self, node);
+  if (nested) return ok(self);
+  try {
+    return jsonOfNode(node, self, []);
+  } finally {
+    node.tree.open = false;
+  }
+};
+
+/**
+ * The definitions of the reference for the evaluators of the standard machine that need their own reading. The
+ * reference uses them for the standard evaluators, also without the option `definitions`. It holds `tree.node`.
+ */
+export const STD_DEFINITIONS: Definitions = { evaluators: { "tree.node": treeDefinition } };
 
 /* The definitions of the formula kit: one function evaluator for each construct, written from docs/SPEC.md. */
 
