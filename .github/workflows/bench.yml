@@ -1,4 +1,5 @@
-# The speed of plans and paths (K12, D29): the base commit and this commit in one process, on one machine.
+# The speed of plans and paths (K12, D29, K101): the base commit and this commit on one machine.
+# Each copy runs in its own processes, and a second copy of the base gives the noise floor (A/A) of each case.
 # The job only prints numbers, in its log and in its summary. It does not block a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
 name: Speed

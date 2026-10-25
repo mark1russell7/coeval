@@ -585,6 +585,7 @@ The work found a hole of D25. A name bound to a reference document had the type 
 - The memo of a world holds 1000 kinds at most, and then it starts again. Thus the types in the data of a host cannot fill the memory.
 - The short path, `isRef` and `derefStep` read the field `type` of a value first. A value without that field is not an envelope, thus they do not examine its keys. A text type other than `ref` is not a reference.
 - A CI job `bench.yml` compares the base and the head of a pull request in one process, with the rounds in turn. It prints the numbers and blocks nothing. The speed tests of the suite stay as they are.
+- K101 changed the method of the job. One process kept one compilation of each copy, and identical code showed changes of up to 11 %. Since K101, each copy starts in new processes, and a second copy of the base gives the noise of each case.
 
 **Rejected.**
 
