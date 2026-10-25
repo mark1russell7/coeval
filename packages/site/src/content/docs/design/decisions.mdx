@@ -28,6 +28,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D17 | Worlds and machines compose through one merge. Equal entries merge, and namespaces merge key by key. Each other clash throws one error that lists each conflict, unless the later part names its path in `replaces`. |
 | D18 | A restriction removes entries of a world or a machine by path. It removes the code of a name too, because an own entry names an evaluator directly. |
 | D20 | `docEquals`, `sameValue` and `sameResult` share one walk. `sameResult` is for an early cutoff, thus a closure is the same only as itself, and two errors need the same reason too. |
+| D21 | A host thing tells a field that holds `undefined` from a missing field with an optional `has`. A thing without `has` keeps the old reading. |
 
 ## Open
 

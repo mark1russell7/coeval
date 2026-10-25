@@ -461,6 +461,7 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place }) => {
       if (result === undefined || result.ok) return result?.ok === true ? result.value : undefined;
       throw new Failure(result.error);
     },
+    has: (key) => key === "parent" || key === "type" || parts.some((part) => part.key === String(key)),
     toJson: () => {
       const result = jsonOfNode(node, self, []);
       if (result.ok) return result.value;

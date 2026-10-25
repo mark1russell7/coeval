@@ -70,6 +70,36 @@ describe("resolve", () => {
     expect(resolve(STD_MACHINE, context({ self: thing }), ["self", "double"])).toMatchObject({ ok: true, thing: 84 });
   });
 
+  it("[DEREF.HOST-UNDEFINED] a host thing tells a field that holds undefined from a missing field, with has or with resolve", () => {
+    const fields: Record<string, unknown> = { gone: undefined, here: 1 };
+    const old: HostThing = { [THING]: true, label: "fields", deref: (key) => fields[String(key)], toJson: () => fields };
+    const told: HostThing = { ...old, has: (key) => Object.hasOwn(fields, String(key)) };
+    const paths: HostThing = { ...old, resolve: (keys) => (keys.length === 1 && Object.hasOwn(fields, String(keys[0])) ? { thing: fields[String(keys[0])] } : undefined) };
+    const read = (self: HostThing, step: string, hops = true) => resolve(STD_MACHINE, context({ self }), ["self", step], { hops });
+    const holdsUndefined = (found: ReturnType<typeof read>): boolean => found.ok && found.thing === undefined;
+    // A thing without has keeps the old reading: undefined is a missing field.
+    expect(read(old, "gone")).toMatchObject({ ok: false, code: "#N/A" });
+    expect(holdsUndefined(read(told, "gone"))).toBe(true);
+    expect(read(told, "nope")).toMatchObject({ ok: false, code: "#N/A" });
+    expect(read(told, "here")).toMatchObject({ ok: true, thing: 1 });
+    for (const hops of [true, false]) {
+      expect(holdsUndefined(read(paths, "gone", hops))).toBe(true);
+      expect(read(paths, "nope", hops)).toMatchObject({ ok: false, code: "#N/A" });
+    }
+  });
+
+  it("[DEREF.HOST-UNDEFINED] a host that adopts the names root keeps a name that is bound to undefined", () => {
+    const names: Record<string, unknown> = { gone: undefined };
+    const adopt = (withHas: boolean) => (value: unknown): unknown =>
+      value !== names
+        ? value
+        : { [THING]: true, label: "names", deref: (key: Key) => names[String(key)], toJson: () => names, ...(withHas ? { has: (key: Key) => Object.hasOwn(names, String(key)) } : {}) };
+    const doc = ref("names", "gone");
+    expect(evaluate({ ...STD_MACHINE, adopt: adopt(true) }, doc, context({ names })).result).toEqual(ok(undefined));
+    expect(evaluate({ ...STD_MACHINE, adopt: adopt(false) }, doc, context({ names })).result).toMatchObject({ ok: false, error: { code: "#NAME?" } });
+    expect(evaluate({ ...STD_MACHINE, adopt: adopt(true) }, ref("names", "nope"), context({ names })).result).toMatchObject({ ok: false, error: { code: "#NAME?" } });
+  });
+
   it("[WORLD.WALK] walks the world, and follows an alias of a namespace", () => {
     expect(resolve(STD_MACHINE, ctx, ["world", "math", "sum", "verbs", "eval"])).toMatchObject({ ok: true, thing: "math.add" });
   });
@@ -249,6 +279,18 @@ describe("the decorated tree", () => {
     const result = agreed(machine, doc);
     expect(result).toMatchObject({ ok: false, error: { code: "#CALC!", place: ["children", 1, "width"], reason: "The evaluator test.boom threw: Error: boom" } });
     expect(result.ok ? undefined : result.error.cause).toBe(boom);
+  });
+
+  it("[DEREF.HOST-UNDEFINED] an attribute with the value undefined gives undefined, not #N/A, and a missing attribute gives #N/A", () => {
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, nothing: { verbs: { eval: "test.nothing" } } } },
+      evaluators: { ...STD_MACHINE.evaluators, "test.nothing": () => ok(undefined) },
+    };
+    const doc = panel({ children: children(box({ width: path("self", "parent", "children", 1, "width") }), box({ width: { type: "nothing", value: null } })) });
+    const result = agreed(machine, doc);
+    expect(result.ok && (result.value as { children: { width?: unknown }[] }).children.map((child) => Object.hasOwn(child, "width") && child.width === undefined)).toEqual([true, true]);
+    expect(agreed(machine, panel({ width: 1, height: path("self", "depth") }))).toMatchObject({ ok: false, error: { code: "#N/A", place: ["height"] } });
   });
 
   it("[TREE.MEMO] each node keeps one memo for each attribute, for one evaluation", () => {
