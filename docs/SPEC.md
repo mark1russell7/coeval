@@ -2,6 +2,8 @@
 
 This file gives each rule of the kernel one requirement ID. Each ID has at least one test, and the title of the test starts with the ID in brackets. The test `spec.test.ts` makes sure that each ID of this file has a test, and that each ID of a test is in this file.
 
+[`SEMANTICS.md`](SEMANTICS.md) gives the same rules as a small calculus. Each inference rule of that page names the IDs of this file that it covers.
+
 ## Documents
 
 | ID | Rule |
@@ -28,6 +30,7 @@ This file gives each rule of the kernel one requirement ID. Each ID has at least
 | WORLD.WALK | A path can walk the world, and it follows an alias. |
 | WORLD.ALIAS | A lookup finds a kind by its path, and it follows each alias. |
 | WORLD.ALIAS-EVAL | A document whose type is a path to an alias evaluates with the kind of the alias. |
+| WORLD.ALIAS-LIMIT | A lookup follows at most 32 aliases. A longer chain gives no kind, thus a document of that type gives `#KIND?`. |
 | WORLD.EXPANDED | A type can be the expanded form: a reference document from the root `world`. |
 | WORLD.NO-KIND | A path that reaches no kind gives `#KIND?`. |
 | WORLD.FALLBACK | A namespace with a fallback gives the fallback kind for each key that it does not have. |
@@ -80,7 +83,8 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | SHAPE.CLOSED | A closed record shape permits only its named fields. Another field gives a reason and its place. |
 | SHAPE.KINDS | A term shape can name the kinds that it permits. A part whose type does not start with one of them gives a reason. |
 | SHAPE.DISTINCT | A list shape can permit no two equal items. |
-| EVAL.SEALED | An evaluator gets each part sealed. Two parts with the same result can replace each other. |
+| EVAL.SEALED | An evaluator gets each part sealed. Two parts with the same result can replace each other. This holds for code that reads its parts only through their handles, not through `doc.value`. |
+| EVAL.BY-NAME | Each call of the handle of a part is a new evaluation. The part evaluates again, and its effects happen again. |
 | EVAL.FILL | An evaluator can put the result of each part in the place of the part. The data around the parts stays the same objects. |
 
 ## References
@@ -93,6 +97,8 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | DEREF.CODES | An unknown name gives `#NAME?`. A missing field gives `#N/A`. A field with the value `undefined` gives that value. A list has the field `length`. |
 | DEREF.COLLAPSE | A path follows a reference that a step reaches. |
 | DEREF.CYCLE | A cycle of references gives `#CYCLE!`. |
+| DEREF.COLLAPSE-LIMIT | One resolution follows at most 64 references, also through the paths of the references that it follows. A long chain without a cycle also gives `#CYCLE!`. |
+| DEREF.READER | A reference in the data resolves in the context of its reader, not in the context of its writer. |
 | DEREF.HOST | A host thing answers its own steps. |
 | DEREF.PATH | A host thing can answer all the keys of a path in one call. |
 | DEREF.HOST-UNDEFINED | A host thing tells a field that holds `undefined` from a missing field. When `deref` gives `undefined`, `has` tells which it is. `resolve` gives `{ thing: undefined }` for such a field. A thing without `has` reads `undefined` as a missing field. Each node of the standard tree has `has`. |
@@ -103,6 +109,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | DEREF.HOPS | A resolution can skip the record of its hops. |
 | DEREF.SYMBOL | The brand of a host thing is a global symbol. Two copies of the kernel know the things of each other. |
 | DEREF.WALK-CODE | A walker can give the code of its failure, for example `#REF!` for a position outside a space. The default code is `#N/A`. |
+| DEREF.NO-WALKER | A step that is not a key, and not a document of a kind with the verb `step`, gives `#STEP?`. |
 | TREE.PARENT | A node of a tree reads its parent through the field `parent`. |
 | TREE.NEAREST-SELF | A walk `nearest` with `self: true` starts at the node itself. |
 | TREE.NEAREST-MATCH | A host can give the walker `nearest` its own test of a type and its own limit of hops. |
@@ -191,8 +198,9 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.STOP | A run stops at a failed step. The later effects do not happen. |
 | RUN.CAP | A run refuses an effect without its capability. The host does not see the effect. |
 | RUN.PURE | The kind `pure` refuses an effect, also in a run. |
-| RUN.SAME | A run gives the same derived values as an evaluation. |
+| RUN.SAME | A run gives the same derived values as an evaluation, for a document that passes `check` with the option `run`. |
 | RUN.NESTED-WAIT | A step that waits inside a part that cannot wait gives `#CALC!`. |
+| RUN.NEEDS-RUNNER | In a run, an effect of an evaluator gives `#CALC!` before the test of its capability. A runner document under an evaluator gives `#CALC!` before it starts, also when it does not wait. An evaluation drives that runner. |
 | RUN.WAIT | A part that waits under an evaluator gives `#CALC!`. The error has the place of the part. |
 | RUN.CAN-WAIT | With the option `run`, `check` gives `#CALC!` for a runner under a parent without a runner, and for a kind that declares effects and has no runner. The issue has the place and the reason of the run. A document that passes this check gives no such `#CALC!` in a run. |
 | RUN.EVAL | An evaluation of a run document records its effects, and it does none. |
@@ -377,6 +385,12 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | FORMULA.DEPTH | A deep formula evaluates up to the limit of the depth. |
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
+
+## The calculus
+
+| ID | Rule |
+| --- | --- |
+| SEM.RULES | Each inference rule of `SEMANTICS.md` names the IDs of this file that it covers. Each of these IDs is in this file and has a test. |
 
 ## The package
 

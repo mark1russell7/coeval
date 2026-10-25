@@ -777,3 +777,27 @@ The demands ahead keep each value of D31 and each count of SCHED.STALE. The harn
 - K105: a plan of one reference keeps approximately 2.5 KB. A schedule of 100000 nodes keeps approximately 430 MB, and most of it is plans.
 
 **Next.** S3a compares a push schedule by `heights` with the demand. S2d lets a host report the certain cycles of a schedule before a run.
+
+## D34 (2026-10-25): the core calculus is a part of the specification, and the code decides the facts that SPEC did not state
+
+**Context.** The study R7 sketched a calculus of the kernel, and K90 writes it as a page. R7 leaves three open questions for this item. Where does the calculus live (question 5)? Is a reference in data read in the context of its reader or of its writer (question 3)? Is the bound of the collapses for one hop or for the whole resolution (question 4)?
+
+**Decision.**
+
+- `docs/SEMANTICS.md` is a part of the specification, beside `docs/SPEC.md`. A change of a rule changes `SPEC.md`, the page and the reference interpreter together.
+- Each inference rule names the SPEC IDs that it covers. The test SEM.RULES makes sure that each named ID is in `SPEC.md` and has a test. A rule without an ID is not possible.
+- The rules are text in code blocks, not math. The linter of the prose reads math as text, and a code block keeps the alignment of the premises.
+- The page writes the rules of the code as they are. The facts that SPEC did not state become IDs with tests: DEREF.COLLAPSE-LIMIT, WORLD.ALIAS-LIMIT, DEREF.READER, EVAL.BY-NAME, RUN.NEEDS-RUNNER and DEREF.NO-WALKER.
+- A reference in data resolves in the context of its reader. The bound of 64 collapses is for one whole resolution, also through the paths of the references that it follows.
+- EVAL.SEALED holds for code that keeps the obligation C5. RUN.SAME holds for a document that passes `check` with the option `run`.
+
+**Rejected.**
+
+- The calculus only in the study R7. A study records a design, and it does not change with the code. The rules then drift from the reference.
+- Math with `$` in Markdown. GitHub shows it, but the linter fails, and a math block cannot carry the line of IDs that the test reads.
+- New rules for the four facts, for example the context of the writer for a reference in data. The present rules have tests and users, and the calculus records the kernel. A change is a separate item with its own decision.
+- A bound of collapses for each hop. Then a path with many hops can follow many more references than one hop, and the cost of a resolution has no bound.
+
+**Why.** The reference interpreter is executable, but it is long, and it mixes the rules with the records of hops, reads and traces. A page of rules is short enough to read in one sitting, and the test keeps its IDs in step with `SPEC.md`. The page also states the obligations C1 to C7 of host code, thus each claim of the kernel names the promise that it needs.
+
+**Limits.** The page leaves out the reasons, the hops, the trace and the reads. It covers the static kit, the types and the schedules only through their IDs. The rows K110 to K112 hold the disagreements that the work found.
