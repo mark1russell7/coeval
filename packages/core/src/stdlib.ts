@@ -449,7 +449,7 @@ export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
   // The contract of pure masks the capabilities of its part, and the kernel applies it. Thus the runner does not.
   "control.pure": function* ({ parts }) {
     const only = parts[0];
-    if (only === undefined) return fail("#VALUE!", "pure needs one part.");
+    if (only === undefined || parts.length > 1) return fail("#VALUE!", "pure needs exactly one part.");
     return yield* only.evaluate();
   },
   "control.if": function* ({ parts }) {

@@ -59,6 +59,12 @@ describe("evaluate", () => {
     expect(out.effects).toEqual([]);
   });
 
+  it("[CAP.PURE-ONE] gives #VALUE! when pure has no part or more than one part", () => {
+    expect(run({ type: "pure", value: [] }).result).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
+    expect(run({ type: "pure", value: [1, 2] }).result).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
+    expect(run({ type: "pure", value: [{ type: "add", value: [1, 2] }] }).result).toEqual({ ok: true, value: 3 });
+  });
+
   it("[EFFECT.ORDER] keeps the order of the effects", () => {
     const out = run({
       type: "seq",
