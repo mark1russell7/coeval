@@ -605,3 +605,39 @@ The CI job of this change measured the medians on Node 26, with the base and the
 - K75: a language compiles its own paths, through a route of the runtime that records the reads.
 - K76: the mark "total" for the code of `lit`, thus `compileNode` does not wrap it.
 - K77: the standard evaluator `ref.resolve` compiles its path, with a definition for the reference.
+
+## D30 (2026-10-24): a host keeps two epochs, the plans and the facts stay for each document object, and a result stays for its key in its data epoch
+
+**Context.** The study R4 proposes two levels of durability (P7, S1c). The plans and the facts depend on the world and the documents, and the values depend on the data. A person edits a document rarely, and data changes at each event. Salsa keeps one revision counter for each level of durability.
+
+The kernel had the parts, but nothing joined them. `planner` keeps a plan for each document object (PLAN.CACHE). `factsOf` gives the facts, and `verifyReads` tells if a result stays valid (D24, D26). A schedule had no place for a result, and no signal for a change of data.
+
+**Decision.**
+
+- `durable(machine, options?)` makes a cache for a host or a schedule. It keeps two epochs (`Epochs`): one for the structure and one for the data.
+- The structure is the machine and the documents. The data is each value that a context gives: the names, `self`, `event`, the capabilities and a world of the host.
+- `changeData()` adds one to the data epoch. `changeStructure(machine?)` adds one to each epoch. A change of the structure is also a change of the data, as in Salsa. The value of an edited node is data for its readers.
+- A plan and the facts stay in a cache by document object, for the machine of the cache. They do not read the epochs. Thus a change of data compiles nothing and computes no facts (DURABLE.DATA).
+- An edit gives a new document object, thus only that document compiles. A new machine drops each plan, each fact and each result (DURABLE.STRUCTURE).
+- `evaluate(key, doc, context)` keeps one result for each key. The key names a node of the host, as each memo entry of Nominal Adapton has a name.
+- A result stays in its data epoch while its plan stays. The host promises that the context of a key gives the same data in one data epoch (DURABLE.REUSE).
+- After a change of data, a pure document verifies its reads with `verifyReads`, and it keeps its result when each read is the same. Each other document evaluates again.
+- Only a pure document records its reads. A verification compares with the reads of the evaluation that gave the result, thus a kept result stays a function of those reads.
+- `epochs.structure` is the signal for each product of the whole structure, for example the graph of S2. `counts` gives the work as a measure (R4).
+- A value document has its own key in the cache, also `-0`. The cache of `planner` finds the plan of `0` for `-0` (K80).
+
+**Rejected.**
+
+- Marks on the reads, with a read of `world` as a structural read. A host often gives its own world with data, and a resolution can follow a reference into another root (DEREF.COLLAPSE). `verifyReads` costs one resolution for each read, thus the gain is small.
+- A result that stays only with the same context object. The values of a context do not change in place (D26), thus a context object always gives the same data. The data epoch then adds nothing, and a host that makes a context for each call verifies at each call.
+- A new plan and new facts at each change of the structure. Then an edit compiles each document again, but R4 says that an edit computes the facts of one document again.
+- An epoch for each document or each key, as Salsa gives each input its own revision. The identity of a document object already tells an edit, and two levels give most of the gain (R4).
+- An epoch in the plan, or a new option of `prepare`. A plan keeps only its compiled code (PLAN.LEAN), and it has no data.
+- A cache of results in `planner`. One document at many cells shares one plan, but each cell has its own result. Thus a result needs the key of its node.
+- A record of the reads of each document. The list costs one push for each resolution, and only a pure document can use it.
+
+**Why.** A change of data is the common change, thus it costs only a verification or an evaluation. Two counters and two caches give that, with no new rule in the kernel. The plans and the facts keep the rules of PLAN.CACHE and D24, and the results keep the rules of D26.
+
+The test DURABLE.SOUND makes random edits, new machines and changes of data, and it compares each result with a new evaluation. A mutant host that forgets each change of data gets stale results, and the test finds them. Thus the test shows that the data epoch carries the soundness.
+
+**Next.** S1 joins `factsOf`, the reads and `durable` into one interface. S2 keeps its graph and its order for one structure epoch.

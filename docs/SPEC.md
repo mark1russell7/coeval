@@ -284,6 +284,18 @@ An evaluation can record its reads. `verifyReads` tells if an old result stays v
 | READS.SOUND | For the generated documents of six machines, the test changes the context at random. When each free read of a pure document is the same, a new evaluation gives the same result by `sameResult`. A list without the kept reads gives stale results of trees, and the test finds them. |
 | READS.SUBSET | Each free read of an evaluation has a static read of `factsOf` with the same root, and the keys of the static read start its path. A kept read, the read of a name that holds an error and a name that a kind binds to the value of the context are the exceptions. |
 
+## Two levels of durability
+
+A host keeps one epoch for the structure and one for the data (R4 P7, D30). The structure is the machine and the documents. The data is each value that a context gives. `durable` keeps the plans and the facts across the changes of data.
+
+| ID | Rule |
+| --- | --- |
+| DURABLE.EPOCHS | `durable` keeps two epochs. `changeData` adds one to the data epoch. `changeStructure` adds one to each epoch, because a change of the structure is also a change of the data. The epochs are a snapshot that does not change. |
+| DURABLE.DATA | A change of data compiles nothing and computes no facts. After it, a pure document verifies its reads with `verifyReads`, and it keeps its result when each read is the same. Each other document evaluates again. The rule `equal` of the host goes to `verifyReads`. |
+| DURABLE.STRUCTURE | A document object compiles one time for a machine, and it computes its facts one time. An edit gives a new document object, thus only that document compiles. A new machine drops each plan, each fact and each result. A value document has its own plan, also `-0` beside `0`. |
+| DURABLE.REUSE | A key names one node of the host. In one data epoch, a key with the same plan gives its result again without an evaluation, also with a new context object. One document at two keys gives each key its own result. `forget` drops the result of a key. |
+| DURABLE.SOUND | For the generated documents of three configurations, the test makes random edits, new machines, changes of data and new context objects. Each result of `durable` is the same as a new evaluation by `sameResult`. A host that does not tell a change of data gets stale results, and the test finds them. |
+
 ## Types
 
 A value type is a set of values that a result can have (R5 P2, D22). It is a JSON term that only a check reads. It is not a kind, and it does not go into an envelope. A check of types gives each part a type in two directions (R5 P3, D25). The host gives the types of the roots, and a reference gets the type that its path reaches (R5 P4, D28).
