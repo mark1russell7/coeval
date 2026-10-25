@@ -37,6 +37,8 @@ A step does not carry a meaning of its own. The walk asks the thing that it reac
 - **Kind:** a kind can name a `deref` evaluator for its documents.
 - **Default:** a record answers with a field, and a list answers with an item.
 
+A host can give its own things, for example the nodes of a tree. Such a thing answers each step with its function `deref`. Its optional function `has` tells a field that holds `undefined` from a missing field (decision D21).
+
 A step can also be a document. Then the walker of its kind takes the step. `nearest` is such a kind: it follows `parent` until it reaches a node of a type. With `self: true`, the node where it starts counts too. It is not special. It is a kind with an evaluator.
 
 After each hop, the walk examines what it reached. When that is a reference, the walk follows it until it reaches something else. This is collapse. A cycle of references gives `#CYCLE!`.

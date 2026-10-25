@@ -1,0 +1,46 @@
+---
+title: Research
+description: Six studies compare the kernel with the theory and the known systems of their fields. Each study ends with proposals that the roadmap takes up.
+---
+
+A study compares the theory and the known systems of one field with the kernel. It ends with proposals, ranked by value for effort. A study changes no rule. The roadmap takes up each proposal as a row. The studies are in the folder [`docs/research`](https://github.com/mark1russell7/coeval/tree/main/docs/research) of the repository.
+
+## R1: staging and partial evaluation
+
+**The main finding.** `prepare` is a first Futamura projection, written by hand. A harness that proves one meaning comes before a faster tier.
+
+**What came of it.** The reference interpreter and `agree` (D15). Compiled paths are next. [Read the study](https://github.com/mark1russell7/coeval/blob/main/docs/research/r1-staging.md).
+
+## R2: algebraic effects and the run side
+
+**The main finding.** The run side is already a small effect system. A run recorded the payload of each effect, but not its outcome.
+
+**What came of it.** A mock `perform` for an evaluation, and the record and replay of effects (D19). [Read the study](https://github.com/mark1russell7/coeval/blob/main/docs/research/r2-effects.md).
+
+## R3: attribute grammars and the tree kit
+
+**The main finding.** Demand evaluation with one memo for each node and attribute is the reference meaning. It needs no schedule.
+
+**What came of it.** The decorated tree (D16). The page [Direction](../../learn/direction/) shows it live. [Read the study](https://github.com/mark1russell7/coeval/blob/main/docs/research/r3-attribute-grammars.md).
+
+## R4: incremental computation and schedules
+
+**The main finding.** The unit of incremental work is a document. An early cutoff needs an equality that is safe for each host value.
+
+**What came of it.** `sameResult` (D20). The schedule diagram gets its graph from `refsOf`. [Read the study](https://github.com/mark1russell7/coeval/blob/main/docs/research/r4-incremental.md).
+
+## R5: types and abstract interpretation
+
+**The main finding.** A type check is an abstract interpretation of the plan. The ladder finds the type rule of a kind by name.
+
+**What came of it.** `check` knows the names of operations. Value types and value domains are in the kernel (D22). [Read the study](https://github.com/mark1russell7/coeval/blob/main/docs/research/r5-types.md).
+
+## R6: language workbenches and extensibility
+
+**The main finding.** coeval is the semantic half of a language workbench, as data. Before the study, a later kind won without a message.
+
+**What came of it.** One merge with conflict rules (D17), and the composition checklist (D18). The page [Composition](../../composition/) shows it live. [Read the study](https://github.com/mark1russell7/coeval/blob/main/docs/research/r6-workbenches.md).
+
+## The next work
+
+The section ["The order of the next work"](https://github.com/mark1russell7/coeval/blob/main/docs/ROADMAP.md#the-order-of-the-next-work) of the roadmap gives the order in which the plan takes up the proposals.

@@ -1,0 +1,56 @@
+---
+title: Composition
+description: Languages compose through one merge. Equal entries give one entry, and namespaces merge key by key. Each other clash is a conflict that replaces resolves.
+tableOfContents: false
+---
+
+import MergeDiagram from "../../components/MergeDiagram.tsx";
+
+A language in coeval is a machine: a world of kinds, and the code of their evaluators. A host builds a language from parts with `mergeMachines`. The parts do not know each other.
+
+In this diagram, the base is the formula kit of the kernel. Three small languages can join it. The merge goes path by path, and each row is one path.
+
+<MergeDiagram client:visible />
+
+## Try these
+
+- Look at the row `show`. Statistics and Text give the same kind with the same code. The merge keeps one entry.
+- Look at the row `ops`. Each part gives a namespace `ops`, and the namespaces merge key by key. The fallback of the base stays.
+- The rival gives a different `mean` and a different `ops.twice`. Select **Mark each path in replaces**. The rival wins at each path, and `avg` gives the median.
+- Select **Restrict it** on the row `mean`. The alias `avg` points to a kind that is not there, thus it gives `#KIND?`.
+- Select **Rival statistics** to remove it from the merge. Statistics and Text compose without glue, and the last document uses both.
+
+## The rules of the merge
+
+`mergeWorlds` and `mergeMachines` use the same rules (decision D17).
+
+1. A new entry joins the result.
+2. Two entries that are equal give one entry. A function is equal only to itself.
+3. Two namespaces merge key by key, at each depth. Their fallbacks merge as other entries do.
+4. Each other clash at one path is a conflict. The merge goes on, and it collects each conflict.
+5. At the end, one `MergeError` lists each conflict, with its path, its two parts and a reason.
+6. A later part that names the path in `replaces` wins at that path. A mark on the earlier part does not replace a later entry.
+
+The path of a conflict is the mark that resolves it. Thus a host can read the error, decide which part wins, and write the paths into `replaces`.
+
+A part can also be a function of the merge before it. Then it can read the entry that it replaces, and wrap it.
+
+## A restriction removes entries
+
+`restrictWorld` and `restrictMachine` remove entries by path, with the same paths as `replaces` (decision D18). A removed kind gives `#KIND?`, also through an alias. Remove the code of a name too, because an own entry names an evaluator directly.
+
+## The modes of composition
+
+The modes come from Erdweg, Giarrusso and Rendel (2012), through the study R6. Each mode has a spec test in `packages/core/src/compose.test.ts`.
+
+| Mode | What it does | Today |
+| --- | --- | --- |
+| Extension | A language adds kinds and code to a base. The base does not know it. | It works. |
+| Restriction | A language removes kinds and their code from a base. | It works, with `restrictMachine`. |
+| Unification | Two independent languages merge, and glue joins them. | It works. Two machines that each build the formula kit conflict. |
+| Self-extension | A document gives kinds as data, and the host merges them. | Kinds work. An evaluator that is a document is open work. |
+| Extension unification | Two extensions of one base compose without glue. | It works, in each order. |
+| Incremental extension | A language extends an extension, and wraps the entry that it replaces. | It works. |
+| Conflict | Two extensions that each compose with the base conflict together. | It works. No check finds the conflict before the merge. |
+
+The file [`docs/COMPOSITION.md`](https://github.com/mark1russell7/coeval/blob/main/docs/COMPOSITION.md) gives each mode with its code.

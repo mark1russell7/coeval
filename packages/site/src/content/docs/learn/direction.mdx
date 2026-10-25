@@ -4,6 +4,7 @@ description: Data moves back in a sequence, by moves in a structure, and down, u
 tableOfContents: false
 ---
 
+import AttributeDiagram from "../../../components/AttributeDiagram.tsx";
 import DirectionDiagram from "../../../components/DirectionDiagram.tsx";
 import GlyphKey from "../../../components/GlyphKey.tsx";
 
@@ -33,6 +34,10 @@ In coeval, a node of a tree (`panel` or `box`) is a decorated tree. Each field o
 - An attribute that reads itself, also through other attributes, gives `#CYCLE!`. The reason gives the chain of attributes.
 - A failed attribute keeps its own error. A reference to it gives the same code, reason and place.
 - An attribute causes no effect, because the order of the reads is not the order of the document.
+
+Select a tree. The model evaluates it, and the diagram numbers each attribute in the order of its evaluation.
+
+<AttributeDiagram client:visible />
 
 ## One path grammar
 

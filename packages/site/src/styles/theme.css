@@ -74,3 +74,87 @@ header.header {
     gap: var(--space-7);
   }
 }
+
+/* ------------------------------------------------------------------------------------ the guide route */
+
+/* The route of the guide on the home page. The pages are a sequence, thus each page has its number. */
+.ce-route {
+  display: grid;
+  gap: var(--space-5) var(--space-6);
+  margin-block: var(--space-5) var(--space-6);
+}
+
+@media (min-width: 40rem) {
+  .ce-route {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 72rem) {
+  .ce-route {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.ce-route section {
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--color-ink);
+}
+
+.ce-route h3 {
+  margin: 0 0 var(--space-3);
+  color: var(--color-ink);
+  font-size: var(--text-base);
+  font-weight: 700;
+}
+
+.ce-route ol {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ce-route li {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0 var(--space-2);
+  align-items: baseline;
+  counter-increment: ce-route;
+}
+
+.ce-route ol[start="1"] { counter-reset: ce-route 0; }
+.ce-route ol[start="5"] { counter-reset: ce-route 4; }
+.ce-route ol[start="10"] { counter-reset: ce-route 9; }
+.ce-route ol[start="13"] { counter-reset: ce-route 12; }
+
+.ce-route li::before {
+  content: counter(ce-route);
+  grid-row: 1 / span 2;
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ce-route a {
+  color: var(--color-accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ce-route a:hover {
+  text-decoration: underline;
+}
+
+.ce-route a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.ce-route span {
+  color: var(--color-ink-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}

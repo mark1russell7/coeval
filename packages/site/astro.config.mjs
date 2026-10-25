@@ -46,11 +46,12 @@ export default defineConfig({
             "learn/schedules",
           ],
         },
-        { label: "Build", items: ["playground"] },
+        { label: "Build", items: ["composition", "playground"] },
         {
           label: "Design",
           items: [
             "design/decisions",
+            "design/research",
             "design/lineage",
             { label: "Roadmap", link: "https://github.com/mark1russell7/coeval/blob/main/docs/ROADMAP.md" },
           ],

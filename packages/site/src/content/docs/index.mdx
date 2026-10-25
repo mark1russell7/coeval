@@ -19,9 +19,9 @@ hero:
 
 import LoopDiagram from "../../components/LoopDiagram.tsx";
 
-coeval is a base for declarative languages. Each language stores its programs as JSON documents. coeval gives the parts that all of these languages share. These parts are the documents, the ladder that finds an evaluator, the context of a term, and the split between pure work and effects.
+coeval is a base for declarative languages. Each language stores its programs as JSON documents. coeval gives the parts that all of these languages share. These parts are the documents, the ladder that finds an evaluator and the context of a term. They are also the split between pure work and effects, and one merge of languages.
 
-The project is in the design stage. Each idea has a page with a live diagram. The diagrams use the model package of the repository, thus each answer comes from real code.
+Each idea has a page with a live diagram. The diagrams use the kernel of the repository, thus each answer comes from real code.
 
 ## The whole model in one loop
 
@@ -29,15 +29,60 @@ A store holds documents. The derive side computes the view from the store, witho
 
 <LoopDiagram client:visible />
 
-## The ideas
+## The guide
 
-- [Documents](./learn/documents/): a value in an envelope. The tab of the card is the type.
-- [Kinds](./learn/kinds/): a kind is a document that names an evaluator for each verb.
-- [The ladder](./learn/ladder/): a question goes to the own entry, then to the kind, then to the default.
-- [Evaluation](./learn/evaluation/): results come up through ports, and parts are sealed.
-- [Names](./learn/names/), [Choices](./learn/choices/) and [Effects](./learn/effects/): scope, laziness and capabilities, with the same cards.
-- [Context](./learn/context/): a term reaches outside itself through five parts only.
-- [Paths](./learn/paths/): each reference syntax is a list of moves.
-- [Direction](./learn/direction/): back in a sequence, by moves in a structure, down and up in a tree.
-- [Derive and run](./learn/derive-and-run/): order has a meaning only for effects.
-- [Schedules](./learn/schedules/): when to compute is a separate layer.
+Each page of the guide adds one or two glyphs to the pictures, and it uses all of the glyphs before it. Read the pages in this order.
+
+<div class="ce-route not-content">
+  <section>
+    <h3>The document</h3>
+    <ol start="1">
+      <li><a href="./learn/documents/">Documents</a><span>A value in an envelope. The tab of the card is the type.</span></li>
+      <li><a href="./learn/kinds/">Kinds</a><span>A kind is a document that names an evaluator for each verb.</span></li>
+      <li><a href="./learn/ladder/">The ladder</a><span>A question goes to the own entry, then to the kind, then to the default.</span></li>
+      <li><a href="./learn/evaluation/">Evaluation</a><span>Results come up through ports, and parts are sealed.</span></li>
+    </ol>
+  </section>
+  <section>
+    <h3>The context</h3>
+    <ol start="5">
+      <li><a href="./learn/names/">Names</a><span>A step with a name tag gives its result to the later steps.</span></li>
+      <li><a href="./learn/choices/">Choices</a><span>An evaluator decides which parts to evaluate.</span></li>
+      <li><a href="./learn/effects/">Effects</a><span>Effects keep their written order. A capability permits them.</span></li>
+      <li><a href="./learn/context/">Context</a><span>A term reaches outside itself through five parts only.</span></li>
+      <li><a href="./learn/paths/">Paths</a><span>A reference is a list of moves from a root of the context.</span></li>
+    </ol>
+  </section>
+  <section>
+    <h3>Order</h3>
+    <ol start="10">
+      <li><a href="./learn/direction/">Direction</a><span>Back in a sequence, by moves in a structure, down and up in a tree.</span></li>
+      <li><a href="./learn/derive-and-run/">Derive and run</a><span>Order has a meaning only for effects.</span></li>
+      <li><a href="./learn/schedules/">Schedules</a><span>When to compute is a separate layer.</span></li>
+    </ol>
+  </section>
+  <section>
+    <h3>Build</h3>
+    <ol start="13">
+      <li><a href="./composition/">Composition</a><span>Languages compose through one merge. A conflict names its path.</span></li>
+      <li><a href="./playground/">The playground</a><span>Build a document from the kinds, and step through its evaluation.</span></li>
+    </ol>
+  </section>
+</div>
+
+## Use the kernel
+
+The kernel is on npm as `@mark1russell7/coeval`. Its API is not stable before version 1.0.
+
+```sh
+npm install @mark1russell7/coeval
+```
+
+```ts
+import { STD_MACHINE, prepare } from "@mark1russell7/coeval";
+
+const plan = prepare(STD_MACHINE, { type: "add", value: [2, { type: "multiply", value: [3, 4] }] });
+plan.evaluate(); // { ok: true, value: 14 }
+```
+
+`prepare` compiles the document one time into a plan. A plan evaluates many times, and an error comes back as a value with a code and a place. The [decisions](./design/decisions/) and the [research](./design/research/) tell why the kernel works this way.

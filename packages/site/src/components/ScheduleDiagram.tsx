@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { evaluate, makeContext, type Json } from "@mark1russell7/coeval";
+import { evaluate, makeContext, refsOf, type Json } from "@mark1russell7/coeval";
 import { SITE_MACHINE } from "../glyphs/Explorer.tsx";
 import { View, SITE_WORLD, WorldContext } from "../glyphs/View.tsx";
 import ValueGlyph from "../glyphs/Value.tsx";
@@ -9,13 +9,23 @@ type Schedule = "push" | "pull" | "demand" | "once";
 
 const CELLS: readonly Cell[] = ["c", "d", "e"];
 
+const nameRef = (key: string): Json => ({ type: "ref", value: ["names", key] });
+
 const FORMULAS: Readonly<Record<Cell, Json>> = {
-  c: { type: "add", value: [{ type: "ref", value: "a" }, { type: "ref", value: "b" }] },
-  d: { type: "multiply", value: [{ type: "ref", value: "c" }, 2] },
-  e: { type: "multiply", value: [{ type: "ref", value: "a" }, 10] },
+  c: { type: "add", value: [nameRef("a"), nameRef("b")] },
+  d: { type: "multiply", value: [nameRef("c"), 2] },
+  e: { type: "multiply", value: [nameRef("a"), 10] },
 };
 
-const DEPS: Readonly<Record<Cell, readonly string[]>> = { c: ["a", "b"], d: ["c"], e: ["a"] };
+/** This function gives the names that a formula reads. The static kit of the kernel finds them with `refsOf`. */
+function depsOf(formula: Json): readonly string[] {
+  return refsOf(SITE_WORLD, formula)
+    .filter((use) => use.free && use.root === "names" && typeof use.path[1] === "string")
+    .map((use) => String(use.path[1]));
+}
+
+/** The graph of the data: the names that each cell reads. It comes from the formulas, not from a second list. */
+const DEPS: Readonly<Record<Cell, readonly string[]>> = { c: depsOf(FORMULAS.c), d: depsOf(FORMULAS.d), e: depsOf(FORMULAS.e) };
 
 const SCHEDULES: readonly { readonly id: Schedule; readonly title: string; readonly rule: string }[] = [
   { id: "push", title: "Push", rule: "A change computes each reader at once, in the order of the graph." },
