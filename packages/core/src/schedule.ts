@@ -4,13 +4,15 @@ import { type Failed, type Result, Failure, fail } from "./errors.ts";
 import { type Machine, type Perform, type StopSignal, rootContext } from "./evaluate.ts";
 import { type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 import type { DocFacts, StaticRead } from "./facts.ts";
+import { deepestFirst } from "./graph.ts";
 import type { Side } from "./world.ts";
 
 /*
  * The interface of a schedule (S1, D31). A host gives named documents. Each document is a node, and the root `world`
  * of each node reaches the other nodes. The static reads give the edges of the graph, and the contracts give the side
  * of each node. A demand evaluates a node and each node that it reads, through `durable`. Thus after a change, a node
- * evaluates again only when one of its reads changed.
+ * evaluates again only when one of its reads changed. A demand of the host first demands the nodes that the eager
+ * edges reach, deepest first (S2a, D33). Thus a long chain does not use the stack of the host for each node.
  */
 
 /** One edge of a graph of nodes: a static read of a node from the document of another node (SCHED.EDGES). */
@@ -48,6 +50,15 @@ export interface ScheduleOptions extends DurableOptions {
   readonly context?: Context;
 }
 
+/** The work of a schedule since its start: the work of its `durable` cache, and the demands ahead of a node. */
+export interface ScheduleCounts extends DurableCounts {
+  /**
+   * The demands that a demand of the host made before its own node (SCHED.LONG-CHAIN). Each node that the eager edges
+   * reach, and that has no value in the data epoch, adds one.
+   */
+  readonly ahead: number;
+}
+
 /** The options of a run of a node. */
 export interface NodeRunOptions {
   /** The event that starts the run, at the root `event`. The default is the event of the context of the host. */
@@ -65,8 +76,8 @@ export interface NodeRunOptions {
 export interface Schedule {
   /** The epochs of the schedule (DURABLE.EPOCHS). A schedule builds again what depends on the structure when `structure` changes. */
   readonly epochs: Epochs;
-  /** The work of the schedule since its start: the compilations, the evaluations, the verifications and the reuses. */
-  readonly counts: DurableCounts;
+  /** The work of the schedule since its start: the compilations, the evaluations, the verifications, the reuses and the demands ahead. */
+  readonly counts: ScheduleCounts;
   /** The context of each node in the current data epoch: the context of the host, with the nodes at the root `world`. */
   readonly context: Context;
   /**
@@ -80,6 +91,7 @@ export interface Schedule {
    * This function gives the value of a node on demand (SCHED.DEMAND). A read of `world` in the document demands that
    * node first. Each node evaluates at most one time in a data epoch.
    *
+   * - First, the schedule demands each node that the eager edges reach, deepest first (SCHED.LONG-CHAIN).
    * - After a change, a pure node verifies its reads, and it keeps its result when each read is the same (SCHED.STALE).
    * - Each node of a cycle gives `#CYCLE!`, in each order of demands (SCHED.CYCLE).
    * - A node on the run side gives `#REF!`, because the schedule does not evaluate it (SCHED.SIDE).
@@ -181,6 +193,9 @@ interface Epoch {
  * - A node is on a cycle when its demand reaches itself through the reads of the evaluations. Each node of such a
  *   strongly connected component gives `#CYCLE!`, whatever its document does with the error. The schedule finds the
  *   components with the algorithm of Tarjan over the demands. Thus each order of demands gives the same values.
+ * - A demand of the host, or of a run, first demands each node that the eager edges reach, deepest first. Thus each
+ *   read of such a node finds a value, and a chain of 100000 nodes does not overflow the stack (SCHED.LONG-CHAIN).
+ *   Each such demand starts with no node in evaluation, thus the order of demands keeps the values of D31.
  * - A node on the run side is a sink. Only `run` evaluates it, and only the host uses `run`.
  *
  * The host keeps the promises of `durable`. The documents and the values of a context do not change in place.
@@ -210,6 +225,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
   // The nodes in evaluation that read themselves.
   const looped = new Set<string>();
   let count = 0;
+  let ahead = 0;
 
   const lower = (id: string, to: number): void => {
     if (to < (low.get(id) as number)) low.set(id, to);
@@ -228,7 +244,40 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     return size;
   };
 
+  /** This function gives the edges of the facts of a document. They stay for each facts object, as the facts stay for each document. */
+  const edgesFrom = (facts: DocFacts): readonly NodeEdge[] => {
+    let found = edges.get(facts);
+    if (found === undefined) {
+      found = edgesOf(facts);
+      edges.set(facts, found);
+    }
+    return found;
+  };
+
+  /** This function gives the edges of a node, for the walk of a demand. A known node, a missing node and a node on the run side need no walk. */
+  const edgesFor = (id: string): readonly NodeEdge[] | undefined => {
+    if (current().values.has(id) || !docs.has(id)) return undefined;
+    const facts = cache.facts(docs.get(id));
+    return facts.side === "run" ? undefined : edgesFrom(facts);
+  };
+
+  /**
+   * This function gives the value of a node. A demand of the host or of a run has no node in evaluation. It first
+   * demands each node that the eager edges reach, deepest first. Each of these demands also starts with no node in
+   * evaluation, thus it is a demand of the host too. D31 gives each order of such demands the same values.
+   */
   const demand = (id: string): Result => {
+    if (stack.length === 0) {
+      for (const first of deepestFirst(id, edgesFor)) {
+        ahead += 1;
+        visit(first);
+      }
+    }
+    return visit(id);
+  };
+
+  /** This function demands one node, with the algorithm of Tarjan over the demands for the cycles of D31. */
+  const visit = (id: string): Result => {
     const epoch = current();
     const reader = stack[stack.length - 1];
     const known = epoch.values.get(id);
@@ -335,7 +384,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       return cache.epochs;
     },
     get counts() {
-      return cache.counts;
+      return { ...cache.counts, ahead };
     },
     get context() {
       return current().context;
@@ -346,12 +395,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       const map = new Map<string, NodeInfo>();
       for (const [id, doc] of docs) {
         const facts = cache.facts(doc);
-        let found = edges.get(facts);
-        if (found === undefined) {
-          found = edgesOf(facts);
-          edges.set(facts, found);
-        }
-        map.set(id, { id, doc, facts, side: facts.side, edges: found });
+        map.set(id, { id, doc, facts, side: facts.side, edges: edgesFrom(facts) });
       }
       nodes = { structure, map };
       return map;

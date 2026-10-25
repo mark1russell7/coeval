@@ -300,7 +300,7 @@ A host keeps one epoch for the structure and one for the data (R4 P7, D30). The 
 
 ## Schedules
 
-A host gives named documents to `schedule`. Each document is a node, and the root `world` of each node reaches the other nodes. The schedule gives the graph of the nodes and the side of each node, and it evaluates the nodes on demand (R4, D31).
+A host gives named documents to `schedule`. Each document is a node, and the root `world` of each node reaches the other nodes. The schedule gives the graph of the nodes and the side of each node, and it evaluates the nodes on demand (R4, D31). The functions of `graph.ts` analyze such a graph before a run (S2, D33).
 
 | ID | Rule |
 | --- | --- |
@@ -309,10 +309,17 @@ A host gives named documents to `schedule`. Each document is a node, and the roo
 | SCHED.GRAIN | An edge goes to a node, and it keeps the keys after the node as its field. A change of another field of the node evaluates the node again, and a reader of the field keeps its result. |
 | SCHED.SIDE | The side of a node comes from `factsOf`. A node on the run side is a sink: a read of it gives `#REF!`, and the schedule does not evaluate it. The record of the root `world` has only the derive nodes. |
 | SCHED.RUN | The schedule does not start a run. `run` starts a run of the document of a node with the context of the schedule and the event of the host. A demand and a change of data do not repeat a run. |
-| SCHED.DEMAND | `read` evaluates a node and each node that its evaluation reads, through `durable`. Each node evaluates at most one time in a data epoch. A node that no demand reaches does not evaluate. A missing node gives `#N/A`. |
+| SCHED.DEMAND | `read` evaluates a node and each node that its evaluation reads, through `durable`. Each node evaluates at most one time in a data epoch. A node that no read and no eager edge of a demand reaches does not evaluate. A missing node gives `#N/A`. |
 | SCHED.STALE | After a change, a pure node verifies its reads, and a read of a node demands that node again. A node evaluates again only when a read changed, or when it is not pure. A new machine evaluates each node again. |
 | SCHED.CYCLE | Each node of a strongly connected component of the reads, and each node that reads itself, gives `#CYCLE!`. The reason names only the node, and the error has no place. Each order of demands gives the same values. A reader gets the error at its reference. A static cycle through a read that the evaluation skips is not a cycle. |
-| SCHED.ONE-MEANING | For generated graphs of nodes, the test makes random edits, new nodes, removed nodes, new machines and changes of data, and it reads the nodes in random orders. Each result is the same as an evaluation of the whole graph from scratch by `sameResult`, also for each cycle. A host that changes its data in place gets stale values, and the test finds them. |
+| SCHED.ONE-MEANING | For generated graphs of nodes, the test makes random edits, new nodes, removed nodes, new machines and changes of data, and it reads the nodes in random orders. Each result is the same as an evaluation of the whole graph from scratch by `sameResult`, also for each cycle. A host that changes its data in place gets stale values, and the test finds them. The test reaches the demands ahead of SCHED.LONG-CHAIN. Each node that gives `#CYCLE!` is on a static cycle of `cycles`, unless a literal holds a reference to a node (S1d). |
+| SCHED.LONG-CHAIN | A demand with no node in evaluation, from the host or a run, first demands each node that the eager edges reach, deepest first. A chain of 100000 nodes gives its value with no `#DEPTH!`, also after a change of data. A node behind a lazy edge is not a demand ahead. The values stay the values of D31. |
+| GRAPH.SCC | `components` gives the strongly connected components of a graph of nodes, by the algorithm of Tarjan. Each component comes after each component that it reads. The walk has its own stack, thus a chain or a ring of 100000 nodes does not overflow. |
+| GRAPH.ORDER | `heights` gives the order of a push schedule. A node that reads no node outside its component has the height 0. Each other node is one higher than the highest node that it reads outside its component. |
+| GRAPH.LAYERS | `nodeLayers` puts the nodes of each height in one layer, in linear time. Two nodes of one layer read each other only inside one component. Each layer keeps the order of the graph. |
+| GRAPH.NECESSARY | `necessary` gives each observed node, and each node with a path of edges from an observed node. A name that is not a node adds nothing. |
+| GRAPH.CYCLE | `cycles` gives each component with two or more nodes, and each node that reads itself. A cycle of eager edges with a target is certain, and each other cycle is possible. The demand of D31 still gives the value of each node. |
+| GRAPH.UNKNOWN | An edge without a target reads each node that is not a sink. An edge to a sink, or to a name that is not a node, is no edge of the analysis. The option `eager` keeps only the eager edges with a target. |
 
 ## Types
 

@@ -41,6 +41,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D30 | A host keeps one epoch for the structure and one for the data. `durable` keeps a plan and the facts for each document object, and one result for each key. A change of data compiles nothing. A pure document verifies its reads, and another document evaluates again. |
 | D31 | A schedule keeps named documents as nodes under the root `world`, and it evaluates them on demand. An edge goes to a node and keeps its field, and the early cutoff is by field. Each node of a cycle gives `#CYCLE!` in each order. A node on the run side is a sink, and only the host starts a run. |
 | D32 | Each context carries the grant of the kernel: the capabilities of its document. A spread keeps the grant, and each document keeps only what its grant permits. Thus compiled code cannot give a part more capabilities than its document has. |
+| D33 | The analysis of a graph of nodes has its own stack: the components, the heights, the layers, the necessary nodes and the cycles. A cycle of eager edges is certain, but the demand gives the values. A demand of the host first demands its eager edges, deepest first, thus a long chain gives no `#DEPTH!`. |
 
 ## Open
 

@@ -15,6 +15,7 @@ import {
   STD_MACHINE,
   THING,
   context,
+  cycles,
   edgesOf,
   factsOf,
   fail,
@@ -264,7 +265,7 @@ describe("the interface of a schedule", () => {
     expect(s.remove("a")).toBe(true);
     expect(s.remove("a")).toBe(false);
     expect(s.read("b")).toEqual(fail("#N/A", "The step a reaches nothing.", { place: [0] }));
-    // A chain of 100 nodes evaluates on demand. A much longer chain overflows the stack of the host (S2a).
+    // A chain of 100 nodes evaluates on demand. SCHED.LONG-CHAIN has a chain of 100000 nodes.
     const chain = schedule(strictMachine, LIT);
     for (let index = 0; index < 100; index += 1) chain.set(`n${index}`, index === 99 ? 0 : op("add", ref("world", `n${index + 1}`), 1));
     expect(chain.read("n0")).toEqual(ok(99));
@@ -358,6 +359,53 @@ describe("the interface of a schedule", () => {
     expect(s.read("p")).toEqual(ok(1));
     expect(s.read("q")).toEqual(ok(2));
   });
+
+  it("[SCHED.LONG-CHAIN] a demand of the host first demands the nodes that the eager edges reach, deepest first, thus a chain of 100000 nodes gives its value with no #DEPTH!", async () => {
+    const LENGTH = 100_000;
+    const chain = schedule(strictMachine, { ...LIT, context: context({ names: { x: 7 } }) });
+    for (let index = 0; index < LENGTH; index += 1) chain.set(`n${index}`, index === LENGTH - 1 ? ref("names", "x") : ref("world", `n${index + 1}`));
+    expect(chain.read("n0")).toEqual(ok(7));
+    // Each node evaluates one time. Each node after the first is a demand ahead of the first node.
+    expect(chain.counts).toMatchObject({ evaluations: LENGTH, ahead: LENGTH - 1 });
+    expect(chain.read(`n${LENGTH / 2}`)).toEqual(ok(7));
+    expect(chain.counts).toMatchObject({ evaluations: LENGTH, ahead: LENGTH - 1 });
+    // After a change of data, each node verifies its read, deepest first, also with no #DEPTH!.
+    chain.changeData();
+    expect(chain.read("n0")).toEqual(ok(7));
+    expect(chain.counts).toMatchObject({ evaluations: LENGTH, verifications: LENGTH, reuses: LENGTH, ahead: 2 * (LENGTH - 1) });
+    // A new value at the end of a chain of 5000 nodes reaches the first node.
+    const short = schedule(strictMachine, { ...LIT, context: context({ names: { x: 7 } }) });
+    for (let index = 0; index < 5000; index += 1) short.set(`n${index}`, index === 4999 ? ref("names", "x") : op("add", ref("world", `n${index + 1}`), 1));
+    expect(short.read("n0")).toEqual(ok(5006));
+    short.changeData(context({ names: { x: 8 } }));
+    expect(short.read("n0")).toEqual(ok(5007));
+    expect(short.counts).toMatchObject({ evaluations: 10_000, verifications: 5000 });
+
+    // A node behind a lazy edge is not a demand ahead: a test that skips the read does not evaluate it.
+    const s = schedule(strictMachine, { ...LIT, context: context({ names: { flag: false } }) });
+    s.set("top", op("add", ref("world", "near"), { type: "if", value: { test: ref("names", "flag"), then: ref("world", "far"), else: 0 } }));
+    s.set("near", 1);
+    s.set("far", 2);
+    expect(s.read("top")).toEqual(ok(1));
+    expect(s.counts).toMatchObject({ evaluations: 2, ahead: 1 });
+
+    // A long chain that ends at a cycle: each node of the cycle gives #CYCLE!, and each node of the chain gets the
+    // error at its reference, as D31 says.
+    const ends = schedule(strictMachine, LIT);
+    for (let index = 0; index < 5000; index += 1) ends.set(`n${index}`, op("add", ref("world", index === 4999 ? "c1" : `n${index + 1}`), 1));
+    ends.set("c1", op("add", ref("world", "c2"), 1));
+    ends.set("c2", op("ifError", ref("world", "c1"), 0));
+    expect(ends.read("n0")).toEqual(fail("#CYCLE!", "The node c1 is on a cycle of reads.", { place: [0] }));
+    expect(ends.read("c1")).toEqual(cycle("c1"));
+    expect(ends.read("c2")).toEqual(cycle("c2"));
+
+    // A run reads a node with no node in evaluation, thus its read is a demand of the host too.
+    const runs = schedule(STD_MACHINE, { context: context({ caps: ["log"] }) });
+    for (let index = 0; index < 5000; index += 1) runs.set(`n${index}`, index === 4999 ? { type: "number", value: 3 } : ref("world", `n${index + 1}`));
+    runs.set("r", { type: "log", value: [ref("world", "n0")] });
+    expect(await runs.run("r")).toEqual(ok(3));
+    expect(runs.counts.ahead).toBe(4999);
+  });
 });
 
 /* The harness for one meaning across schedules (R4 P4): an evaluation of the whole graph from scratch, and the demand schedule. */
@@ -418,6 +466,8 @@ interface Config {
   readonly wire: (rng: Random) => unknown;
   /** The share of the nodes that `wire` gives. */
   readonly wired: number;
+  /** `true`: a literal can hold a reference to a node (S1d). Then the static edges do not show each read of a node. */
+  readonly inData: boolean;
 }
 
 const node = (rng: Random): Json => ref("world", rng.pick(NODES));
@@ -449,6 +499,7 @@ const CONFIGS: readonly Config[] = [
     value: (rng) => rng.pick<unknown>([0, 1, "two", [1, 2], { a: 1 }, null]),
     wire: wireFormula,
     wired: 0.2,
+    inData: true,
   },
   {
     name: "standard",
@@ -470,6 +521,7 @@ const CONFIGS: readonly Config[] = [
     // A list evaluates each part, also after a failed part.
     wire: (rng) => (rng.chance(0.5) ? { type: "list", value: [node(rng), node(rng)] } : rng.chance(0.5) ? { type: "add", value: [node(rng), 1] } : node(rng)),
     wired: 0.2,
+    inData: false,
   },
   {
     // A dense graph: most nodes read two nodes and catch a failed read. It makes many cycles that share nodes.
@@ -481,6 +533,7 @@ const CONFIGS: readonly Config[] = [
     value: (rng) => rng.pick<unknown>([0, 1, 2]),
     wire: wireFormula,
     wired: 0.85,
+    inData: false,
   },
 ];
 
@@ -565,15 +618,20 @@ function shuffle<T>(items: readonly T[], rng: Random): T[] {
 interface Outcome {
   /** The reads whose result is not the same as the result from scratch. */
   readonly stale: readonly string[];
+  /** The nodes that give `#CYCLE!` from scratch, and that no static cycle of `cycles` has (GRAPH.CYCLE). */
+  readonly missed: readonly string[];
   readonly counts: Readonly<Record<string, number>>;
 }
 
 /**
  * This function runs random commands against a demand schedule, and it compares each read with an evaluation of the
- * whole graph from scratch. A mutant host changes its names in place, and it does not tell the schedule.
+ * whole graph from scratch. A demand of the host first demands the nodes that the eager edges reach (S2a). Each node
+ * that gives `#CYCLE!` from scratch is on a static cycle, unless a literal holds a reference to a node (S1d). A
+ * mutant host changes its names in place, and it does not tell the schedule.
  */
 function harness(config: Config, mutant = false, total: number = COUNT): Outcome {
   const stale: string[] = [];
+  const missed: string[] = [];
   const counts: Record<string, number> = {};
   const add = (name: string, by = 1): void => {
     counts[name] = (counts[name] ?? 0) + by;
@@ -604,6 +662,10 @@ function harness(config: Config, mutant = false, total: number = COUNT): Outcome
         const fresh = fromScratch(config, machine, docs, base);
         const again = fromScratch(config, machine, docs, base);
         const ids = shuffle([...docs.keys()], rng);
+        // The static cycles of the graph: the possible cycles and the certain cycles.
+        const found = cycles(s.graph());
+        const onCycle = new Set(found.flatMap((each) => each.nodes));
+        const certain = new Set(found.filter((each) => each.certain).flatMap((each) => each.nodes));
         // Half of the reads demand each node in a random order, and the other half demand one node.
         for (const id of rng.chance(0.5) ? ids : ids.slice(0, 1)) {
           const got = s.read(id);
@@ -615,8 +677,11 @@ function harness(config: Config, mutant = false, total: number = COUNT): Outcome
             continue;
           }
           add("compared");
-          if (sameResult(want, cycle(id))) add("cycles");
-          else if (sameResult(want, refused(id))) add("runs");
+          if (sameResult(want, cycle(id))) {
+            add("cycles");
+            if (certain.has(id)) add("certain");
+            if (!config.inData && !onCycle.has(id)) missed.push(`${config.name} seed ${seed} step ${step} node ${id}: no static cycle\n  docs ${show([...docs])}`);
+          } else if (sameResult(want, refused(id))) add("runs");
           else if (want.ok) add("values");
           if (!sameResult(got, want, equal)) stale.push(`${config.name} seed ${seed} step ${step} node ${id}: ${show(got)} and from scratch ${show(want)}\n  docs ${show([...docs])}`);
         }
@@ -671,8 +736,9 @@ function harness(config: Config, mutant = false, total: number = COUNT): Outcome
     add("evaluations", work.evaluations);
     add("verifications", work.verifications);
     add("reuses", work.reuses);
+    add("ahead", work.ahead);
   }
-  return { stale, counts };
+  return { stale, missed, counts };
 }
 
 describe("one meaning across schedules", () => {
@@ -680,8 +746,9 @@ describe("one meaning across schedules", () => {
     for (const config of CONFIGS) {
       const outcome = harness(config);
       expect(outcome.stale.slice(0, 3), `${config.name}: ${show(outcome.counts)}`).toEqual([]);
-      // The harness reaches each command and each answer of the schedule.
-      for (const name of ["data", "empty", "edits", "removes", "additions", "same", "machines", "verifications", "reuses", "cycles"]) {
+      expect(outcome.missed.slice(0, 3), config.name).toEqual([]);
+      // The harness reaches each command and each answer of the schedule, and the demands ahead of a node (S2a).
+      for (const name of ["data", "empty", "edits", "removes", "additions", "same", "machines", "verifications", "reuses", "cycles", "ahead"]) {
         expect(outcome.counts[name] ?? 0, `${config.name}: ${name} in ${show(outcome.counts)}`).toBeGreaterThan(COUNT / 4);
       }
       expect(outcome.counts["compared"] ?? 0, config.name).toBeGreaterThan(COUNT * 10);
