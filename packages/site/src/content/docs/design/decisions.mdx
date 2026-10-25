@@ -30,6 +30,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D19 | An evaluation takes a mock `perform`, so a test answers effects without promises. Each effect keeps an address that the host cannot change, and its outcome. A recorder and a replayer give record and replay. |
 | D20 | `docEquals`, `sameValue` and `sameResult` share one walk. `sameResult` is for an early cutoff, thus a closure is the same only as itself, and two errors need the same reason too. |
 | D21 | A host thing tells a field that holds `undefined` from a missing field with an optional `has`. A thing without `has` keeps the old reading. |
+| D22 | A value type is a JSON term apart from the kinds. A language adds base types as domains of its machine, and the domains merge name by name. `unknown` fits each type, and each type fits it. |
 
 ## Open
 

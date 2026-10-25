@@ -39,6 +39,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | The formula kit | `formulaMachine`, `FormulaProfile`, `formulaKnown` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. A language extends the kit through the merge. An address gives a thing, not its value |
 | One meaning | `agree`, `reference`, `formulaDefinitions`, `STD_DEFINITIONS`, `generate`, `TierInput` | A reference interpreter that compiles nothing, and `agree`, which compares a plan with it and with the second tier of a language. Each tier gets the mock `perform` of `agree`. `generate` builds random documents from the kind contracts |
 | Early cutoff | `sameResult` | A safe equality of two results for a schedule. Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place |
+| Types | `ValueType`, `Domain`, `fits`, `member`, `typeIssues`, `STD_DOMAINS` | Value types as JSON terms, for the checks of types. A language adds its base types as domains of its machine, each with a membership test and parents. `unknown` fits each type, and each type fits it |
 
 Each rule has an ID in [`docs/SPEC.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://mark1russell7.github.io/coeval/) explains each idea with a live diagram.
 

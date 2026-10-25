@@ -227,6 +227,22 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |
 | STATIC.KNOWN | `check` asks the hook `known` of the machine about the kind and the evaluator of each document. A name that the evaluator does not know gives `#NAME?` with the reason of a run, for example an unknown operation. |
 
+## Types
+
+A value type is a set of values that a result can have (R5 P2, D22). It is a JSON term that only a check reads. It is not a kind, and it does not go into an envelope.
+
+| ID | Rule |
+| --- | --- |
+| TYPE.BASE | A text names a base type. The kernel has `unknown`, `never`, `null`, `bool`, `number` and `text`. `unknown` holds each value, and `never` holds no value. `STD_DOMAINS` gives the tests of the other four. |
+| TYPE.TERM | The terms `list`, `record`, `fn`, `union` and `one` make types from types. A record type holds only plain records. It can name optional fields, and a closed record has no other fields. A function type tests only that a value is a function. `one` compares with `docEquals`. |
+| TYPE.MEMBER | `member` tells if a value is a member of a type. A member of a domain passes the test `is` of the domain and of each parent. A test that throws gives `false`. For types without `unknown`, a member of a type is a member of each type that it fits. |
+| TYPE.FITS | `fits(found, expected)` tells if each value of `found` can be where `expected` must be. It is reflexive, and transitive for types without `unknown`. `never` fits each type. Lists are covariant, records have width, and the parameters of functions are contravariant. An open record without an optional field fits only when that field is `unknown`. |
+| TYPE.UNKNOWN | `unknown` is the gradual top: it fits each type, and each type fits it. A term that is not a value type, a base type without a domain, and a term deeper than 256 terms read as `unknown`. `fits`, `member` and `typeIssues` do not throw. |
+| TYPE.ISSUES | `typeIssues` lists the problems of a type: each term that is not a value type, each base type without a domain and a term that is too deep. Each problem has its keys in the term. |
+| TYPE.DOMAIN | A domain gives a base type its membership test `is` and its parents `under`. A base type fits itself and each parent, through each level. A cycle of parents ends. |
+| TYPE.OPEN | A language adds its domains in the table `domains` of its machine, without a change to the kernel. A domain of the kernel that the table does not name comes from `STD_DOMAINS`. A table entry with the name `unknown` or `never` has no effect. |
+| TYPE.MERGE | `mergeMachines` merges the domains name by name. Two domains with the same test, parents and summary give one domain. Two different domains with one name are a conflict, unless the later part names `["domains", name]` in `replaces`. `formulaMachine` and `STD_MACHINE` give `STD_DOMAINS`. `restrictMachine` removes a domain. |
+
 ## The formula kit
 
 | ID | Rule |

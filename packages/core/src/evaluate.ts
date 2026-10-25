@@ -2,6 +2,7 @@ import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName 
 import { type Split, partsOf, pathMatches } from "./parts.ts";
 import { ask, type Answer } from "./ladder.ts";
 import type { CapsRule, Kind, Side, World } from "./world.ts";
+import type { Domain } from "./types.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
@@ -519,6 +520,7 @@ export type Runner = RunFn | CompiledRunner;
  * - `maxDepth`: the deepest nesting of documents. The default is 1000.
  * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities.
  * - `known`: the names that the evaluators know, for `check`. Without it, `check` does not check such names.
+ * - `domains`: the value domains of the language, by the name of their base type (D22).
  */
 export interface Machine extends Navigator {
   readonly evaluators: Readonly<Record<string, Evaluator>>;
@@ -536,6 +538,12 @@ export interface Machine extends Navigator {
    * @returns `true` when the evaluator knows the name, or else the reason of the `#NAME?` that a run gives.
    */
   readonly known?: (path: readonly Key[], evaluator: string) => true | string;
+  /**
+   * The value domains of the language, by the name of their base type, for example a color or a unit of length. A
+   * check reads them through `fits` and `member`. A domain of the kernel that the table does not name comes from
+   * `STD_DOMAINS`.
+   */
+  readonly domains?: Readonly<Record<string, Domain>>;
 }
 
 /** One evaluation in a trace. The children are the evaluations of its parts, in the order that they started. */

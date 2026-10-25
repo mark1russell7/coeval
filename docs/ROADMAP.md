@@ -22,7 +22,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 8. K22: `sameResult`, a safe equality for an early cutoff (R4 P1) (done, 2026-10-24, released in 0.6.3, D20, RESULT.SAME). Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place. `docEquals`, `sameValue` and `sameResult` share one walk.
 9. K39: a host thing can tell that a field holds `undefined`, a small correction that K20 found (done, 2026-10-24, released in 0.6.3, D21, DEREF.HOST-UNDEFINED). Its optional `has` answers when `deref` gives `undefined`. Before, a host that adopted the names hid each name bound to `undefined`. A node of the standard tree hid such an attribute too.
 10. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2) (done, 2026-10-24, released in 0.6.3, D19). An evaluation, a plan, the reference and `agree` take a mock `perform`. Each effect keeps a stable address and its outcome. `recorder` and `replayer` give record and replay, and a request that the log does not have gives `#REPLAY!`.
-11. K23: value types and value domains, the base of the type work (R5 P2). It comes first, because the type work K24 to K31 waits for it.
+11. K23: value types and value domains, the base of the type work (R5 P2): done (2026-10-24, D22), released in the next batch. A value type is a JSON term, and `fits` decides each check. A language adds its base types as domains of its machine, and the domains merge name by name. The type work K24 to K31 builds on it.
 12. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
 13. K12: compiled paths (R1 P2).
 
@@ -71,7 +71,7 @@ On the site, C10 is next too (R4). Each other proposal of the six studies is a r
 | K20 | `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1) | done (2026-10-24, version 0.4.3: the hook `known` of the machine, and `partsOf`) | K3 |
 | K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | done (2026-10-24, version 0.4.3) | K3 |
 | K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | done (2026-10-24, released in 0.6.3: `sameResult`, and one walk for `docEquals`, `sameValue` and `sameResult`, D20) | K5, K21 |
-| K23 | Value types and value domains: a new `types.ts` with open base types, the relation `fits`, and a membership test for each domain (R5 P2) | next | K2, K3 |
+| K23 | Value types and value domains: a new `types.ts` with open base types, the relation `fits`, and a membership test for each domain (R5 P2) | done (2026-10-24, D22), released in the next batch: `ValueType`, `Domain`, `fits`, `member`, `typeIssues`, `STD_DOMAINS` and `Machine.domains` | K2, K3 |
 | K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | later | K23 |
 | K25 | Types of the roots, of the names and of the paths, from the host, from a JSON Schema or from sample values (R5 P4) | later | K24 |
 | K26 | The agreement rule for types: in a traced evaluation of a document that checks, each value is in the type of its place (R5 P5) | later | K9, K24 |
