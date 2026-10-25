@@ -146,7 +146,7 @@ A list shape needs a list, and a record shape or a map needs a plain record. The
 `W ⊢ τ ⇒ κ̂` walks the keys of a type from the root of the world. The state holds the keys `k̄` that stay, the entries `T` and the fallback `φ` of one level, and the count `a` of aliases. The rules apply to the first key `k` of the keys, in their order.
 
 ```text
-K-START  [WORLD.ALIAS, WORLD.EXPANDED]
+K-START  [WORLD.ALIAS, WORLD.EXPANDED, COMPOSE.CONSERVATIVE]
     keys(τ) = k̄        W.kinds, W.fallback, 0 ⊢ k̄ ⇒ κ̂
     ─────────────────────────────────────
     W ⊢ τ ⇒ κ̂
@@ -217,7 +217,7 @@ L-KIND  [LADDER.KIND, VERB.LADDER]
     ─────────────────────────────────────
     ladder(H, o, κ̂, β) = kind κ.verbs(β)
 
-L-DEFAULT  [LADDER.DEFAULT]
+L-DEFAULT  [LADDER.DEFAULT, COMPOSE.CONSERVATIVE]
     β is an own key of W.defaults        H(W.defaults(β))
     ─────────────────────────────────────
     ladder(H, o, κ̂, β) = default W.defaults(β)
@@ -389,7 +389,7 @@ E-GAP  [REF.DIRECT]
     ─────────────────────────────────────
     M, Γ ⊢ᵦ v : τd @ ρ, h ⇓ err(#NOEVAL, ρ) ! []
 
-E-APPLY  [EVAL.OWN, EVAL.SEALED, VALUE.ANY]
+E-APPLY  [EVAL.OWN, EVAL.SEALED, VALUE.ANY, EVAL.DETERMINISTIC]
     ladder = n        s = ok(p̄, δ, fill)        F = M.E(n), and M.R has no n
     qi = seal(pi, ρ, h)        for each part pi
     F⟨d, δ, fill(q̄), q̄, Γ, ρ⟩ = r ! ε
@@ -420,7 +420,7 @@ H-SEAL  [EVAL.SEALED, EVAL.BY-NAME]
     eval(Γ') = r        when        M, part(Γ, Γ', ℓ) ⊢ᵦ p : of @ ρ·ℓ, h + 1 ⇓ r ! ε'
     each call of eval is a new evaluation, and ε' joins the effects in the order of the calls
 
-H-CONTEXT  [CAP.NARROW, CAP.CONTRACT, CAP.ONLY]
+H-CONTEXT  [CAP.NARROW, CAP.CONTRACT, CAP.ONLY, CAP.MONOTONE]
     part(Γ, Γ', ℓ) = rules(κ.caps, ℓ, narrow(Γ, Γ'))        Γ' = Γ when the code gives no context
     narrow(Γ, Γ') = Γ' with caps = [c in Γ'.caps such that permits(Γ.caps, c)]
     rules(γ̄, ℓ, Γ) = Γ with caps = []                when a rule mask covers ℓ
@@ -535,7 +535,7 @@ T-NODE  [TREE.LAZY, TREE.RESULT, TREE.PURE]
 T-STEP  [TREE.PARENT, TREE.SIBLING]
     step(ν, parent) = Γ.self        step(ν, type) = the kind of ν        step(ν, a) = demand(ν, a)
 
-T-DEMAND  [TREE.ONCE, TREE.MEMO]
+T-DEMAND  [TREE.ONCE, TREE.MEMO, TREE.ORDER-FREE]
     state(ν, a) = done(r)        ⇒  demand(ν, a) = r
     state(ν, a) = new            ⇒  state(ν, a) := pending, r = qa(Γ with self = ν),
                                     state(ν, a) := done(r), and demand(ν, a) = r
@@ -564,14 +564,23 @@ ST-RUNNER  [RUN.SEQ, RUN.EAGER, SEQ.LAST, SEQ.NAMES]
     G⟨d, δ, fill(q̄), q̄, Γ, ρ, effect, all⟩ = S
     ─────────────────────────────────────
     M, Γ ⊢ᵦ v : τd @ ρ, h ⇓ S, with place(·, ρ) on its result
+
+ST-SEQ  [SEQ.LAST, SEQ.NAMES, SEQ.LAWS]
+    the runner control.seq gets the steps q1 … qm, and xi is the header of qi when qi has one
+    Γ1 = Γ        qi(Γi) = ok(ui)        Γ(i+1) = Γi with names + {last: ui} + {xi: ui}
+    ─────────────────────────────────────
+    the sequence gives ok(um), or ok(null) when m = 0
+    the first step that gives err(e) stops the steps, and the sequence gives err(e)
 ```
+
+The steps of a sequence see the names around it. A step sees `last` and the headers of the earlier steps of its own sequence, and of each sequence around it (C7).
 
 ### Effects
 
 The rules X-CAP and X-RECORD apply to each effect in each handler, after the rule X-NEEDS-RUNNER of a run.
 
 ```text
-X-CAP  [RUN.CAP, CAP.HOOK, CAP.PURE, RUN.PURE]
+X-CAP  [RUN.CAP, CAP.HOOK, CAP.PURE, RUN.PURE, CAP.MONOTONE]
     allowed(Γ, k̄) = M.permits(Γ.caps, k̄, Γ) when the machine has the hook, else permits(Γ.caps, k̄)
     allowed(Γ, k̄) is false
     ─────────────────────────────────────
@@ -714,10 +723,32 @@ By the steps 1 and 2, the hypothesis of the induction gives the premise of the s
 
 Two limits apply. `sameValue` compares two closures by their parameters, thus `agree` is weaker than the claim for closures. And the claim holds only for the shared code of the judgments 1 to 3. An overflow of the stack of the host is the one permitted difference between the tiers (AGREE.ERRORS).
 
+## The laws of the semantics
+
+Property tests examine six laws on generated documents and machines (K93, D37). Each law follows from the rules of its row, and it holds only under its conditions. Each test counts the cases that a condition skips. The equations of effects come with S4.
+
+| Law | ID | Rules | Conditions |
+| --- | --- | --- | --- |
+| A part that evaluates one time to a JSON value can change into a literal of that value. The parent gives the same result. | EVAL.SEALED | E-APPLY, H-SEAL | The code keeps C5. A kind whose code reads `doc.value` breaks the law, and the test finds it. |
+| The same machine, document, context and mock give the same result, effects and reads, also after an evaluation in another context. | EVAL.DETERMINISTIC | E-APPLY, H-SEAL, T-DEMAND | Each code, each host thing and the mock are functions, and each formula profile keeps C8. An overflow of the stack of the host is the one exception (K94). |
+| Fewer capabilities change an evaluation only at an effect that they refuse and more capabilities permit. | CAP.MONOTONE | H-CONTEXT, H-GRANT, X-CAP | The document does not read the root `caps`. The code keeps C1, and the hook `permits` permits more for more capabilities. |
+| A merge that adds only new entries keeps the result of each document of the base. | COMPOSE.CONSERVATIVE | K-START, K-FALLBACK, L-DEFAULT | The document names no new kind and no new code. It reads no changed entry of the world. No new default answers a verb of the base. |
+| The order of the demands changes no attribute. | TREE.ORDER-FREE | T-DEMAND, T-CYCLE | The tree has no cycle. A root gives the first error of its attributes in their order, thus that error can differ. |
+| A sequence with one step gives the step. The steps at the end can go into a nested sequence. The steps at the start can too, when only the last of them has a name. | SEQ.LAWS | ST-SEQ | A name reaches only the later steps of its own sequence and of the sequences in them. |
+
+Why each law holds:
+
+- **EVAL.SEALED.** By E-APPLY, the code `F` reads a part only through its handle, when it keeps C5. A literal with the same result gives the same handle results, thus `F` gives the same result.
+- **EVAL.DETERMINISTIC.** Each rule gives one conclusion for its premises. The only state of an evaluation is the memo of a tree and the counts of the addresses, and each evaluation makes them new (TREE.MEMO, X-RECORD).
+- **CAP.MONOTONE.** The capabilities appear only in H-CONTEXT, H-GRANT and X-CAP. `narrow`, the meet and `permits` give more for more capabilities. Thus two evaluations are the same up to the first effect whose answers differ, and there the fewer capabilities refuse.
+- **COMPOSE.CONSERVATIVE.** A new entry does not change the lookup of a key of the base, unless a fallback answered that key before (K-FALLBACK). A new default changes only a verb that no rung of the base answered (L-DEFAULT).
+- **TREE.ORDER-FREE.** By T-DEMAND, an attribute is a function of the attributes that it demands. Only T-CYCLE reads the state `pending`, and the order of the demands decides where a cycle closes.
+- **SEQ.LAWS.** By ST-SEQ, the names of a step depend only on the names before it and on the earlier results of its own sequence. A nested sequence starts with the names around it, and its names stay in it.
+
 ## What the calculus leaves out
 
 - The reason and the cause of an error, the hops of a path, the trace and the list of reads.
 - The rules of `check`, of the types and of the facts. Each one is an abstract version of a rule of this page (R5).
 - The schedule and the durable cache. They evaluate documents by the judgment 4 (D30, D31).
-- The kinds of the standard world other than the tree. Their evaluators are host code, as each evaluator of a language is.
+- The kinds of the standard world other than the tree and `seq`. Their evaluators are host code, as each evaluator of a language is.
 - A recursion of `fn` through `call` meets only the stack of the host, thus each tier stops at a different depth (K94).

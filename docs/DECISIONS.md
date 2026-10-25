@@ -897,3 +897,29 @@ Each evaluation does the same work with the same values. Thus each result, error
 - No evaluator or runner of the standard library or the formula kit broke an obligation. The results of programs do not change.
 
 **Next.** K120 gives each evaluation its own grant. K121 extends `conforms` to walkers. K123 shows `conforms` on the site.
+
+## D37 (2026-10-25): each law of the semantics has a property test, with its conditions in the law
+
+**Context.** The study R7 names laws that follow from the rules (part 4). K93 tests them on generated documents and machines. A law that holds only under conditions needs those conditions in its statement. Otherwise a test finds false failures, or it tests nothing.
+
+**Decision.**
+
+- Each law has one ID and one property test in `laws.test.ts`: EVAL.SEALED, EVAL.DETERMINISTIC, CAP.MONOTONE, COMPOSE.CONSERVATIVE, TREE.ORDER-FREE and SEQ.LAWS. `SEMANTICS.md` names each law beside its rules.
+- EVAL.SEALED changes a part that evaluates one time to a JSON value into a literal of that value. The test also has a kind whose code reads `doc.value`, and it must find that this kind breaks the law (C5).
+- EVAL.DETERMINISTIC evaluates two documents in turn, with the same plan and with a new plan. Thus a state that stays from one evaluation to the next shows. An overflow of the stack of the host is the one exception (K94).
+- CAP.MONOTONE compares the questions to the hook `permits`. The first question with another answer must be about the same effect, permitted by more capabilities and refused by fewer. Before it, the effects are the same. A document that reads the root `caps` is out of the law.
+- COMPOSE.CONSERVATIVE uses the reads of an evaluation. A document that reads a changed entry of the world, for example the root `world`, is out of the law.
+- TREE.ORDER-FREE changes the order of the fields of each node. Each document in a node gives the same result. A root and each document around it give a value in both orders, or an error in both orders. The root gives the first error in the order of its parts.
+- SEQ.LAWS: the steps at the start go into a nested sequence only when only the last of them has a name. The nested sequence gets that name. A new rule `ST-SEQ` in `SEMANTICS.md` gives the meaning of `seq`.
+- Each test reads `COEVAL_AGREE_COUNT` and `COEVAL_AGREE_SEED`, as the agreement harness does. CI raises the count to 2000.
+
+**Rejected.**
+
+- A law without its conditions, for example "fewer capabilities never change a result". A document that reads the root `caps` breaks it, and so does a document that gives the error of a refused effect.
+- A flat law for each grouping of a sequence. A name of an inner step does not reach the steps after the inner sequence, thus `seq[a:x, b, c]` and `seq[seq[a:x, b], c]` differ when `c` reads `x`.
+- A strict law for the root of a tree. The first error of a root depends on the order of its parts, and TREE.RESULT states this order.
+- The laws inside `agree.test.ts`. The agreement harness compares tiers, and a law compares two documents or two machines. One file for each purpose keeps each failure clear.
+
+**Why.** A law is a claim about all documents. A property test on generated documents examines many cases that no person writes. Each test counts the cases that its conditions skip, and it fails when it skips too many. A mutant of the kernel for each law shows that its test can fail.
+
+**Limits.** The equations of effects stay with S4. The tests use the standard world, the formula language and the probe language, not each world.

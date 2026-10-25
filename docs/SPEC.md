@@ -70,6 +70,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | COMPOSE.EXTEND-UNIFY | Two independent extensions of one base compose without glue. Each order of the parts gives the same machine (WORLD.LAWS). Both extensions can add to one namespace of the base. |
 | COMPOSE.INCREMENTAL | A language extends an extension, also at run time. It reads the entry that it replaces through `prev`. A plan keeps its machine, and a new plan uses the new machine. |
 | COMPOSE.CONFLICT | Two extensions that each compose with the base can conflict. The merge throws one `MergeError` when the host builds the machine. The path of each conflict is the mark `replaces` that resolves it. |
+| COMPOSE.CONSERVATIVE | A merge without a conflict can add kinds, aliases, namespaces, code and the defaults of new verbs. Such a merge keeps the result and the effects of each document of the base. The document names no new kind and no new code, and it reads no entry of the world that the merge changes, for example the root `world`. A new key under a fallback of the base is new only for documents that do not name it. A property test examines generated documents of three machines. |
 
 ## Parts and contracts
 
@@ -83,7 +84,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | SHAPE.CLOSED | A closed record shape permits only its named fields. Another field gives a reason and its place. |
 | SHAPE.KINDS | A term shape can name the kinds that it permits. A part whose type does not start with one of them gives a reason. |
 | SHAPE.DISTINCT | A list shape can permit no two equal items. |
-| EVAL.SEALED | An evaluator gets each part sealed. Two parts with the same result can replace each other. This holds for code that reads its parts only through their handles, not through `doc.value`. |
+| EVAL.SEALED | An evaluator gets each part sealed. Two parts with the same result can replace each other. This holds for code that reads its parts only through their handles, not through `doc.value` (C5). A property test changes a part of a generated document that evaluates one time to a JSON value into a literal of that value. The parent gives the same result, and the effects outside the part stay the same. A kind whose code reads `doc.value` breaks the law, and the test finds it. |
 | EVAL.BY-NAME | Each call of the handle of a part is a new evaluation. The part evaluates again, and its effects happen again. |
 | EVAL.FILL | An evaluator can put the result of each part in the place of the part. The data around the parts stays the same objects. |
 
@@ -121,6 +122,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | TREE.MEMO | Each node keeps one memo for each attribute, for one evaluation. Each evaluation makes new nodes, thus nothing stays from an earlier evaluation. |
 | TREE.PURE | The kinds `panel` and `box` mask the capabilities of their parts. An attribute evaluates on demand, thus an effect in it gives `#CAP!`, and `check` finds it. |
 | TREE.RESULT | The root of a tree gives the JSON of the tree: each attribute in the order of the parts, with the JSON of each node in a value. A node of a closed tree starts a new tree. |
+| TREE.ORDER-FREE | The order of the demands changes no attribute of a tree without a cycle. Thus another order of the fields of each node gives each document in a node the same result. A root and each document around it give the same value in each order, or an error in each order. The root gives the first error of its attributes in their order, thus that error can differ. A property test examines generated trees. |
 
 ## Evaluation and plans
 
@@ -149,6 +151,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | VALUE.DEPTH | An overflow of the stack of the host gives `#DEPTH!`. This is also true when the test of the overflow overflows the stack. |
 | VALUE.FAILURES | The function `failures` lists the errors where they started. |
 | TRACE.ORDER | A trace is in the order of the starts. Each start comes before its end. |
+| EVAL.DETERMINISTIC | An evaluation is a function of the machine, the document, the context and the mock. A plan gives the same result, effects and reads again, also after an evaluation in another context. A new plan and the reference give the same result and effects too. An overflow of the stack of the host is the one exception (K94). A property test examines generated documents of six machines. |
 
 ## Verbs
 
@@ -217,6 +220,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.REPLAY-MISMATCH | An effect that the log does not have at its address gives `#REPLAY!`: an unknown address, another kind or another payload. The run stops there, as at each failed step. |
 | SEQ.LAST | A sequence gives the result of the step before under the name `last`. |
 | SEQ.NAMES | A sequence gives the result of a named step to the later steps. |
+| SEQ.LAWS | A sequence with one step gives the result and the effects of the step. The steps at the end of a sequence can go into a nested sequence, also with their names. The steps at the start can go into a nested sequence when only the last of them has a name, and the nested sequence gets that name. Each such change keeps the result and the effects. A name reaches only the later steps of its own sequence and of the sequences in them. A property test examines generated steps. |
 | EFFECT.ORDER | The effects keep their order. |
 | CAP.PURE | An effect inside `pure` fails, because `pure` gives its part no capability. |
 | CAP.PURE-ONE | The kind `pure` takes exactly one part. A list with no part or with more than one part gives `#VALUE!`. |
@@ -224,6 +228,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | CAP.KEYS | A capability permits the kinds under it, key by key. A key with a dot is one key. |
 | CAP.NARROW | A part cannot get more capabilities than its parent. |
 | CAP.NARROW-CODE | A compiled evaluator or a compiled runner cannot give a part more capabilities than its document has. Each context carries the capabilities that the kernel gave its document, and a spread of the context keeps them. A part and an effect of compiled code keep only these capabilities. A context that compiled code makes without a spread has no capabilities. |
+| CAP.MONOTONE | Fewer capabilities change an evaluation only at an effect that they refuse and more capabilities permit. Before that effect, the two evaluations ask about the same effects and get the same answers. Without such an effect, they give the same result and the same effects. Thus fewer capabilities do not permit an effect that more capabilities refuse. This holds for a document that does not read the root `caps`, under code that keeps C1. A property test examines generated documents. |
 | CAP.HOOK | A machine can give the rule of the host for an effect. |
 | CAP.CONTRACT | A kind declares in its contract the capabilities that it gives its parts: `same`, `mask` or `only`. The kernel narrows the context of each part by these rules, thus an evaluator cannot give the part more. |
 | CAP.ONLY | A rule `only` gives a part only the effects that the capabilities of its document and the list of the rule both permit. |
