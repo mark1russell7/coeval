@@ -133,6 +133,40 @@ export function partCaps(rules: readonly CapsRule[] | undefined, path: readonly 
 }
 
 /**
+ * The key of the grant of a context (CAP.NARROW-CODE): the capabilities that the kernel gave the document of the
+ * context. A spread of a context keeps its grant. Thus compiled code passes the grant on in each context that it makes
+ * from the context of its document. Only the kernel writes a grant.
+ */
+const GRANT = /* @__PURE__ */ Symbol("coeval.grant");
+
+/** A context with the grant of the kernel. */
+type Granted = Context & { readonly [GRANT]?: readonly Cap[] };
+
+/**
+ * This function gives a context whose capabilities its grant permits (CAP.NARROW-CODE). A context whose grant is its
+ * own list of capabilities stays the same object. Each other context keeps only the capabilities that its grant
+ * permits, and a context without a grant keeps none. The result has the grant of its capabilities.
+ */
+function granted(ctx: Context): Context {
+  const grant = (ctx as Granted)[GRANT];
+  if (grant === ctx.caps) return ctx;
+  const caps = grant === undefined ? NO_CAPS : ctx.caps.every((cap) => permits(grant, cap)) ? ctx.caps : ctx.caps.filter((cap) => permits(grant, cap));
+  const out: Granted = { ...ctx, caps, [GRANT]: caps };
+  return out;
+}
+
+/**
+ * This function gives the context of a part of a function evaluator. It is the context that the evaluator gives,
+ * narrowed by the context of the document (CAP.NARROW), with the grant of its capabilities.
+ */
+function handed(parent: Context, next: Context): Context {
+  const ctx = narrow(parent, next);
+  if ((ctx as Granted)[GRANT] === ctx.caps) return ctx;
+  const out: Granted = { ...ctx, [GRANT]: ctx.caps };
+  return out;
+}
+
+/**
  * The steps of an evaluation that can wait. It yields a promise only when the host makes it wait. A runner takes the
  * result of a part with `yield*`, thus a run goes on at once until an effect waits. A runner does not yield a
  * promise itself: it uses `yield*` on the steps that the kernel gives.
@@ -351,7 +385,7 @@ export interface Runtime {
    * This function causes an effect from an evaluator. In a run, an evaluator cannot cause an effect: the host does
    * each effect, thus only a runner can wait for it.
    *
-   * @param ctx - The context of the document.
+   * @param ctx - The context of the document. It gives only the capabilities that the document has (CAP.NARROW-CODE).
    * @param kind - The kind of the effect.
    * @param payload - The data of the effect.
    * @param place - The place of the document.
@@ -362,7 +396,7 @@ export interface Runtime {
    * This function causes an effect from a runner. In a run, the host does it, and the steps wait when the host
    * waits.
    *
-   * @param ctx - The context of the document.
+   * @param ctx - The context of the document. It gives only the capabilities that the document has (CAP.NARROW-CODE).
    * @param kind - The kind of the effect.
    * @param payload - The data of the effect.
    * @param place - The place of the document.
@@ -397,10 +431,17 @@ export interface AllOptions {
   readonly failFast?: boolean;
 }
 
-/** Compiled code: the evaluation of a document in a context. */
+/**
+ * Compiled code: the evaluation of a document in a context. The code gives each part a context that it makes from
+ * its own context with a spread. The part then keeps only the capabilities of the document (CAP.NARROW-CODE). A
+ * context that the code makes without a spread gives the part no capabilities.
+ */
 export type Code = (ctx: Context, rt: Runtime) => Result;
 
-/** Compiled code that can wait: the run of a document in a context. */
+/**
+ * Compiled code that can wait: the run of a document in a context. Its parts keep only the capabilities of the
+ * document, as for `Code`.
+ */
 export type RunCode = (ctx: Context, rt: Runtime) => Steps;
 
 /** A compiled part: its place in its parent, its binding name, and its code. It has no field with its value. */
@@ -906,8 +947,13 @@ class Session implements Runtime {
     return this.machine.permits === undefined ? permits(ctx.caps, keys) : this.machine.permits(ctx.caps, keys, ctx);
   }
 
-  /** This function checks the capability of an effect, and records the effect with its address (RUN.ADDRESS). */
-  private record(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result | Recorded {
+  /**
+   * This function checks the capability of an effect, and records the effect with its address (RUN.ADDRESS). The
+   * context keeps only the capabilities of its grant, thus compiled code cannot widen the context of its own effect
+   * (CAP.NARROW-CODE).
+   */
+  private record(given: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result | Recorded {
+    const ctx = granted(given);
     const keys = typeof kind === "string" ? kind.split(".") : kind;
     const text = keys.join(".");
     if (!this.permitted(ctx, keys)) return fail("#CAP!", `The context has no capability for the effect ${text}.`, { place });
@@ -1253,9 +1299,14 @@ function failingWith(c: Compiler, meta: Meta, result: Result): { readonly code: 
   });
 }
 
+/**
+ * This function gives the code of a document in a trace. Each node records the context that its grant permits
+ * (CAP.NARROW-CODE), as the code of the document gets it.
+ */
 function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly code: Code; readonly run: RunCode } {
   if (!c.traced) return { code, run };
-  const tracedCode: Code = (ctx, rt) => {
+  const tracedCode: Code = (given, rt) => {
+    const ctx = granted(given);
     const s = rt as Session;
     const node = s.enter(meta, ctx);
     const before = s.current;
@@ -1269,7 +1320,8 @@ function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly c
     s.exit(node, result);
     return result;
   };
-  const tracedRun: RunCode = function* (ctx, rt) {
+  const tracedRun: RunCode = function* (given, rt) {
+    const ctx = granted(given);
     const s = rt as Session;
     const node = s.enter(meta, ctx);
     const steps = run(ctx, rt);
@@ -1392,11 +1444,14 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
  * the split of the value. Thus a plan with these helpers keeps only its code.
  */
 
-/** This function gives the code of a document: the code of its evaluator, with the place of each error and of each exception. */
+/**
+ * This function gives the code of a document: the code of its evaluator, with the place of each error and of each
+ * exception. The code gets the context that its grant permits, thus a compiled parent cannot widen it (CAP.NARROW-CODE).
+ */
 function placedCode(inner: Code, place: readonly Key[], name: string): Code {
   return (ctx, rt) => {
     try {
-      return placed(inner(ctx, rt), place);
+      return placed(inner(granted(ctx), rt), place);
     } catch (error) {
       return placed(thrown(error, `the evaluator ${name}`), place);
     }
@@ -1405,23 +1460,30 @@ function placedCode(inner: Code, place: readonly Key[], name: string): Code {
 
 /**
  * This function gives the code of a part that capability rules cover. The code narrows the context of the part by
- * the rules before the part starts.
+ * the rules before the part starts. First the context keeps only the capabilities of its grant, thus a compiled
+ * parent cannot widen the capabilities that the rules narrow (CAP.NARROW-CODE).
  */
 function gated(rules: readonly CapsRule[], part: { readonly code: Code; readonly run: RunCode }): { readonly code: Code; readonly run: RunCode } {
   const inner = part.code;
   const steps = part.run;
-  const under = (ctx: Context): Context => {
+  const under = (given: Context): Context => {
+    const ctx = granted(given);
     const caps = capsUnder(rules, ctx.caps);
-    return caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0) ? ctx : { ...ctx, caps };
+    if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
+    const out: Granted = { ...ctx, caps, [GRANT]: caps };
+    return out;
   };
   return { code: (ctx, rt) => inner(under(ctx), rt), run: (ctx, rt) => steps(under(ctx), rt) };
 }
 
-/** This function gives the steps of a runner, with the place of each error and of each exception. */
+/**
+ * This function gives the steps of a runner, with the place of each error and of each exception. The steps get the
+ * context that its grant permits (CAP.NARROW-CODE).
+ */
 function placedRun(inner: RunCode, place: readonly Key[], name: string): RunCode {
   return function* (ctx, rt) {
     try {
-      return placed(yield* inner(ctx, rt), place);
+      return placed(yield* inner(granted(ctx), rt), place);
     } catch (error) {
       return placed(thrown(error, `the runner ${name}`), place);
     }
@@ -1462,7 +1524,7 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
       key: part.key,
       path: part.path,
       ...(part.name === undefined ? {} : { name: part.name }),
-      evaluate: (override?: Context) => part.code(override === undefined ? ctx : narrow(ctx, override), rt),
+      evaluate: (override?: Context) => part.code(override === undefined ? ctx : handed(ctx, override), rt),
     }));
     return fn({
       kind,
@@ -1490,7 +1552,7 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
       key: part.key,
       path: part.path,
       ...(part.name === undefined ? {} : { name: part.name }),
-      evaluate: (override?: Context) => part.run(override === undefined ? ctx : narrow(ctx, override), rt),
+      evaluate: (override?: Context) => part.run(override === undefined ? ctx : handed(ctx, override), rt),
     }));
     return fn({
       kind,
@@ -1511,14 +1573,17 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
 
 /**
  * This function gives the context at the root of an evaluation. It is the context of the host, with the world of
- * the machine when the context has none. An evaluation and `verifyReads` share it.
+ * the machine when the context has none. The host gives the capabilities, thus the root has the grant of each one
+ * (CAP.NARROW-CODE). An evaluation and `verifyReads` share it.
  *
  * @param machine - The machine.
  * @param ctx - The context of the host.
  * @returns The context at the root.
  */
 export function rootContext(machine: Machine, ctx: Context): Context {
-  return ctx.world === null ? { ...ctx, world: worldThing(machine.world) } : ctx;
+  if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps) return ctx;
+  const root: Granted = { ...ctx, world: ctx.world === null ? worldThing(machine.world) : ctx.world, [GRANT]: ctx.caps };
+  return root;
 }
 
 /**
