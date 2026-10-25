@@ -1,8 +1,8 @@
 import { type Json, type Key, docEquals, isKey, isRecord } from "./doc.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
-import { type Context, type Resolution, valueOfThing } from "./deref.ts";
+import { type Context, type Resolution, compilePath, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
-import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine, Runtime } from "./evaluate.ts";
+import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
 import { type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, stepType, typeText } from "./types.ts";
 import type { TypeInput, TypeRule } from "./typing.ts";
@@ -540,7 +540,7 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       return () => result;
     }),
 
-    "formula.ref": compiled(({ doc, parts, fill, address }) => {
+    "formula.ref": compiled(({ doc, parts, fill, address, machine }) => {
       const path = doc.value;
       if (!Array.isArray(path) || path.length === 0) {
         const bad = fail("#VALUE!", 'The value of ref is a path: a list that starts with a root, for example ["names", "a"].');
@@ -566,7 +566,11 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
         rt.resolve(ctx, name);
         return { ok: false, error: bound.error };
       };
-      if (parts.length === 0) return (ctx, rt) => held(ctx, rt) ?? give(rt.resolve(ctx, path));
+      if (parts.length === 0) {
+        // A path without parts is static, thus it compiles one time for the machine of the plan (PLAN.PATH).
+        const compiledPath = compilePath(machine, path);
+        return (ctx, rt) => held(ctx, rt) ?? give(resolveCompiled(rt, ctx, compiledPath));
+      }
       // The step documents of a path are its parts when the kind ref has a deep shape. They evaluate first, in order,
       // thus the error of a step comes before the error of a binding that the path reads (FORMULA.STEPS).
       return (ctx, rt) => {

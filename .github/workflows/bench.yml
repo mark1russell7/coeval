@@ -1,0 +1,46 @@
+# The speed of plans and paths (K12, D29): the base commit and this commit in one process, on one machine.
+# The job only prints numbers, in its log and in its summary. It does not block a merge.
+# A shared local machine gives unreliable numbers, thus the measurements run here.
+name: Speed
+
+on:
+  pull_request:
+    paths:
+      - "packages/core/src/**"
+      - "packages/core/bench/**"
+      - ".github/workflows/bench.yml"
+  workflow_dispatch:
+    inputs:
+      base:
+        description: The commit to compare with
+        default: origin/main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # The pnpm version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check out the base commit
+        run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
+      - name: Compare the base with this commit
+        run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts

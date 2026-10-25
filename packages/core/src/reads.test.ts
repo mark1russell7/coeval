@@ -20,6 +20,7 @@ import {
   formulaMachine,
   generate,
   isClosure,
+  isHostThing,
   jsTruthy,
   mergeMachines,
   ok,
@@ -436,6 +437,44 @@ describe("the reads of generated documents", () => {
       expect(outcome.uncovered.slice(0, 3), `${config.name}: ${show(outcome.counts)}`).toEqual([]);
       expect(outcome.counts["reads"] ?? 0, config.name).toBeGreaterThan(COUNT / 5);
     }
+  }, 120_000);
+
+  it("[PLAN.PATH-SAME] a plan with compiled paths gives the result and the reads of a traced evaluation, which resolves each path again", () => {
+    // A node of a tree is a new thing in each evaluation, thus two host things compare by their labels.
+    const same = (a: unknown, b: unknown): boolean | undefined =>
+      equal(a, b) ?? (isHostThing(a) && isHostThing(b) ? a.label === b.label && (a.label.startsWith("node") || Object.is(a.toJson(), b.toJson())) : undefined);
+    const differences: string[] = [];
+    let reads = 0;
+    for (const config of CONFIGS) {
+      const machine = config.machine;
+      const declared = config.options.declaredType === undefined ? {} : { declaredType: config.options.declaredType };
+      for (let index = 0; index < Math.ceil(COUNT / 2); index += 1) {
+        const seed = 9_100_003 + index;
+        const doc = generate(machine.world, { ...config.options, seed });
+        const ctx = CONTEXTS[index % CONTEXTS.length] as Context;
+        const compiled: Read[] = [];
+        const again: Read[] = [];
+        // The clock of the operation now starts again, thus both evaluations see the same times.
+        clock = 0;
+        const result = prepare(machine, doc, declared).evaluate(ctx, { reads: compiled });
+        clock = 0;
+        const traced = evaluate(machine, doc, ctx, { ...declared, reads: again }).result;
+        reads += compiled.length;
+        const where = `${config.name}, seed ${seed}: ${show(doc)}`;
+        if (!sameResult(result, traced, same)) differences.push(`${where}
+  ${show(result)} and ${show(traced)}`);
+        if (compiled.length !== again.length) differences.push(`${where}
+  ${compiled.length} and ${again.length} reads`);
+        compiled.forEach((read, at) => {
+          const other = again[at] as Read | undefined;
+          const fits = other !== undefined && show(read.path) === show(other.path) && read.free === other.free && read.kept === other.kept && sameResult(read.reached, other.reached, same);
+          if (!fits) differences.push(`${where}
+  read ${at}: ${show(read)} and ${show(other)}`);
+        });
+      }
+    }
+    expect(differences.slice(0, 3)).toEqual([]);
+    expect(reads).toBeGreaterThan(COUNT);
   }, 120_000);
 });
 

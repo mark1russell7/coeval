@@ -169,10 +169,66 @@ function ownEntries(envelope: Envelope): Readonly<Record<string, string>> | unde
   return isRecord(own) ? (own as Readonly<Record<string, string>>) : undefined;
 }
 
-/** This function gives the kind of a type for the ladder: `null` when the world does not have the kind. */
+/** One node of the memo of the kinds of a world: the kind of the keys up to this node, and the longer keys. */
+interface KindNode {
+  /** The kind of the keys, `null` for a type without a kind, or `undefined` before the first lookup. */
+  kind?: Kind | null;
+  next?: Map<Key, KindNode>;
+}
+
+/** The memo of the kinds of one world, by the keys of a type. */
+interface KindMemo {
+  first: Map<Key, KindNode>;
+  /** The number of kinds in the memo. */
+  size: number;
+}
+
+/** The most kinds in the memo of one world. A larger memo starts again, thus the types of the data cannot fill the memory. */
+const MAX_KINDS = 1000;
+
+const kindMemos = /* @__PURE__ */ new WeakMap<World, KindMemo>();
+
+/**
+ * This function gives the kind of a type for the ladder: `null` when the world does not have the kind. The result
+ * depends only on the world and on the keys of the type, thus a memo for each world keeps it (PLAN.KIND-MEMO). A
+ * world does not change after a plan or a resolution uses it, as for `worldThing`.
+ */
 function kindFor(world: World, type: TypeRef): Kind | null {
-  const found = lookupKind(world, type);
-  return found.ok ? found.kind : null;
+  const keys = typeof type === "string" ? undefined : typePath(type);
+  // A computed type has no keys, and `lookupKind` gives it no kind.
+  if (typeof type !== "string" && (keys === undefined || keys.length === 0)) {
+    const found = lookupKind(world, type);
+    return found.ok ? found.kind : null;
+  }
+  let memo = kindMemos.get(world);
+  if (memo === undefined || memo.size >= MAX_KINDS) {
+    memo = { first: new Map(), size: 0 };
+    kindMemos.set(world, memo);
+  }
+  const node = keys === undefined ? nodeAt(memo.first, type as string) : nodeOf(memo.first, keys);
+  if (node.kind === undefined) {
+    const found = lookupKind(world, type);
+    node.kind = found.ok ? found.kind : null;
+    memo.size += 1;
+  }
+  return node.kind;
+}
+
+/** This function gives the node of one key in a level of the memo, and makes it when the level does not have it. */
+function nodeAt(level: Map<Key, KindNode>, key: Key): KindNode {
+  let node = level.get(key);
+  if (node === undefined) {
+    node = {};
+    level.set(key, node);
+  }
+  return node;
+}
+
+/** This function gives the node of the keys of a type in the memo. */
+function nodeOf(first: Map<Key, KindNode>, keys: readonly Key[]): KindNode {
+  let node = nodeAt(first, keys[0] as Key);
+  for (let index = 1; index < keys.length; index += 1) node = nodeAt((node.next ??= new Map()), keys[index] as Key);
+  return node;
 }
 
 /** This function tells if a table of code has the name. An entry of a document can hold another value than a text. */
@@ -196,18 +252,29 @@ export function walkerOf(nav: Navigator, step: unknown): Walker | undefined {
   return answer === undefined ? undefined : walkers[answer.name];
 }
 
+/** The answer of `plainStep` for a field that the value does not have. A field can hold `undefined`. */
+const NOTHING: unique symbol = /* @__PURE__ */ Symbol("nothing") as never;
+
 /** The own fields of a value: the items and the length of a list, and the own properties of an object. */
-function plainStep(thing: unknown, key: Key): { readonly found: true; readonly value: unknown } | undefined {
+function plainStep(thing: unknown, key: Key): unknown {
   if (Array.isArray(thing)) {
-    if (key === "length") return { found: true, value: thing.length };
+    if (key === "length") return thing.length;
     const index = typeof key === "number" ? key : /^\d+$/.test(key) ? Number(key) : -1;
-    return index >= 0 && index < thing.length ? { found: true, value: (thing as readonly unknown[])[index] } : undefined;
+    return index >= 0 && index < thing.length ? (thing as readonly unknown[])[index] : NOTHING;
   }
   if (typeof thing === "object" && thing !== null) {
     const name = String(key);
-    return Object.hasOwn(thing, name) ? { found: true, value: (thing as Readonly<Record<string, unknown>>)[name] } : undefined;
+    return Object.hasOwn(thing, name) ? (thing as Readonly<Record<string, unknown>>)[name] : NOTHING;
   }
-  return undefined;
+  return NOTHING;
+}
+
+/**
+ * This function tells if a value can be an envelope by its field `type`. An envelope has its own field `type`, thus
+ * a value without that field is not an envelope, and the full test is not necessary.
+ */
+function mayBeEnvelope(thing: unknown): boolean {
+  return typeof thing === "object" && thing !== null && (thing as { readonly type?: unknown }).type !== undefined;
 }
 
 /**
@@ -228,7 +295,7 @@ export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly th
     // DEREF.HOST-UNDEFINED: `has` tells a field that holds undefined from a missing field.
     return reached !== undefined || thing.has?.(key) === true ? { thing: reached, by: "own" } : undefined;
   }
-  if (nav.plain !== true && isEnvelope(thing)) {
+  if (nav.plain !== true && mayBeEnvelope(thing) && isEnvelope(thing)) {
     const envelope = thing as JsonRecord & Envelope;
     const derefs = nav.derefs;
     // A navigator without the code of a deref needs no lookup of the kind: no rung can answer.
@@ -238,10 +305,10 @@ export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly th
       return reached === undefined ? undefined : { thing: reached, by: answer.rung };
     }
     const reached = plainStep(envelope.value, key);
-    return reached === undefined ? undefined : { thing: reached.value, by: "default" };
+    return reached === NOTHING ? undefined : { thing: reached, by: "default" };
   }
   const reached = plainStep(thing, key);
-  return reached === undefined ? undefined : { thing: reached.value, by: "default" };
+  return reached === NOTHING ? undefined : { thing: reached, by: "default" };
 }
 
 /**
@@ -251,6 +318,10 @@ export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly th
  * @returns `true` for a reference document.
  */
 export function isRef(thing: unknown): thing is Envelope & { readonly value: readonly Json[] } {
+  if (typeof thing !== "object" || thing === null) return false;
+  // A text type other than `ref` names another kind, thus the full test of the envelope is not necessary.
+  const type = (thing as { readonly type?: unknown }).type;
+  if (type === undefined || (typeof type === "string" && type !== "ref")) return false;
   if (!isEnvelope(thing) || !Array.isArray(thing.value)) return false;
   const path = typePath(thing.type as TypeRef);
   return path !== undefined && path.length === 1 && path[0] === "ref";
@@ -305,6 +376,11 @@ function keysFrom(path: readonly unknown[], start: number): boolean {
   return true;
 }
 
+/** This function tells if a root has a value of its own for the short path: each root except `caps`. */
+function quickRoot(root: unknown): root is "names" | "self" | "event" | "world" {
+  return root === "names" || root === "self" || root === "event" || root === "world";
+}
+
 /**
  * This function resolves the common path without a record of hops: a root, then keys. Plain values answer the
  * keys, or a host thing answers all of them in one call. It gives `undefined` when the path needs the full
@@ -313,17 +389,31 @@ function keysFrom(path: readonly unknown[], start: number): boolean {
  */
 function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): Resolution | undefined {
   const root = path[0];
-  if (root !== "names" && root !== "self" && root !== "event" && root !== "world") return undefined;
+  if (!quickRoot(root)) return undefined;
   if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return undefined;
   if (nav.adopt !== undefined) return undefined;
-  let here: unknown = ctx[root];
-  const plain = nav.plain === true;
+  return walkQuick(ctx[root], path, nav.plain === true, false);
+}
+
+/**
+ * This function walks the steps of the short path from the value of the root (DEREF.QUICK). `resolveQuick` and each
+ * compiled path use it, thus the two cannot disagree. It gives `undefined` when the path needs the full algorithm.
+ *
+ * @param start - The value of the root.
+ * @param path - The steps. The walk starts at the index 1.
+ * @param plain - `true` for a plain navigation.
+ * @param keyed - `true` when each step after the root is a key. The walk then does not test the steps again.
+ */
+function walkQuick(start: unknown, path: readonly unknown[], plain: boolean, keyed: boolean): Resolution | undefined {
+  let here = start;
   for (let index = 1; index < path.length; index += 1) {
     if (typeof here !== "object" || here === null) return undefined;
-    if (!plain && mayBeRef(here)) return undefined;
+    // One read of the field `type` finds a reference document. Without the field, the value is not an envelope.
+    const type = plain ? undefined : (here as { readonly type?: unknown }).type;
+    if (type === "ref") return undefined;
     if ((here as Partial<HostThing>)[THING] === true) {
       const thing = here as HostThing;
-      if (thing.resolve === undefined || !keysFrom(path, index)) return undefined;
+      if (thing.resolve === undefined || !(keyed || keysFrom(path, index))) return undefined;
       const keys = path.slice(index) as readonly Key[];
       const reached = thing.resolve(keys);
       if (reached === undefined) return { ok: false, code: "#N/A", reason: `The path ${keys.join(".")} reaches nothing.`, hops: NO_HOPS };
@@ -337,11 +427,87 @@ function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): R
       continue;
     }
     if (typeof step !== "string" || !Object.hasOwn(here, step)) return undefined;
-    if (!plain && isEnvelope(here)) return undefined;
+    if (type !== undefined && isEnvelope(here)) return undefined;
     here = (here as Readonly<Record<string, unknown>>)[step];
   }
   if (!plain && mayBeRef(here)) return undefined;
   return { ok: true, thing: here, hops: NO_HOPS };
+}
+
+/**
+ * A compiled path: one static path for one navigator (PLAN.PATH). `compilePath` reads the root, the open roots and
+ * the steps one time. It asks the ladder of the verb `step` for each step document one time. Each resolution then
+ * examines only the values of the context.
+ */
+export interface CompiledPath {
+  /** The steps of the path, as the document gives them. The list of reads records these steps. */
+  readonly path: readonly unknown[];
+  /** The navigator of the compilation. A runtime with another navigator resolves the steps again. */
+  readonly nav: Navigator;
+  /**
+   * This function resolves the path from a context, without a record of hops.
+   *
+   * @param ctx - The context.
+   * @returns The same resolution as `resolve(nav, ctx, path, { hops: false })`.
+   */
+  readonly resolve: (ctx: Context) => Resolution;
+}
+
+/** The walker of each step document of a path, by its index: `null` when no rung answers, `undefined` for a key. */
+type KnownWalkers = readonly (Walker | null | undefined)[];
+
+/**
+ * This function compiles one static path for one navigator. The resolver gives the same thing, error and reason as
+ * `resolve` without hops (PLAN.PATH-SAME). It keeps no value of a context.
+ *
+ * - Some paths take the full algorithm at once, because the short path cannot answer them. A path from `caps` or from
+ *   a closed root is one. A path with a step document and each path of a navigator with `adopt` are others.
+ * - Each other path walks the short path from its root, and it takes the full algorithm when the values need it.
+ * - The walker of each step document comes from the ladder one time, here. The navigator and the step document do
+ *   not change, thus the answer does not change either.
+ *
+ * @param nav - The navigator. A plan compiles its paths for its machine.
+ * @param path - The steps. The first step is a root.
+ * @returns The compiled path.
+ */
+export function compilePath(nav: Navigator, path: readonly unknown[]): CompiledPath {
+  return { path, nav, resolve: resolverOf(nav, path) };
+}
+
+/** This function gives the resolver of a compiled path. */
+function resolverOf(nav: Navigator, path: readonly unknown[]): (ctx: Context) => Resolution {
+  const keyed = keysFrom(path, 1);
+  const known = keyed ? undefined : walkersOf(nav, path);
+  const full = (ctx: Context): Resolution => resolveFully(nav, ctx, path, undefined, known);
+  const root = path[0];
+  // The short path of `resolveQuick` refuses each of these paths before it reads a value, thus it is not necessary.
+  if (!keyed || !quickRoot(root) || nav.adopt !== undefined) return full;
+  if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return full;
+  const plain = nav.plain === true;
+  if (root === "names") return (ctx) => walkQuick(ctx.names, path, plain, true) ?? full(ctx);
+  if (root === "self") return (ctx) => walkQuick(ctx.self, path, plain, true) ?? full(ctx);
+  if (root === "event") return (ctx) => walkQuick(ctx.event, path, plain, true) ?? full(ctx);
+  return (ctx) => walkQuick(ctx.world, path, plain, true) ?? full(ctx);
+}
+
+/**
+ * This function asks the ladder of the verb `step` for each step document of a path. A step whose lookup throws
+ * stays unknown, thus the full algorithm asks the ladder again for it.
+ */
+function walkersOf(nav: Navigator, path: readonly unknown[]): KnownWalkers | undefined {
+  // Without walkers, `walkerOf` gives `undefined` at once.
+  if (nav.walkers === undefined) return undefined;
+  const out = new Array<Walker | null | undefined>(path.length);
+  for (let index = 1; index < path.length; index += 1) {
+    const step = path[index];
+    if (isKey(step)) continue;
+    try {
+      out[index] = walkerOf(nav, step) ?? null;
+    } catch {
+      // The full algorithm asks the ladder again, and it gives the exception there.
+    }
+  }
+  return out;
 }
 
 /**
@@ -371,7 +537,20 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
     const quick = resolveQuick(nav, ctx, path);
     if (quick !== undefined) return quick;
   }
-  const hops: Hop[] | undefined = options.hops === false ? undefined : [];
+  return resolveFully(nav, ctx, path, options.hops === false ? undefined : [], undefined);
+}
+
+/**
+ * This function resolves a path with the full algorithm of `resolve`.
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param ctx - The context.
+ * @param path - The steps.
+ * @param hops - The list that gets each hop, or `undefined` for no record.
+ * @param known - The walker of each step document of the path, from `compilePath`. A reference that a step reaches has its own steps, and the ladder answers them.
+ * @returns What the path reached and each hop, or an error.
+ */
+function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], hops: Hop[] | undefined, known: KnownWalkers | undefined): Resolution {
   const done = hops ?? NO_HOPS;
   const failed = (code: ResolveCode | ErrorCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;
@@ -383,7 +562,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
     while (isRef(here)) {
       collapses += 1;
       if (collapses > MAX_COLLAPSE) return failed("#CYCLE!", "The references form a cycle.");
-      const inner = walk(here.value);
+      const inner = walk(here.value, undefined);
       if (!inner.ok) return inner;
       here = adopt(inner.thing);
       hops?.push({ step: "collapse", thing: here, by: "collapse" });
@@ -391,7 +570,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
     return { ok: true, thing: here, hops: done };
   };
 
-  const walk = (steps: readonly unknown[]): Resolution => {
+  const walk = (steps: readonly unknown[], walkers: KnownWalkers | undefined): Resolution => {
     const root = steps[0];
     if (typeof root !== "string" || !(ROOTS as readonly string[]).includes(root)) {
       return failed("#REF!", `A path starts with a root: ${ROOTS.join(", ")}.`);
@@ -406,7 +585,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
     here = first.thing;
     for (let index = 1; index < steps.length; index += 1) {
       const step = steps[index];
-      if (isHostThing(here) && here.resolve !== undefined && steps.slice(index).every(isKey)) {
+      if (isHostThing(here) && here.resolve !== undefined && keysFrom(steps, index)) {
         const keys = steps.slice(index) as readonly Key[];
         const reached = here.resolve(keys);
         if (reached === undefined) return failed("#N/A", `The path ${keys.join(".")} reaches nothing.`);
@@ -423,7 +602,8 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
         here = adopt(reached.thing);
         hops?.push({ step, thing: here, by: reached.by });
       } else {
-        const walker = walkerOf(nav, step);
+        const given = walkers?.[index];
+        const walker = given === undefined ? walkerOf(nav, step) : (given ?? undefined);
         if (walker === undefined) return failed("#STEP?", "A step is a key, or a document of a kind with the verb step.");
         const envelope = step as Envelope;
         const result = walker({
@@ -447,7 +627,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
   };
 
   if (path.length === 0) return failed("#REF!", "A path has at least one step: its root.");
-  return walk(path);
+  return walk(path, known);
 }
 
 /**

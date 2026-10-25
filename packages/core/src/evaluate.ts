@@ -7,6 +7,7 @@ import type { TypeRule } from "./typing.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
+  type CompiledPath,
   type Context,
   type Hop,
   type Navigator,
@@ -841,15 +842,29 @@ class Session implements Runtime {
   }
 
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
+    return this.read(ctx, path, undefined, options);
+  }
+
+  /**
+   * This function resolves a compiled path (PLAN.PATH). Without a list of reads and without a trace, the compiled
+   * path answers at once. Each other resolution records its read, as `resolve` does.
+   */
+  resolvePath(ctx: Context, compiled: CompiledPath): Resolution {
+    if (this.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
+    return this.read(ctx, compiled.path, compiled, undefined);
+  }
+
+  /** This function resolves a path, and records its read when the evaluation has a list of reads (READS.RECORD). */
+  private read(ctx: Context, path: readonly unknown[], compiled: CompiledPath | undefined, options: ResolveOptions | undefined): Resolution {
     const hops = options?.hops ?? this.traced;
     const reading = this.reading;
-    if (reading === undefined) return resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
+    if (reading === undefined) return this.find(ctx, path, compiled, hops);
     const free = isFree(reading.root, ctx, path);
     // A kind that sets another self can give the old self on, as the parent of a node of a tree does (READS.KEPT).
     if (!free && path[0] === "self" && !reading.self) this.keep(reading, ["self"]);
     let found: Resolution;
     try {
-      found = resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
+      found = this.find(ctx, path, compiled, hops);
     } catch (error) {
       reading.list.push({ path, reached: thrown(error, READ_FAILED), free });
       throw error;
@@ -857,6 +872,15 @@ class Session implements Runtime {
     const asked = options?.hops === true;
     reading.list.push(asked ? { path, reached: reachedOf(found), free, hops: found.hops } : { path, reached: reachedOf(found), free });
     return found;
+  }
+
+  /**
+   * This function resolves the steps of a path. A compiled path of this machine answers a resolution without hops. A
+   * resolution with hops, and a path that compiled for another navigator, resolve the steps again.
+   */
+  private find(ctx: Context, path: readonly unknown[], compiled: CompiledPath | undefined, hops: boolean): Resolution {
+    if (compiled !== undefined && !hops && compiled.nav === this.machine) return compiled.resolve(ctx);
+    return resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
   }
 
   keepsContext(): void {
@@ -1080,6 +1104,19 @@ class Session implements Runtime {
     node.exit = this.tick;
     this.tick += 1;
   }
+}
+
+/**
+ * This function resolves a compiled path through a runtime (PLAN.PATH). The runtime of the kernel uses the compiled
+ * path. Each other runtime gets the steps through `resolve`, thus a runtime that wraps another runtime sees each path.
+ *
+ * @param rt - The runtime.
+ * @param ctx - The context.
+ * @param compiled - The compiled path, from `compilePath`.
+ * @returns What the path reached, or an error.
+ */
+export function resolveCompiled(rt: Runtime, ctx: Context, compiled: CompiledPath): Resolution {
+  return rt instanceof Session ? rt.resolvePath(ctx, compiled) : rt.resolve(ctx, compiled.path);
 }
 
 function holderNode(): Building {
