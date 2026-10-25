@@ -346,7 +346,7 @@ C-DONE  [DEREF.COLLAPSE]
     collapse(t) = t
 ```
 
-In C-REF, the inner path resolves in `Γ`: the context of the resolution that reached the reference. This is the context of the reader, not the context where the reference was written (DEREF.READER). The thing of the root `world` holds each alias as a reference document, thus a walk through the world follows an alias.
+In C-REF, the inner path resolves in `Γ`: the context of the resolution that reached the reference. This is the context of the reader, not the context of the writer (DEREF.READER). The thing of the root `world` holds each alias as a reference document, thus a walk through the world follows an alias.
 
 ```text
 R-SAME  [DEREF.QUICK, PLAN.PATH-SAME, PLAN.KIND-MEMO]
