@@ -61,6 +61,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | C12 | A live diagram of record and replay: a run records its effects, and a replay steps through the journal. A changed answer shows `#REPLAY!` at its address. From K11. | later | C1 |
 | C13 | The site shows the work of the research: a page and a live diagram for the merge of languages (D17, D18), a live diagram of the decorated tree (D16), a page for the studies, and the guide as a route on the home page | done (2026-10-24) | C7 |
 | C14 | The explorer and the playground show the type of each place from `typeCheck`, and each `#TYPE!` issue at its place (R5 P3). From K24. | later | C8, K24 |
+| C15 | A format kit on the site: the site shows the text form beside the JSON, and the playground editor (C11) uses it. From K33. | later | K33 |
 
 ## The kernel
 
@@ -114,6 +115,13 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | later | K11 |
 | K47 | The address of an effect stays the same after an edit of the document, as the open question 5 of R2 asks. From K11. | later | K11 |
 | K53 | The kind `pure` refuses a list with more than one part (CAP.PURE-ONE). Before, it ignored each part after the first. Found by S1a. | done (2026-10-24, released in the next batch) | none |
+| K54 | Declared reads for walkers and extensions: a walker or an extension declares what it reads, so it can count as pure in the facts. From S1a. | later | S1a |
+| K55 | Facts for each verb: the side and the effects of a verb other than eval come from its own contract, not from the eval contract. From S1a. | later | S1a, K56 |
+| K56 | Effects declared for each verb: a contract declares the effects of each verb, so check also tests the verbs other than eval. From K33. | later | K33 |
+| K57 | The document generator also picks step kinds from defaults.step, so the agreement runs test that case. From K33. | later | K33 |
+| K58 | plan.run gets its own options type, because a plan keeps the verb and the declared type from prepare. From K33. | later | K33 |
+| K60 | A closure records only its own reads. Today a closure counts a read of each whole root, so each change of the context discards its old result. From S1b. | later | S1b |
+| K61 | A check that host values do not change in place. verifyReads compares host values by identity, so a change in place stays hidden. From S1b. | later | S1b |
 | K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |
