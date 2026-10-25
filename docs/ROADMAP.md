@@ -22,9 +22,9 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 8. K22: `sameResult`, a safe equality for an early cutoff (R4 P1) (done, 2026-10-24, released in 0.6.3, D20, RESULT.SAME). Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place. `docEquals`, `sameValue` and `sameResult` share one walk.
 9. K39: a host thing can tell that a field holds `undefined`, a small correction that K20 found (done, 2026-10-24, released in 0.6.3, D21, DEREF.HOST-UNDEFINED). Its optional `has` answers when `deref` gives `undefined`. Before, a host that adopted the names hid each name bound to `undefined`. A node of the standard tree hid such an attribute too.
 10. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2) (done, 2026-10-24, released in 0.6.3, D19). An evaluation, a plan, the reference and `agree` take a mock `perform`. Each effect keeps a stable address and its outcome. `recorder` and `replayer` give record and replay, and a request that the log does not have gives `#REPLAY!`.
-11. K12: compiled paths (R1 P2).
+11. K23: value types and value domains, the base of the type work (R5 P2). It comes first, because the type work K24 to K31 waits for it.
 12. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
-13. K23: value types and value domains, the base of the type work (R5 P2).
+13. K12: compiled paths (R1 P2).
 
 On the site, C10 is next too (R4). Each other proposal of the six studies is a row with the status `later`.
 
@@ -43,6 +43,7 @@ On the site, C10 is next too (R4). Each other proposal of the six studies is a r
 | C9 | Reference arrows on each picture (done), and arrows for each move of a path on each picture | in progress | C6 |
 | C10 | The schedule diagram (C3) computes its dependencies with the kernel (`refsOf`), as the site rule says (R4) | next | C3 |
 | C11 | A structured editor in the playground from the kind contracts. An empty position holds a document of a kind `hole`, thus each state of an edit evaluates (R6 P6). | later | C8 |
+| C12 | A live diagram of record and replay: a run records its effects, and a replay steps through the journal. A changed answer shows `#REPLAY!` at its address. From K11. | later | C1 |
 
 ## The kernel
 
@@ -90,6 +91,11 @@ On the site, C10 is next too (R4). Each other proposal of the six studies is a r
 | K40 | An evaluator that is a formula document (D1). A language is then data only: its kinds are JSON, and its evaluators are documents. From K34 (COMPOSE.SELF-EXTEND). | later (the open question 6 of R6 first) | K34 |
 | K41 | Two languages that each build the formula kit with one profile merge. Today each `formulaMachine` call makes new evaluators, thus each evaluator name of the kit is a conflict. From K34 (COMPOSE.UNIFY). | later | K34 |
 | K42 | Each call at the top of a module has the mark `/* @__PURE__ */`, and a test bundles an import with esbuild (PKG.PURE). A request of a language. | done (2026-10-24, version 0.6.2) | none |
+| K43 | The `deref` code of a kind and the `deref` of a walker can give a field that holds `undefined`. Today they use `undefined` for a missing field. From K39. | later | K39 |
+| K44 | A replay log is JSON, so a test can keep it as a golden file. Today the causes of errors and the host values are not JSON. From K11. | later | K11 |
+| K45 | A replayer serves more than one run, and a recorder keeps the order of the waits of an inner replayer. From K11. | later | K11 |
+| K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | later | K11 |
+| K47 | The address of an effect stays the same after an edit of the document, as the open question 5 of R2 asks. From K11. | later | K11 |
 
 ## The kits
 
