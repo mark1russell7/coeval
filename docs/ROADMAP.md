@@ -23,7 +23,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 9. K39: a host thing can tell that a field holds `undefined`, a small correction that K20 found (done, 2026-10-24, released in 0.6.3, D21, DEREF.HOST-UNDEFINED). Its optional `has` answers when `deref` gives `undefined`. Before, a host that adopted the names hid each name bound to `undefined`. A node of the standard tree hid such an attribute too.
 10. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2) (done, 2026-10-24, released in 0.6.3, D19). An evaluation, a plan, the reference and `agree` take a mock `perform`. Each effect keeps a stable address and its outcome. `recorder` and `replayer` give record and replay, and a request that the log does not have gives `#REPLAY!`.
 11. K23: value types and value domains, the base of the type work (R5 P2): done (2026-10-24, D22), released in the next batch. A value type is a JSON term, and `fits` decides each check. A language adds its base types as domains of its machine, and the domains merge name by name. The type work K24 to K31 builds on it.
-12. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
+12. K33: each verb through the kernel (R6 P3) (done, 2026-10-24, D23, released in the next batch). `prepare`, `check`, the reference and `agree` take a verb, and one ladder serves each verb, also `deref` and `step`. A verb `format` in the spec tests is the demonstration.
 13. K12: compiled paths (R1 P2).
 
 On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
@@ -82,7 +82,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K30 | Generic signatures with type variables, thus `check` finds the parameter types of a function argument, as for `map` (R5 P9) | later | K24 |
 | K31 | Intervals of numbers that widen in a cycle, and type rules as documents that the tree kit evaluates (R5 P10) | later (low value today) | K24, L2a |
 | K32 | One merge function for worlds and machines, with conflict rules. Equal entries merge, namespaces merge key by key, and each other conflict is an error without a mark `replaces` (R6 P2). | done (2026-10-24, version 0.6.0, D17: `mergeWorlds`, `mergeMachines` and `MergeError`) | K2 |
-| K33 | Each verb through the kernel: `prepare` and `check` take a verb, one ladder serves each verb, and a verb `format` is the demonstration (R6 P3) | next | K32 |
+| K33 | Each verb through the kernel: `prepare` and `check` take a verb, one ladder serves each verb, and a verb `format` is the demonstration (R6 P3) | done (2026-10-24, D23, released in the next batch) | K32 |
 | K34 | The composition checklist as spec tests: one test `COMPOSE.*` for each mode of composition, with small languages (R6 P1) | done (2026-10-24, version 0.6.1: `restrictWorld`, `restrictMachine`, D18 and `docs/COMPOSITION.md`) | K32 |
 | K35 | Verb entries for the kinds of another language: a language adds a verb that it owns to a foreign kind, through the merge of K32 (R6 P4) | later | K32, K33 |
 | K36 | A check of verb coverage: `checkWorld` lists each kind with no entry and no default for a verb that the language declares (R6 P5) | later | K33 |
@@ -97,6 +97,8 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K45 | A replayer serves more than one run, and a recorder keeps the order of the waits of an inner replayer. From K11. | later | K11 |
 | K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | later | K11 |
 | K47 | The address of an effect stays the same after an edit of the document, as the open question 5 of R2 asks. From K11. | later | K11 |
+| K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
+| K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |
 
 ## The kits
 

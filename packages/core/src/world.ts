@@ -86,8 +86,16 @@ export type CapsRule =
   | { readonly rule: "mask"; readonly in?: readonly (readonly Key[])[] }
   | { readonly rule: "only"; readonly caps: readonly Cap[]; readonly in?: readonly (readonly Key[])[] };
 
-/** A kind gives the name of an evaluator for each verb, and the contract of its value. */
+/**
+ * A kind gives the name of an evaluator for each verb, and the contract of its value. The contract serves each verb.
+ * For each verb, the kernel splits the parts and narrows their capabilities by it, and `check` reads its scope rules.
+ * `side` and `effects` tell what the verb `eval` does (VERB.CONTRACT).
+ */
 export interface Kind {
+  /**
+   * The evaluator names, by verb. `eval` evaluates a document, `deref` answers a step on it, and `step` names the
+   * walker of a step document. A language adds its own verbs, for example `view` or `format`.
+   */
   readonly verbs: Readonly<Record<string, string>>;
   /** Where the parts of the value are. The default is `none`. */
   readonly parts?: Shape;
@@ -100,11 +108,11 @@ export interface Kind {
    * itself.
    */
   readonly caps?: readonly CapsRule[];
-  /** The side of the kind. A kind of the run side causes effects. The default is `derive`. */
+  /** The side of the verb `eval` of the kind. A kind of the run side causes effects. The default is `derive`. */
   readonly side?: Side;
   /**
-   * The effects that a document of this kind can cause. It is a list of the kinds of the effects. The text
-   * `"type"` means that the kind of the effect is the type of the document itself, as for a call.
+   * The effects that the verb `eval` of a document of this kind can cause. It is a list of the kinds of the effects.
+   * The text `"type"` means that the kind of the effect is the type of the document itself, as for a call.
    */
   readonly effects?: "type" | readonly string[];
   /** One sentence that tells what the kind is. */
@@ -129,6 +137,10 @@ export type WorldEntry = Kind | Namespace | Alias;
  */
 export interface World {
   readonly kinds: Readonly<Record<string, WorldEntry>>;
+  /**
+   * The default evaluator of each verb: the last rung of the ladder (LADDER.DEFAULT). It serves each verb, also
+   * `deref` and `step`. Without a default of `deref`, a step goes into the value of a document (VERB.LADDER).
+   */
   readonly defaults: Readonly<Record<string, string>>;
   readonly fallback?: Kind;
 }

@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName } from "./doc.ts";
 import { type Split, partsOf, pathMatches } from "./parts.ts";
-import { ask, type Answer } from "./ladder.ts";
-import type { CapsRule, Kind, Side, World } from "./world.ts";
+import { answerOf, ask, type Answer } from "./ladder.ts";
+import type { CapsRule, Side } from "./world.ts";
 import type { Domain } from "./types.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
@@ -534,7 +534,7 @@ export interface Machine extends Navigator {
    * `check` asks it for each document with an evaluator. The function must be pure.
    *
    * @param path - The keys of the kind of the document, after each alias.
-   * @param evaluator - The name of the evaluator that the ladder gives the document.
+   * @param evaluator - The name of the evaluator that the ladder of the verb of the check gives the document.
    * @returns `true` when the evaluator knows the name, or else the reason of the `#NAME?` that a run gives.
    */
   readonly known?: (path: readonly Key[], evaluator: string) => true | string;
@@ -555,7 +555,7 @@ export interface TraceNode {
   readonly doc: Envelope;
   /** `true` when the type came from the container and not from an envelope. */
   readonly declared: boolean;
-  /** The answer of the ladder to the verb `eval`. */
+  /** The answer of the ladder to the verb of the plan, `eval` by default. */
   readonly answer: Answer;
   readonly side: Side;
   /** The names that the document could read when its evaluation started. */
@@ -637,6 +637,11 @@ export interface RunOptions {
   readonly perform?: Perform;
   /** The type of a bare root value. */
   readonly declaredType?: string;
+  /**
+   * The verb of `run`, for example `format`. The default is `eval` (VERB.PREPARE). A plan keeps the verb of its
+   * `prepare`, thus `plan.run` does not read this option.
+   */
+  readonly verb?: string;
   /** A signal of the host. When it aborts, the run stops with `#ABORT`. */
   readonly signal?: StopSignal;
 }
@@ -656,6 +661,8 @@ export interface EvalOptions {
 export interface EvaluateOptions {
   /** The type of a bare root value. */
   readonly declaredType?: string;
+  /** The verb that goes up the ladder at each document, for example `format`. The default is `eval` (VERB.PREPARE). */
+  readonly verb?: string;
   /** The mock of the host (RUN.MOCK). Without it, an effect gives its payload (RUN.EVAL). */
   readonly perform?: Perform;
 }
@@ -984,6 +991,11 @@ export interface PrepareOptions {
   readonly declaredType?: string;
   /** `true`: each evaluation records a trace. The default is `false`. */
   readonly trace?: boolean;
+  /**
+   * The verb that goes up the ladder at each document, for example `format`. Each part evaluates with the same verb.
+   * The default is `eval` (VERB.PREPARE).
+   */
+  readonly verb?: string;
 }
 
 /** A compiled document. It evaluates many times, and it does the work of the ladder one time. */
@@ -1016,6 +1028,10 @@ interface Compiler {
   readonly machine: Machine;
   readonly traced: boolean;
   readonly maxDepth: number;
+  /** The verb that goes up the ladder at each document. */
+  readonly verb: string;
+  /** The answer of a document that the ladder did not see, in a trace. */
+  readonly noAnswer: Answer;
 }
 
 function failing(c: Compiler, meta: Meta, place: readonly Key[], code: ErrorCode, reason: string): { readonly code: Code; readonly run: RunCode } {
@@ -1077,20 +1093,6 @@ function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly c
   return { code: tracedCode, run: tracedRun };
 }
 
-/**
- * This function finds the evaluator of the verb `eval` without the record of the rungs, for a compilation without a
- * trace. It gives the same evaluator as `ask`: the own entry, then the kind, then the default of the world.
- */
-function evaluatorOf(world: World, envelope: Envelope | undefined, kind: Kind | undefined): { readonly name?: string; readonly unknown: boolean } {
-  const own = envelope?.own;
-  const ownName = own !== undefined && Object.hasOwn(own, "eval") ? own["eval"] : undefined;
-  if (ownName !== undefined) return { name: ownName, unknown: false };
-  if (kind === undefined) return { unknown: true };
-  const verbs = kind.verbs;
-  const name = Object.hasOwn(verbs, "eval") ? verbs["eval"] : Object.hasOwn(world.defaults, "eval") ? world.defaults["eval"] : undefined;
-  return name === undefined ? { unknown: false } : { name, unknown: false };
-}
-
 /** The meta of a node of a compilation without a trace. Only a trace reads the meta of a node. */
 const NO_META: Meta = /* @__PURE__ */ Object.freeze({ path: [], doc: { type: "?", value: null }, declared: false, answer: NO_ANSWER, side: "derive" });
 
@@ -1098,26 +1100,27 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   const world = c.machine.world;
   const read = partsOf(world, value, declared);
   if (!read.ok) {
-    const meta: Meta = c.traced ? { path: place.map(String), doc: { type: "?", value: value as Json }, declared: true, answer: NO_ANSWER, side: "derive" } : NO_META;
+    const meta: Meta = c.traced ? { path: place.map(String), doc: { type: "?", value: value as Json }, declared: true, answer: c.noAnswer, side: "derive" } : NO_META;
     return failing(c, meta, place, read.code, read.reason);
   }
   const { doc, kind, split } = read;
   const envelope = read.declared ? undefined : doc;
-  const meta0: Meta = c.traced ? { path: place.map(String), doc, declared: read.declared, answer: NO_ANSWER, side: "derive" } : NO_META;
+  const meta0: Meta = c.traced ? { path: place.map(String), doc, declared: read.declared, answer: c.noAnswer, side: "derive" } : NO_META;
   if (depth > c.maxDepth) return failing(c, meta0, place, "#DEPTH!", `The nesting is deeper than ${c.maxDepth} documents.`);
 
   let meta = meta0;
   let name: string | undefined;
   let unknown: boolean;
   if (c.traced) {
-    const answer = ask(world, envelope ?? {}, "eval", declared === undefined ? {} : { declaredType: declared });
+    const answer = ask(world, envelope ?? {}, c.verb, declared === undefined ? {} : { declaredType: declared });
     meta = { ...meta0, answer, side: kind?.side ?? "derive" };
     name = answer.evaluator;
     unknown = answer.error === "unknown-kind";
   } else {
-    const quick = evaluatorOf(world, envelope, kind);
-    name = quick.name;
-    unknown = quick.unknown;
+    // A document has a type here, thus a kind that the read did not find is a kind that the world does not have.
+    const quick = answerOf(world, envelope?.own, kind ?? null, c.verb);
+    name = quick?.name;
+    unknown = quick === undefined && kind === undefined;
   }
   const kindText = typeName(doc.type);
   if (unknown) return failing(c, meta, place, "#KIND?", `The world has no kind ${kindText}.`);
@@ -1307,13 +1310,19 @@ function rootContext(machine: Machine, ctx: Context): Context {
  * This function compiles a document into a plan. The ladder, the kinds and the parts are known after it. A plan
  * evaluates many times. A document that does not compile gives a plan that fails with the reason, when it evaluates.
  *
+ * The verb of the options goes up the ladder at each document, and each part evaluates with the same verb. The
+ * default verb is `eval`. A plan of another verb, for example `format`, evaluates, runs and traces as a plan of
+ * `eval` does (VERB.PREPARE).
+ *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
- * @param options - The type of a bare root value, and a trace.
+ * @param options - The type of a bare root value, a trace and the verb.
  * @returns The plan.
  */
 export function prepare(machine: Machine, doc: unknown, options: PrepareOptions = {}): Plan {
-  const c: Compiler = { machine, traced: options.trace === true, maxDepth: machine.maxDepth ?? 1000 };
+  const verb = options.verb ?? "eval";
+  const noAnswer: Answer = verb === "eval" ? NO_ANSWER : { verb, error: "no-answer", steps: [] };
+  const c: Compiler = { machine, traced: options.trace === true, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer };
   let root: { readonly code: Code; readonly run: RunCode };
   try {
     root = compileNode(c, doc, [], options.declaredType, 0);
@@ -1386,21 +1395,27 @@ function record(s: Session, result: Result): Run {
 /**
  * This function evaluates a document, and records each evaluation in a trace.
  *
- * The verb `eval` goes up the ladder for each document. The kind of the document tells where its parts are. The
- * evaluator gets each part sealed: it can evaluate the part, and it cannot read its value. A failure gives an error
- * value, and the function does not throw. An effect is recorded in its order, and the host does not do it. A mock
- * can answer each effect at once (RUN.MOCK).
+ * The verb of the options goes up the ladder for each document. The default verb is `eval`. The kind of the document
+ * tells where its parts are. The evaluator gets each part sealed: it can evaluate the part, and it cannot read its
+ * value.
+ *
+ * A failure gives an error value, and the function does not throw. An effect is recorded in its order, and the host
+ * does not do it. A mock can answer each effect at once (RUN.MOCK).
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
  * @param context - The names and the capabilities at the root.
- * @param options - The type of a bare root value, or the options: that type and the mock of the host.
+ * @param options - The type of a bare root value, or the options: that type, the mock of the host and the verb.
  * @returns The result, the trace and the effects in their order.
  */
 export function evaluate(machine: Machine, doc: unknown, context: Context = makeContext(), options?: string | EvaluateOptions): Run {
   const given: EvaluateOptions = typeof options === "string" ? { declaredType: options } : (options ?? {});
   const declaredType = given.declaredType;
-  const plan = prepare(machine, doc, { trace: true, ...(declaredType === undefined ? {} : { declaredType }) });
+  const plan = prepare(machine, doc, {
+    trace: true,
+    ...(declaredType === undefined ? {} : { declaredType }),
+    ...(given.verb === undefined ? {} : { verb: given.verb }),
+  });
   const s = new Session(machine, false, true, given.perform, undefined, undefined);
   const result = plan.root.code(rootContext(machine, context), s);
   return record(s, result);
@@ -1414,11 +1429,15 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
  * @param machine - The world, the evaluators and the runners.
  * @param doc - The document, as JSON.
  * @param context - The names and the capabilities at the root.
- * @param options - The host code that does the effects, the type of a bare root value, and a signal.
+ * @param options - The host code that does the effects, the type of a bare root value, a signal and the verb.
  * @returns The result, the trace and the effects in their order, when the run ends.
  */
 export async function run(machine: Machine, doc: unknown, context: Context = makeContext(), options: RunOptions = {}): Promise<Run> {
-  const plan = prepare(machine, doc, { trace: true, ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }) });
+  const plan = prepare(machine, doc, {
+    trace: true,
+    ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
+    ...(options.verb === undefined ? {} : { verb: options.verb }),
+  });
   const s = new Session(machine, true, true, options.perform, options.signal, undefined);
   const result = await driveWaiting(plan.root.run(rootContext(machine, context), s), options.signal);
   return record(s, result);

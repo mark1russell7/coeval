@@ -89,12 +89,51 @@ export function kindNamed(world: World, name: TypeRef): Kind | undefined {
   return kindOf(world, name);
 }
 
+/** A test that passes each name. A rung of `answerOf` then answers with each entry that it has. */
+const EACH_NAME = (): boolean => true;
+
+/** The evaluator that a rung gives, without the record of the other rungs. */
+export interface QuickAnswer {
+  readonly name: string;
+  readonly rung: Rung;
+}
+
+/**
+ * This function finds the evaluator of a verb without the record of the rungs. It visits the rungs of `ask` in the
+ * same order: the own entry, then the kind, then the default of the world (VERB.LADDER). A plan without a trace,
+ * `deref` and the walkers of steps use it, thus each verb has one ladder.
+ *
+ * @param world - The world, for its defaults.
+ * @param own - The own entries of the document, when it has some.
+ * @param kind - The kind of the document. `undefined` skips the kind rung, as for a value without a type. `null` is
+ *   a kind that the world does not have: the question stops there, as in `ask`.
+ * @param verb - The verb, for example `eval`, `format`, `deref` or `step`.
+ * @param has - The test of a name. A rung answers only with a name that passes it. The default passes each name.
+ * @returns The evaluator name and its rung, or `undefined` when no rung answers.
+ */
+export function answerOf(
+  world: World,
+  own: Readonly<Record<string, string>> | undefined,
+  kind: Kind | undefined | null,
+  verb: string,
+  has: (name: string) => boolean = EACH_NAME,
+): QuickAnswer | undefined {
+  const ownName = entryOf(own, verb);
+  if (ownName !== undefined && has(ownName)) return { name: ownName, rung: "own" };
+  if (kind === null) return undefined;
+  const kindName = kind === undefined ? undefined : entryOf(kind.verbs, verb);
+  if (kindName !== undefined && has(kindName)) return { name: kindName, rung: "kind" };
+  const fallback = entryOf(world.defaults, verb);
+  return fallback !== undefined && has(fallback) ? { name: fallback, rung: "default" } : undefined;
+}
+
 /**
  * This function asks a document a question, and gives the evaluator that answers it.
  *
  * The question visits the rungs in order: the own entry of the envelope, then its kind, then the default of the
  * world. The type comes from the envelope, or else from the type that the position declares. The type is a
- * reference into the world. The ladder does not guess a type from the shape of a value.
+ * reference into the world. The ladder does not guess a type from the shape of a value. Each verb has this ladder:
+ * `eval`, `deref`, `step` and each verb of a language (VERB.LADDER).
  *
  * @param world - The kinds and the defaults.
  * @param doc - The header of the document: an envelope, or `{}` for a bare value.

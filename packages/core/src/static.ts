@@ -1,8 +1,8 @@
 import { type Envelope, type Json, type Key, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type NamesSource, type ScopeRule, type World, lookupKind } from "./world.ts";
+import type { Kind, NamesSource, ScopeRule, World } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, pathMatches } from "./parts.ts";
-import { type Cap, type Root, ROOTS, isRef } from "./deref.ts";
+import { type Cap, type Root, ROOTS, isRef, walkerOf } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits } from "./evaluate.ts";
 
@@ -393,6 +393,12 @@ export interface CheckOptions {
    * each part by the capability rules of the kinds, as a run does.
    */
   readonly caps?: readonly Cap[];
+  /**
+   * The verb that goes up the ladder at each document, as in `prepare`. The default is `eval`. `#NOEVAL` and the hook
+   * `known` follow this verb. The contract declares the effects of `eval` only, thus only `eval` checks them
+   * (VERB.CHECK).
+   */
+  readonly verb?: string;
 }
 
 /**
@@ -423,13 +429,20 @@ function capReason(v: DocVisit, kind: readonly Key[]): string {
  *   have, for example an operation.
  * - `#CAP!`: an effect that the capabilities of its document do not permit. A kind around the document can narrow them.
  *
+ * The check asks the ladder for the verb of the options, `eval` by default (VERB.CHECK). The shapes, the paths and the
+ * names follow the contracts, thus they are the same for each verb. Only `eval` checks the declared effects.
+ *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
- * @param options - The type of a bare root value, the names of the host and the capabilities.
+ * @param options - The type of a bare root value, the names of the host, the capabilities and the verb.
  * @returns The problems, in the order of the document.
  */
 export function check(machine: Machine, doc: unknown, options: CheckOptions = {}): readonly Issue[] {
   const issues: Issue[] = [];
+  const verb = options.verb ?? "eval";
+  // The effects of a contract are the effects of eval (VERB.CONTRACT). An effect of another verb meets its test when
+  // it happens (RUN.CAP).
+  const effects = verb === "eval";
   const maxDepth = machine.maxDepth ?? 1000;
   const anyName = options.names === "any";
   const roots: readonly string[] = machine.roots ?? ROOTS;
@@ -443,7 +456,7 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
         return "skip";
       }
       const header = v.declared ? {} : v.doc;
-      const answer = ask(machine.world, header, "eval", v.declared ? { declaredType: typeName(v.doc.type) } : {});
+      const answer = ask(machine.world, header, verb, v.declared ? { declaredType: typeName(v.doc.type) } : {});
       if (answer.error === "unknown-kind") {
         issues.push({ code: "#KIND?", place: v.place, reason: `The world has no kind ${typeName(v.doc.type)}.`, at: v.at });
         return "skip";
@@ -457,7 +470,7 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
         if (known !== true) issues.push({ code: "#NAME?", place: v.place, reason: known, at: v.at });
       }
       const caps = v.caps;
-      if (caps !== undefined && v.kind?.effects !== undefined) {
+      if (effects && caps !== undefined && v.kind?.effects !== undefined) {
         const kinds: readonly (readonly Key[])[] = v.kind.effects === "type" ? [v.typePath ?? []] : v.kind.effects.map((kind) => kind.split("."));
         for (const kind of kinds) {
           if (!permits(caps, kind)) issues.push({ code: "#CAP!", place: v.place, reason: capReason(v, kind), at: v.at });
@@ -492,9 +505,8 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
       }
       path.forEach((step, index) => {
         if (index === 0 || isKey(step)) return;
-        const found = isEnvelope(step) ? lookupKind(machine.world, step.type) : undefined;
-        const walker = found?.ok === true && Object.hasOwn(found.kind.verbs, "step") ? found.kind.verbs["step"] : undefined;
-        if (walker === undefined || !has(machine.walkers, walker)) {
+        // The resolution finds the walker with the same function, thus the check and a run agree (VERB.LADDER).
+        if (walkerOf(machine, step) === undefined) {
           issues.push({ code: "#STEP?", place: v.place, reason: "A step is a key, or a document of a kind with the verb step.", at: stepAt(index) });
         }
       });

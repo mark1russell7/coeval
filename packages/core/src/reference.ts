@@ -49,6 +49,11 @@ export interface ReferenceOptions {
   readonly effects?: Effect[];
   /** The mock of the host (RUN.MOCK). It answers each effect at once. Without it, an effect gives its payload. */
   readonly perform?: Perform;
+  /**
+   * The verb that goes up the ladder at each document, as in `prepare`. The default is `eval`. The reference reads
+   * each verb by the same rules (VERB.AGREE).
+   */
+  readonly verb?: string;
 }
 
 /** The scope of the addresses of effects (RUN.ADDRESS): the root of the evaluation, or one item of `all`. */
@@ -68,6 +73,8 @@ interface Env {
   readonly effects: Effect[];
   readonly maxDepth: number;
   readonly perform: Perform | undefined;
+  /** The verb that goes up the ladder at each document. Each part evaluates with the same verb. */
+  readonly verb: string;
   /** The scope of the code that evaluates at this time. `all` changes it for each item. */
   scope: Scope;
 }
@@ -121,8 +128,8 @@ function choose(env: Env, name: string): Chosen | undefined {
 
 /**
  * This function reads one document by the rules, in their order. First come an envelope or a declared type
- * (EVAL.ERRORS) and the limit of the depth (PLAN.DEPTH). Then come the ladder (LADDER.*), an evaluator and the shape
- * of the parts (SHAPE.*).
+ * (EVAL.ERRORS) and the limit of the depth (PLAN.DEPTH). Then come the ladder of the verb (LADDER.*, VERB.LADDER), an
+ * evaluator and the shape of the parts (SHAPE.*).
  */
 function examine(env: Env, at: At): Seen | Failed {
   const { place, declared } = at;
@@ -133,7 +140,7 @@ function examine(env: Env, at: At): Seen | Failed {
   if (at.depth > env.maxDepth) return fail("#DEPTH!", `The nesting is deeper than ${env.maxDepth} documents.`, { place });
   const { doc, kind, split } = read;
   const kindText = typeName(doc.type);
-  const answer = ask(world, read.declared ? {} : doc, "eval", declared === undefined ? {} : { declaredType: declared });
+  const answer = ask(world, read.declared ? {} : doc, env.verb, declared === undefined ? {} : { declaredType: declared });
   if (answer.error === "unknown-kind") return fail("#KIND?", `The world has no kind ${kindText}.`, { place });
   const name = answer.evaluator;
   const chosen = name === undefined ? undefined : choose(env, name);
@@ -390,10 +397,13 @@ function* together(env: Env, list: readonly RunPart[], options: AllOptions = {})
  * a traced plan and the second tier of a language must give its results. It covers evaluations, not runs: an effect
  * gives the answer of the mock or its payload, and a part that waits gives `#CALC!`.
  *
+ * The verb of the options goes up the ladder at each document, as in `prepare`. Each verb has the same rules: the
+ * ladder, the contract of the kind and the sealed parts (VERB.AGREE).
+ *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document.
  * @param context - The names and the capabilities at the root.
- * @param options - The type of a bare root value, the definitions of compiled code, a list for the effects and a mock.
+ * @param options - The type of a bare root value, the definitions of compiled code, a list for the effects, a mock and the verb.
  * @returns The result.
  */
 export function reference(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceOptions = {}): Result {
@@ -403,6 +413,7 @@ export function reference(machine: Machine, doc: unknown, context: Context = mak
     effects: options.effects ?? [],
     maxDepth: machine.maxDepth ?? 1000,
     perform: options.perform,
+    verb: options.verb ?? "eval",
     scope: { prefix: "", counts: new Map(), alls: 0 },
   };
   const ctx = context.world === null ? { ...context, world: worldThing(machine.world) } : context;

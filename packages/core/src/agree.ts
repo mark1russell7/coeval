@@ -25,12 +25,20 @@ export interface TierResult {
 export interface TierInput {
   /** The mock of the host, when `agree` has one (AGREE.MOCK). The tier answers each effect with it. */
   readonly perform?: Perform;
+  /** The verb of `agree`, when its options name one (VERB.AGREE). A tier that does not serve the verb fails. */
+  readonly verb?: string;
 }
 
 /** The options of `agree`. */
 export interface AgreeOptions {
   /** The type of a bare root value. */
   readonly declaredType?: string;
+  /**
+   * The verb of each tier, as in `prepare`. The default is `eval`. The plan, the reference, the traced evaluation and a
+   * second evaluation each ask the ladder for this verb (VERB.AGREE). The second tier of a language gets it in its
+   * input.
+   */
+  readonly verb?: string;
   /** The definitional code of the compiled evaluators of the machine, for the reference. */
   readonly definitions?: Definitions;
   /** The tiers to compare with the plan. The default is the reference, the traced evaluation and a second evaluation. */
@@ -40,7 +48,7 @@ export interface AgreeOptions {
    *
    * @param doc - The document.
    * @param context - The context.
-   * @param input - The mock of the host, when `agree` has one.
+   * @param input - The mock of the host and the verb, when `agree` has them.
    * @returns The result, or the result with the effects.
    */
   readonly other?: (doc: unknown, context: Context, input: TierInput) => Result | TierResult;
@@ -179,8 +187,12 @@ function effectsDiffer(a: readonly Effect[], b: readonly Effect[], options: Agre
  * @returns The result of the plan, or the first tier that disagrees and the reason.
  */
 export function agree(machine: Machine, doc: unknown, context: Context = makeContext(), options: AgreeOptions = {}): Agreement {
-  const declared = options.declaredType === undefined ? {} : { declaredType: options.declaredType };
+  const declared = {
+    ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
+    ...(options.verb === undefined ? {} : { verb: options.verb }),
+  };
   const mock = options.perform === undefined ? {} : { perform: options.perform };
+  const tierInput: TierInput = { ...mock, ...(options.verb === undefined ? {} : { verb: options.verb }) };
   const observe = options.observe;
   observe?.();
   const plan = prepare(machine, doc, declared);
@@ -214,7 +226,7 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
   if (options.other !== undefined) {
     let given: Result | TierResult;
     try {
-      given = options.other(doc, context, mock);
+      given = options.other(doc, context, tierInput);
     } catch (error) {
       given = thrown(error, "the tier");
     }

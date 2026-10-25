@@ -139,6 +139,20 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | VALUE.FAILURES | The function `failures` lists the errors where they started. |
 | TRACE.ORDER | A trace is in the order of the starts. Each start comes before its end. |
 
+## Verbs
+
+A verb is one question to each document, for example `eval` or `format`. Each verb has one ladder, and each verb goes through the plan, `check` and the reference (D23).
+
+| ID | Rule |
+| --- | --- |
+| VERB.PREPARE | `prepare`, `evaluate` and `run` take a verb. At each document, the ladder answers for that verb, and each part evaluates with the same verb. A plan of another verb evaluates, runs and traces as a plan of `eval` does. |
+| VERB.DEFAULT | The default verb is `eval`. Without a verb, `prepare`, `evaluate`, `run`, `check`, `reference` and `agree` give the results that they gave before. |
+| VERB.LADDER | Each verb visits the same rungs: the own entry, then the kind, then the default of the world. `deref` and `step` visit them too. A kind that the world does not have stops the question. When no rung of `deref` answers, a step goes into the value. |
+| VERB.CHECK | `check` takes a verb. `#NOEVAL` and the hook `known` follow the evaluator of that verb. The shapes, the paths and the names follow the contracts, thus they are the same for each verb. Only `eval` checks the declared effects. |
+| VERB.CONTRACT | The contract of a kind serves each verb. For each verb, the kernel splits the parts and narrows their capabilities by it. `side` and `effects` tell what `eval` does. An effect of another verb passes the test of its capabilities when it happens (RUN.CAP). |
+| VERB.FORMAT | A language adds a verb with a merge, without a change to the kernel. The verb `format` of the tests gives the text of a document. Its default writes `kind(part, part)`, and three kinds of the formula kit have their own entries. |
+| VERB.AGREE | The reference reads each verb by the same rules. `agree` with a verb compares the plan of that verb with the reference, the traced plan and a second evaluation. The second tier of a language gets the verb. Generated documents agree for `format`. |
+
 ## One meaning
 
 A reference interpreter reads the rules of this file directly and compiles nothing. A plan, the traced plan and the second tier of a language must give its results (D15).
