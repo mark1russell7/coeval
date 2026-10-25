@@ -43,6 +43,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D32 | Each context carries the grant of the kernel: the capabilities of its document. A spread keeps the grant, and each document keeps only what its grant permits. Thus compiled code cannot give a part more capabilities than its document has. |
 | D33 | The analysis of a graph of nodes has its own stack: the components, the heights, the layers, the necessary nodes and the cycles. A cycle of eager edges is certain, but the demand gives the values. A demand of the host first demands its eager edges, deepest first, thus a long chain gives no `#DEPTH!`. |
 | D34 | The core calculus in `SEMANTICS.md` is a part of the specification. Each inference rule names its SPEC IDs, and a test checks them. The code decides the facts that SPEC did not state: a reference in data reads the context of its reader, and one resolution follows at most 64 references. |
+| D36 | `conforms` examines one evaluator or runner against the obligations C1 to C8. It calls the code directly with probe parts and a probe runtime. Two evaluations that differ only in what the code must not read find C4, C5 and C8. C8 is an obligation of the author of a profile. |
 
 ## Open
 

@@ -99,8 +99,16 @@ function namesOf(source: NamesSource, value: unknown, covered: readonly PartSlot
   return covered.map((slot) => headerName(slot.item)).filter((name): name is string => name !== undefined);
 }
 
-/** The names that the scope rules of a kind give each part, and the names that only later parts see. */
-function scopesOf(rules: readonly ScopeRule[] | undefined, value: unknown, slots: readonly PartSlot[]): { readonly sees: readonly (readonly string[])[]; readonly later: readonly (readonly string[])[] } {
+/**
+ * This function gives the names that the scope rules of a kind give each part, and the names that only later parts
+ * see. `check` and `conforms` read the scope rules with it.
+ *
+ * @param rules - The scope rules of the kind.
+ * @param value - The value of the document.
+ * @param slots - The parts of the value, in order.
+ * @returns The names that each part sees, and the names that only the later parts see, by the index of the part.
+ */
+export function scopesOf(rules: readonly ScopeRule[] | undefined, value: unknown, slots: readonly PartSlot[]): { readonly sees: readonly (readonly string[])[]; readonly later: readonly (readonly string[])[] } {
   const sees: string[][] = slots.map(() => []);
   const later: string[][] = slots.map(() => []);
   for (const rule of rules ?? []) {

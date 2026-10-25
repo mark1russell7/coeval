@@ -802,3 +802,38 @@ The demands ahead keep each value of D31 and each count of SCHED.STALE. The harn
 **Why.** The reference interpreter is executable, but it is long, and it mixes the rules with the records of hops, reads and traces. A page of rules is short enough to read in one sitting, and the test keeps its IDs in step with `SPEC.md`. The page also states the obligations C1 to C7 of host code, thus each claim of the kernel names the promise that it needs.
 
 **Limits.** The page leaves out the reasons, the hops, the trace and the reads. It covers the static kit, the types and the schedules only through their IDs. The rows K110 to K112 hold the disagreements that the work found.
+
+## D36 (2026-10-25): `conforms` starts the code directly with probe parts, it compares variants for the obligations that a ban cannot state, and C8 is an obligation of the author
+
+**Context.** The soundness claims of the kernel hold for host code that keeps the obligations C1 to C7 of `SEMANTICS.md`. Only C1 has a guard in the kernel. K92 builds the conformance tests that R7 P3 proposes, and K111 adds the obligation C8 of a profile.
+
+**Decision.**
+
+- `conforms(machine, name, options)` gives a list of findings. Each finding has the obligation, a reason and a probe. One finding for each obligation is enough to find the cause.
+- `conforms` starts the code directly, with probe parts and a probe runtime. It does not evaluate real documents. The contract of each kind that names the code gives the probe documents.
+- Each probe part gives a result from a palette of eleven values and errors, or it waits in a run. The probe runtime answers each wait and each effect at once, thus `conforms` is synchronous.
+- C1 reads the context that the code gives, before the kernel narrows it. Thus it also finds a function evaluator that widens, and a context that compiled code keeps from an earlier call.
+- C3 for a lazy part means: some other result of the part changes the result. C4 evaluates again with other values in each root that no resolution read, and with the same answers of `resolve`. C5 evaluates two documents whose parts have other JSON and the same results.
+- C2, C3 and C4 apply only to the verb `eval`, because the facts of a contract describe only `eval` (D23).
+- The check `local` evaluates each probe again in another order. The check `agree` compares compiled code with its definition, the code of `STD_DEFINITIONS` or of the option `definitions`.
+- C8: a formula profile, and each table that compiled code reads, gives the same answer at each time. The author keeps it. `conforms` compares code of an earlier compilation with new code, and it reports C8 only when `local` holds.
+- `conforms` throws for a name without code, and for code that no kind names without the option `types`.
+
+**Rejected.**
+
+- Probes through real documents and `evaluate`. The kernel narrows each context before the probe sees it. A wait needs an async run. The restriction `kinds` of a position refuses a probe kind.
+- A proxy on the context for C4. The constructs `let`, `fn`, `seq` and `tree` read the names and `self` only to give them to their parts. A proxy then flags each of them.
+- A ban on each read of `doc.value` for C5. The kinds `ref`, `lit`, `ext` and the steps read their data from it. Only a result that changes with the JSON of a part breaks C5.
+- An asynchronous `conforms`. A probe runtime that answers each wait itself gives the same checks, and a test then needs no `await`.
+- A guard in the kernel for C8. Each compilation then reads the profile again, and a plan loses the work that it did one time.
+
+**Why.** A ban states what code must not touch, but the obligations C3 to C5 and C8 are about what the code gives. A comparison of two evaluations states exactly that. Direct calls let one probe record each call, context, resolution, effect and wait of the code.
+
+**Limits.**
+
+- The palette and the eight values of each shape find many faults, not all. A fault that shows only for one value of the host can stay hidden.
+- K120: a context that compiled code keeps escapes the grant of the kernel. `conforms` finds it, but a plan does not refuse it.
+- K121: walkers, the verb `deref` and the functions of a profile get no check. K122: the probe `all` takes its items one after the other.
+- No evaluator or runner of the standard library or the formula kit broke an obligation. The results of programs do not change.
+
+**Next.** K120 gives each evaluation its own grant. K121 extends `conforms` to walkers. K123 shows `conforms` on the site.

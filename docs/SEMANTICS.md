@@ -651,15 +651,31 @@ The soundness claims hold for a machine whose host code keeps these obligations.
 
 | ID | Obligation | Who keeps it today | The claims that need it |
 | --- | --- | --- | --- |
-| C1 | Each context that an evaluator gives a part has only capabilities that the context of its document permits. | The kernel: H-CONTEXT for function code, and H-GRANT for compiled code since K91 (D32). | CAP.NARROW, CAP.NARROW-CODE, CAP.EFFECTS-SOUND, PLAN.AGREES |
+| C1 | Each context that an evaluator gives a part has only capabilities that the context of its document permits. | The kernel: H-CONTEXT for function code, and H-GRANT for compiled code since K91 (D32). A context that compiled code keeps from an earlier call escapes H-GRANT (K120). | CAP.NARROW, CAP.NARROW-CODE, CAP.EFFECTS-SOUND, PLAN.AGREES |
 | C2 | The code causes only the effects that its contract declares. | The author. An own entry for another evaluator has no contract (K64). | CAP.EFFECTS-SOUND, STATIC.AGREES |
 | C3 | Each part that no lazy rule covers evaluates in each evaluation that gives a value. | The author | FACTS.LAZY |
 | C4 | A kind with the mark `pure` reads the context only through `resolve`, and it causes no effect. | The author | FACTS.SOUND, READS.SOUND |
 | C5 | The code reads its parts only through their handles, not through `doc.value`. | The author | EVAL.SEALED |
-| C6 | A runner passes each wait of its parts through. | The author (K65) | RUN.CAN-WAIT |
+| C6 | Only a runner waits, and it passes each wait of its parts through. | The author (K65) | RUN.CAN-WAIT |
 | C7 | The names that the code binds for a part are the names of the scope rules of its kind. | The author | STATIC.AGREES, TYPE.SOUND |
+| C8 | A formula profile, and each table that compiled code reads, gives the same answer for the same name at each time. | The author (K111) | PLAN.AGREES |
 
-The planned conformance tests (K92) examine one evaluator at a time against these obligations.
+The plan reads a profile when it compiles, and the reference reads it when it evaluates. C8 makes the two reads give one answer.
+
+`conforms(machine, name)` examines one evaluator or runner against these obligations (K92, D36). It starts the code directly with probe parts and a probe runtime. Each probe part records when it evaluates, how often, in which order and with which context. The probe runtime records each resolution, each effect and each wait. The contract of the kind gives the probe documents: the shape of the parts, the scope rules, the lazy rules and the effects.
+
+| Obligation | The check of `conforms` | ID |
+| --- | --- | --- |
+| C1 | Each context that the code gives a part or an effect has only the capabilities of the document. The check sees the context before the kernel narrows it. | CONFORM.NARROW |
+| C2 | Each effect is one that the contract declares. | CONFORM.EFFECTS |
+| C3 | A result that is a value comes after each eager part evaluates. Each lazy part that evaluates has some result that changes the result. | CONFORM.LAZY |
+| C4 | A pure kind causes no effect. Other values in the roots, with the same answers of `resolve`, give the same result. | CONFORM.PURE |
+| C5 | Two documents whose parts have other JSON and the same results give the same result. | CONFORM.SEALED |
+| C6 | An evaluator does not wait. A runner gives each wait of its parts to the host, and it gives back the answer of the host. | CONFORM.WAIT |
+| C7 | Each part gets the names of its scope rules and the names of its document, and no other name. | CONFORM.SCOPE |
+| C8 | Code of an earlier compilation and new code give the same record for each probe. | CONFORM.PROFILE |
+
+The checks `local` and `agree` examine the premise of SIM-PLAN (CONFORM.LOCAL). `local` evaluates each probe again in another order and expects the same record. `agree` compares compiled code with its definition for the reference.
 
 ## Facts that SPEC did not state
 
@@ -694,7 +710,7 @@ The argument goes by induction on the height of `d`.
 2. **The narrowing.** `gated` and `narrow` give the plan the contexts that `contextOfPart` gives the reference. For compiled code, H-GRANT gives the same narrowing for each context that the code makes with a spread (K91, D32).
 3. **The local lemma of `n`.** Each compiled part agrees with its handle in each context. Then the code of `n` over the compiled parts agrees with the definition of `n` over the handles.
 
-By the steps 1 and 2, the hypothesis of the induction gives the premise of the step 3 for the parts of `d`. Each kit gives one lemma for each construct, and a test can examine each lemma with probe parts.
+By the steps 1 and 2, the hypothesis of the induction gives the premise of the step 3 for the parts of `d`. Each kit gives one lemma for each construct. `conforms` examines each lemma with probe parts, and the lemma of a kit with a profile needs C8.
 
 Two limits apply. `sameValue` compares two closures by their parameters, thus `agree` is weaker than the claim for closures. And the claim holds only for the shared code of the judgments 1 to 3. An overflow of the stack of the host is the one permitted difference between the tiers (AGREE.ERRORS).
 
