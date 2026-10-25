@@ -206,6 +206,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | SEQ.NAMES | A sequence gives the result of a named step to the later steps. |
 | EFFECT.ORDER | The effects keep their order. |
 | CAP.PURE | An effect inside `pure` fails, because `pure` gives its part no capability. |
+| CAP.PURE-ONE | The kind `pure` takes exactly one part. A list with no part or with more than one part gives `#VALUE!`. |
 | CAP.NAMESPACE | A capability permits a kind by its name, or by its namespace. |
 | CAP.KEYS | A capability permits the kinds under it, key by key. A key with a dot is one key. |
 | CAP.NARROW | A part cannot get more capabilities than its parent. |
