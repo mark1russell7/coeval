@@ -1617,44 +1617,48 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
   const c: Compiler = { machine, traced: options.trace === true, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer };
   let root: Compiled;
   try {
-    root = compileNode(c, doc, ROOT_PLACE, options.declaredType, 0);
+    root = compileNode(c, doc, [], options.declaredType, 0);
   } catch (error) {
-    const result = placed(thrown(error, "the compilation"), ROOT_PLACE);
+    const result = placed(thrown(error, "the compilation"), []);
     root = { code: () => result, run: undefined };
   }
   return new CompiledPlan(machine, c.traced, root.code, root.run);
 }
-
-/** The place of the root document. One frozen list serves each plan (PLAN.LEAN). */
-const ROOT_PLACE: readonly Key[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
  * The object of a plan (PLAN.LEAN). The code of `evaluate` and `run` is on the class, thus a plan keeps only its
  * machine and its compiled code. A plan makes its compiled root and the steps of a run at their first use.
  */
 class CompiledPlan implements Plan {
+  /*
+   * The constructor writes each field one time, and the class declares the fields with `declare`. A field that a class
+   * defines first as `undefined` and then writes again is not constant for V8, and the code of an evaluation then
+   * loads it at each call.
+   */
+  declare readonly machine: Machine;
+  declare readonly traced: boolean;
+  /** The code of the root document. */
+  declare readonly code: Code;
   /** The steps of a run of the root document. `undefined` gives `runOf(code)` at the first `run`. */
-  #steps: RunCode | undefined;
+  declare private steps: RunCode | undefined;
   /** The compiled root, after the first read of `root`. */
-  #root: CompiledPart | undefined = undefined;
+  declare private part: CompiledPart | undefined;
 
-  constructor(
-    readonly machine: Machine,
-    readonly traced: boolean,
-    /** The code of the root document. */
-    readonly code: Code,
-    steps: RunCode | undefined,
-  ) {
-    this.#steps = steps;
+  constructor(machine: Machine, traced: boolean, code: Code, steps: RunCode | undefined) {
+    this.machine = machine;
+    this.traced = traced;
+    this.code = code;
+    this.steps = steps;
+    this.part = undefined;
   }
 
   get root(): CompiledPart {
-    return (this.#root ??= { key: "", path: ROOT_PLACE, code: this.code, run: this.runCode() });
+    return (this.part ??= { key: "", path: [], code: this.code, run: this.runCode() });
   }
 
   /** This function gives the steps of a run of the root document. */
   runCode(): RunCode {
-    return (this.#steps ??= runOf(this.code));
+    return (this.steps ??= runOf(this.code));
   }
 
   evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {

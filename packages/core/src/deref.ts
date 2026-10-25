@@ -469,15 +469,22 @@ type From = typeof FULL | typeof FROM_NAMES | typeof FROM_SELF | typeof FROM_EVE
  * keeps only its fields and makes no closure.
  */
 class StaticPath implements CompiledPath {
-  constructor(
-    readonly path: readonly unknown[],
-    readonly nav: Navigator,
-    /** The walker of each step document, from the ladder of `step`, or `undefined` for a path of keys. */
-    private readonly known: KnownWalkers | undefined,
-    /** The root that starts the short path, or `FULL`. */
-    private readonly from: From,
-    private readonly plain: boolean,
-  ) {}
+  // The constructor writes each field one time, thus each field stays constant for V8, as the variable of a closure.
+  declare readonly path: readonly unknown[];
+  declare readonly nav: Navigator;
+  /** The walker of each step document, from the ladder of `step`, or `undefined` for a path of keys. */
+  declare private readonly known: KnownWalkers | undefined;
+  /** The root that starts the short path, or `FULL`. */
+  declare private readonly from: From;
+  declare private readonly plain: boolean;
+
+  constructor(path: readonly unknown[], nav: Navigator, known: KnownWalkers | undefined, from: From, plain: boolean) {
+    this.path = path;
+    this.nav = nav;
+    this.known = known;
+    this.from = from;
+    this.plain = plain;
+  }
 
   resolve(ctx: Context): Resolution {
     const from = this.from;
