@@ -216,6 +216,7 @@ export { type AgreeOptions, type Agreement, type Tier, type TierInput, type Tier
 export { sameResult } from "./same.ts";
 export { type ReadsCheck, type VerifyOptions, verifyReads } from "./reads.ts";
 export { type Durable, type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
+export { type NodeEdge, type NodeInfo, type NodeRunOptions, type Schedule, type ScheduleOptions, edgesOf, schedule } from "./schedule.ts";
 export { type Recorder, type ReplayEntry, type ReplayLog, type ReplayOptions, type ReplaySettle, recorder, replayer } from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";
 export { type Domain, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";

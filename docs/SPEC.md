@@ -297,6 +297,22 @@ A host keeps one epoch for the structure and one for the data (R4 P7, D30). The 
 | DURABLE.REUSE | A key names one node of the host. In one data epoch, a key with the same plan gives its result again without an evaluation, also with a new context object. One document at two keys gives each key its own result. `forget` drops the result of a key. |
 | DURABLE.SOUND | For the generated documents of three configurations, the test makes random edits, new machines, changes of data and new context objects. Each result of `durable` is the same as a new evaluation by `sameResult`. A host that does not tell a change of data gets stale results, and the test finds them. |
 
+## Schedules
+
+A host gives named documents to `schedule`. Each document is a node, and the root `world` of each node reaches the other nodes. The schedule gives the graph of the nodes and the side of each node, and it evaluates the nodes on demand (R4, D31).
+
+| ID | Rule |
+| --- | --- |
+| SCHED.GRAPH | `schedule` keeps named documents as nodes. The root `world` of each node reaches the other nodes, and the context of the host gives the other roots. `graph()` gives each node with its facts, its side and its edges. The map stays one object in one structure epoch. |
+| SCHED.EDGES | `edgesOf` changes each static read of `world` into an edge to the node of its first key, with the lazy mark of the read. A read without a key after `world` has no target node. A read of another root is not an edge. |
+| SCHED.GRAIN | An edge goes to a node, and it keeps the keys after the node as its field. A change of another field of the node evaluates the node again, and a reader of the field keeps its result. |
+| SCHED.SIDE | The side of a node comes from `factsOf`. A node on the run side is a sink: a read of it gives `#REF!`, and the schedule does not evaluate it. The record of the root `world` has only the derive nodes. |
+| SCHED.RUN | The schedule does not start a run. `run` starts a run of the document of a node with the context of the schedule and the event of the host. A demand and a change of data do not repeat a run. |
+| SCHED.DEMAND | `read` evaluates a node and each node that its evaluation reads, through `durable`. Each node evaluates at most one time in a data epoch. A node that no demand reaches does not evaluate. A missing node gives `#N/A`. |
+| SCHED.STALE | After a change, a pure node verifies its reads, and a read of a node demands that node again. A node evaluates again only when a read changed, or when it is not pure. A new machine evaluates each node again. |
+| SCHED.CYCLE | Each node of a strongly connected component of the reads, and each node that reads itself, gives `#CYCLE!`. The reason names only the node, and the error has no place. Each order of demands gives the same values. A reader gets the error at its reference. A static cycle through a read that the evaluation skips is not a cycle. |
+| SCHED.ONE-MEANING | For generated graphs of nodes, the test makes random edits, new nodes, removed nodes, new machines and changes of data, and it reads the nodes in random orders. Each result is the same as an evaluation of the whole graph from scratch by `sameResult`, also for each cycle. A host that changes its data in place gets stale values, and the test finds them. |
+
 ## Types
 
 A value type is a set of values that a result can have (R5 P2, D22). It is a JSON term that only a check reads. It is not a kind, and it does not go into an envelope. A check of types gives each part a type in two directions (R5 P3, D25). The host gives the types of the roots, and a reference gets the type that its path reaches (R5 P4, D28).

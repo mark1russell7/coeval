@@ -39,6 +39,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D28 | The host gives the types of the roots, and a reference gets the type that its path reaches. A missing field of a closed record is a type issue. Only a type rule keeps the types of the roots for its parts. A type comes from the host, a JSON Schema or sample values. |
 | D29 | A reference compiles its static path one time, in `prepare`, and each evaluation only walks the values. The kind of a type has a memo for each world. The results, the errors and the reads stay the same. |
 | D30 | A host keeps one epoch for the structure and one for the data. `durable` keeps a plan and the facts for each document object, and one result for each key. A change of data compiles nothing. A pure document verifies its reads, and another document evaluates again. |
+| D31 | A schedule keeps named documents as nodes under the root `world`, and it evaluates them on demand. An edge goes to a node and keeps its field, and the early cutoff is by field. Each node of a cycle gives `#CYCLE!` in each order. A node on the run side is a sink, and only the host starts a run. |
 
 ## Open
 

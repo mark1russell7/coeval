@@ -641,3 +641,56 @@ The kernel had the parts, but nothing joined them. `planner` keeps a plan for ea
 The test DURABLE.SOUND makes random edits, new machines and changes of data, and it compares each result with a new evaluation. A mutant host that forgets each change of data gets stale results, and the test finds them. Thus the test shows that the data epoch carries the soundness.
 
 **Next.** S1 joins `factsOf`, the reads and `durable` into one interface. S2 keeps its graph and its order for one structure epoch.
+
+## D31 (2026-10-25): a schedule keeps named nodes under the root `world`, an edge goes to a node and keeps its field, each node of a cycle gives `#CYCLE!`, and a node on the run side is a sink
+
+**Context.** The study R4 asks for one interface that joins `factsOf`, the reads and `durable` (S1). D3 promises each schedule the graph of the data and the side of each kind. D30 keeps a result for each key, but nothing gave the keys a graph.
+
+R4 leaves three open questions for this item. Does each node of a cycle give `#CYCLE!`, so that each schedule gives the same error (question 3)? Does a read of `["world", "a", "x"]` depend on the node `a` or on its field `x` (question 4)? Is a run document a sink of the graph, and what starts it (question 5)?
+
+**Decision.**
+
+- A host gives named documents to `schedule(machine, options)`. Each document is a node. The root `world` of each node reaches the other nodes by name, and the context of the host gives the other roots.
+- `edgesOf(facts)` changes each static read of `world` into an edge to the node of its first key. A read of another root reads the data of the host, thus it is not an edge.
+- A read without a key after `world` has no target node. Examples are `["world"]` and a step document right after the root. Such a read can reach each node.
+- `graph()` gives each node with its facts, its side and its edges. The map stays one object in one structure epoch, thus S2 can keep an order for it.
+- `read(id)` evaluates a node on demand, through `durable`. A read of `world` in its document demands that node first. Each node evaluates at most one time in a data epoch.
+- After a change, a pure node verifies its reads with `verifyReads`. A read of a node demands that node again, thus the verification goes down the reads in their order. This is the red-green algorithm of rustc.
+- An edit, a new node, a removed node and a new machine are changes of the structure. New data of the host is a change of the data (D30).
+- Each data epoch has a new host thing at the root `world`. Thus a read of the whole root changes at each change of data, and a closure that keeps the context evaluates again (READS.KEPT).
+- **Granularity (question 4).** An edge goes to the node `a`, and it keeps the keys after the node as its field `["x"]`. A node evaluates as a whole, thus the graph and an order of a schedule are by node.
+- The early cutoff is by field. `verifyReads` compares what the path reaches, thus a change of `a.y` evaluates `a` again, and a reader of `a.x` keeps its result.
+- **Cycles (question 3).** A node is on a cycle when its demand reaches itself through the reads of the evaluations. Each node of a strongly connected component of these reads, and each node that reads itself, gives `#CYCLE!`.
+- The reason of the error names only the node, and the error has no place. The document of such a node does not decide its value. Thus a lazy operation that catches the error cannot give a value that depends on the first demand.
+- A read of a node in evaluation gives the same error as the final result of that node. A reader of a node on a cycle gets the error at its reference. Thus each order of demands gives the same values.
+- The schedule finds the components with the algorithm of Tarjan over the demands. A finished node of an open component links its reader to that component too.
+- The reads of the evaluations decide a cycle, not the static edges. A static cycle through a lazy read that the evaluation skips is not a cycle. A read after a failed part does not happen either.
+- **The run side (question 5).** A node whose document is on the run side is a sink (FACTS.SIDE). A read of it gives `#REF!`, and the schedule does not evaluate it. The record of the root `world` has only the derive nodes.
+- Only the host starts a run, for example at an event, with `run(id, options)`. A demand and a change of data do not start or repeat a run (L3).
+- A run reads the current values of the derive nodes through the same root `world`. The edges of a node on the run side tell the host which nodes the run reads.
+
+**Rejected.**
+
+- The root `names` for the nodes. A kind binds names for its parts, and the host keeps its own data in the names.
+- An edge for each field. The graph then grows with the data, and a node still evaluates as a whole. A step document after a field also makes the field unknown.
+- An edge by node without a cutoff by field. Then each change of a node evaluates each reader of the node again.
+- The chain of D16 in the reason, or the place of the reference that closed the cycle. Both depend on the first demand. D16 keeps the chain for the attributes of one tree, because one document orders their demands.
+- `#CYCLE!` only for the nodes in evaluation when a read closes the cycle. A node that reads a finished node of an open component then escapes, and its value depends on the first demand. The test SCHED.CYCLE has such a component of three nodes.
+- A cycle from the static edges. A read can fail or be skipped before it happens. S2 can report a static cycle, but the demand gives the value.
+- A node on the run side as an effect of a signal library. Such an effect starts again after each change of its reads, thus it repeats the effects, and L3 forbids that.
+- A dry evaluation of a run document as the value of its node. An evaluation does not do the effects (RUN.EVAL), thus a reader gets payloads, not outcomes. A host puts an outcome into its data.
+- A push of dirty marks along the edges in this item. A reference in the value of a node can lead a read to a third node (DEREF.COLLAPSE), and no edge shows it. The verification of the reads finds it.
+
+**Why.** The demand needs no order and no analysis of the graph, thus it is the reference schedule for S2 and S3. Each node keeps the rules of D30 and D26, and the only new rule is the rule of the cycles.
+
+The test SCHED.ONE-MEANING has three configurations of generated graphs with five nodes. It makes random edits, new nodes, removed nodes, new machines and changes of data, and it reads the nodes in random orders. Each read gives the result of an evaluation of the whole graph from scratch.
+
+A run of the harness compares approximately 8500 reads, and approximately 1800 of them give `#CYCLE!`. A dense configuration wires most nodes into cycles that catch errors. A rule for the nodes in evaluation only fails there, and a host that changes its data in place gets stale values.
+
+**Limits.**
+
+- S1d: a reference in the data of a node can lead a read to another node. The static edges do not show that read, but the reads of an evaluation do.
+- S2a: a demand of a chain of nodes uses the stack of the host for each node. A chain of a few hundred nodes overflows, and the node gives `#DEPTH!` (D15).
+- S1f: each node gets the same context. One formula at each cell of a grid needs its own `self` for each node.
+
+**Next.** S2 reads `graph()`: the components, the heights for a push schedule and the nodes that an observer needs. S3a takes the harness to more schedules, and S3b gives each node a signal.
