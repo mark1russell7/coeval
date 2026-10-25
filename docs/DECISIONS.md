@@ -729,3 +729,51 @@ The cost is one comparison at the start of each document, without a new object. 
 The change is a correction. A language whose compiled code makes each context with a spread gets the same results. Compiled code that makes the context of a part without a spread gives that part no capabilities after this change. `agree` then finds a difference from the definition of the code.
 
 **Next.** K92 tests the obligation C1 for each evaluator of a kit. K100: a resolution of the root `caps` from compiled code reads the context that the code gives. The rule `grant` of L1a writes the grant of a part, through the rules of the contract.
+
+## D33 (2026-10-25): the analysis of a graph of nodes has its own stack, a cycle of eager edges is certain but the demand gives the values, and a demand of the host first demands its eager edges, deepest first
+
+**Context.** The study R4 proposes an analysis of the graph of the nodes (P5, S2). It asks for the components, the heights of a push schedule, the independent layers, the nodes that an observer needs and the static cycles. D31 gave S2 two notes. A static cycle is not certain, because a read can fail or be skipped before it occurs. An edge without a target node can reach each node.
+
+D31 also found a limit (S2a). A demand used the stack of the host for each node of a chain. A chain of approximately 1000 nodes of the formula kit gave `#DEPTH!`.
+
+**Decision.**
+
+- `graph.ts` holds the analysis. A graph is a map from a name to a node with its edges and its side (`NodeGraph`). The map of `graph()` of a schedule is such a graph, thus a host gives it to the analysis with no change.
+- Each function walks an indexed form of the graph with its own stack in typed arrays. Thus a chain or a ring of 100000 nodes does not overflow (GRAPH.SCC).
+- `components` uses the algorithm of Tarjan. Each component comes after each component that it reads, thus the deepest component comes first.
+- `heights` gives the order of a push schedule, and the nodes of one component share one height (GRAPH.ORDER). `nodeLayers` puts the nodes of each height in one layer, in linear time (GRAPH.LAYERS).
+- `necessary` gives the observed nodes and each node with a path from them (GRAPH.NECESSARY).
+- A node on the run side is a sink. An edge to a sink, or to a name that is not a node, is no edge of the analysis.
+- An edge without a target reads each node that is not a sink (GRAPH.UNKNOWN). The index gives such an edge one extra node with an edge to each such node. Thus the cost stays linear, and the extra node adds no height.
+- `cycles` gives each component with a cycle (GRAPH.CYCLE). A cycle of the eager edges with a target is certain. Such a read occurs in each evaluation in which each document around it gives a value (FACTS.LAZY).
+- Each other component with a cycle is possible: it needs a lazy edge or an edge without a target. The certain cycles inside it come after it.
+- A static cycle gives no value. A read can still fail before it occurs, thus the demand of D31 decides the value of each node. The test GRAPH.CYCLE has such a node.
+- The option `eager` keeps only the eager edges with a target, in each function.
+- **Long chains (S2a).** A demand with no node in evaluation comes from the host: from `read`, from a run or from the record of `world`. It first demands each node that the eager edges reach, deepest first (SCHED.LONG-CHAIN).
+- Then each read of such a node finds its value, and the stack of the host holds one node of the chain at a time.
+- The order is the post-order of a walk of the eager edges from the node, with its own stack. Each node comes after each node that it reads, as in an order by heights. The walk enters only the nodes without a value in the data epoch.
+- Each demand ahead also starts with no node in evaluation. D31 gives each order of such demands the same values, thus the rule of the cycles stays exact.
+- `counts.ahead` gives the count of the demands ahead, as a measure.
+
+**Rejected.**
+
+- Demands ahead from a node in evaluation, for example at a fixed depth. A demand ahead can then read a node in evaluation that its own demand does not reach. It gets `#CYCLE!`, while an evaluation from scratch gives a value.
+- Demands ahead along the lazy edges too. The demand then evaluates a branch that the test of an `if` skips, and the demand schedule is not lazy. A chain through lazy reads stays a limit (S2b).
+- The order of `heights` over the whole graph for each demand. It costs the whole graph after each change of the structure, but a demand needs only the nodes that it reaches. A post-order gives those nodes the same guarantee.
+- A restart of a demand at a fixed depth, as Excel moves a cell down its chain. An evaluation then repeats, but SCHED.DEMAND says that each node evaluates at most one time in a data epoch.
+- A certain cycle as the value `#CYCLE!` before a run. A read can fail before it occurs, and then the evaluation from scratch gives another value.
+- An edge without a target as one edge to each node. Its cost then grows with the count of the nodes, for each such edge.
+- A certain cycle through an edge without a target. The record of `world` stops at the first failed node, thus the read reaches a node only when each earlier node gives a value.
+- The name `layers`. The module `order.ts` already exports `layers` for the steps of one sequence.
+
+**Why.** The analysis needs no evaluation, thus `check`, a push schedule or a host can use it before a run. Its own stack makes each function linear and safe for a long chain, as DOC.EQUALS is safe for a deep document.
+
+The demands ahead keep each value of D31 and each count of SCHED.STALE. The harness SCHED.ONE-MEANING agrees with an evaluation from scratch, and it counts the demands ahead. It also finds each node of `#CYCLE!` on a static cycle, unless a literal holds a reference to a node (S1d). Without the demands ahead, SCHED.LONG-CHAIN gives `#DEPTH!`.
+
+**Limits.**
+
+- S2b: a chain through lazy reads, or through an edge without a target, still uses the stack of the host for each node.
+- S2c: a certain cycle with more nodes than the stack of the host holds gives `#DEPTH!`.
+- K105: a plan of one reference keeps approximately 2.5 KB. A schedule of 100000 nodes keeps approximately 430 MB, and most of it is plans.
+
+**Next.** S3a compares a push schedule by `heights` with the demand. S2d lets a host report the certain cycles of a schedule before a run.
