@@ -14,7 +14,9 @@ import {
   type MachinePart,
   type Result,
   type Steps,
+  type TierInput,
   type TierResult,
+  Failure,
   STD_DEFINITIONS,
   STD_MACHINE,
   THING,
@@ -370,8 +372,16 @@ const SECOND: MachinePart = {
 
 const composed: Machine = mergeMachines(formulaMachine(STRICT), SECOND);
 
+/** A mock of the host (AGREE.MOCK). Its answer depends only on the effect and its address, thus each tier gets the same answer. */
+function hostMock(effect: Effect): unknown {
+  if (effect.payload === "b") throw new Failure({ code: "#MOCK", reason: "The mock refuses b." });
+  if (effect.payload === "") throw new Error("The mock refuses an empty text.");
+  return effect.kind === "write" ? { stored: effect.address } : [effect.address, effect.payload];
+}
+
 const CONFIGS: readonly Config[] = [
   { name: "standard", machine: waiting, options: STD_OPTIONS, agree: { strict: true } },
+  { name: "standard, a mock of the host", machine: waiting, options: STD_OPTIONS, agree: { strict: true, perform: hostMock } },
   { name: "trees", machine: STD_MACHINE, options: TREE_OPTIONS, agree: { strict: true } },
   {
     name: "standard, depth 3 and a rule of the host",
@@ -693,6 +703,43 @@ describe("agree", () => {
     expect(agree(STD_MACHINE, doc, ctx, { tiers: [], other: reversed })).toMatchObject({ ok: false, tier: "other", reason: "The effect 0 differs: log at [0] in the plan, and write at [1] in the tier." });
     let seen = 0;
     expect(agree(STD_MACHINE, doc, ctx, { tiers: ["again"], observe: () => (seen += 1) })).toMatchObject({ ok: false, tier: "again", reason: "The host saw other calls in the tier." });
+  });
+
+  it("[AGREE.MOCK] each tier gets the mock of agree, thus the tiers agree on documents with effects, with the same addresses and outcomes", () => {
+    const config = CONFIGS.find((item) => item.agree.perform !== undefined) as Config;
+    expect(report(outcomeOf(config).findings)).toEqual([]);
+    const doc = { type: "seq", value: [{ type: "log", value: ["a"] }, { type: "write", value: { key: "k", value: { type: "ref", value: ["names", "last"] } } }] };
+    const ctx = context({ caps: ["log", "write"] });
+    const outcome = agree(STD_MACHINE, doc, ctx, { strict: true, perform: hostMock });
+    expect(outcome).toMatchObject({ ok: true, result: ok({ stored: "1#0" }) });
+    const effects = outcome.ok ? outcome.effects : [];
+    expect(effects.map((effect) => [effect.address, effect.outcome])).toEqual([
+      ["0#0", ok(["0#0", "a"])],
+      ["1#0", ok({ stored: "1#0" })],
+    ]);
+    // The second tier of a language gets the mock too.
+    let given: unknown;
+    const tier = (_doc: unknown, _ctx: Context, input: TierInput): TierResult => {
+      given = input.perform;
+      return { result: ok({ stored: "1#0" }), effects };
+    };
+    expect(agree(STD_MACHINE, doc, ctx, { tiers: [], perform: hostMock, other: tier })).toMatchObject({ ok: true });
+    expect(given).toBe(hostMock);
+    // A tier with another outcome or another address disagrees.
+    const other = (changed: Partial<Effect>) => (): TierResult => ({ result: ok({ stored: "1#0" }), effects: effects.map((effect, index) => (index === 0 ? { ...effect, ...changed } : effect)) });
+    expect(agree(STD_MACHINE, doc, ctx, { tiers: [], perform: hostMock, other: other({ outcome: ok("other") }) })).toMatchObject({
+      ok: false,
+      reason: "The outcome of the effect 0 differs. The plan and the tier give different values.",
+    });
+    expect(agree(STD_MACHINE, doc, ctx, { tiers: [], perform: hostMock, other: other({ address: "9#0" }) })).toMatchObject({
+      ok: false,
+      reason: "The effect 0 has the address 0#0 in the plan, and 9#0 in the tier.",
+    });
+    // A Failure of the mock gives the same error in each tier.
+    expect(agree(STD_MACHINE, { type: "log", value: ["b"] }, ctx, { strict: true, perform: hostMock })).toMatchObject({
+      ok: true,
+      result: { ok: false, error: { code: "#MOCK", place: [] } },
+    });
   });
 
   it("[AGREE.TIER] a language compares its own second tier with the plan, and agree names the tier that disagrees", () => {

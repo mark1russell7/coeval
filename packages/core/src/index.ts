@@ -118,7 +118,9 @@ export {
   type EvalFn,
   type EvalInput,
   type EvalOptions,
+  type EvaluateOptions,
   type Evaluator,
+  type Journal,
   type Machine,
   type Part,
   type Perform,
@@ -135,6 +137,7 @@ export {
   type Steps,
   type StopSignal,
   type TraceNode,
+  JOURNAL,
   capKeys,
   evaluate,
   failures,
@@ -198,6 +201,7 @@ export {
   jsTruthy,
 } from "./formula.ts";
 export { type Definitions, type ReferenceOptions, STD_DEFINITIONS, formulaDefinitions, reference } from "./reference.ts";
-export { type AgreeOptions, type Agreement, type Tier, type TierResult, agree, sameValue } from "./agree.ts";
+export { type AgreeOptions, type Agreement, type Tier, type TierInput, type TierResult, agree, sameValue } from "./agree.ts";
 export { sameResult } from "./same.ts";
+export { type Recorder, type ReplayEntry, type ReplayLog, type ReplayOptions, type ReplaySettle, recorder, replayer } from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";

@@ -21,7 +21,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 7. K42: the mark of a pure call on each call at the top of a module, a request of a language (done, 2026-10-24, version 0.6.2, PKG.PURE). Before, esbuild kept the standard evaluators and walkers in each bundle.
 8. K22: `sameResult`, a safe equality for an early cutoff (R4 P1) (done, 2026-10-24, released in 0.6.3, D20, RESULT.SAME). Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place. `docEquals`, `sameValue` and `sameResult` share one walk.
 9. K39: a host thing can tell that a field holds `undefined`, a small correction that K20 found (done, 2026-10-24, released in 0.6.3, D21, DEREF.HOST-UNDEFINED). Its optional `has` answers when `deref` gives `undefined`. Before, a host that adopted the names hid each name bound to `undefined`. A node of the standard tree hid such an attribute too.
-10. K10 and K11 (next): a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
+10. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2) (done, 2026-10-24, released in 0.6.3, D19). An evaluation, a plan, the reference and `agree` take a mock `perform`. Each effect keeps a stable address and its outcome. `recorder` and `replayer` give record and replay, and a request that the log does not have gives `#REPLAY!`.
 11. K12: compiled paths (R1 P2).
 12. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
 13. K23: value types and value domains, the base of the type work (R5 P2).
@@ -57,8 +57,8 @@ On the site, C10 is next too (R4). Each other proposal of the six studies is a r
 | K7 | Sealed parts: the kernel gives an evaluator handles without the value of a part | done (2026-10-20) | |
 | K8 | check narrows the capabilities as the kinds do (a bug from the study R2) | done (2026-10-24) | K3 |
 | K9 | A harness for one meaning: a reference interpreter that compiles nothing, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1, D15) | done (2026-10-24, version 0.4.2 with the corrections of four bugs that the harness found) | K2, K3 |
-| K10 | A synchronous mock `perform` for `evaluate`. Its answer becomes the result of the effect, and a promise from it gives `#CALC!` (R2 P1). | next | L1 |
-| K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | next | L1 |
+| K10 | A synchronous mock `perform` for `evaluate`. Its answer becomes the result of the effect, and a promise from it gives `#CALC!` (R2 P1). | done (2026-10-24, released in 0.6.3, D19: the option `perform` of `evaluate`, `plan.evaluate`, `reference` and `agree`) | L1 |
+| K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | done (2026-10-24, released in 0.6.3, D19: `Effect.address`, `Effect.outcome`, `#REPLAY!` and the journal of the waits of `all`) | L1 |
 | K12 | Compiled paths: `compilePath` resolves one static path, and `derefStep` keeps a memo of `lookupKind` (R1 P2) | next | K4, K9 |
 | K13 | Folds of closed pure subtrees: a static subtree evaluates one time at compile time, from a `pure` mark in the kind contract (R1 P3) | later (R1 first asks if a plan can share its results) | K9 |
 | K14 | Binding times that the host declares: a path from a root that does not change resolves at compile time (R1 P4) | later | K9, S1 |
