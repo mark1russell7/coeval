@@ -1287,24 +1287,23 @@ interface Compiler {
   readonly noAnswer: Answer;
 }
 
-function failing(c: Compiler, meta: Meta, place: readonly Key[], code: ErrorCode, reason: string): { readonly code: Code; readonly run: RunCode } {
+function failing(c: Compiler, meta: Meta, place: readonly Key[], code: ErrorCode, reason: string): Compiled {
   return failingWith(c, meta, fail(code, reason, { place }));
 }
 
 /** This function gives the code of a document that fails with one result at each evaluation. */
-function failingWith(c: Compiler, meta: Meta, result: Result): { readonly code: Code; readonly run: RunCode } {
+function failingWith(c: Compiler, meta: Meta, result: Result): Compiled {
   const plain: Code = () => result;
-  return finish(c, meta, plain, function* () {
-    return result;
-  });
+  return finish(c, meta, plain, undefined);
 }
 
 /**
  * This function gives the code of a document in a trace. Each node records the context that its grant permits
  * (CAP.NARROW-CODE), as the code of the document gets it.
  */
-function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly code: Code; readonly run: RunCode } {
-  if (!c.traced) return { code, run };
+function finish(c: Compiler, meta: Meta, code: Code, steps: RunCode | undefined): Compiled {
+  if (!c.traced) return { code, run: steps };
+  const run = steps ?? runOf(code);
   const tracedCode: Code = (given, rt) => {
     const ctx = granted(given);
     const s = rt as Session;
@@ -1355,7 +1354,7 @@ function finish(c: Compiler, meta: Meta, code: Code, run: RunCode): { readonly c
 /** The meta of a node of a compilation without a trace. Only a trace reads the meta of a node. */
 const NO_META: Meta = /* @__PURE__ */ Object.freeze({ path: [], doc: { type: "?", value: null }, declared: false, answer: NO_ANSWER, side: "derive" });
 
-function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number, address = false): { readonly code: Code; readonly run: RunCode } {
+function compileNode(c: Compiler, value: unknown, place: readonly Key[], declared: string | undefined, depth: number, address = false): Compiled {
   const world = c.machine.world;
   const read = partsOf(world, value, declared);
   if (!read.ok) {
@@ -1399,9 +1398,10 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     const compiled = rules.length === 0 ? own : gated(rules, own);
     // The binding name is in the header of an envelope. Most parts have no name, thus the cheap test comes first.
     const header = typeof (item as { readonly name?: unknown } | null)?.name === "string" && isEnvelope(item) ? (item as { readonly name: string }).name : undefined;
+    const run = compiled.run ?? runOf(compiled.code);
     return header === undefined
-      ? { key: slot.key, path: slot.path, code: compiled.code, run: compiled.run }
-      : { key: slot.key, path: slot.path, name: header, code: compiled.code, run: compiled.run };
+      ? { key: slot.key, path: slot.path, code: compiled.code, run }
+      : { key: slot.key, path: slot.path, name: header, code: compiled.code, run };
   });
   const typePath = read.typePath ?? [];
   const input: CompileInput = {
@@ -1434,8 +1434,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   } catch (error) {
     return failingWith(c, meta, placed(thrown(error, `the evaluator ${name}`), place));
   }
-  const code = placedCode(inner, place, name);
-  return finish(c, meta, code, runOf(code));
+  return finish(c, meta, placedCode(inner, place, name), undefined);
 }
 
 /*
@@ -1463,7 +1462,7 @@ function placedCode(inner: Code, place: readonly Key[], name: string): Code {
  * the rules before the part starts. First the context keeps only the capabilities of its grant, thus a compiled
  * parent cannot widen the capabilities that the rules narrow (CAP.NARROW-CODE).
  */
-function gated(rules: readonly CapsRule[], part: { readonly code: Code; readonly run: RunCode }): { readonly code: Code; readonly run: RunCode } {
+function gated(rules: readonly CapsRule[], part: Compiled): Compiled {
   const inner = part.code;
   const steps = part.run;
   const under = (given: Context): Context => {
@@ -1473,7 +1472,8 @@ function gated(rules: readonly CapsRule[], part: { readonly code: Code; readonly
     const out: Granted = { ...ctx, caps, [GRANT]: caps };
     return out;
   };
-  return { code: (ctx, rt) => inner(under(ctx), rt), run: (ctx, rt) => steps(under(ctx), rt) };
+  // The steps of an evaluator are `runOf` of its code, thus `runOf` of this code narrows the context the same way.
+  return { code: (ctx, rt) => inner(under(ctx), rt), run: steps === undefined ? undefined : (ctx, rt) => steps(under(ctx), rt) };
 }
 
 /**
@@ -1501,6 +1501,15 @@ function runnerCode(run: RunCode, place: readonly Key[], kindText: string): Code
       : placed(drive(run(ctx, rt)), place);
 }
 
+/**
+ * The code of a compiled document. The steps of a run are `undefined` for an evaluator: they are `runOf(code)`, and a
+ * plan makes them only for a run (PLAN.LEAN).
+ */
+interface Compiled {
+  readonly code: Code;
+  readonly run: RunCode | undefined;
+}
+
 /** This function gives the steps of a run of an evaluator. The code runs at the first step, and it does not wait. */
 function runOf(code: Code): RunCode {
   return function* (ctx, rt) {
@@ -1517,6 +1526,8 @@ function fillOf(split: Extract<Split, { readonly ok: true }>, doc: Envelope): <P
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
   const { kind, typePath, doc, data, place } = input;
   const address = input.address === true ? { address: true } : {};
+  // The code keeps the fill and not the whole input, thus it does not keep the compiled value of the document (PLAN.LEAN).
+  const refill = input.fill;
   const compiled = input.parts;
   const hasParts = compiled.length > 0;
   return (ctx, rt) => {
@@ -1538,13 +1549,14 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
       ...address,
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.effect(ctx, effectKind, payload, place),
-      fill: input.fill,
+      fill: refill,
     });
   };
 }
 
 function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): RunCode {
   const { kind, typePath, doc, data, place } = input;
+  const refill = input.fill;
   const compiled = input.parts;
   const hasParts = compiled.length > 0;
   return (ctx, rt) => {
@@ -1566,7 +1578,7 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.runEffect(ctx, effectKind, payload, place),
       all: (list, options) => rt.all(list.map((part) => () => part.evaluate()), options),
-      fill: input.fill,
+      fill: refill,
     });
   };
 }
@@ -1603,39 +1615,65 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
   const verb = options.verb ?? "eval";
   const noAnswer: Answer = verb === "eval" ? NO_ANSWER : { verb, error: "no-answer", steps: [] };
   const c: Compiler = { machine, traced: options.trace === true, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer };
-  let root: { readonly code: Code; readonly run: RunCode };
+  let root: Compiled;
   try {
     root = compileNode(c, doc, [], options.declaredType, 0);
   } catch (error) {
     const result = placed(thrown(error, "the compilation"), []);
-    root = {
-      code: () => result,
-      run: function* () {
-        return result;
-      },
-    };
+    root = { code: () => result, run: undefined };
   }
-  const compiled: CompiledPart = { key: "", path: [], code: root.code, run: root.run };
-  return planOf(machine, c.traced, compiled);
+  return new CompiledPlan(machine, c.traced, root.code, root.run);
 }
 
-/** This function makes the object of a plan. Its closures keep only the machine and the compiled root. */
-function planOf(machine: Machine, traced: boolean, root: CompiledPart): Plan {
-  return {
-    machine,
-    traced,
-    root,
-    evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
-      const ctx = rootContext(machine, context);
-      const s = new Session(machine, false, traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
-      return root.code(ctx, s);
-    },
-    run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {
-      const ctx = rootContext(machine, context);
-      const s = new Session(machine, true, traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
-      return driveWaiting(root.run(ctx, s), runOptions.signal);
-    },
-  };
+/**
+ * The object of a plan (PLAN.LEAN). The code of `evaluate` and `run` is on the class, thus a plan keeps only its
+ * machine and its compiled code. A plan makes its compiled root and the steps of a run at their first use.
+ */
+class CompiledPlan implements Plan {
+  /*
+   * The constructor writes each field one time, and the class declares the fields with `declare`. A field that a class
+   * defines first as `undefined` and then writes again is not constant for V8, and the code of an evaluation then
+   * loads it at each call.
+   */
+  declare readonly machine: Machine;
+  declare readonly traced: boolean;
+  /** The code of the root document. */
+  declare readonly code: Code;
+  /** The steps of a run of the root document. `undefined` gives `runOf(code)` at the first `run`. */
+  declare private steps: RunCode | undefined;
+  /** The compiled root, after the first read of `root`. */
+  declare private part: CompiledPart | undefined;
+
+  constructor(machine: Machine, traced: boolean, code: Code, steps: RunCode | undefined) {
+    this.machine = machine;
+    this.traced = traced;
+    this.code = code;
+    this.steps = steps;
+    this.part = undefined;
+  }
+
+  get root(): CompiledPart {
+    return (this.part ??= { key: "", path: [], code: this.code, run: this.runCode() });
+  }
+
+  /** This function gives the steps of a run of the root document. */
+  runCode(): RunCode {
+    return (this.steps ??= runOf(this.code));
+  }
+
+  evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
+    const machine = this.machine;
+    const ctx = rootContext(machine, context);
+    const s = new Session(machine, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
+    return this.code(ctx, s);
+  }
+
+  run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {
+    const machine = this.machine;
+    const ctx = rootContext(machine, context);
+    const s = new Session(machine, true, this.traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
+    return driveWaiting(this.runCode()(ctx, s), runOptions.signal);
+  }
 }
 
 /**
@@ -1702,7 +1740,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
   });
   const ctx = rootContext(machine, context);
   const s = new Session(machine, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
-  const result = plan.root.code(ctx, s);
+  const result = (plan as CompiledPlan).code(ctx, s);
   return record(s, result);
 }
 
@@ -1725,7 +1763,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
   });
   const ctx = rootContext(machine, context);
   const s = new Session(machine, true, true, options.perform, options.signal, undefined, readingOf(options.reads, ctx));
-  const result = await driveWaiting(plan.root.run(ctx, s), options.signal);
+  const result = await driveWaiting((plan as CompiledPlan).runCode()(ctx, s), options.signal);
   return record(s, result);
 }
 

@@ -155,10 +155,15 @@ export function edgesOf(facts: DocFacts): readonly NodeEdge[] {
   for (const read of facts.reads) {
     if (read.root !== "world") continue;
     const first = read.keys[0];
-    edges.push({ to: first === undefined ? undefined : String(first), field: read.keys.slice(1), lazy: read.lazy, read });
+    edges.push({ to: first === undefined ? undefined : String(first), field: read.keys.length > 1 ? read.keys.slice(1) : NO_KEYS, lazy: read.lazy, read });
   }
-  return edges;
+  // A list that grows by push keeps room for more edges. A copy of a short list is smaller (PLAN.LEAN).
+  return edges.length === 0 ? NO_EDGES : edges.slice();
 }
+
+/** No keys, and no edges. One frozen list of each serves each node, thus a schedule of many nodes keeps less. */
+const NO_KEYS: readonly Key[] = /* @__PURE__ */ Object.freeze([]);
+const NO_EDGES: readonly NodeEdge[] = /* @__PURE__ */ Object.freeze([]);
 
 /** This function gives the error of a node on a cycle. It names only the node, thus each order of demands gives the same error. */
 function cycleOf(id: string): Failed {

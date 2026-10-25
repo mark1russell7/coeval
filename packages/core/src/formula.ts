@@ -1,6 +1,6 @@
 import { type Json, type Key, docEquals, isKey, isRecord } from "./doc.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
-import { type Context, type Resolution, compilePath, valueOfThing } from "./deref.ts";
+import { type CompiledPath, type Context, type Resolution, compilePath, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
@@ -534,6 +534,47 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
     return { ok: false, error: errors.length === 1 ? (errors[0] as EvalError) : combine(errors) };
   };
 
+  /*
+   * The code of a reference (PLAN.LEAN). The helpers below serve each reference of the language. Each code keeps only
+   * what its own reference needs. A reference with a static path keeps its compiled path, its first name and its mark
+   * `address`. It does not keep its document, its split or the functions of the other form.
+   */
+
+  /** This function gives the result of a resolution of a reference. An address gives what the path reaches: a host thing stays a thing. */
+  const give = (found: Resolution, address: boolean): Result => {
+    if (!found.ok) return fail(found.code, found.reason);
+    if (address) return ok(found.thing);
+    const reached = valueOfThing(found.thing);
+    if (reached instanceof Held) return { ok: false, error: reached.error };
+    if (missing !== undefined && missing(reached)) return fail("#N/A", "The path reaches no value.");
+    return ok(reached);
+  };
+  /** This function gives the error of a name whose binding failed, or `undefined` when the binding holds no error. */
+  const held = (ctx: Context, rt: Runtime, head: string | undefined): Failed | undefined => {
+    if (head === undefined || !Object.hasOwn(ctx.names, head)) return undefined;
+    const bound = ctx.names[head];
+    if (!(bound instanceof Held)) return undefined;
+    // The result comes from the binding of the name, thus the runtime resolves the name for the list of reads (READS.RECORD).
+    rt.resolve(ctx, ["names", head]);
+    return { ok: false, error: bound.error };
+  };
+  /** This function gives the code of a reference with a static path. A path without a first name does not test a binding. */
+  const staticRef = (compiledPath: CompiledPath, head: string | undefined, address: boolean): Code =>
+    head === undefined
+      ? (ctx, rt) => give(resolveCompiled(rt, ctx, compiledPath), address)
+      : (ctx, rt) => held(ctx, rt, head) ?? give(resolveCompiled(rt, ctx, compiledPath), address);
+  /**
+   * This function gives the code of a reference whose step documents are parts, when the kind ref has a deep shape.
+   * The steps evaluate first, in order, thus the error of a step comes before the error of a binding (FORMULA.STEPS).
+   */
+  const stepsRef = (parts: readonly CompiledPart[], fill: CompileInput["fill"], head: string | undefined, address: boolean): Code => {
+    return (ctx, rt) => {
+      const steps = valuesOf(parts, ctx, rt);
+      if (!Array.isArray(steps)) return steps;
+      return held(ctx, rt, head) ?? give(rt.resolve(ctx, fill(steps) as readonly unknown[]), address);
+    };
+  };
+
   return {
     "formula.lit": compiled(({ doc }) => {
       const result = ok(doc.value);
@@ -548,36 +589,9 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       }
       // A path through a name whose binding failed gives the error of the binding.
       const head = path[0] === "names" && typeof path[1] === "string" ? path[1] : undefined;
-      const name: readonly Json[] | undefined = head === undefined ? undefined : ["names", head];
-      const give = (found: Resolution): Result => {
-        if (!found.ok) return fail(found.code, found.reason);
-        // An address gives what the path reaches: a host thing stays a thing.
-        if (address === true) return ok(found.thing);
-        const reached = valueOfThing(found.thing);
-        if (reached instanceof Held) return { ok: false, error: reached.error };
-        if (missing !== undefined && missing(reached)) return fail("#N/A", "The path reaches no value.");
-        return ok(reached);
-      };
-      const held = (ctx: Context, rt: Runtime): Failed | undefined => {
-        if (head === undefined || name === undefined || !Object.hasOwn(ctx.names, head)) return undefined;
-        const bound = ctx.names[head];
-        if (!(bound instanceof Held)) return undefined;
-        // The result comes from the binding of the name, thus the runtime resolves the name for the list of reads (READS.RECORD).
-        rt.resolve(ctx, name);
-        return { ok: false, error: bound.error };
-      };
-      if (parts.length === 0) {
-        // A path without parts is static, thus it compiles one time for the machine of the plan (PLAN.PATH).
-        const compiledPath = compilePath(machine, path);
-        return (ctx, rt) => held(ctx, rt) ?? give(resolveCompiled(rt, ctx, compiledPath));
-      }
-      // The step documents of a path are its parts when the kind ref has a deep shape. They evaluate first, in order,
-      // thus the error of a step comes before the error of a binding that the path reads (FORMULA.STEPS).
-      return (ctx, rt) => {
-        const steps = valuesOf(parts, ctx, rt);
-        if (!Array.isArray(steps)) return steps;
-        return held(ctx, rt) ?? give(rt.resolve(ctx, fill(steps) as readonly unknown[]));
-      };
+      // A path without parts is static, thus it compiles one time for the machine of the plan (PLAN.PATH).
+      if (parts.length === 0) return staticRef(compilePath(machine, path), head, address === true);
+      return stepsRef(parts, fill, head, address === true);
     }),
 
     "formula.step": compiled(({ doc, parts, fill }) => {
