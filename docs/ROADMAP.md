@@ -26,7 +26,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 12. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
 13. K12: compiled paths (R1 P2).
 
-On the site, C10 is next too (R4). Each other proposal of the six studies is a row with the status `later`.
+On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
 
 ## The design and the site
 
@@ -41,9 +41,10 @@ On the site, C10 is next too (R4). Each other proposal of the six studies is a r
 | C7 | The guide: one page for each glyph, from documents to effects | done (2026-10-20) | C6 |
 | C8 | The playground: build a document from the kinds, and open each picture of the guide in it | done (2026-10-20) | C6 |
 | C9 | Reference arrows on each picture (done), and arrows for each move of a path on each picture | in progress | C6 |
-| C10 | The schedule diagram (C3) computes its dependencies with the kernel (`refsOf`), as the site rule says (R4) | next | C3 |
+| C10 | The schedule diagram (C3) computes its dependencies with the kernel (`refsOf`), as the site rule says (R4) | done (2026-10-24) | C3 |
 | C11 | A structured editor in the playground from the kind contracts. An empty position holds a document of a kind `hole`, thus each state of an edit evaluates (R6 P6). | later | C8 |
 | C12 | A live diagram of record and replay: a run records its effects, and a replay steps through the journal. A changed answer shows `#REPLAY!` at its address. From K11. | later | C1 |
+| C13 | The site shows the work of the research: a page and a live diagram for the merge of languages (D17, D18), a live diagram of the decorated tree (D16), a page for the studies, and the guide as a route on the home page | done (2026-10-24) | C7 |
 
 ## The kernel
 

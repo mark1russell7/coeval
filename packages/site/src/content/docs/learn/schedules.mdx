@@ -36,5 +36,13 @@ A schedule needs two things:
 - **The graph of the data.** Each kind declares what it reads, in its contract. From the contracts, a tool can make the graph of a document before it runs.
 - **The side of each kind.** A schedule can repeat derive work, and it must not repeat a run.
 
+The diagram above gets its graph from the formulas: `refsOf` finds the names that each formula reads.
+
 From the graph, a static analysis gives three results before the start. It finds the cycles, an order for a push schedule, and the independent groups of nodes. Independent groups can compute at the same time.
+
+## Stop early when nothing changed
+
+A push schedule can stop early. When a cell computes again and gives the same result as before, its readers do not compute again. This is an early cutoff.
+
+The test of "the same result" must be safe for each value. `sameResult` compares plain JSON by structure, and each other object only as itself. Two errors are the same only with the same code, reason and place (decision D20).
 

@@ -35,6 +35,8 @@ An evaluator gets each part as a sealed card. It can evaluate the part, in a con
 
 The seal gives a simple test for a new evaluator. Evaluate the same documents with the old evaluator and the new evaluator, and compare each result. When each result agrees, the new evaluator can replace the old one.
 
+The kernel uses the same test on itself. A reference interpreter compiles nothing, and `agree` compares each plan with it, document by document (decision D15).
+
 ## A failure is a value
 
 An evaluation does not throw. A failure gives an error value with a code and a reason, and the port of the card shows it in red. The parent gets the error value as its result, unless it can recover.

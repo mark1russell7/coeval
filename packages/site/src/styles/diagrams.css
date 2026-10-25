@@ -733,6 +733,566 @@
   font-weight: 700;
 }
 
+.ce-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ce-btn:disabled:hover {
+  background: var(--color-surface);
+}
+
+.ce-btn-small {
+  min-height: 1.9rem;
+  padding: 0.1rem var(--space-2);
+  border-color: var(--color-rule-strong);
+  color: var(--color-ink-secondary);
+  font-size: var(--text-xs);
+}
+
+/* ---------------------------------------------------------------------------------------- merge */
+
+/*
+ * The merge diagram. Red (stop) is a conflict, with the glyph ✕ and the word. Blue (answer) is the entry that
+ * replaces another entry, with the stamp "replaces". Each other state is ink, with its glyph and its word.
+ */
+
+.ce-merge-parts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.ce-merge-parts li {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(6rem, auto) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  align-items: baseline;
+}
+
+.ce-merge-summary {
+  color: var(--color-ink-secondary);
+}
+
+@container (max-width: 35.99rem) {
+  .ce-merge-parts li {
+    grid-template-columns: 1.6rem minmax(0, 1fr);
+  }
+
+  .ce-merge-summary {
+    grid-column: 2;
+  }
+}
+
+.ce-merge-index {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 50%;
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 1;
+}
+
+.ce-merge-call {
+  margin-bottom: var(--space-5);
+}
+
+.ce-merge-wrap {
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius);
+}
+
+.ce-merge {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--text-xs);
+}
+
+.ce-merge-col-path {
+  width: 9.5rem;
+}
+
+.ce-merge-col-result {
+  width: 12.5rem;
+}
+
+.ce-merge th,
+.ce-merge td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ce-merge thead th {
+  color: var(--color-ink-secondary);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ce-merge-group th {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink-secondary);
+  font-weight: 700;
+}
+
+.ce-merge-path {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  overflow-wrap: break-word;
+}
+
+.ce-merge tr[data-state="namespace"] .ce-merge-path {
+  color: var(--color-ink-secondary);
+}
+
+.ce-merge-cell[data-empty="true"] {
+  color: var(--color-rule-strong);
+  text-align: center;
+}
+
+.ce-merge-entry {
+  position: relative;
+  display: inline-grid;
+  gap: 2px;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  max-width: 100%;
+}
+
+.ce-merge-what {
+  color: var(--color-ink-muted);
+}
+
+.ce-merge-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ce-merge-entry small {
+  color: var(--color-ink-muted);
+  font-size: 0.95em;
+}
+
+.ce-merge-entry[data-cell="clash"] {
+  border: 2px solid var(--ce-stop);
+  background: var(--ce-stop-wash);
+}
+
+.ce-merge-entry[data-cell="wins"] {
+  border: 2px solid var(--ce-answer);
+  background: var(--ce-answer-wash);
+}
+
+.ce-merge-entry[data-cell="lost"] {
+  border-style: dashed;
+  color: var(--color-ink-muted);
+  text-decoration: line-through;
+}
+
+.ce-merge-stamp {
+  justify-self: start;
+  padding: 0 0.35rem;
+  border: 1px solid var(--ce-answer);
+  border-radius: 999px;
+  color: var(--color-accent-strong);
+  font-size: 0.9em;
+}
+
+.ce-merge-result {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 11rem;
+}
+
+.ce-merge-state {
+  display: inline-flex;
+  gap: 0.35em;
+  align-items: center;
+  font-weight: 700;
+}
+
+.ce-merge-state[data-state="conflict"] {
+  color: var(--ce-stop);
+}
+
+.ce-merge-state[data-state="replaced"] {
+  color: var(--color-accent-strong);
+}
+
+.ce-merge-state[data-state="removed"],
+.ce-merge-state[data-state="namespace"] {
+  color: var(--color-ink-muted);
+}
+
+.ce-merge-held {
+  color: var(--color-ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.ce-merge-held code {
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+}
+
+.ce-merge-reason {
+  color: var(--color-ink-secondary);
+}
+
+.ce-merge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ce-merge-actions:empty {
+  display: none;
+}
+
+.ce-merge tr[data-state="conflict"] > th,
+.ce-merge tr[data-state="conflict"] > td {
+  background: color-mix(in srgb, var(--ce-stop-wash) 55%, transparent);
+}
+
+.ce-merge tr[data-state="conflict"] > th {
+  box-shadow: inset 3px 0 0 var(--ce-stop);
+}
+
+.ce-merge tr[data-state="replaced"] > th {
+  box-shadow: inset 3px 0 0 var(--ce-answer);
+}
+
+.ce-merge-rest td {
+  border-bottom: 0;
+  color: var(--color-ink-muted);
+}
+
+/* A narrow figure stacks each row: the path, then each entry with the name of its part, then the result. */
+@container (max-width: 47.99rem) {
+  .ce-merge thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .ce-merge,
+  .ce-merge tbody,
+  .ce-merge tr,
+  .ce-merge th,
+  .ce-merge td {
+    display: block;
+  }
+
+  .ce-merge tr {
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .ce-merge th,
+  .ce-merge td {
+    border-bottom: 0;
+  }
+
+  .ce-merge-path {
+    padding-bottom: 0;
+    padding-left: var(--space-3) !important;
+    white-space: normal;
+  }
+
+  .ce-merge colgroup,
+  .ce-merge td.ce-merge-cell[data-empty="true"] {
+    display: none;
+  }
+
+  .ce-merge td.ce-merge-cell,
+  .ce-merge td.ce-merge-result {
+    display: grid;
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+    gap: var(--space-2);
+    padding-block: var(--space-1);
+  }
+
+  .ce-merge-cell::before,
+  .ce-merge-result::before {
+    content: attr(data-label);
+    color: var(--color-ink-muted);
+  }
+
+  .ce-merge-result > * {
+    grid-column: 2;
+  }
+
+  .ce-merge-result {
+    min-width: 0;
+    padding-bottom: var(--space-3);
+  }
+}
+
+.ce-merge-error {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--ce-stop);
+  background: var(--ce-stop-wash);
+}
+
+.ce-merge-error-head {
+  margin: 0;
+}
+
+.ce-merge-error-head strong {
+  color: var(--ce-stop);
+  font-family: var(--font-mono);
+}
+
+.ce-merge-error ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ce-merge-error li {
+  display: grid;
+  gap: 2px;
+}
+
+.ce-merge-error code,
+.ce-merge-probe-doc {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.ce-merge-probes {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ce-merge-probes li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-small);
+}
+
+.ce-merge-probes .cv-port,
+.ce-attr-line .cv-port {
+  position: static;
+  animation: none;
+}
+
+.ce-merge-none {
+  color: var(--color-ink-muted);
+  font-style: italic;
+}
+
+/* ----------------------------------------------------------------------------- decorated tree */
+
+/*
+ * The attribute diagram. A number in a circle is the order of evaluation. An arrow is a read. Red (stop) marks an
+ * error value and the chain of a cycle, always with the code of the error. Blue (answer) marks the selected attribute.
+ */
+
+@container (min-width: 44rem) {
+  .ce-attr-stage {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  }
+}
+
+.ce-attr {
+  max-width: 26rem;
+  margin-inline: auto;
+}
+
+.ce-attr-node {
+  fill: none;
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.5;
+}
+
+.ce-svg .ce-attr-type {
+  fill: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ce-attr-row {
+  cursor: pointer;
+  outline: none;
+}
+
+.ce-attr-band {
+  fill: var(--color-surface);
+  stroke: var(--color-rule);
+  stroke-width: 1;
+  transition: fill 200ms, stroke 200ms;
+}
+
+.ce-attr-row:hover .ce-attr-band {
+  fill: var(--color-surface-sunken);
+}
+
+.ce-attr-row[data-failed="true"] .ce-attr-band {
+  fill: var(--ce-stop-wash);
+}
+
+.ce-attr-row[data-selected="true"] .ce-attr-band {
+  stroke: var(--ce-answer);
+  stroke-width: 2;
+}
+
+.ce-attr-row:focus-visible .ce-attr-band {
+  stroke: var(--color-accent);
+  stroke-width: 3;
+}
+
+.ce-attr-order {
+  fill: var(--color-surface);
+  stroke: var(--color-rule-strong);
+  stroke-dasharray: 3 2;
+  stroke-width: 1.25;
+}
+
+.ce-attr-order[data-lit="true"] {
+  fill: var(--color-ink);
+  stroke: var(--color-ink);
+  stroke-dasharray: none;
+}
+
+.ce-svg .ce-attr-order-text {
+  fill: var(--color-surface);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ce-svg .ce-attr-key {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ce-svg .ce-attr-formula {
+  fill: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ce-svg .ce-attr-result {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ce-svg .ce-attr-result[data-failed="true"] {
+  fill: var(--ce-stop);
+}
+
+.ce-svg .ce-attr-result[data-unread="true"] {
+  fill: var(--color-ink-muted);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-style: italic;
+}
+
+.ce-attr-read {
+  fill: none;
+  stroke: var(--color-ink-secondary);
+  stroke-width: 1.5;
+  opacity: 0;
+  transition: opacity 250ms;
+}
+
+.ce-attr-read[data-show="true"] {
+  opacity: 1;
+}
+
+.ce-attr-read[data-stop="true"] {
+  stroke: var(--ce-stop);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
+
+.ce-attr-head {
+  fill: var(--color-ink-secondary);
+}
+
+.ce-attr-head[data-stop="true"] {
+  fill: var(--ce-stop);
+}
+
+.ce-attr-side {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.ce-attr-side .ce-panel-title {
+  margin: 0;
+}
+
+.ce-attr-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  margin: 0;
+  color: var(--color-ink-secondary);
+}
+
+.ce-attr-reason {
+  flex: 1 1 14rem;
+}
+
+.ce-attr-chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.ce-attr-chain > strong {
+  color: var(--ce-stop);
+  font-family: var(--font-mono);
+}
+
+.ce-attr-chain-item {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.ce-attr-chain-item .ce-chip {
+  border-color: var(--ce-stop);
+}
+
+.ce-attr-chain-arrow {
+  color: var(--ce-stop);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ce-figure *,
   .ce-figure *::before,
