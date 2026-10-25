@@ -17,12 +17,22 @@ export interface HostThing {
   /** A short text for a reader, for example `node card`. */
   readonly label: string;
   /**
-   * This function answers one step.
+   * This function answers one step. A field that holds `undefined` also gives `undefined`. The function `has` tells
+   * the two cases apart (DEREF.HOST-UNDEFINED).
    *
    * @param key - The key of the step.
    * @returns What the step reaches, or `undefined` when it reaches nothing.
    */
   deref(key: Key): Thing | undefined;
+  /**
+   * This optional function tells if the thing has a field for a key. The kernel asks it only when `deref` gives
+   * `undefined`. Then `true` tells that the field holds `undefined`. A thing without `has` reads `undefined` as a
+   * missing field.
+   *
+   * @param key - The key of the step.
+   * @returns `true` when the thing has the field.
+   */
+  has?(key: Key): boolean;
   /**
    * This function gives the thing as a value, when a reference ends on it.
    *
@@ -34,7 +44,7 @@ export interface HostThing {
    * path without one call for each step.
    *
    * @param keys - The keys.
-   * @returns What the keys reach, or `undefined` when they reach nothing.
+   * @returns What the keys reach, or `undefined` when they reach nothing. `{ thing: undefined }` tells that the keys reach a field that holds `undefined`.
    */
   resolve?(keys: readonly Key[]): { readonly thing: Thing } | undefined;
 }
@@ -183,7 +193,8 @@ function plainStep(thing: unknown, key: Key): { readonly found: true; readonly v
 export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly thing: Thing; readonly by: HopBy } | undefined {
   if (isHostThing(thing)) {
     const reached = thing.deref(key);
-    return reached === undefined ? undefined : { thing: reached, by: "own" };
+    // DEREF.HOST-UNDEFINED: `has` tells a field that holds undefined from a missing field.
+    return reached !== undefined || thing.has?.(key) === true ? { thing: reached, by: "own" } : undefined;
   }
   if (nav.plain !== true && isEnvelope(thing)) {
     const envelope = thing as JsonRecord & Envelope;

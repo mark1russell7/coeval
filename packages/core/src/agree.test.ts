@@ -58,6 +58,7 @@ function thing(label: string, fields: Readonly<Record<string, unknown>>, withRes
     label,
     ...(type === undefined ? {} : { type }),
     deref: (key: Key) => (Object.hasOwn(fields, String(key)) ? fields[String(key)] : undefined),
+    has: (key: Key) => Object.hasOwn(fields, String(key)),
     toJson: () => fields,
   };
   if (!withResolve) return base;
@@ -419,16 +420,15 @@ const STATIC_CODES = new Set(["#KIND?", "#PART?", "#NOEVAL", "#CAP!", "#DEPTH!"]
 /**
  * This function tells if `check` must give the error of a run at the same place (STATIC.AGREES). An unknown
  * operation or extension (STATIC.KNOWN) and a value without its shape (FORMULA.FN-PARAMS) also have the same reason.
- * A name that nothing binds has the same code and place, when the reference at the place names it itself and the
- * host adopts no values.
+ * A name that nothing binds has the same code and place, when the reference at the place names it itself.
  */
 function sameInCheck(machine: Machine, doc: unknown, error: EvalError, declared: { readonly declaredType?: string }): "reason" | "place" | undefined {
   if (error.code === "#NAME?" && /^The language has no (operation|extension) /.test(error.reason)) return "reason";
   if (error.code === "#VALUE!" && / The kind is .+\.$/.test(error.reason)) return "reason";
   const name = /^The context has no name (.+)\.$/.exec(error.reason)?.[1];
-  // A host that adopts the names answers their steps itself (DEREF.ADOPT). Its deref cannot give a name whose value
-  // is undefined, thus such a name is unbound in a run and bound for check.
-  if (error.code !== "#NAME?" || name === undefined || machine.adopt !== undefined) return undefined;
+  // A host that adopts the names answers their steps itself (DEREF.ADOPT). Its things tell a name bound to undefined
+  // from a missing name with has (DEREF.HOST-UNDEFINED), thus check and a run agree.
+  if (error.code !== "#NAME?" || name === undefined) return undefined;
   // A reference that a path reaches and follows can name an unbound name too (DEREF.COLLAPSE). check cannot know it.
   let named = false;
   walk(machine.world, doc, (visit) => {

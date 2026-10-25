@@ -324,6 +324,10 @@ function treeThing(parts: readonly Part[], context: Context, type: string, place
       if (!result.ok) throw new Failure(result.error);
       return result.value;
     },
+    has(key: Key): boolean {
+      // DEREF.HOST-UNDEFINED: an attribute with the value undefined is a field, not a missing step.
+      return key === "parent" || key === "type" || parts.some((part) => part.key === String(key));
+    },
     toJson(): unknown {
       const result = state.json(new Set());
       if (!result.ok) throw new Failure(result.error);

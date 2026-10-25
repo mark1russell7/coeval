@@ -20,12 +20,13 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 6. K34: the composition checklist as spec tests (R6 P1) (done, 2026-10-24, version 0.6.1, D18, [`COMPOSITION.md`](COMPOSITION.md)). Five modes work. The new helpers `restrictWorld` and `restrictMachine` give the restriction. Two targets wait as skipped tests: an evaluator that is a document (K40), and the merge of two machines from `formulaMachine` (K41).
 7. K42: the mark of a pure call on each call at the top of a module, a request of a language (done, 2026-10-24, version 0.6.2, PKG.PURE). Before, esbuild kept the standard evaluators and walkers in each bundle.
 8. K22: `sameResult`, a safe equality for an early cutoff (R4 P1) (done, 2026-10-24, released in 0.6.3, D20, RESULT.SAME). Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place. `docEquals`, `sameValue` and `sameResult` share one walk.
-9. K10 and K11 (next): a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
-10. K12: compiled paths (R1 P2).
-11. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
-12. K23: value types and value domains, the base of the type work (R5 P2).
+9. K39: a host thing can tell that a field holds `undefined`, a small correction that K20 found (done, 2026-10-24, released in 0.6.3, D21, DEREF.HOST-UNDEFINED). Its optional `has` answers when `deref` gives `undefined`. Before, a host that adopted the names hid each name bound to `undefined`. A node of the standard tree hid such an attribute too.
+10. K10 and K11 (next): a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
+11. K12: compiled paths (R1 P2).
+12. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
+13. K23: value types and value domains, the base of the type work (R5 P2).
 
-On the site, C10 is next too (R4). K39 is next too: a small correction that K20 found. Each other proposal of the six studies is a row with the status `later`.
+On the site, C10 is next too (R4). Each other proposal of the six studies is a row with the status `later`.
 
 ## The design and the site
 
@@ -85,7 +86,7 @@ On the site, C10 is next too (R4). K39 is next too: a small correction that K20 
 | K36 | A check of verb coverage: `checkWorld` lists each kind with no entry and no default for a verb that the language declares (R6 P5) | later | K33 |
 | K37 | A language package format: `defineLanguage` gives one value with a name, a version and a hash, and `compose` merges languages through K32 (R6 P7) | later | K32 |
 | K38 | A boundary kind `lang` for a part in another language, as the module boundary of Racket (R6 P8) | later (low value today, and a decision of the owner first) | K37 |
-| K39 | A host thing can say that a field holds `undefined`. Today `deref` uses `undefined` for a missing field, so a host that adopts the names root hides a name bound to `undefined`. Found by K20. | next | K4 |
+| K39 | A host thing can say that a field holds `undefined`. Today `deref` uses `undefined` for a missing field, so a host that adopts the names root hides a name bound to `undefined`. Found by K20. | done (2026-10-24, released in 0.6.3: the optional `has` of a host thing, also on the nodes of the standard tree, D21) | K4 |
 | K40 | An evaluator that is a formula document (D1). A language is then data only: its kinds are JSON, and its evaluators are documents. From K34 (COMPOSE.SELF-EXTEND). | later (the open question 6 of R6 first) | K34 |
 | K41 | Two languages that each build the formula kit with one profile merge. Today each `formulaMachine` call makes new evaluators, thus each evaluator name of the kit is a conflict. From K34 (COMPOSE.UNIFY). | later | K34 |
 | K42 | Each call at the top of a module has the mark `/* @__PURE__ */`, and a test bundles an import with esbuild (PKG.PURE). A request of a language. | done (2026-10-24, version 0.6.2) | none |

@@ -95,6 +95,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | DEREF.CYCLE | A cycle of references gives `#CYCLE!`. |
 | DEREF.HOST | A host thing answers its own steps. |
 | DEREF.PATH | A host thing can answer all the keys of a path in one call. |
+| DEREF.HOST-UNDEFINED | A host thing tells a field that holds `undefined` from a missing field. When `deref` gives `undefined`, `has` tells which it is. `resolve` gives `{ thing: undefined }` for such a field. A thing without `has` reads `undefined` as a missing field. Each node of the standard tree has `has`. |
 | DEREF.QUICK | A resolution without hops asks a host thing for all the keys one time. The root `world` uses the same short path. |
 | DEREF.PLAIN | A plain navigation reads a value with the shape of a reference as data. |
 | DEREF.ROOTS | A navigation can close roots. A path from a closed root gives `#REF!`. |
@@ -211,7 +212,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.CHECK | `check` finds the problems of a document before a run. Each problem has its place. |
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
-| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless the host adopts the names. A `#DEPTH!` from an overflow of the stack of the host is not an error of `check`. |
+| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless a host thing without `has` answers the names (DEREF.HOST-UNDEFINED). A `#DEPTH!` from an overflow of the stack of the host is not an error of `check`. |
 | STATIC.NARROW | `check` tests each effect against the capabilities of its own document: the capabilities at the root, narrowed by the rules of the kinds around it. |
 | STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. |
 | STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |
