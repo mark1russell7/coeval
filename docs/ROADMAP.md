@@ -25,6 +25,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 11. K23: value types and value domains, the base of the type work (R5 P2): done (2026-10-24, D22), released in the next batch. A value type is a JSON term, and `fits` decides each check. A language adds its base types as domains of its machine, and the domains merge name by name. The type work K24 to K31 builds on it.
 12. K33: each verb through the kernel (R6 P3) (done, 2026-10-24, D23, released in the next batch). `prepare`, `check`, the reference and `agree` take a verb, and one ladder serves each verb, also `deref` and `step`. A verb `format` in the spec tests is the demonstration.
 13. K12: compiled paths (R1 P2).
+14. S1a: `factsOf`, the static facts of a document (R4 P2): done (2026-10-24, D24), released in the next batch. It gives the reads with marks for lazy parts, the side, the effects and the marks `pure` and `volatile`. A test of generated documents finds each real read in the static reads. S1b and S2 build on it.
 
 On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
 
@@ -125,8 +126,8 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
-| S1 | The interface of a schedule: the graph of the data and the side of each kind | later (S1a and S1b first, from R4) | K2 |
-| S1a | `factsOf` gives the static facts of a document: its reads with marks for lazy parts, its side, its effects, and the marks `pure` and `volatile` (R4 P2) | later | K2, K3 |
+| S1 | The interface of a schedule: the graph of the data and the side of each kind | later (S1a is done, S1b is next, from R4) | K2 |
+| S1a | `factsOf` gives the static facts of a document: its reads with marks for lazy parts, its side, its effects, and the marks `pure` and `volatile` (R4 P2) | done (2026-10-24, D24, released in the next batch) | K2, K3 |
 | S1b | A list of reads for each evaluation, and `verifyReads`, which keeps an old result when each read gives the same thing again (R4 P3) | later | K4 |
 | S1c | Two levels of durability: a host keeps one epoch for the structure and one for the data, thus a change of data compiles nothing (R4 P7) | later | S1a |
 | S2 | The static analysis: cycles, an order for a push schedule, and the independent groups, with a new `graph.ts` (R4 P5) | later | S1a |

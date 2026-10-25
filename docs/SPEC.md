@@ -241,6 +241,23 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |
 | STATIC.KNOWN | `check` asks the hook `known` of the machine about the kind and the evaluator of each document. A name that the evaluator does not know gives `#NAME?` with the reason of a run, for example an unknown operation. |
 
+## The static facts
+
+`factsOf` gives the static facts of a document for a schedule (R4 P2, D24). They depend only on the document and the machine.
+
+| ID | Rule |
+| --- | --- |
+| FACTS.READS | Each free reference from a root is a read. A read has its root, its keys up to the first step document, its place and its JSON path. A read after a step document is not exact. A reference in an address position is an address. |
+| FACTS.LAZY | A lazy rule of a kind names the parts that an evaluation can skip and still give a value. A read under a lazy part is lazy. An eager read evaluates in each evaluation in which each document around it gives a value. Each part of a document with an own entry for another evaluator is lazy. |
+| FACTS.SIDE | The side of a document is `run` when one kind in it is on the run side. Else the side is `derive`. |
+| FACTS.EFFECTS | The effects are the kinds of effects that the contracts declare, each one time, in the order of the document. The effects `"type"` of a kind give the type of the document. |
+| FACTS.PURE | A document is pure when each kind in it declares `pure`, and it has no effect and is not volatile. An unknown kind and an own entry for another evaluator are not pure. A pure document gives the same result when each value that no read reaches changes. |
+| FACTS.VOLATILE | A document is volatile when a kind, an operation or a kind of step documents declares `volatile`. A read that the host marks also makes it volatile. A read of `event` and an effect do not. |
+| FACTS.HOOK | The hook `facts` of a machine gives the facts of the code of a name. Each field of its answer wins over the contract. `mergeMachines` composes the hooks in order, and a hook does not answer for replaced code. |
+| FACTS.VERB | The option `verb` names the verb whose code the facts describe. The default is `eval`. A contract describes the code of `eval`, and of `step` for a step document. Only the hook describes the code of another verb. The reads, the side and the effects do not depend on the verb. |
+| FACTS.PROFILE | `formulaMachine` gives the hook `facts` of its profile. A lazy operation has a lazy rule for each argument. The profile names its pure and volatile operations. A standard extension is pure, and an extension of the profile is not. |
+| FACTS.SOUND | In each evaluation, each path that a plan resolves has a static read at the place of its document. The read has the root of the path, and its keys start the path. An exact read has the full path. |
+
 ## Types
 
 A value type is a set of values that a result can have (R5 P2, D22). It is a JSON term that only a check reads. It is not a kind, and it does not go into an envelope.

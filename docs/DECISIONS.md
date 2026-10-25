@@ -339,3 +339,43 @@ The ladders also differed by verb (fact 3). `deref` visited the own entry, the k
 The new options are optional. The new rungs read entries that the kernel did not read before: a default of `deref` or `step`, and an own entry of `step`. Thus the change is backward compatible.
 
 **Next.** K35 lets a language add a verb that it owns to the kinds of another language, through the merge (R6 P4). The merge writes the entry into the kind, and the kind rung reads it. K36 lists each kind that answers no verb of a list (R6 P5). It asks the same function for each kind and each verb, before a document exists. Neither changes the ladder.
+
+## D24 (2026-10-24): the static facts of a document come from one walk, the kind contracts and a hook of the machine, and a read of `event` is not volatile
+
+**Context.** The study R4 proposes `factsOf` as the base of a schedule (P2, S1a). A plan, a cache and a graph of changes need some facts of a document before an evaluation. These facts are the reads, the side, the effects and the marks `pure` and `volatile`.
+
+R4 leaves some choices open. Which reads does a reference give when its resolution follows a reference in the data? How does a kind tell which parts an evaluation can skip? What does volatile mean? How does a fallback kind, for example the operations of the formula kit, declare facts for each name?
+
+**Decision.**
+
+- `factsOf(machine, doc, options?)` gives the facts from one `walk`. The facts depend only on the document and the machine.
+- A read is a free reference whose root is one of the five roots of D10. A read has its root, its keys up to the first step document, its place and its JSON path.
+- A read after a step document is not exact, because the plan resolves a longer path. A bound name of a kind around the reference is not a read. A path from another root is not a read.
+- A read is one resolution of its path. A reference that the resolution follows in the data is a part of that read (DEREF.COLLAPSE), not a separate read.
+- The contract field `lazy` lists lazy rules. A rule has the patterns `in` and a count `after`. It marks the parts that an evaluation of the kind can skip and still give a value.
+- `after: 1` skips each part that the rule covers, after the first one, as in `and`. A read is lazy when a document on its way is a lazy part.
+- An own entry that names another evaluator than the kind has no contract. Each of its parts is lazy, and the document is not pure, unless the hook answers for that evaluator.
+- The contract field `pure` tells that the code of a kind causes no effect. Its result depends only on its data, its parts and its reads. A document is pure when each kind in it declares `pure`.
+- A pure document also has no effect, the side `derive` and no volatile mark. An unknown kind is not pure. A step document is pure when its kind is pure.
+- The contract field `volatile` tells that the result of a kind changes without a change of its reads, as a clock does. A host marks a volatile read with the option `volatile`.
+- A read of `event` is not volatile. It is a read, and a host marks it when it wants to. An effect is not volatile either. The side and the effects show it.
+- The hook `Machine.facts(path, code)` gives the facts of a name that a fallback kind covers. Each field of its answer wins over the contract.
+- The option `verb` names the verb whose code the facts describe, as in `prepare` (D23). The ladder finds that code. The facts of a contract describe the code of `eval`, and of `step` for a step document.
+- For another verb, only the hook describes the code. The side and the effects come from the contracts for each verb, an over-approximation, because a contract declares them for `eval` (D23).
+- `mergeMachines` composes the hooks in the order of the parts, and the first answer wins. A hook does not answer for a name whose code a later part replaces.
+- `formulaMachine` gives the hook `formulaFacts(profile)`. A lazy operation has a lazy rule for each argument. The profile fields `pure` and `volatile` name the pure and the volatile operations.
+- A standard extension of the formula kit is pure. An extension of the profile gets the context, thus it is not pure. The kinds of the formula kit and of `STD_WORLD` declare their facts.
+- The test FACTS.SOUND evaluates generated documents of six machines. It finds no resolution that a static read does not cover.
+
+**Rejected.**
+
+- A read of `event` as volatile. The host already knows when an event comes, and a mark on each read of `event` hides the documents that do not change.
+- An effect as volatile. A schedule does not repeat an effect (L3), thus the mark gives no new fact. The side and the effects already tell it.
+- A separate mark `closed`, as in R4. A kind that reads the context outside `resolve` is not pure, thus `pure` holds the same fact.
+- Lazy parts as a mark on a part shape. One shape serves kinds with different evaluation orders, for example `list` and `and`.
+- A hook only in the options of `factsOf`. Then each caller copies the facts of each operation. The machine already holds the profile, and `mergeMachines` composes the hook.
+- Kinds of the formula kit without facts, with the facts only in a separate table. Then a copy of a kind and its facts can disagree.
+
+**Why.** One walk keeps the facts cheap, thus a host can compute them again for each changed document. The contracts already describe the parts, thus a lazy rule is one more field of the same kind of data.
+
+The test FACTS.SOUND makes the reads a sound over-approximation of each evaluation, and FACTS.LAZY makes each eager read a real read. A copied older kind without the new fields is not equal to the new kind. Thus a merge of the two gives a conflict, and `replaces` resolves it.

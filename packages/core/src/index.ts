@@ -38,6 +38,8 @@ export {
   type Alias,
   type CapsRule,
   type Kind,
+  type KindFacts,
+  type LazyRule,
   type Lookup,
   type Namespace,
   type NamesSource,
@@ -185,6 +187,7 @@ export {
   refsOf,
   walk,
 } from "./static.ts";
+export { type DocFacts, type FactsOptions, type StaticRead, factsOf } from "./facts.ts";
 export {
   type Closure,
   type ExtFn,
@@ -194,6 +197,7 @@ export {
   Held,
   STD_EXT,
   formulaEvaluators,
+  formulaFacts,
   formulaKinds,
   formulaKnown,
   formulaMachine,

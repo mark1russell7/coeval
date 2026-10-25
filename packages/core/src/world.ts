@@ -87,11 +87,41 @@ export type CapsRule =
   | { readonly rule: "only"; readonly caps: readonly Cap[]; readonly in?: readonly (readonly Key[])[] };
 
 /**
+ * A lazy rule of a kind names the parts that an evaluation can skip and still give a value. An example is the
+ * branches of `if`. The static facts mark each read under such a part (D24).
+ *
+ * `in` names the parts, as patterns of their paths in the value. The key `"*"` matches each key. A rule without `in`
+ * covers each part. With `after: n`, the rule covers only the parts after the first `n` parts that its patterns
+ * match. Thus `{ after: 1 }` makes each part lazy except the first part, as in `and`.
+ */
+export interface LazyRule {
+  readonly in?: readonly (readonly Key[])[];
+  readonly after?: number;
+}
+
+/**
+ * The static facts that a kind declares for its code (D24). The contract of a kind holds them, and the hook `facts`
+ * of a machine can give them for a name under a fallback kind. The facts describe the code of `eval`, and of `step`
+ * for a step document.
+ *
+ * - `pure`: `true` when the code of the kind causes no effect. Its result depends only on its data, the results
+ *   of its parts and what its paths reach. A kind that reads the context in another way does not declare it,
+ *   because the static facts do not see that read.
+ * - `volatile`: `true` when its result can change while each read gives the same thing, for example a clock.
+ * - `lazy`: the parts that an evaluation can skip and still give a value.
+ */
+export interface KindFacts {
+  readonly pure?: boolean;
+  readonly volatile?: boolean;
+  readonly lazy?: readonly LazyRule[];
+}
+
+/**
  * A kind gives the name of an evaluator for each verb, and the contract of its value. The contract serves each verb.
  * For each verb, the kernel splits the parts and narrows their capabilities by it, and `check` reads its scope rules.
  * `side` and `effects` tell what the verb `eval` does (VERB.CONTRACT).
  */
-export interface Kind {
+export interface Kind extends KindFacts {
   /**
    * The evaluator names, by verb. `eval` evaluates a document, `deref` answers a step on it, and `step` names the
    * walker of a step document. A language adds its own verbs, for example `view` or `format`.

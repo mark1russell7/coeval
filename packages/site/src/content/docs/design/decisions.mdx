@@ -32,6 +32,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D21 | A host thing tells a field that holds `undefined` from a missing field with an optional `has`. A thing without `has` keeps the old reading. |
 | D22 | A value type is a JSON term apart from the kinds. A language adds base types as domains of its machine, and the domains merge name by name. `unknown` fits each type, and each type fits it. |
 | D23 | Each verb goes through the kernel. `prepare`, `check`, the reference and `agree` take a verb, and one ladder serves each verb. The contract serves each verb, and its effects tell what `eval` does. |
+| D24 | `factsOf` gives the reads, the side, the effects and the marks `pure` and `volatile` of a document from one walk. The contracts and a hook of the machine declare the facts. A read of `event` is not volatile. |
 
 ## Open
 
