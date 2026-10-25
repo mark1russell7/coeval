@@ -91,6 +91,13 @@ describe("plans", () => {
     expect(plans(7)).toBe(plans(7));
   });
 
+  it("[PLAN.CACHE-ZERO] a planner keeps -0 and 0 apart", () => {
+    const plans = planner(STD_MACHINE, { declaredType: "number" });
+    expect(plans(0).evaluate()).toEqual({ ok: true, value: 0 });
+    expect(plans(-0).evaluate()).toEqual({ ok: true, value: -0 });
+    expect(plans(0).evaluate()).toEqual({ ok: true, value: 0 });
+  });
+
   it("[VALUE.ANY] a value can be any value of the host", () => {
     const stamp = new Date(0);
     const machine: Machine = {

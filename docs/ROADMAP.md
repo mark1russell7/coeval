@@ -105,6 +105,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | later | K11 |
 | K47 | The address of an effect stays the same after an edit of the document, as the open question 5 of R2 asks. From K11. | later | K11 |
 | K53 | The kind `pure` refuses a list with more than one part (CAP.PURE-ONE). Before, it ignored each part after the first. Found by S1a. | done (2026-10-24, released in the next batch) | none |
+| K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |
 | K50 | A profile with its own `truthy` declares the type of a truth, thus `check` tests the test of `if` and the terms of `and` and `or`. Today such a profile accepts each type there. From K24. | later | K24 |
