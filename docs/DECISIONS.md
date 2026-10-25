@@ -803,6 +803,61 @@ The demands ahead keep each value of D31 and each count of SCHED.STALE. The harn
 
 **Limits.** The page leaves out the reasons, the hops, the trace and the reads. It covers the static kit, the types and the schedules only through their IDs. The rows K110 to K112 hold the disagreements that the work found.
 
+## D35 (2026-10-25): a plan keeps only its data and the closures of its own code, and the code of a plan and of a compiled path is on a class
+
+**Context.** S2a found that a plan of one reference keeps approximately 2.5 KB (K105). A schedule of 100000 nodes then keeps approximately 430 MB, and SCHED.LONG-CHAIN needs approximately 730 MB. The tests run on a shared machine with little memory, and in CI.
+
+The loader `tsx` keeps the name of each function. That adds a list of properties to each named closure. A bundle without `keepNames` and the transform of the tests give approximately 1.5 KB.
+
+A heap snapshot of 1000 plans of `{ "type": "ref", "value": ["world", "n1"] }` shows what one plan keeps:
+
+- Eleven closures and nine scopes. The plan has `evaluate` and `run`. The code has `placedCode`, `runOf`, and the code of the reference with `give` and `held`. The compiled path has a resolver and `full`, and the input has two functions `fill`.
+- The code of a static path and the code of a path with parts shared one scope. Thus the code of each reference kept `fill`, and through it the split and the document. The test of PLAN.LEAN examined only a literal.
+- The plan, the compiled root, the compiled path, the split, and three empty lists.
+
+**Decision.**
+
+- A plan is an object of a class. `evaluate` and `run` are methods of the class, thus a plan keeps only its machine, its mark `traced` and the code of its root.
+- A host uses `evaluate` and `run` as methods of the plan. A copy of the function without the plan has no `this`. The interface `Plan` declares both as methods, and no code of the repository makes such a copy.
+- A plan makes its compiled root `root` and the steps of a run at their first use. An evaluation needs neither.
+- The steps of a run of an evaluator are `runOf(code)`. The root makes them at the first `run`. A part makes them at compile time, as before.
+- A compiled path is an object of a class with five fields. Its method `resolve` starts the short path at its root, thus a compiled path makes no closure.
+- The formula kit makes `give` and `held` one time for each language. The code of a reference with a static path keeps only its compiled path, its first name and its mark `address`.
+- The root document of each plan has one frozen empty place. The code of a function evaluator keeps the fill of its input, not the whole input.
+- A list that grows by `push` keeps room for more items. Thus `factsOf`, `edgesOf` and the results of `durable` keep a copy of each short list, and one frozen list for each empty list.
+- The test of PLAN.LEAN measures the heap over 10000 plans of bare references, after a full collection. Each plan keeps less than 600 bytes.
+
+**Rejected.**
+
+- A plan as closures of one scope, as before. The two methods cost two closures and a scope for each plan, approximately 170 bytes.
+- The steps of a run of each part at their first use, through a getter of a class. A compiler can copy a part with a spread, and a spread does not copy a getter. The row K115 keeps the idea.
+- No wrapper `placedCode` for the code of a reference. The wrapper gives the place of each error and of each exception, and it narrows the context to its grant (D32). The mark "total" of K76 removes it.
+- A cache of plans by the JSON of a path. The path is the only data of such a plan. Two nodes of a schedule rarely read the same path, and the cache needs its own memory and a rule to drop entries.
+- A closure for each root of a compiled path, as before. A test of the root costs a few comparisons, and one class keeps the call to `resolve` monomorphic.
+- A heap snapshot in the test. It writes the whole heap of the worker, and it costs much memory and time in CI. The measure of `heapUsed` gives the same number to one byte in two runs.
+
+**Why.** The shared code is on a class or in the scope of a language. Thus each plan keeps only its own data. A host with many nodes pays for its documents, not for copies of the kernel.
+
+The work measured a bundle without `keepNames` on Node 24, over 10000 plans:
+
+| What | Before (bytes) | After (bytes) |
+| --- | ---: | ---: |
+| A plan of one reference of the formula kit | 1496 | 376 |
+| A plan of one reference of the standard machine | 1312 | 819 |
+| A plan of one literal of the formula kit | 717 | 325 |
+| The facts of one reference | 646 | 294 |
+| A node of a schedule of 100000 references, after a read | 2958 | 1198 |
+
+The test of PLAN.LEAN measures 1521 bytes before and 369 bytes after. The peak of the worker of SCHED.LONG-CHAIN goes from 731 MB to 554 MB.
+
+Each evaluation does the same work with the same values. Thus each result, error, place and read stays the same, and `agree` compares the plan with the reference.
+
+**Next.**
+
+- K115: each part keeps the steps of its run, approximately 96 bytes, because a compiler can copy `CompiledPart.run` with a spread.
+- K116: SCHED.LONG-CHAIN still needs approximately 550 MB, and its schedule keeps approximately 120 MB of it. A study measures the garbage of the demands of a long chain.
+- K76 also removes `placedCode` from the code of a reference, approximately 110 bytes for each plan.
+
 ## D36 (2026-10-25): `conforms` starts the code directly with probe parts, it compares variants for the obligations that a ban cannot state, and C8 is an obligation of the author
 
 **Context.** The soundness claims of the kernel hold for host code that keeps the obligations C1 to C7 of `SEMANTICS.md`. Only C1 has a guard in the kernel. K92 builds the conformance tests that R7 P3 proposes, and K111 adds the obligation C8 of a profile.

@@ -73,6 +73,17 @@ export interface FactsOptions {
 /** The lazy rules that cover each part: the rules of a document whose evaluator the contract does not describe. */
 const EACH = "each";
 
+/** An empty list. One frozen list serves each empty list of the facts, thus a store of many facts keeps less (PLAN.LEAN). */
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
+
+/**
+ * This function gives a list of the facts with no free room. A list that grows by `push` keeps room for more items,
+ * thus a copy of a short list is smaller.
+ */
+function tight<T>(list: readonly T[]): readonly T[] {
+  return list.length === 0 ? NONE : list.slice();
+}
+
 /** What a document gives to its parts: its own lazy mark, and the lazy rules of its kind for the parts. */
 interface Above {
   readonly lazy: boolean;
@@ -230,12 +241,12 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
       const first = path[1];
       // A reference to a name that a kind around it binds reads inside the document: it is not a read.
       if (root === "names" && isKey(first) && v.names.has(String(first))) return undefined;
-      const read: StaticRead = { root: root as Root, keys, exact, lazy, address: v.address === true, path, place: v.place, at: v.at };
+      const read: StaticRead = { root: root as Root, keys: tight(keys), exact, lazy, address: v.address === true, path, place: tight(v.place), at: tight(v.at) };
       reads.push(read);
       if (options.volatile?.(read) === true) volatile = true;
       return undefined;
     },
     options.declaredType === undefined ? {} : { declaredType: options.declaredType },
   );
-  return { reads, side, effects, pure: pure && !volatile && effects.length === 0 && side === "derive", volatile, size };
+  return { reads: tight(reads), side, effects: tight(effects), pure: pure && !volatile && effects.length === 0 && side === "derive", volatile, size };
 }

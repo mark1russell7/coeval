@@ -450,11 +450,45 @@ export interface CompiledPath {
    * @param ctx - The context.
    * @returns The same resolution as `resolve(nav, ctx, path, { hops: false })`.
    */
-  readonly resolve: (ctx: Context) => Resolution;
+  resolve(ctx: Context): Resolution;
 }
 
 /** The walker of each step document of a path, by its index: `null` when no rung answers, `undefined` for a key. */
 type KnownWalkers = readonly (Walker | null | undefined)[];
+
+/** The root whose value starts the short path of a compiled path. `FULL` takes the full algorithm at once. */
+const FULL = 0;
+const FROM_NAMES = 1;
+const FROM_SELF = 2;
+const FROM_EVENT = 3;
+const FROM_WORLD = 4;
+type From = typeof FULL | typeof FROM_NAMES | typeof FROM_SELF | typeof FROM_EVENT | typeof FROM_WORLD;
+
+/**
+ * A compiled path as an object with fields (PLAN.LEAN). The code of `resolve` is on the class, thus each compiled path
+ * keeps only its fields and makes no closure.
+ */
+class StaticPath implements CompiledPath {
+  constructor(
+    readonly path: readonly unknown[],
+    readonly nav: Navigator,
+    /** The walker of each step document, from the ladder of `step`, or `undefined` for a path of keys. */
+    private readonly known: KnownWalkers | undefined,
+    /** The root that starts the short path, or `FULL`. */
+    private readonly from: From,
+    private readonly plain: boolean,
+  ) {}
+
+  resolve(ctx: Context): Resolution {
+    const from = this.from;
+    if (from !== FULL) {
+      const start = from === FROM_NAMES ? ctx.names : from === FROM_WORLD ? ctx.world : from === FROM_SELF ? ctx.self : ctx.event;
+      const quick = walkQuick(start, this.path, this.plain, true);
+      if (quick !== undefined) return quick;
+    }
+    return resolveFully(this.nav, ctx, this.path, undefined, this.known);
+  }
+}
 
 /**
  * This function compiles one static path for one navigator. The resolver gives the same thing, error and reason as
@@ -471,23 +505,18 @@ type KnownWalkers = readonly (Walker | null | undefined)[];
  * @returns The compiled path.
  */
 export function compilePath(nav: Navigator, path: readonly unknown[]): CompiledPath {
-  return { path, nav, resolve: resolverOf(nav, path) };
-}
-
-/** This function gives the resolver of a compiled path. */
-function resolverOf(nav: Navigator, path: readonly unknown[]): (ctx: Context) => Resolution {
   const keyed = keysFrom(path, 1);
   const known = keyed ? undefined : walkersOf(nav, path);
-  const full = (ctx: Context): Resolution => resolveFully(nav, ctx, path, undefined, known);
+  return new StaticPath(path, nav, known, startOf(nav, path, keyed), nav.plain === true);
+}
+
+/** This function gives the root that starts the short path of a compiled path, or `FULL`. */
+function startOf(nav: Navigator, path: readonly unknown[], keyed: boolean): From {
   const root = path[0];
   // The short path of `resolveQuick` refuses each of these paths before it reads a value, thus it is not necessary.
-  if (!keyed || !quickRoot(root) || nav.adopt !== undefined) return full;
-  if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return full;
-  const plain = nav.plain === true;
-  if (root === "names") return (ctx) => walkQuick(ctx.names, path, plain, true) ?? full(ctx);
-  if (root === "self") return (ctx) => walkQuick(ctx.self, path, plain, true) ?? full(ctx);
-  if (root === "event") return (ctx) => walkQuick(ctx.event, path, plain, true) ?? full(ctx);
-  return (ctx) => walkQuick(ctx.world, path, plain, true) ?? full(ctx);
+  if (!keyed || !quickRoot(root) || nav.adopt !== undefined) return FULL;
+  if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return FULL;
+  return root === "names" ? FROM_NAMES : root === "self" ? FROM_SELF : root === "event" ? FROM_EVENT : FROM_WORLD;
 }
 
 /**

@@ -71,11 +71,43 @@ describe("plans", () => {
       return { plan: prepare(formulaMachine(), doc), doc: new WeakRef(doc) };
     };
     const { plan, doc } = make();
+    // A reference with a static path keeps its compiled path, and not its document or its split.
+    const makeRef = (): { readonly plan: Plan; readonly doc: WeakRef<object> } => {
+      const doc = { type: "ref", value: ["names", "x", "y"] };
+      return { plan: prepare(formulaMachine(), doc), doc: new WeakRef(doc) };
+    };
+    const ref = makeRef();
     // A weak reference keeps its target until the end of the job that made it
     await new Promise((resolve) => setTimeout(resolve, 0));
     gc();
     expect(doc.deref()).toBeUndefined();
+    expect(ref.doc.deref()).toBeUndefined();
     expect(plan.evaluate()).toEqual({ ok: true, value: { big: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] } });
+    expect(ref.plan.evaluate(makeContext({ x: { y: 5 } }))).toEqual({ ok: true, value: 5 });
+  });
+
+  it("[PLAN.LEAN] a plan of one bare reference keeps less than 600 bytes", () => {
+    setFlagsFromString("--expose-gc");
+    const gc = runInNewContext("gc") as () => void;
+    const machine = formulaMachine();
+    const COUNT = 10_000;
+    // Each document has its own path. Half of the documents read a name, and the other half read a node of the world.
+    const docs = Array.from({ length: COUNT }, (_, index) => ({ type: "ref", value: index % 2 === 0 ? ["names", "row", index] : ["world", `n${index}`] }));
+    // The first plans make the code of the kernel ready, thus the measure does not count that code.
+    for (const doc of docs.slice(0, 100)) prepare(machine, doc).evaluate();
+    gc();
+    gc();
+    const before = process.memoryUsage().heapUsed;
+    const plans = docs.map((doc) => prepare(machine, doc));
+    gc();
+    gc();
+    const bytes = (process.memoryUsage().heapUsed - before) / COUNT;
+    // The documents stay alive during the measure, thus it counts only what the plans keep.
+    expect(plans).toHaveLength(docs.length);
+    const row = Array.from({ length: COUNT }, (_, index) => index * 2);
+    expect(plans[4]?.evaluate(makeContext({ row }))).toEqual({ ok: true, value: 8 });
+    // Before K105, such a plan kept approximately 1500 bytes: closures for each path, the split and the document.
+    expect(bytes, `${bytes.toFixed(0)} bytes for each plan`).toBeLessThan(600);
   });
 
   it("[PLAN.TRACE] a traced plan gives the trace of evaluate, an untraced one gives none", () => {

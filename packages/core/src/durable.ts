@@ -115,6 +115,9 @@ interface Entry {
 /** The most values that a cache of value documents keeps, as in `planner`. */
 const MAX_VALUES = 1000;
 
+/** No reads. One frozen list serves each result of a pure document without reads. */
+const NO_READS: readonly Read[] = /* @__PURE__ */ Object.freeze([]);
+
 /** The key of the document `-0` in a cache of value documents. A `Map` finds the entry of `0` for `-0`. */
 const NEGATIVE_ZERO = /* @__PURE__ */ Symbol("coeval.negative-zero");
 
@@ -213,7 +216,8 @@ export function durable(machine: Machine, options: DurableOptions = {}): Durable
       const reads: Read[] | undefined = facts(doc).pure ? [] : undefined;
       counts.evaluations += 1;
       const result = plan.evaluate(context, reads === undefined ? undefined : { reads });
-      results.set(key, { plan, result, reads, data: epochs.data });
+      // A list that grows by push keeps room for more reads. A copy of a short list is smaller (PLAN.LEAN).
+      results.set(key, { plan, result, reads: reads === undefined ? undefined : reads.length === 0 ? NO_READS : reads.slice(), data: epochs.data });
       return result;
     },
     changeData() {
