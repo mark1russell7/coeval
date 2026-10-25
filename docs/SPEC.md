@@ -259,6 +259,23 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | FACTS.PROFILE | `formulaMachine` gives the hook `facts` of its profile. A lazy operation has a lazy rule for each argument. The profile names its pure and volatile operations. A standard extension is pure, and an extension of the profile is not. |
 | FACTS.SOUND | In each evaluation, each path that a plan resolves has a static read at the place of its document. The read has the root of the path, and its keys start the path. An exact read has the full path. |
 
+## The reads of an evaluation
+
+An evaluation can record its reads. `verifyReads` tells if an old result stays valid in a new context (R4 P3, D26). A schedule uses the list as a verifying trace.
+
+| ID | Rule |
+| --- | --- |
+| READS.RECORD | `evaluate`, `plan.evaluate`, `run` and `plan.run` take a list `reads`. The list gets each resolution: the path, what it reached and the mark `free`. An exception of the host gives the error value of the read. A reference through a name that holds an error reads that name. Without the list, an evaluation records nothing and gives the same result. |
+| READS.ORDER | The reads are in the order of the resolutions. The step documents of a path evaluate first, thus their reads come before the read of the path. |
+| READS.FREE | A read is free when it reads the context at the root of the evaluation. A name that a kind binds, a `self` that a kind sets and a path without a root are not free. `verifyReads` skips each read that is not free. |
+| READS.KEPT | A value that keeps the context adds a read of each whole root, one time in an evaluation. A closure of `fn` keeps the context. The first read of a `self` that a kind sets adds a read of the root `self`, because a node of a tree gives that `self` as its parent. |
+| READS.VERIFY | `verifyReads` takes a machine or a plan, the reads and a new context. It resolves each free read again, and it compares the two answers with `sameResult`. The rule `equal` of the host answers first. When each read is the same, the old result stays valid. Code that asks for the hops gets them in its read, and the verification compares each hop. A longer path through a name that holds an error in the new context is changed. |
+| READS.CHANGED | When a read is not the same, `verifyReads` gives the first such read, its index and what its path reaches in the new context. It does not resolve the later reads. |
+| READS.LAZY | A part that the evaluation skips has no reads, for example the branch of `if` that the test did not select. A change that only such a part reads keeps the old result. |
+| READS.DATA | A reference in the data that a resolution follows is a part of one read (DEREF.COLLAPSE), as `factsOf` counts it. A change of its target changes that read. |
+| READS.SOUND | For the generated documents of six machines, the test changes the context at random. When each free read of a pure document is the same, a new evaluation gives the same result by `sameResult`. A list without the kept reads gives stale results of trees, and the test finds them. |
+| READS.SUBSET | Each free read of an evaluation has a static read of `factsOf` with the same root, and the keys of the static read start its path. A kept read, the read of a name that holds an error and a name that a kind binds to the value of the context are the exceptions. |
+
 ## Types
 
 A value type is a set of values that a result can have (R5 P2, D22). It is a JSON term that only a check reads. It is not a kind, and it does not go into an envelope. A check of types gives each part a type in two directions (R5 P3, D25).

@@ -34,6 +34,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D23 | Each verb goes through the kernel. `prepare`, `check`, the reference and `agree` take a verb, and one ladder serves each verb. The contract serves each verb, and its effects tell what `eval` does. |
 | D24 | `factsOf` gives the reads, the side, the effects and the marks `pure` and `volatile` of a document from one walk. The contracts and a hook of the machine declare the facts. A read of `event` is not volatile. |
 | D25 | A type rule is part of its evaluator, thus it follows the evaluator that the ladder gives. When a host opts in, `check` gives each part its expected type and synthesizes each type. A type issue has the static code `#TYPE!`. |
+| D26 | An evaluation records its reads on request. `verifyReads` resolves each free read again with the rules of `sameResult`, and an old result stays valid when each read is the same. A closure and a tree add reads of whole roots. |
 
 ## Open
 

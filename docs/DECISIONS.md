@@ -426,3 +426,40 @@ A new code keeps the type issues apart from the issues of `check` that a run con
 - K26 makes TYPE.SOUND a rule of agreement. It adds a typed generator from the contracts and the signatures, and a local test of each rule.
 - K27 adds `proves` to a signature. The pass then narrows the types of the names in the branches of `if`, `and` and `or`.
 - K28 adds a guard at each boundary where a part of the type `unknown` meets a type that its position needs. The pass already knows each such place.
+
+## D26 (2026-10-24): an evaluation records its reads on request, and `verifyReads` resolves each free read again with the rules of `sameResult`
+
+**Context.** The study R4 proposes a list of the reads of an evaluation, and its verification (P3, S1b). This is the verifying trace of build systems, and the green mark of the red-green algorithm of rustc. A pure document is a function of its reads. Thus a schedule keeps an old result when each read reaches the same thing again.
+
+R4 leaves some choices open. Which equality decides that a read is the same? Which reads does a verification resolve again, when a kind binds a name or sets `self`? What does a value that keeps the context, for example a closure, read later?
+
+**Decision.**
+
+- `evaluate`, `plan.evaluate`, `run` and `plan.run` take the option `reads`, a list, as `effects` is a list. Each resolution through the runtime adds one `Read`. Without the list, a resolution costs one more test.
+- A read has the path that code resolved, what it reached as a `Result`, and the mark `free`. A host thing stays a thing. An exception of the host gives the error value of the read, and the exception goes on to the code.
+- A read is free when it reads the context at the root of the evaluation. A read of `names` is free when its first name has the binding of the root. A read of `self` is free when it reads the root `self`. A path without a root is not free. Each other read is free.
+- A read that is not free reads a binding that a kind made from earlier reads. Examples are a name of `let` and a parameter of `fn`. `verifyReads` does not resolve it again.
+- A node of a tree is the `self` of its attributes, and its parent is the `self` of its context. Thus the first read of a `self` that a kind set adds a read of the root `self`, with the mark `kept`.
+- A closure of `fn` keeps the context for later uses. The formula kit tells the runtime through the optional function `Runtime.keepsContext`. The list then gets a read of each whole root, one time in an evaluation.
+- A reference of the formula kit tests the binding of its first name for a held error. When the binding holds one, the reference resolves the name for the list. `verifyReads` gives a changed read for a longer path through a held name in the new context.
+- `verifyReads(machine or plan, reads, context, options?)` resolves each free read again in the new context, in order. It compares the two answers with `sameResult`, and the rule `equal` of the host answers first. It gives `{ same: true }`, or the first changed read with its index and its new answer.
+- A read keeps its hops only when its code asked for them. Then `verifyReads` compares each hop too.
+- `verifyReads` is sound for a pure document (D24). The schedule asks `factsOf` for the mark `pure`. The values of the context do not change in place, as PLAN.CACHE says for the documents.
+
+**Rejected.**
+
+- `sameValue` as the equality. It finds two closures with the same parameters the same, and it does not compare the reasons of two errors. A resolution gives its thing and its reason to the result, thus a wrong `true` keeps a stale value (D20).
+- A copy of each value at its read. A copy costs time and memory, and `toJson` of a node evaluates each attribute of its tree.
+- A new resolution of each read, also of the reads that are not free. A name of `let` is then not the same at any time, thus no result with a `let` stays valid.
+- A read of a set `self` as a free read. Its path then starts at the root `self`, not at the node. Another path can reach the same value there, while the parent of the node changed. Thus a stale result stays.
+- A kept read only for a closure in the result. A closure can leave the evaluation inside a host object, for example a box, and a walk of the result does not see it.
+- A list of only the free reads, as R4 proposes. The full list with the mark costs nothing more, and a trace and the tests read it.
+- A boolean answer, as in the sketch of R4. The first changed read tells a schedule what changed.
+- A place for each read. `Runtime.resolve` has no place, and a new parameter changes the interface of each compiled evaluator.
+- `factsOf` inside `verifyReads`. The facts depend only on the document and the machine (D24), thus a schedule computes them one time.
+
+**Why.** The list is the dynamic half of the interface of a schedule (S1). It is exact where `factsOf` over-approximates: a branch that the test did not select has no read. A read of `names.x.a` reaches one field, thus a change of another field of `x` keeps the old result.
+
+The kept reads over-approximate. A closure makes a document depend on each root, and a tree depends on the whole root `self`. A wrong `false` only costs work (D20). A later item can give a closure only the reads of its body.
+
+The test READS.SOUND changes the contexts of generated documents at random. It found the test of a held binding, which the first draft of this work did not record. A list without the kept reads gives stale results of trees, and the test finds them too.

@@ -27,6 +27,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 13. K12: compiled paths (R1 P2).
 14. S1a: `factsOf`, the static facts of a document (R4 P2): done (2026-10-24, D24), released in the next batch. It gives the reads with marks for lazy parts, the side, the effects and the marks `pure` and `volatile`. A test of generated documents finds each real read in the static reads. S1b and S2 build on it.
 15. K24: signatures of operations and a bidirectional `check` (R5 P3) (done, 2026-10-24, D25, released in the next batch). A formula profile gives each operation a signature or overloads, and a contract gives `result` and `expect`. With the option `types`, `check` synthesizes the type of each part and checks it against the type that its position needs. A wrong type gives the static issue `#TYPE!`, and an evaluation does not change. The type rule of a document follows its evaluator.
+16. S1b: a list of reads for each evaluation, and `verifyReads` (R4 P3): done (2026-10-24, D26), released in the next batch. An evaluation records each path that it resolves, with what the path reached and the mark `free`. `verifyReads` resolves each free read again with the rules of `sameResult`, and it gives the first changed read. A test of generated documents changes the contexts at random and finds no stale result.
 
 On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
 
@@ -132,9 +133,9 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
-| S1 | The interface of a schedule: the graph of the data and the side of each kind | later (S1a is done, S1b is next, from R4) | K2 |
+| S1 | The interface of a schedule: the graph of the data and the side of each kind | later (S1a and S1b are done, from R4. S1 still needs S1c, a CI benchmark of the cost of the list of reads, and answers to the open questions 4 and 5 of R4: the node that a read depends on, and the run side) | K2 |
 | S1a | `factsOf` gives the static facts of a document: its reads with marks for lazy parts, its side, its effects, and the marks `pure` and `volatile` (R4 P2) | done (2026-10-24, D24, released in the next batch) | K2, K3 |
-| S1b | A list of reads for each evaluation, and `verifyReads`, which keeps an old result when each read gives the same thing again (R4 P3) | later | K4 |
+| S1b | A list of reads for each evaluation, and `verifyReads`, which keeps an old result when each read gives the same thing again (R4 P3) | done (2026-10-24, D26, released in the next batch) | K4 |
 | S1c | Two levels of durability: a host keeps one epoch for the structure and one for the data, thus a change of data compiles nothing (R4 P7) | later | S1a |
 | S2 | The static analysis: cycles, an order for a push schedule, and the independent groups, with a new `graph.ts` (R4 P5) | later | S1a |
 | S3 | Adapters to the reactive engines of the hosts | later (S3a and S3b first, from R4) | S1 |

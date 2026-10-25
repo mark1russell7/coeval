@@ -1,4 +1,4 @@
-import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName } from "./doc.ts";
+import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, isKey, typeName } from "./doc.ts";
 import { type Split, partsOf, pathMatches } from "./parts.ts";
 import { answerOf, ask, type Answer } from "./ladder.ts";
 import type { CapsRule, KindFacts, Side } from "./world.ts";
@@ -8,10 +8,13 @@ import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed,
 import {
   type Cap,
   type Context,
+  type Hop,
   type Navigator,
   type Resolution,
   type ResolveOptions,
+  type Root,
   type Thing,
+  ROOTS,
   context as makeRootContext,
   isHostThing,
   resolve,
@@ -167,6 +170,86 @@ export interface Effect {
 }
 
 /**
+ * One read of an evaluation: a path that code resolved, and what the path reached (READS.RECORD, D26). A schedule
+ * keeps the list of the reads of an evaluation. `verifyReads` resolves each free read again in a new context, and it
+ * tells if the old result stays valid.
+ */
+export interface Read {
+  /** The path that the code resolved: its root, and its steps with the value of each step document. */
+  readonly path: readonly unknown[];
+  /**
+   * What the path reached: the thing, or the error of the resolution. A host thing stays a thing. An exception of the
+   * host gives its error value.
+   */
+  readonly reached: Result;
+  /**
+   * `true` when the read reads the context of the evaluation (READS.FREE). A read of a name that a kind binds, for
+   * example a name of `let`, is not free. A read of a `self` that a kind sets is not free either, for example a node
+   * of a tree. A path without a root is not free. `verifyReads` resolves only the free reads again.
+   */
+  readonly free: boolean;
+  /**
+   * `true` when the kernel adds the read, because a value keeps a root of the context for later (READS.KEPT). Such a
+   * read has the whole root as its path.
+   */
+  readonly kept?: true;
+  /** The hops of the resolution, only when the code asked for them. `verifyReads` then compares each hop too. */
+  readonly hops?: readonly Hop[];
+}
+
+/** The text that names a resolution in the error of an exception of the host. */
+const READ_FAILED = "the resolution of a path";
+
+/**
+ * This function gives what a resolution reached as a result: the thing, or the error with its code and its reason.
+ * The record of a read and `verifyReads` share it.
+ *
+ * @param found - The resolution.
+ * @returns The result.
+ */
+export function reachedOf(found: Resolution): Result {
+  return found.ok ? ok(found.thing) : fail(found.code, found.reason);
+}
+
+/**
+ * This function resolves the path of a read, and it gives an exception of the host as an error value. The record of
+ * a kept read and `verifyReads` use it.
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param ctx - The context.
+ * @param path - The path.
+ * @param hops - `true` records each hop.
+ * @returns What the path reached, and the hops when the resolution gave them.
+ */
+export function readAgain(nav: Navigator, ctx: Context, path: readonly unknown[], hops: boolean): { readonly reached: Result; readonly hops?: readonly Hop[] } {
+  try {
+    const found = resolve(nav, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
+    return hops ? { reached: reachedOf(found), hops: found.hops } : { reached: reachedOf(found) };
+  } catch (error) {
+    return { reached: thrown(error, READ_FAILED) };
+  }
+}
+
+/**
+ * This function tells if a read reads the context at the root of the evaluation (READS.FREE). A kind can bind a name
+ * or set `self` for its parts, and a read of that binding is not free. A path without a root reads no context. A read
+ * of each other root is free. When a kind changes such a root, the read resolves again to another value, thus
+ * `verifyReads` only does more work.
+ */
+function isFree(root: Context, ctx: Context, path: readonly unknown[]): boolean {
+  const head = path[0];
+  if (head === "self") return ctx === root || Object.is(ctx.self, root.self);
+  if (head !== "names") return typeof head === "string" && (ROOTS as readonly string[]).includes(head);
+  if (ctx === root || ctx.names === root.names) return true;
+  const name = path[1];
+  // A read of the whole record of the names reads each free name too.
+  if (!isKey(name)) return true;
+  const key = String(name);
+  const has = Object.hasOwn(ctx.names, key);
+  return has === Object.hasOwn(root.names, key) && (!has || Object.is(ctx.names[key], root.names[key]));
+}
+
+/**
  * The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value, and a
  * `Failure` gives its own error value. In an evaluation, this function is a mock: it answers at once, and a promise
  * from it gives `#CALC!` (RUN.MOCK).
@@ -293,6 +376,12 @@ export interface Runtime {
    * @returns The steps that give each result, in the order of the list.
    */
   all(list: readonly (() => Steps)[], options?: AllOptions): Generator<Promise<unknown>, readonly Result[], unknown>;
+  /**
+   * This optional function tells the runtime that a value keeps the context for later, for example a closure of
+   * `fn`. A later use of the value reads that context, and no evaluation records these reads. Thus the list of reads
+   * gets a read of each root of the context (READS.KEPT).
+   */
+  keepsContext?(): void;
 }
 
 /**
@@ -661,6 +750,11 @@ export interface RunOptions {
   readonly verb?: string;
   /** A signal of the host. When it aborts, the run stops with `#ABORT`. */
   readonly signal?: StopSignal;
+  /**
+   * A list that gets each read, in the order of the resolutions (READS.RECORD). Under `all`, the order of the host
+   * decides the order of the reads of the items.
+   */
+  readonly reads?: Read[];
 }
 
 /** The options of an evaluation of a plan. */
@@ -672,6 +766,11 @@ export interface EvalOptions {
    * Without it, an effect gives its payload (RUN.EVAL).
    */
   readonly perform?: Perform;
+  /**
+   * A list that gets each read, in the order of the resolutions (READS.RECORD). Without it, the plan records no read,
+   * and each resolution costs one more test.
+   */
+  readonly reads?: Read[];
 }
 
 /** The options of `evaluate`. */
@@ -682,11 +781,29 @@ export interface EvaluateOptions {
   readonly verb?: string;
   /** The mock of the host (RUN.MOCK). Without it, an effect gives its payload (RUN.EVAL). */
   readonly perform?: Perform;
+  /** A list that gets each read, in the order of the resolutions (READS.RECORD). */
+  readonly reads?: Read[];
 }
 
 /** The options of a resolution without a record of hops, and with one. One object of each serves each call. */
 const WITHOUT_HOPS: ResolveOptions = /* @__PURE__ */ Object.freeze({ hops: false });
 const WITH_HOPS: ResolveOptions = /* @__PURE__ */ Object.freeze({ hops: true });
+
+/** The record of the reads of one evaluation (READS.RECORD). */
+interface Reading {
+  readonly list: Read[];
+  /** The context at the root of the evaluation. A free read has the binding of this context. */
+  readonly root: Context;
+  /** `true` after the kernel added a read of each root (READS.KEPT). */
+  kept: boolean;
+  /** `true` after the kernel added the read of the root `self`. */
+  self: boolean;
+}
+
+/** This function makes the record of the reads of an evaluation, when the host gives a list. */
+function readingOf(list: Read[] | undefined, root: Context): Reading | undefined {
+  return list === undefined ? undefined : { list, root, kept: false, self: false };
+}
 
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
@@ -709,6 +826,8 @@ class Session implements Runtime {
     readonly perform: Perform | undefined,
     readonly signal: StopSignal | undefined,
     effects: Effect[] | undefined,
+    /** The record of the reads. Without it, a resolution records nothing. */
+    private readonly reading: Reading | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
@@ -722,7 +841,40 @@ class Session implements Runtime {
 
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
     const hops = options?.hops ?? this.traced;
-    return resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
+    const reading = this.reading;
+    if (reading === undefined) return resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
+    const free = isFree(reading.root, ctx, path);
+    // A kind that sets another self can give the old self on, as the parent of a node of a tree does (READS.KEPT).
+    if (!free && path[0] === "self" && !reading.self) this.keep(reading, ["self"]);
+    let found: Resolution;
+    try {
+      found = resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
+    } catch (error) {
+      reading.list.push({ path, reached: thrown(error, READ_FAILED), free });
+      throw error;
+    }
+    const asked = options?.hops === true;
+    reading.list.push(asked ? { path, reached: reachedOf(found), free, hops: found.hops } : { path, reached: reachedOf(found), free });
+    return found;
+  }
+
+  keepsContext(): void {
+    const reading = this.reading;
+    if (reading === undefined || reading.kept) return;
+    reading.kept = true;
+    this.keep(reading, reading.self ? ROOTS.filter((root) => root !== "self") : ROOTS);
+  }
+
+  /**
+   * This function adds a read of each whole root to the list, from the context at the root (READS.KEPT). An exception
+   * of the host gives the error value of the read, because the evaluation did not ask for the read.
+   */
+  private keep(reading: Reading, roots: readonly Root[]): void {
+    for (const root of roots) {
+      if (root === "self") reading.self = true;
+      const path = [root];
+      reading.list.push({ path, reached: readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+    }
   }
 
   private permitted(ctx: Context, keys: readonly Key[]): boolean {
@@ -1027,7 +1179,7 @@ export interface Plan {
    * effect at once (RUN.MOCK).
    *
    * @param context - The names and the capabilities at the root.
-   * @param options - A list that gets the effects, and the mock of the host.
+   * @param options - A list that gets the effects, the mock of the host and a list that gets the reads.
    * @returns The result.
    */
   evaluate(context?: Context, options?: EvalOptions): Result;
@@ -1035,7 +1187,7 @@ export interface Plan {
    * This function runs the document: the host does each effect, and the run waits when the host waits.
    *
    * @param context - The names and the capabilities at the root.
-   * @param options - The host code that does the effects, and a signal to stop the run.
+   * @param options - The host code that does the effects, a signal to stop the run and a list that gets the reads.
    * @returns The result, when the run ends.
    */
   run(context?: Context, options?: RunOptions): Promise<Result>;
@@ -1319,7 +1471,15 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
   };
 }
 
-function rootContext(machine: Machine, ctx: Context): Context {
+/**
+ * This function gives the context at the root of an evaluation. It is the context of the host, with the world of
+ * the machine when the context has none. An evaluation and `verifyReads` share it.
+ *
+ * @param machine - The machine.
+ * @param ctx - The context of the host.
+ * @returns The context at the root.
+ */
+export function rootContext(machine: Machine, ctx: Context): Context {
   return ctx.world === null ? { ...ctx, world: worldThing(machine.world) } : ctx;
 }
 
@@ -1363,12 +1523,14 @@ function planOf(machine: Machine, traced: boolean, root: CompiledPart): Plan {
     traced,
     root,
     evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
-      const s = new Session(machine, false, traced, evalOptions?.perform, undefined, evalOptions?.effects);
-      return root.code(rootContext(machine, context), s);
+      const ctx = rootContext(machine, context);
+      const s = new Session(machine, false, traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
+      return root.code(ctx, s);
     },
     run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {
-      const s = new Session(machine, true, traced, runOptions.perform, runOptions.signal, undefined);
-      return driveWaiting(root.run(rootContext(machine, context), s), runOptions.signal);
+      const ctx = rootContext(machine, context);
+      const s = new Session(machine, true, traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
+      return driveWaiting(root.run(ctx, s), runOptions.signal);
     },
   };
 }
@@ -1422,7 +1584,7 @@ function record(s: Session, result: Result): Run {
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
  * @param context - The names and the capabilities at the root.
- * @param options - The type of a bare root value, or the options: that type, the mock of the host and the verb.
+ * @param options - The type of a bare root value, or the options: that type, the mock of the host, the verb and a list for the reads.
  * @returns The result, the trace and the effects in their order.
  */
 export function evaluate(machine: Machine, doc: unknown, context: Context = makeContext(), options?: string | EvaluateOptions): Run {
@@ -1433,8 +1595,9 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
     ...(declaredType === undefined ? {} : { declaredType }),
     ...(given.verb === undefined ? {} : { verb: given.verb }),
   });
-  const s = new Session(machine, false, true, given.perform, undefined, undefined);
-  const result = plan.root.code(rootContext(machine, context), s);
+  const ctx = rootContext(machine, context);
+  const s = new Session(machine, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
+  const result = plan.root.code(ctx, s);
   return record(s, result);
 }
 
@@ -1446,7 +1609,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
  * @param machine - The world, the evaluators and the runners.
  * @param doc - The document, as JSON.
  * @param context - The names and the capabilities at the root.
- * @param options - The host code that does the effects, the type of a bare root value, a signal and the verb.
+ * @param options - The host code that does the effects, the type of a bare root value, a signal, the verb and a list for the reads.
  * @returns The result, the trace and the effects in their order, when the run ends.
  */
 export async function run(machine: Machine, doc: unknown, context: Context = makeContext(), options: RunOptions = {}): Promise<Run> {
@@ -1455,8 +1618,9 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
     ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
     ...(options.verb === undefined ? {} : { verb: options.verb }),
   });
-  const s = new Session(machine, true, true, options.perform, options.signal, undefined);
-  const result = await driveWaiting(plan.root.run(rootContext(machine, context), s), options.signal);
+  const ctx = rootContext(machine, context);
+  const s = new Session(machine, true, true, options.perform, options.signal, undefined, readingOf(options.reads, ctx));
+  const result = await driveWaiting(plan.root.run(ctx, s), options.signal);
   return record(s, result);
 }
 
