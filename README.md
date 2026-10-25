@@ -8,7 +8,7 @@ coeval is a base for declarative languages. Each language keeps its programs as 
 
 ## Status
 
-The kernel is on npm as `@mark1russell7/coeval`. Its API is not stable before version 1.0. Since version 0.2, each language evaluates through the kernel (decision D13). The plan is in [`docs/ROADMAP.md`](./docs/ROADMAP.md), the decisions are in [`docs/DECISIONS.md`](./docs/DECISIONS.md), and each rule has an ID in [`docs/SPEC.md`](./docs/SPEC.md).
+The kernel is on npm as `@mark1russell7/coeval`. Its API is not stable before version 1.0. Since version 0.2, each language evaluates through the kernel (decision D13). The plan is in [`docs/ROADMAP.md`](./docs/ROADMAP.md), the decisions are in [`docs/DECISIONS.md`](./docs/DECISIONS.md), and each rule has an ID in [`docs/SPEC.md`](./docs/SPEC.md). [`docs/SEMANTICS.md`](./docs/SEMANTICS.md) gives the same rules as a small calculus of inference rules.
 
 ## The model in seven rules
 
