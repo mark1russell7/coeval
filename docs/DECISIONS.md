@@ -316,7 +316,7 @@ The ladders also differed by verb (fact 3). `deref` visited the own entry, the k
 - `prepare`, `evaluate`, `run`, `check`, `reference` and `agree` take the option `verb`. The default is `eval`, thus each existing call gives the same result (VERB.DEFAULT).
 - At each document, the ladder answers for the verb, and each part evaluates with the same verb. A verb is one reading of the whole document. The sealed parts of D7 keep each reading compositional.
 - One function gives the rungs of each verb: the own entry, then the kind, then the default of the world. `ask` gives the same answer with the record of the rungs. Thus the different ladders were a gap, and this decision closes it (VERB.LADDER).
-- `deref` gets the default rung. When no rung answers, a step goes into the value of the document, as before. A value without a type is data, thus a step goes into it at once.
+- `deref` gets the default rung. When no rung answers, a step goes into the value of the document, as before. A value without a type is data, thus a step goes into it at once. This clause changes the clause of D10 about the default of `deref`.
 - `step` gets the own rung and the default rung. A rung of `deref` or `step` answers only with code that the machine has, as the kind rung did before. A rung reads only the own names of a table of code (LADDER.OWN-ONLY).
 - The resolution and `check` find the walker of a step with one function, thus they agree on `#STEP?`.
 - The evaluators of each verb share the tables `evaluators` and `runners`, by name. Thus the merge of D17 and the restriction of D18 serve each verb with no new rule.
