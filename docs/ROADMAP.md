@@ -8,7 +8,7 @@ The studies in `docs/research/` rank proposals for the kernel and the kits. Each
 
 ## The order of the next work
 
-The plan does the next work in this order (2026-10-24). It takes up the studies R1 to R6.
+The plan does the next work in this order (2026-10-24). It takes up the studies R1 to R7.
 
 1. K8: `check` narrows the capabilities of the parts as the kinds do (done, 2026-10-24).
 2. K9: a harness for one meaning (R1 P1) (done, 2026-10-24). At its start, it found four bugs of the kernel, and version 0.4.2 corrects them.
@@ -31,8 +31,9 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 17. K18 and K19: the effects that reach the host, and the check of the waits of a run (R2 P3, P4) (done, 2026-10-24, D27, released in the next batch). `effectsOf` gives the declared effects that no mask or rule `only` removes, thus a host can grant the least authority. A procedure value keeps the capabilities of its maker, and `checkLatent` compares the latent effects of a procedure with its body. `check` asks the hook `permits`, and its option `run` finds a runner under a parent that cannot wait. The rule `grant` moved to L1a.
 18. K25: the types of the roots, of the names and of the paths (R5 P4) (done, 2026-10-24, D28, released in the next batch). The host gives the types of its names, `self`, `world` and `event` in the option `rootTypes`. A reference gets the type that its path reaches, and a missing field of a closed record gives `#TYPE!`. `typeFromSchema` and `typeFromSamples` make such types, `Domain.steps` types a step into a domain, and `extendDomain` adds parents to a foreign domain. The work closed a hole of K24: a name bound to a reference document had the type of that document.
 19. S1c: two levels of durability (R4 P7) (done, 2026-10-24, D30, released in the next batch). `durable` keeps one epoch for the structure and one for the data. A plan and the facts stay for each document object, thus a change of data compiles nothing. After a change of data, a pure document verifies its reads, and another document evaluates again. A test of random edits, new machines and changes of data finds no stale result.
+20. K90 to K92 (R7 P1 to P3): the written core calculus, the narrowing of the parts of compiled code and the conformance tests of evaluators. R7 found that a compiled evaluator can give a part more capabilities than its document has.
 
-On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
+On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies R1 to R6 is a row with the status `later`. R7 gives its rows the status `next` or `later`.
 
 ## The design and the site
 
@@ -122,6 +123,14 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K76 | The mark "total" for compiled code: `compileNode` does not wrap the code of `lit` in `placedCode`, thus a literal costs one call (R1 P2). From K12. | later | K12 |
 | K77 | The standard evaluator `ref.resolve` compiles its path. It is a function evaluator, thus each evaluation resolves its path again. It needs a definition for the reference (REF.DIRECT). From K12. | later | K12 |
 | K80 | `planner` keeps the plan of `0` for the document `-0`, because a `Map` finds the same entry for both. Thus the plan of `-0` gives `0`. `durable` keeps `-0` apart. From S1c. | later | none |
+| K90 | The core calculus as a page of the specification, `docs/SEMANTICS.md` (R7 P1). It gives the syntax, five judgments, one rule for each rule of evaluation, the two handlers of the run side and the obligations of host code C1 to C7. It also states four facts that SPEC does not state: the bounds of 64 collapses and 32 aliases, the context of the reader for a reference in data, and parts that are call by name. A test checks that each rule names a SPEC ID that exists (SEM.RULES). | next | none |
+| K91 | A compiled evaluator or runner cannot give a part more capabilities than its document has (R7 P2). Today it can, and then the plan causes an effect where the reference gives `#CAP!`. A decision selects one of two options: the kernel narrows through a view of the runtime for each evaluation, or a compiled evaluator promises it and a strict option of `prepare` checks it. Test: CAP.NARROW-CODE. | next | none |
+| K92 | Conformance tests for evaluators: `conforms(machine, name)` evaluates one evaluator with probe parts and a probe runtime (R7 P3). It checks the obligations C1 to C7, and that compiled code agrees with its definition for the reference. Tests: CONFORM.NARROW, CONFORM.EFFECTS, CONFORM.LAZY, CONFORM.PURE, CONFORM.SEALED, CONFORM.WAIT, CONFORM.SCOPE and CONFORM.LOCAL. | next | K91 |
+| K93 | Law tests of the semantics on generated documents (R7 P4): EVAL.SEALED as a property, EVAL.DETERMINISTIC, CAP.MONOTONE, COMPOSE.CONSERVATIVE, TREE.ORDER-FREE and SEQ.LAWS. The equations of effects stay with S4. | next | none |
+| K94 | A clock for `call`: each application of a closure counts one level of depth, thus an endless recursion gives `#DEPTH!` at one place in each tier (R7 P5, R1 open question 3). Today it ends at the stack of the host, at a different place in each tier. Test: FORMULA.CALL-DEPTH. | later | none |
+| K95 | A third tier: a stepper from a CPS transformation and a defunctionalization of the reference, for the kernel and the formula kit (R7 P6). It reads the lookup, the split and the steps of a path from the rules of K90, thus `agree` also tests the definitions that the plan and the reference share. Its configurations are data. Tests: AGREE.STEPPER, STEPPER.DEEP and STEPPER.DATA. | later | K90 |
+| K96 | Slices of the calculus in Lean 4 (R7 P7): first the formula kit over JSON with a clock, also as a nightly tier of `agree`. Test: AGREE.LEAN. | later | K90 |
+| K97 | The static analyses as abstractions of the stepper, as in AAM (R7 P8). Only when a new analysis needs control flow, for example S2 or L2e. Test: ANALYSIS.AGREES. | later | K95 |
 
 ## The kits
 
@@ -194,4 +203,5 @@ Each study answers one research question and ranks its proposals. The folder `do
 | R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1a to S1c, S2, S3a to S3c, C10. S1c adds K80. R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
 | R5 | [Types and abstract interpretation for `check`](research/r5-types.md) | done (2026-10-24) | K20, K23 to K31 |
 | R6 | [Language workbenches and extensibility](research/r6-workbenches.md) | done (2026-10-24) | K32 to K38, C11. K34 adds K40 and K41. |
+| R7 | [A formal semantics of the kernel](research/r7-semantics.md) | done (2026-10-24) | K90 to K97 |
 
