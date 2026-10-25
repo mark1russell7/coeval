@@ -568,7 +568,7 @@ ST-RUNNER  [RUN.SEQ, RUN.EAGER, SEQ.LAST, SEQ.NAMES]
 
 ### Effects
 
-The rules X-CAP and X-RECORD apply to each effect, in each handler.
+The rules X-CAP and X-RECORD apply to each effect in each handler, after the rule X-NEEDS-RUNNER of a run.
 
 ```text
 X-CAP  [RUN.CAP, CAP.HOOK, CAP.PURE, RUN.PURE]
