@@ -29,6 +29,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 15. K24: signatures of operations and a bidirectional `check` (R5 P3) (done, 2026-10-24, D25, released in the next batch). A formula profile gives each operation a signature or overloads, and a contract gives `result` and `expect`. With the option `types`, `check` synthesizes the type of each part and checks it against the type that its position needs. A wrong type gives the static issue `#TYPE!`, and an evaluation does not change. The type rule of a document follows its evaluator.
 16. S1b: a list of reads for each evaluation, and `verifyReads` (R4 P3): done (2026-10-24, D26), released in the next batch. An evaluation records each path that it resolves, with what the path reached and the mark `free`. `verifyReads` resolves each free read again with the rules of `sameResult`, and it gives the first changed read. A test of generated documents changes the contexts at random and finds no stale result.
 17. K18 and K19: the effects that reach the host, and the check of the waits of a run (R2 P3, P4) (done, 2026-10-24, D27, released in the next batch). `effectsOf` gives the declared effects that no mask or rule `only` removes, thus a host can grant the least authority. A procedure value keeps the capabilities of its maker, and `checkLatent` compares the latent effects of a procedure with its body. `check` asks the hook `permits`, and its option `run` finds a runner under a parent that cannot wait. The rule `grant` moved to L1a.
+18. K25: the types of the roots, of the names and of the paths (R5 P4) (done, 2026-10-24, D28, released in the next batch). The host gives the types of its names, `self`, `world` and `event` in the option `rootTypes`. A reference gets the type that its path reaches, and a missing field of a closed record gives `#TYPE!`. `typeFromSchema` and `typeFromSamples` make such types, `Domain.steps` types a step into a domain, and `extendDomain` adds parents to a foreign domain. The work closed a hole of K24: a name bound to a reference document had the type of that document.
 
 On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
 
@@ -79,7 +80,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | done (2026-10-24, released in 0.6.3: `sameResult`, and one walk for `docEquals`, `sameValue` and `sameResult`, D20) | K5, K21 |
 | K23 | Value types and value domains: a new `types.ts` with open base types, the relation `fits`, and a membership test for each domain (R5 P2) | done (2026-10-24, D22), released in the next batch: `ValueType`, `Domain`, `fits`, `member`, `typeIssues`, `STD_DOMAINS` and `Machine.domains` | K2, K3 |
 | K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | done (2026-10-24, D25, released in the next batch) | K23 |
-| K25 | Types of the roots, of the names and of the paths, from the host, from a JSON Schema or from sample values (R5 P4) | later | K24 |
+| K25 | Types of the roots, of the names and of the paths, from the host, from a JSON Schema or from sample values (R5 P4) | done (2026-10-24, D28, released in the next batch) | K24 |
 | K26 | The agreement rule for types: in a traced evaluation of a document that checks, each value is in the type of its place (R5 P5) | later | K9, K24 |
 | K27 | Narrowing in `if`, `and` and `or`: a test with `proves` narrows the type of a path in its branch (R5 P6) | later | K25 |
 | K28 | Casts at the boundaries of `unknown`: with the option `guards`, `prepare` adds a membership test that gives `#VALUE!` at the boundary (R5 P7) | later | K25 |
@@ -110,6 +111,11 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K52 | A check of each value type of a machine before a document exists: each `result`, each `expect` and each signature. Today `check` reports a bad type at its first use. From K24. | later | K24, K36 |
 | K64 | The effects of an own entry for another evaluator. Its code can cause effects that no contract declares, thus `effectsOf` and `check` do not see them. A declaration in the hook `facts` can give them. From K18. | later | K18 |
 | K65 | A compiled runner can evaluate a part with its code that does not wait. The check of the waits assumes that a runner passes each wait of its parts through. A contract mark for such parts makes the check exact. From K19. | later | K19 |
+| K70 | A step into a base type of the kernel, a function, or a list with a key that is not an index or `length`, is a type issue. Today it gives `unknown`, and the run gives `#N/A` there. From K25. | later | K25 |
+| K71 | A type provider for `world` that gives the type of a path on demand, for a large store. Today the host gives one type for the whole root. From K25. | later | K25 |
+| K72 | A walker declares the type of what it reaches, thus a path with a step document gets a type. Today a step document gives `unknown`. From K25. | later | K25 |
+| K73 | `typeFromSchema` reads `$ref` into `$defs` of the same schema, and `allOf` of records. Today a schema with `$ref` reads as `unknown`, and `allOf` tests nothing. From K25. | later | K25 |
+| K74 | The tree kit gives its kinds type rules with `PartType.roots`, thus an attribute of a node knows the type of `self`. Today the parts of a node get `unknown` roots. From K25. | later | K25, L2b |
 
 ## The kits
 

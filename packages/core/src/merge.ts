@@ -1,7 +1,7 @@
 import { type Key, docEquals, isRecord } from "./doc.ts";
 import type { DerefCode, Walker } from "./deref.ts";
 import type { Evaluator, Machine, Runner } from "./evaluate.ts";
-import type { Domain } from "./types.ts";
+import { type Domain, type ValueType, STD_DOMAINS } from "./types.ts";
 import { type Kind, type World, type WorldEntry, isAlias, isKind, isNamespace } from "./world.ts";
 
 /** The keys from a part of a merge to one of its entries, for example `["kinds", "ref"]`. */
@@ -88,11 +88,53 @@ function same(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Two domains are the same when they are one object, or when they have the same test `is`, the same parents and the
- * same summary. Thus two languages that give one test under one name give one domain.
+ * Two domains are the same when they are one object. They are also the same when they have the same test `is`,
+ * parents, summary and steps. Thus two languages that give one test under one name give one domain.
  */
 function sameDomain(a: Domain, b: Domain): boolean {
-  return a === b || (a.is === b.is && same(a.under ?? [], b.under ?? []) && a.summary === b.summary);
+  return a === b || (a.is === b.is && same(a.under ?? [], b.under ?? []) && a.summary === b.summary && same(a.steps ?? {}, b.steps ?? {}));
+}
+
+/** What `extendDomain` adds to a domain: more parents, and the types of more steps. */
+export interface DomainExtension {
+  /** The names of the parents to add. A member of the domain then also passes the test of each new parent. */
+  readonly under?: readonly string[];
+  /** The types of the steps to add. A step with the key of an earlier step replaces its type. */
+  readonly steps?: Readonly<Record<string, ValueType>>;
+}
+
+/**
+ * This function makes a part of a merge that adds parents or steps to a domain of an earlier part (TYPE.PARENTS). An
+ * example is a domain of another language. The part reads the domain from the merge before it (`prev`). It gives a
+ * copy with the same test and summary, and it names `["domains", name]` in `replaces` (D17). A domain of the kernel
+ * that the earlier parts do not name comes from `STD_DOMAINS`.
+ *
+ * A new parent adds its test to the domain (TYPE.MEMBER). Thus `fits` stays sound, but a value that fails the test of
+ * the parent is no longer a member. The language that adds the parent keeps the signatures of the other language
+ * true. A name without a domain gives an empty part, and `typeIssues` reports each use of that name.
+ *
+ * @param name - The name of the domain.
+ * @param more - The parents and the steps to add.
+ * @returns The part, as a function of the merge before it.
+ */
+export function extendDomain(name: string, more: DomainExtension): (prev: Machine) => MachinePart {
+  return (prev) => {
+    const found = own(prev.domains, name) ?? own(STD_DOMAINS, name);
+    if (typeof found !== "object" || found === null || typeof found.is !== "function") return {};
+    // A domain can be an instance of a class, thus the copy reads each field by its name.
+    const under = [...(found.under ?? [])];
+    for (const parent of more.under ?? []) if (parent !== name && !under.includes(parent)) under.push(parent);
+    const steps = { ...found.steps, ...more.steps };
+    const domain: Domain = {
+      is: found.is,
+      ...(under.length === 0 ? {} : { under }),
+      ...(found.summary === undefined ? {} : { summary: found.summary }),
+      ...(Object.keys(steps).length === 0 ? {} : { steps }),
+    };
+    const domains: Record<string, Domain> = {};
+    setOwn(domains, name, domain);
+    return { domains, replaces: [["domains", name]] };
+  };
 }
 
 /** Two lists of roots are the same when they hold the same roots, in any order. */

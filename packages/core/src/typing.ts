@@ -1,4 +1,4 @@
-import { type Envelope, type Key, typeName } from "./doc.ts";
+import { type Envelope, type Key, isRecord, typeName } from "./doc.ts";
 import type { Machine } from "./evaluate.ts";
 import type { DocVisit, Issue } from "./static.ts";
 import { type ValueType, fits, isUnknown, typeIssues, typeText } from "./types.ts";
@@ -31,12 +31,23 @@ export interface TypeInput {
    */
   typeOf(path: readonly Key[]): ValueType;
   /**
-   * This function gives the type of a name that a kind around the document binds. A name of the host has no type.
+   * This function gives the type of a name: the type that a kind around the document binds. Without such a kind, it
+   * gives the type from the option `rootTypes` of the host.
    *
    * @param name - The name.
-   * @returns The type, or `undefined` when no kind around the document gives the name a type.
+   * @returns The type, or `undefined` when neither a kind around the document nor the host gives the name a type.
    */
   nameType(name: string): ValueType | undefined;
+  /**
+   * This function gives the type of a root of the context at the document (TYPE.ROOTS). The host gives the types of
+   * `self`, `world` and `event` in the option `rootTypes`. A rule can give other types to its parts. The root `caps`
+   * always has the type `CAPS_TYPE`. A rule reads the type of a name with `nameType`, thus the root `names` gives
+   * `unknown`.
+   *
+   * @param root - The root.
+   * @returns The type. It is `unknown` for a root without a type.
+   */
+  rootType(root: string): ValueType;
   /**
    * This function examines a value type of a contract with `typeIssues`, one time in a check. The first problem of a
    * type becomes an issue at the document. A term with a problem reads as `unknown`.
@@ -56,7 +67,38 @@ export interface PartType {
   readonly what?: string;
   /** The types of the names that the scope rules of the kind bind for the part. Each other name of the rules gets `unknown`. */
   readonly names?: Readonly<Record<string, ValueType>>;
+  /**
+   * The types of the roots that the evaluator changes for the part, for example `self` for the attributes of a node.
+   * Each other root keeps its type. The parts of an evaluator without a rule get `unknown` for each of these roots.
+   */
+  readonly roots?: Omit<RootTypes, "names">;
 }
+
+/**
+ * The value types of the roots of a context, for a check of types (TYPE.ROOTS). The host gives them in the option
+ * `rootTypes` of `check` and `typeCheck`. A root without a type has the type `unknown`. The root `caps` always has the
+ * type `CAPS_TYPE`, because the kernel narrows it.
+ *
+ * The host keeps the types true: each root of the context holds a member of its type. A host thing, or a machine
+ * with `adopt`, keeps each step true too. The context binds each name of `names`, thus the option `names` of `check`
+ * lists it too.
+ */
+export interface RootTypes {
+  /** The type of each name that the host binds. A name of the host without a type here has the type `unknown`. */
+  readonly names?: Readonly<Record<string, ValueType>>;
+  /** The type of `self`: the node or the position that the document is part of. */
+  readonly self?: ValueType;
+  /** The type of `world`, for example the schema of a store. The context then gives the world. */
+  readonly world?: ValueType;
+  /** The type of `event`: the event that started a run. */
+  readonly event?: ValueType;
+}
+
+/**
+ * The value type of the root `caps`: a list of capabilities. A capability is a text, or a list of keys. The kernel
+ * narrows the capabilities for each part, thus the host does not give this type.
+ */
+export const CAPS_TYPE: ValueType = { list: { union: ["text", { list: { union: ["text", "number"] } }] } };
 
 /** A problem that a type rule finds. Its place is a part of the document, or the document itself. */
 export interface TypeProblem {
@@ -133,6 +175,19 @@ interface Need {
   readonly what: string;
 }
 
+/** The types of the roots that an evaluator can change for its parts. */
+interface Roots {
+  readonly self: ValueType;
+  readonly world: ValueType;
+  readonly event: ValueType;
+}
+
+/** The roots that can change, as a rule gives them in `PartType.roots`. */
+const CHANGING = ["self", "world", "event"] as const;
+
+/** The roots of the parts of an evaluator without a rule: such an evaluator can change each root. */
+const UNKNOWN_ROOTS: Roots = { self: "unknown", world: "unknown", event: "unknown" };
+
 /** One document on the stack of the pass. */
 interface Frame {
   readonly index: number;
@@ -143,9 +198,8 @@ interface Frame {
   readonly typed: Map<string, ValueType>;
   readonly needs: readonly Need[];
   readonly names: ReadonlyMap<string, ValueType>;
+  readonly roots: Roots;
 }
-
-const NO_NAMES: ReadonlyMap<string, ValueType> = /* @__PURE__ */ new Map();
 
 function pathKey(path: readonly Key[]): string {
   return JSON.stringify(path.map(String));
@@ -183,9 +237,10 @@ function message(error: unknown): string {
  * @param nodes - The documents, in the order of the document. The root is the first.
  * @param verb - The verb of the check. The value types of a contract describe the verb `eval` only.
  * @param expect - The type that the root must have.
+ * @param rootTypes - The types of the roots and of the names of the host.
  * @returns The type of the root, the type issues in the order of the document, and the type of each document.
  */
-export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: string, expect: ValueType | undefined): TypePass {
+export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: string, expect: ValueType | undefined, rootTypes: RootTypes = {}): TypePass {
   if (nodes.length === 0) return { type: "unknown", issues: [], places: [] };
   const domains = machine.domains;
   const contracts = verb === "eval";
@@ -216,7 +271,7 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
     return type as ValueType;
   };
 
-  const enter = (index: number, needs: readonly Need[], names: ReadonlyMap<string, ValueType>): Frame => {
+  const enter = (index: number, needs: readonly Need[], names: ReadonlyMap<string, ValueType>, roots: Roots): Frame => {
     const node = nodes[index] as TypeNode;
     const visit = node.visit;
     const typed = new Map<string, ValueType>();
@@ -230,9 +285,10 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
       machine,
       typeOf: (path) => typed.get(pathKey(path)) ?? "unknown",
       nameType: (name) => names.get(name),
+      rootType: (root) => (root === "caps" ? CAPS_TYPE : root === "self" || root === "world" || root === "event" ? roots[root] : "unknown"),
       contract: (type, what) => contract(index, type, what),
     };
-    return { index, rule: node.marked ? undefined : ruleOf(machine, node.evaluator), input, order: orderOf(node, nodes), next: 0, typed, needs, names };
+    return { index, rule: node.marked ? undefined : ruleOf(machine, node.evaluator), input, order: orderOf(node, nodes), next: 0, typed, needs, names, roots };
   };
 
   const ruleFailed = (frame: Frame, error: unknown): void => {
@@ -247,7 +303,12 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
   };
 
   const rootNeeds: Need[] = expect === undefined || isUnknown(contract(0, expect, "expected type of the check"), domains) ? [] : [{ type: expect, what: "document" }];
-  const stack: Frame[] = [enter(0, rootNeeds, NO_NAMES)];
+  // The check examines each type of the host at the root, one time. A kind that binds a name hides the name of the host.
+  const hostNames = new Map<string, ValueType>();
+  const given: Readonly<Record<string, ValueType>> = isRecord(rootTypes.names) ? rootTypes.names : {};
+  for (const name of Object.keys(given)) hostNames.set(name, contract(0, given[name], `type of the name ${name} of the host`));
+  const hostRoot = (root: (typeof CHANGING)[number]): ValueType => (rootTypes[root] === undefined ? "unknown" : contract(0, rootTypes[root], `type of the root ${root}`));
+  const stack: Frame[] = [enter(0, rootNeeds, hostNames, { self: hostRoot("self"), world: hostRoot("world"), event: hostRoot("event") })];
   while (stack.length > 0) {
     const frame = stack[stack.length - 1] as Frame;
     if (frame.next < frame.order.length) {
@@ -278,7 +339,15 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
         for (const name of node.bound) copy.set(name, part.names !== undefined && Object.hasOwn(part.names, name) ? (part.names[name] as ValueType) : "unknown");
         names = copy;
       }
-      stack.push(enter(child, needs, names));
+      // No contract tells how an evaluator changes the roots, thus only a rule keeps their types for its parts (TYPE.ROOTS).
+      let roots = frame.rule === undefined ? UNKNOWN_ROOTS : frame.roots;
+      const changes = part.roots;
+      if (typeof changes === "object" && changes !== null) {
+        const copy: Record<(typeof CHANGING)[number], ValueType> = { ...roots };
+        for (const root of CHANGING) if (changes[root] !== undefined) copy[root] = changes[root] as ValueType;
+        roots = copy;
+      }
+      stack.push(enter(child, needs, names, roots));
       continue;
     }
     stack.pop();

@@ -1,4 +1,4 @@
-import { type Json, type Key, docEquals, isRecord } from "./doc.ts";
+import { type Json, type Key, docEquals, isEnvelope, isRecord } from "./doc.ts";
 
 /*
  * Value types and value domains (R5 P2, D22). A value type is a set of values that a result can have. It is a JSON
@@ -32,6 +32,9 @@ export type ValueType =
  * A value domain: a base type of a language, with its membership test. A machine holds its domains by their names
  * (`Machine.domains`). A value is a member of a domain only when the test of the domain and the test of each parent
  * accept it (TYPE.MEMBER).
+ *
+ * A path does not follow a member of a domain as a reference (DEREF.COLLAPSE). Thus the test `is` must refuse each
+ * reference document.
  */
 export interface Domain {
   /**
@@ -45,6 +48,12 @@ export interface Domain {
   readonly under?: readonly string[];
   /** One sentence that tells what the domain holds. */
   readonly summary?: string;
+  /**
+   * The value type of each step into a member, by its key, for example the field `x` of a point (TYPE.STEPS). The
+   * check of a path reads the steps of the domain first, then the steps of each parent. The language keeps them true:
+   * a step with the key into a member reaches a member of the type. A key without a type gives `unknown`.
+   */
+  readonly steps?: Readonly<Record<string, ValueType>>;
 }
 
 /** A problem of a value type: the keys from the root of the term to the problem, and the reason. */
@@ -532,6 +541,130 @@ export function isPrecise(type: unknown, domains: Readonly<Record<string, Domain
       return form.members.every((item) => isPrecise(item, domains, next));
     default:
       return true;
+  }
+}
+
+/** The keys of the header of an envelope. A record with only these keys can have the form of an envelope. */
+export const HEADER_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set(["type", "value", "name", "own"]);
+
+/**
+ * This function tells if a member of a type can have the form of an envelope. A path asks the ladder for each step
+ * into an envelope, and it follows a reference document (DEREF.COLLAPSE). Thus the type of such a member does not
+ * tell what a path reaches.
+ *
+ * The test is conservative. A record that needs a key outside the header is not an
+ * envelope. A closed record without the fields `type` and `value` is not an envelope either. A domain refuses each
+ * reference document (`Domain`), and its steps tell what a step reaches.
+ */
+export function holdsEnvelope(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth = 0): boolean {
+  if (depth > MAX_TYPE_DEPTH) return true;
+  const form = formOf(type, domains);
+  switch (form.t) {
+    case "top":
+      return true;
+    case "union":
+      return form.members.some((item) => holdsEnvelope(item, domains, depth + 1));
+    case "one":
+      return form.values.some((value) => isEnvelope(value));
+    case "record":
+      if (Object.keys(form.fields).some((key) => !form.optional.has(key) && !HEADER_KEYS.has(key))) return false;
+      return !form.closed || (Object.hasOwn(form.fields, "type") && Object.hasOwn(form.fields, "value"));
+    default:
+      return false;
+  }
+}
+
+/**
+ * What one step reaches from a member of a type: its type, or the fields of the type when no member has the step.
+ * The field list is empty when the type is not a record.
+ */
+export type StepType = { readonly type: ValueType } | { readonly missing: readonly string[] };
+
+/** This function gives the index of a key into a list, as a step into the value finds it, or -1. */
+function indexOf(key: Key): number {
+  if (typeof key === "number") return Number.isInteger(key) && key >= 0 ? key : -1;
+  return /^\d+$/.test(key) ? Number(key) : -1;
+}
+
+/** This function adds the keys of a list to another list, without the keys that it has. */
+function addKeys(into: string[], keys: readonly string[]): void {
+  for (const key of keys) if (!into.includes(key)) into.push(key);
+}
+
+/** This function gives the step of a key into one JSON value of `one`: the value that it reaches, or the fields of the value. */
+function valueStep(value: unknown, key: Key): { readonly found: unknown } | { readonly fields: readonly string[] } {
+  if (Array.isArray(value)) {
+    if (key === "length") return { found: value.length };
+    const index = indexOf(key);
+    return index >= 0 && index < value.length ? { found: value[index] } : { fields: [] };
+  }
+  if (isRecord(value)) return Object.hasOwn(value, String(key)) ? { found: value[String(key)] } : { fields: Object.keys(value) };
+  return { fields: [] };
+}
+
+/**
+ * This function gives the type that a step with a key reaches from a member of a type (TYPE.PATH). The caller tests
+ * first that no member can be an envelope (`holdsEnvelope`).
+ *
+ * - A record gives the type of its field. A closed record without the field has no such step. An open record gives
+ *   `unknown`.
+ * - A list gives the type of its items for an index, and `number` for `length`.
+ * - A base type reads the steps of its domain, then of each parent (`Domain.steps`).
+ * - A union joins the steps of its types. `one` gives the values that the step reaches.
+ * - Each other step gives `unknown`, and `never` gives `never`.
+ *
+ * @param examine - The function that examines a type of the steps of a domain, one time in a check.
+ */
+export function stepType(
+  type: unknown,
+  key: Key,
+  domains: Readonly<Record<string, Domain>> | undefined,
+  examine?: (type: ValueType, what: string) => ValueType,
+  depth = 0,
+): StepType {
+  if (depth > MAX_TYPE_DEPTH) return { type: "unknown" };
+  const form = formOf(type, domains);
+  const name = String(key);
+  switch (form.t) {
+    case "bottom":
+      return { type: "never" };
+    case "base":
+      for (const each of lineOf(form.name, domains)) {
+        const steps = domainOf(each, domains)?.steps;
+        if (typeof steps !== "object" || steps === null || !Object.hasOwn(steps, name)) continue;
+        const found = steps[name] as ValueType;
+        return { type: examine === undefined ? found : examine(found, `type of the step ${name} of the domain ${each}`) };
+      }
+      return { type: "unknown" };
+    case "list":
+      if (key === "length") return { type: "number" };
+      return { type: indexOf(key) >= 0 ? form.item : "unknown" };
+    case "record":
+      if (Object.hasOwn(form.fields, name)) return { type: form.fields[name] as ValueType };
+      return form.closed ? { missing: Object.keys(form.fields) } : { type: "unknown" };
+    case "union": {
+      let joined: ValueType | undefined;
+      const fields: string[] = [];
+      for (const item of form.members) {
+        const step = stepType(item, key, domains, examine, depth + 1);
+        if ("missing" in step) addKeys(fields, step.missing);
+        else joined = joined === undefined ? step.type : join(joined, step.type, domains);
+      }
+      // A member without the step makes the path fail, thus only the other members give a type.
+      return joined === undefined ? { missing: fields } : { type: joined };
+    }
+    case "one": {
+      const found: Json[] = [];
+      const fields: string[] = [];
+      for (const value of form.values) {
+        const step = valueStep(value, key);
+        if ("fields" in step) addKeys(fields, step.fields);
+        else if (!found.some((item) => docEquals(item, step.found))) found.push(step.found as Json);
+      }
+      return found.length === 0 ? { missing: fields } : { type: { one: found } };
+    }
+    default:
+      return { type: "unknown" };
   }
 }
 

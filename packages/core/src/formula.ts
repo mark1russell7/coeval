@@ -4,7 +4,7 @@ import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine, Runtime } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
-import { type ValueType, STD_DOMAINS, callable, fieldOf, fits, fnOf, isPrecise, isUnknown, itemOf, join, typeText } from "./types.ts";
+import { type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, stepType, typeText } from "./types.ts";
 import type { TypeInput, TypeRule } from "./typing.ts";
 
 /** An operation of a formula language: a function of the values of its arguments. */
@@ -221,6 +221,11 @@ function argumentsText(count: number): string {
   return `${count} argument${count === 1 ? "" : "s"}`;
 }
 
+/** This function gives the text of a list of names for a reason, for example `a, b and c`. */
+function listText(names: readonly string[]): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1] as string}`;
+}
+
 /**
  * This function tells if a signature takes a count of arguments. A parameter of the type `unknown` at the end is
  * optional, because a missing argument is `undefined`.
@@ -298,11 +303,40 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     "formula.lit": { synth: (input) => valueType(input.doc.value) },
 
     "formula.ref": {
-      synth: (input) => {
+      synth: (input, report) => {
         const path = input.doc.value;
-        // A name that a kind around the reference binds has a type. Roots, paths and addresses wait for K25.
-        if (input.address || input.paths.length > 0 || !Array.isArray(path) || path.length !== 2 || path[0] !== "names" || !isKey(path[1])) return "unknown";
-        return input.nameType(String(path[1])) ?? "unknown";
+        // An address gives a thing, not a value. The check gives #VALUE! for a path that is not a list.
+        if (input.address || !Array.isArray(path) || path.length === 0) return "unknown";
+        const domains = input.machine.domains;
+        const plain = input.machine.plain === true;
+        let type: ValueType;
+        let start: number;
+        if (path[0] === "names") {
+          const name = path[1];
+          // The record of the names holds the error of a failed binding, thus the path ["names"] has no type. A record
+          // of names with only the keys of a header is an envelope, and a path into it asks the ladder.
+          if (!isKey(name) || (!plain && HEADER_KEYS.has(String(name)))) return "unknown";
+          type = input.nameType(String(name)) ?? "unknown";
+          start = 2;
+        } else {
+          type = input.rootType(String(path[0]));
+          start = 1;
+        }
+        for (let index = start; ; index += 1) {
+          // A path follows a reference document that it reaches, and it asks the ladder for a step into an envelope.
+          if (isUnknown(type, domains) || (!plain && holdsEnvelope(type, domains))) return "unknown";
+          if (index >= path.length) return type;
+          const step = path[index];
+          // A step document gives what its walker reaches. It has no type yet.
+          if (!isKey(step)) return "unknown";
+          const next = stepType(type, step, domains, input.contract);
+          if ("missing" in next) {
+            const fields = next.missing.length === 0 ? "" : ` Its fields are ${listText(next.missing)}.`;
+            report({ reason: `The value at ${path.slice(0, index).map(String).join(".")} has no field ${String(step)}.${fields}` });
+            return "unknown";
+          }
+          type = next.type;
+        }
       },
     },
 

@@ -6,7 +6,7 @@ import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, wor
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
-import { type TypeNode, type Typed, typePass } from "./typing.ts";
+import { type RootTypes, type TypeNode, type Typed, typePass } from "./typing.ts";
 
 /** One document that a walk visits. */
 export interface DocVisit {
@@ -444,6 +444,11 @@ export interface CheckOptions {
    * has neither problem.
    */
   readonly run?: boolean;
+  /**
+   * The value types of the roots and of the names of the host, for the check of the value types (TYPE.ROOTS). A
+   * reference then gets the type that its path reaches. Only a check with `types: true` reads them.
+   */
+  readonly rootTypes?: RootTypes;
 }
 
 /** The result of `typeCheck`. */
@@ -544,15 +549,18 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
  * A type issue has the code `#TYPE!`, the type that the position needs (`expected`) and the type that the check found
  * (`found`). It is a static finding: the evaluation of the document does not change.
  *
+ * The option `rootTypes` gives the types of the roots and of the names of the host (TYPE.ROOTS). A reference then gets
+ * the type that its path reaches, and a field that a closed record does not have is a type issue (TYPE.CLOSED).
+ *
  * @param machine - The world and the code of the evaluators, with their type rules.
  * @param doc - The document, as JSON.
- * @param options - The options of `check`, and the type that the root must have.
+ * @param options - The options of `check`, the type that the root must have and the types of the roots.
  * @returns The type of the root, each issue, and the type of each document.
  */
 export function typeCheck(machine: Machine, doc: unknown, options: CheckOptions = {}): Typing {
   const nodes: TypeNode[] = [];
   const issues = checkAll(machine, doc, options, nodes);
-  const pass = typePass(machine, nodes, options.verb ?? "eval", options.expect);
+  const pass = typePass(machine, nodes, options.verb ?? "eval", options.expect, options.rootTypes);
   return { type: pass.type, issues: pass.issues.length === 0 ? issues : [...issues, ...pass.issues], places: pass.places };
 }
 
