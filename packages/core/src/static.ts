@@ -5,6 +5,8 @@ import { type PartSlot, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Root, ROOTS, isRef, walkerOf } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits } from "./evaluate.ts";
+import type { ValueType } from "./types.ts";
+import { type TypeNode, type Typed, typePass } from "./typing.ts";
 
 /** One document that a walk visits. */
 export interface DocVisit {
@@ -162,6 +164,8 @@ function keysOf(trail: Trail | undefined): readonly Key[] {
 class Visit implements DocVisit {
   readonly #place: Trail | undefined;
   readonly #at: Trail | undefined;
+  readonly #bound: readonly string[];
+  readonly #expect: ValueType | undefined;
 
   constructor(
     place: Trail | undefined,
@@ -177,9 +181,23 @@ class Visit implements DocVisit {
     readonly typePath: readonly Key[] | undefined,
     readonly address: true | undefined,
     readonly caps: readonly Cap[] | undefined,
+    bound: readonly string[],
+    expect: ValueType | undefined,
   ) {
     this.#place = place;
     this.#at = at;
+    this.#bound = bound;
+    this.#expect = expect;
+  }
+
+  /** The names that the scope rules of the parent bind for this document. The check of types reads them. */
+  get bound(): readonly string[] {
+    return this.#bound;
+  }
+
+  /** The type that the shape of the parent declares for this part. The check of types reads it. */
+  get expect(): ValueType | undefined {
+    return this.#expect;
   }
 
   get place(): readonly Key[] {
@@ -216,6 +234,8 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     readonly slot: readonly Key[];
     readonly parent: DocVisit | undefined;
     readonly caps: readonly Cap[] | undefined;
+    readonly bound: readonly string[];
+    readonly expect: ValueType | undefined;
   }
   const stack: Item[] = [
     {
@@ -230,6 +250,8 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       slot: [],
       parent: undefined,
       caps: options.caps,
+      bound: [],
+      expect: undefined,
     },
   ];
   while (stack.length > 0) {
@@ -254,6 +276,8 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       read.typePath,
       item.address ? true : undefined,
       item.caps,
+      item.bound,
+      item.expect,
     );
     const answer = visit(here);
     if (answer === "skip" || kind === undefined) continue;
@@ -279,6 +303,8 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         slot: slot.path,
         parent: here,
         caps: item.caps === undefined || kind.caps === undefined ? item.caps : partCaps(kind.caps, slot.path, item.caps),
+        bound: extra,
+        expect: slot.expect,
       });
     }
   }
@@ -380,6 +406,10 @@ export interface Issue {
   readonly reason: string;
   /** The keys from the root JSON value to the value with the problem. */
   readonly at?: readonly Key[];
+  /** The type that the position needs, for a type issue (`#TYPE!`). */
+  readonly expected?: ValueType;
+  /** The type that the check found, for a type issue (`#TYPE!`). */
+  readonly found?: ValueType;
 }
 
 /** The options of a check. */
@@ -395,10 +425,28 @@ export interface CheckOptions {
   readonly caps?: readonly Cap[];
   /**
    * The verb that goes up the ladder at each document, as in `prepare`. The default is `eval`. `#NOEVAL` and the hook
-   * `known` follow this verb. The contract declares the effects of `eval` only, thus only `eval` checks them
-   * (VERB.CHECK).
+   * `known` follow this verb. The contract declares the effects and the value types of `eval` only, thus only `eval`
+   * checks them (VERB.CHECK). The type rule of an evaluator serves each verb.
    */
   readonly verb?: string;
+  /**
+   * With `true`, the check also checks the value types (TYPE.CHECK). It reads the type rules of the evaluators, the
+   * signatures of the operations and the value types of the contracts. A type issue has the code `#TYPE!`. The
+   * default is `false`, thus a host opts in.
+   */
+  readonly types?: boolean;
+  /** The type that the root document must have, for the check of the value types. */
+  readonly expect?: ValueType;
+}
+
+/** The result of `typeCheck`. */
+export interface Typing {
+  /** The type of the root document. It is `unknown` when the root has an issue. */
+  readonly type: ValueType;
+  /** Each issue of the check. The type issues come after the other issues. */
+  readonly issues: readonly Issue[];
+  /** The type of each document, in the order of the document. */
+  readonly places: readonly Typed[];
 }
 
 /**
@@ -428,18 +476,56 @@ function capReason(v: DocVisit, kind: readonly Key[]): string {
  * - `#NAME?`: a name that nothing binds. With the hook `known` of the machine, also a name that the language does not
  *   have, for example an operation.
  * - `#CAP!`: an effect that the capabilities of its document do not permit. A kind around the document can narrow them.
+ * - `#TYPE!`: with the option `types`, a part whose type does not fit the type that its position needs (TYPE.CHECK).
+ *   A run does not always fail there, thus a type issue is a static finding, not an error of a run.
  *
  * The check asks the ladder for the verb of the options, `eval` by default (VERB.CHECK). The shapes, the paths and the
  * names follow the contracts, thus they are the same for each verb. Only `eval` checks the declared effects.
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
- * @param options - The type of a bare root value, the names of the host, the capabilities and the verb.
- * @returns The problems, in the order of the document.
+ * @param options - The type of a bare root value, the names of the host, the capabilities, the verb and the types.
+ * @returns The problems, in the order of the document. The type issues come after the other issues.
  */
 export function check(machine: Machine, doc: unknown, options: CheckOptions = {}): readonly Issue[] {
+  return options.types === true ? typeCheck(machine, doc, options).issues : checkAll(machine, doc, options, undefined);
+}
+
+/**
+ * This function checks a document, and it also checks the value types (TYPE.CHECK, D25). It finds each issue of
+ * `check`. Then it synthesizes the type of each document from the types of its parts. It also checks each part
+ * against the type that its position needs. The type rule of the parent, the signature of an operation or the shape
+ * of the contract gives that type. A part with an issue gets the type `unknown`, thus one
+ * problem does not give a chain of issues.
+ *
+ * A type issue has the code `#TYPE!`, the type that the position needs (`expected`) and the type that the check found
+ * (`found`). It is a static finding: the evaluation of the document does not change.
+ *
+ * @param machine - The world and the code of the evaluators, with their type rules.
+ * @param doc - The document, as JSON.
+ * @param options - The options of `check`, and the type that the root must have.
+ * @returns The type of the root, each issue, and the type of each document.
+ */
+export function typeCheck(machine: Machine, doc: unknown, options: CheckOptions = {}): Typing {
+  const nodes: TypeNode[] = [];
+  const issues = checkAll(machine, doc, options, nodes);
+  const pass = typePass(machine, nodes, options.verb ?? "eval", options.expect);
+  return { type: pass.type, issues: pass.issues.length === 0 ? issues : [...issues, ...pass.issues], places: pass.places };
+}
+
+/**
+ * This function finds the issues of `check`. With a list of nodes, it also records each document that it visits for
+ * the pass of types. It marks each document with an issue.
+ */
+function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: TypeNode[] | undefined): readonly Issue[] {
   const issues: Issue[] = [];
   const verb = options.verb ?? "eval";
+  const indices = nodes === undefined ? undefined : new Map<DocVisit, number>();
+  let current: TypeNode | undefined;
+  const push = (issue: Issue): void => {
+    issues.push(issue);
+    if (current !== undefined) current.marked = true;
+  };
   // The effects of a contract are the effects of eval (VERB.CONTRACT). An effect of another verb meets its test when
   // it happens (RUN.CAP).
   const effects = verb === "eval";
@@ -451,34 +537,42 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
     machine.world,
     doc,
     (v) => {
+      if (nodes !== undefined && indices !== undefined) {
+        current = { visit: v, bound: v instanceof Visit ? v.bound : [], expect: v instanceof Visit ? v.expect : undefined, children: [], evaluator: undefined, marked: false };
+        const parent = v.parent === undefined ? undefined : indices.get(v.parent);
+        if (parent !== undefined) nodes[parent]?.children.push(nodes.length);
+        indices.set(v, nodes.length);
+        nodes.push(current);
+      }
       if (v.depth > maxDepth) {
-        issues.push({ code: "#DEPTH!", place: v.place, reason: `The nesting is deeper than ${maxDepth} documents.`, at: v.at });
+        push({ code: "#DEPTH!", place: v.place, reason: `The nesting is deeper than ${maxDepth} documents.`, at: v.at });
         return "skip";
       }
       const header = v.declared ? {} : v.doc;
       const answer = ask(machine.world, header, verb, v.declared ? { declaredType: typeName(v.doc.type) } : {});
       if (answer.error === "unknown-kind") {
-        issues.push({ code: "#KIND?", place: v.place, reason: `The world has no kind ${typeName(v.doc.type)}.`, at: v.at });
+        push({ code: "#KIND?", place: v.place, reason: `The world has no kind ${typeName(v.doc.type)}.`, at: v.at });
         return "skip";
       }
       const name = answer.evaluator;
+      if (current !== undefined) current.evaluator = name;
       if (name === undefined || (!has(machine.evaluators, name) && !has(machine.runners, name))) {
-        issues.push({ code: "#NOEVAL", place: v.place, reason: `No rung gives an evaluator for ${typeName(v.doc.type)}.`, at: v.at });
+        push({ code: "#NOEVAL", place: v.place, reason: `No rung gives an evaluator for ${typeName(v.doc.type)}.`, at: v.at });
       } else if (machine.known !== undefined) {
         // The evaluator gives #NAME? in a run for a name that the language does not have, for example an operation.
         const known = machine.known(v.typePath ?? [], name);
-        if (known !== true) issues.push({ code: "#NAME?", place: v.place, reason: known, at: v.at });
+        if (known !== true) push({ code: "#NAME?", place: v.place, reason: known, at: v.at });
       }
       const caps = v.caps;
       if (effects && caps !== undefined && v.kind?.effects !== undefined) {
         const kinds: readonly (readonly Key[])[] = v.kind.effects === "type" ? [v.typePath ?? []] : v.kind.effects.map((kind) => kind.split("."));
         for (const kind of kinds) {
-          if (!permits(caps, kind)) issues.push({ code: "#CAP!", place: v.place, reason: capReason(v, kind), at: v.at });
+          if (!permits(caps, kind)) push({ code: "#CAP!", place: v.place, reason: capReason(v, kind), at: v.at });
         }
       }
       const isPath = isRef(v.doc);
       if (!isPath && v.typePath?.length === 1 && v.typePath[0] === "ref") {
-        issues.push({ code: "#VALUE!", place: v.place, reason: "The value of ref is a path: a list that starts with a root.", at: [...v.at, ...(v.declared ? [] : ["value"])] });
+        push({ code: "#VALUE!", place: v.place, reason: "The value of ref is a path: a list that starts with a root.", at: [...v.at, ...(v.declared ? [] : ["value"])] });
       }
       if (!isPath) return undefined;
       const path = v.doc.value as readonly Json[];
@@ -486,17 +580,17 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
       // The JSON path of a problem of a path goes to its step.
       const stepAt = (index: number): readonly Key[] => [...v.at, "value", ...(index < path.length ? [index] : [])];
       if (typeof root !== "string" || !(ROOTS as readonly string[]).includes(root)) {
-        issues.push({ code: "#REF!", place: v.place, reason: `A path starts with a root: ${ROOTS.join(", ")}.`, at: stepAt(0) });
+        push({ code: "#REF!", place: v.place, reason: `A path starts with a root: ${ROOTS.join(", ")}.`, at: stepAt(0) });
         // The step documents of the path are parts, and they evaluate before the path, thus the walk visits them.
         return undefined;
       }
       if (!roots.includes(root)) {
-        issues.push({ code: "#REF!", place: v.place, reason: `The root ${root} is not open here. The open roots are ${roots.join(", ")}.`, at: stepAt(0) });
+        push({ code: "#REF!", place: v.place, reason: `The root ${root} is not open here. The open roots are ${roots.join(", ")}.`, at: stepAt(0) });
       }
       const first = path[1];
       if (root === ("names" as Root) && !anyName && isKey(first) && !v.names.has(String(first))) {
         const later = v.later.has(String(first));
-        issues.push({
+        push({
           code: "#NAME?",
           place: v.place,
           reason: later ? `The name ${String(first)} is bound by a later step.` : `Nothing binds the name ${String(first)}.`,
@@ -507,7 +601,7 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
         if (index === 0 || isKey(step)) return;
         // The resolution finds the walker with the same function, thus the check and a run agree (VERB.LADDER).
         if (walkerOf(machine, step) === undefined) {
-          issues.push({ code: "#STEP?", place: v.place, reason: "A step is a key, or a document of a kind with the verb step.", at: stepAt(index) });
+          push({ code: "#STEP?", place: v.place, reason: "A step is a key, or a document of a kind with the verb step.", at: stepAt(index) });
         }
       });
       // The step documents of the path are parts when the kind ref has a deep shape. The walk checks them too.
@@ -517,7 +611,12 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
       ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
       ...(Array.isArray(options.names) ? { names: options.names } : {}),
       ...(options.caps === undefined ? {} : { caps: options.caps }),
-      problem: (problem) => issues.push({ code: problem.code, place: problem.place, reason: problem.reason, at: problem.at }),
+      problem: (problem) => {
+        issues.push({ code: problem.code, place: problem.place, reason: problem.reason, at: problem.at });
+        // A value without the shape of its kind is a problem of the document that the walk visited last. A part that is
+        // not a document has no visit, thus it marks nothing.
+        if (problem.code === "#VALUE!" && current !== undefined) current.marked = true;
+      },
     },
   );
   return issues;

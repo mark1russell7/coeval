@@ -230,6 +230,7 @@ function recordFits(
   b: Extract<Form, { readonly t: "record" }>,
   domains: Readonly<Record<string, Domain>> | undefined,
   depth: number,
+  gradual: boolean,
 ): boolean {
   if (b.closed && (!a.closed || Object.keys(a.fields).some((key) => !Object.hasOwn(b.fields, key)))) return false;
   for (const key of Object.keys(b.fields)) {
@@ -237,7 +238,7 @@ function recordFits(
     const needed = !b.optional.has(key);
     if (Object.hasOwn(a.fields, key)) {
       if (needed && a.optional.has(key)) return false;
-      if (!fitsAt(a.fields[key], want, domains, depth)) return false;
+      if (!fitsAt(a.fields[key], want, domains, depth, gradual)) return false;
     } else if (needed) {
       return false;
     } else if (!a.closed && formOf(want, domains).t !== "top") {
@@ -248,23 +249,27 @@ function recordFits(
   return true;
 }
 
-/** This function is the relation `fits` at one depth of two types. The order of its tests is the order of the rules of `fits`. */
-function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number): boolean {
+/**
+ * This function is the relation `fits` at one depth of two types. The order of its tests is the order of the rules of
+ * `fits`. Without `gradual`, `unknown` is only the top: it fits only `unknown`. The join uses this strict form.
+ */
+function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual = true): boolean {
   if (depth > MAX_TYPE_DEPTH) return true;
   const a = formOf(found, domains);
   const b = formOf(expected, domains);
   const next = depth + 1;
-  if (a.t === "top" || b.t === "top" || a.t === "bottom") return true;
-  if (a.t === "union") return a.members.every((item) => fitsAt(item, expected, domains, next));
+  if (b.t === "top" || a.t === "bottom") return true;
+  if (a.t === "top") return gradual;
+  if (a.t === "union") return a.members.every((item) => fitsAt(item, expected, domains, next, gradual));
   if (a.t === "one") return a.values.every((item) => memberAt(item, expected, domains, next));
   if (b.t === "bottom") return false;
-  if (b.t === "union") return b.members.some((item) => fitsAt(found, item, domains, next));
+  if (b.t === "union") return b.members.some((item) => fitsAt(found, item, domains, next, gradual));
   if (a.t === "base") return b.t === "base" && lineOf(a.name, domains).has(b.name);
-  if (a.t === "list") return b.t === "list" && fitsAt(a.item, b.item, domains, next);
-  if (a.t === "record") return b.t === "record" && recordFits(a, b, domains, next);
+  if (a.t === "list") return b.t === "list" && fitsAt(a.item, b.item, domains, next, gradual);
+  if (a.t === "record") return b.t === "record" && recordFits(a, b, domains, next, gradual);
   if (b.t !== "fn" || a.params.length > b.params.length) return false;
   // A function fits when it accepts each argument of the expected type, and when its result fits.
-  return a.params.every((param, index) => fitsAt(b.params[index], param, domains, next)) && fitsAt(a.to, b.to, domains, next);
+  return a.params.every((param, index) => fitsAt(b.params[index], param, domains, next, gradual)) && fitsAt(a.to, b.to, domains, next, gradual);
 }
 
 /**
@@ -293,6 +298,241 @@ function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<stri
  */
 export function fits(found: ValueType, expected: ValueType, domains?: Readonly<Record<string, Domain>>): boolean {
   return fitsAt(found, expected, domains, 0);
+}
+
+/** This function sets an own field of a new record. Only the key `__proto__` needs `defineProperty`. */
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === "__proto__") Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  else target[key] = value;
+}
+
+/** This function is the join of two record types. A field that only one record has is optional, or absent from an open record. */
+function joinRecords(
+  a: Extract<Form, { readonly t: "record" }>,
+  b: Extract<Form, { readonly t: "record" }>,
+  domains: Readonly<Record<string, Domain>> | undefined,
+  depth: number,
+): ValueType {
+  const closed = a.closed && b.closed;
+  const fields: Record<string, ValueType> = {};
+  const optional: string[] = [];
+  const keys = [...Object.keys(a.fields), ...Object.keys(b.fields).filter((key) => !Object.hasOwn(a.fields, key))];
+  for (const key of keys) {
+    const inA = Object.hasOwn(a.fields, key);
+    const inB = Object.hasOwn(b.fields, key);
+    if (inA && inB) {
+      setOwn(fields, key, joinAt(a.fields[key], b.fields[key], domains, depth));
+      if (a.optional.has(key) || b.optional.has(key)) optional.push(key);
+    } else if (closed) {
+      // The other record is closed, thus the field can be absent.
+      setOwn(fields, key, inA ? a.fields[key] : b.fields[key]);
+      optional.push(key);
+    }
+    // In an open record, a field of one side can hold each value on the other side. The open join leaves it out.
+  }
+  return { record: fields, ...(optional.length === 0 ? {} : { optional }), ...(closed ? { closed: true } : {}) };
+}
+
+/**
+ * This function makes a union of types. It puts the members of each inner union and each value of `one` together. It
+ * leaves out each member that fits another member, by the strict form of `fits`.
+ */
+function unionOf(types: readonly unknown[], domains: Readonly<Record<string, Domain>> | undefined, depth: number): ValueType {
+  const members: unknown[] = [];
+  const values: Json[] = [];
+  let valuesAt = -1;
+  const add = (type: unknown, level: number): void => {
+    const form = formOf(type, domains);
+    if (form.t === "bottom") return;
+    if (form.t === "union" && level <= MAX_TYPE_DEPTH) {
+      for (const item of form.members) add(item, level + 1);
+      return;
+    }
+    if (form.t === "one") {
+      if (valuesAt === -1) {
+        valuesAt = members.length;
+        members.push(undefined);
+      }
+      for (const value of form.values) if (!values.some((item) => docEquals(item, value))) values.push(value);
+      return;
+    }
+    members.push(type);
+  };
+  for (const type of types) add(type, depth);
+  if (valuesAt !== -1) members[valuesAt] = { one: values };
+  const kept: unknown[] = [];
+  for (const member of members) {
+    if (kept.some((item) => fitsAt(member, item, domains, depth, false))) continue;
+    for (let index = kept.length - 1; index >= 0; index -= 1) if (fitsAt(kept[index], member, domains, depth, false)) kept.splice(index, 1);
+    kept.push(member);
+  }
+  if (kept.length === 0) return "never";
+  return kept.length === 1 ? (kept[0] as ValueType) : { union: kept as ValueType[] };
+}
+
+/** This function is the join at one depth of two types. */
+function joinAt(a: unknown, b: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number): ValueType {
+  if (depth > MAX_TYPE_DEPTH) return "unknown";
+  const fa = formOf(a, domains);
+  const fb = formOf(b, domains);
+  if (fa.t === "top" || fb.t === "top") return "unknown";
+  if (fa.t === "bottom") return b as ValueType;
+  if (fb.t === "bottom") return a as ValueType;
+  // The strict form keeps the join sound: a type with `unknown` inside is not under a type without it.
+  if (fitsAt(a, b, domains, depth, false)) return b as ValueType;
+  if (fitsAt(b, a, domains, depth, false)) return a as ValueType;
+  const next = depth + 1;
+  if (fa.t === "list" && fb.t === "list") return { list: joinAt(fa.item, fb.item, domains, next) };
+  if (fa.t === "record" && fb.t === "record") return joinRecords(fa, fb, domains, next);
+  return unionOf([a, b], domains, next);
+}
+
+/**
+ * This function gives the join of two value types (TYPE.JOIN): a type that holds each member of both types. The check
+ * of a type uses it for the branches of an `if` and for the items of a list.
+ *
+ * - `unknown` with each type gives `unknown`, and `never` with a type gives that type.
+ * - When one type fits the other by the strict form of `fits`, the join is the wider type. The strict form reads
+ *   `unknown` only as the top.
+ * - Two lists give a list of the join of their items.
+ * - Two records give a record of the join of their common fields. A field of one closed record is optional in the
+ *   join of two closed records. The join of an open record leaves out the fields that only one record has.
+ * - Each other pair gives a union. The union puts the values of `one` together and leaves out each member that fits
+ *   another member.
+ *
+ * The join is sound: a member of `a` or of `b` is a member of the join. It is not always the least such type. The
+ * function does not throw.
+ *
+ * @param a - The first type.
+ * @param b - The second type.
+ * @param domains - The domains of the machine. A domain of the kernel that the table does not name comes from `STD_DOMAINS`.
+ * @returns The join.
+ */
+export function join(a: ValueType, b: ValueType, domains?: Readonly<Record<string, Domain>>): ValueType {
+  return joinAt(a, b, domains, 0);
+}
+
+/** The most values of `one` that the text of a type shows. */
+const MAX_TEXT_VALUES = 8;
+/** The most characters of one JSON value in the text of a type. */
+const MAX_TEXT_VALUE = 40;
+
+/** This function gives a short text of a JSON value for the text of a type. */
+function valueText(value: unknown): string {
+  let text: string;
+  try {
+    text = JSON.stringify(value) ?? String(value);
+  } catch {
+    text = String(value);
+  }
+  return text.length > MAX_TEXT_VALUE ? `${text.slice(0, MAX_TEXT_VALUE - 1)}…` : text;
+}
+
+/** This function gives the text of a type at one depth. `wrap` puts a union or a function type in brackets. */
+function textAt(type: unknown, depth: number, wrap: boolean): string {
+  if (depth > MAX_TYPE_DEPTH) return "unknown";
+  if (typeof type === "string") return type;
+  const term = isRecord(type) ? termOf(type) : undefined;
+  if (!isRecord(type) || term === undefined) return "unknown";
+  const next = depth + 1;
+  const group = (items: readonly string[]): string => (items.length === 0 ? "never" : items.length > 1 && wrap ? `(${items.join(" | ")})` : items.join(" | "));
+  if (term === "list") return `list<${textAt(type["list"], next, false)}>`;
+  if (term === "union") return Array.isArray(type["union"]) ? group((type["union"] as readonly unknown[]).map((item) => textAt(item, next, true))) : "unknown";
+  if (term === "one") {
+    if (!Array.isArray(type["one"])) return "unknown";
+    const values = type["one"] as readonly unknown[];
+    const shown = values.slice(0, MAX_TEXT_VALUES).map(valueText);
+    return group(values.length > MAX_TEXT_VALUES ? [...shown, `… ${values.length - MAX_TEXT_VALUES} more`] : shown);
+  }
+  if (term === "fn") {
+    if (!Array.isArray(type["fn"])) return "unknown";
+    const text = `(${(type["fn"] as readonly unknown[]).map((item) => textAt(item, next, false)).join(", ")}) => ${textAt(type["to"], next, true)}`;
+    return wrap ? `(${text})` : text;
+  }
+  const fields = type["record"];
+  if (!isRecord(fields)) return "unknown";
+  const optional = Array.isArray(type["optional"]) ? (type["optional"] as readonly unknown[]) : [];
+  const items = Object.keys(fields).map((key) => {
+    const name = /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key);
+    return `${name}${optional.includes(key) ? "?" : ""}: ${textAt(fields[key], next, false)}`;
+  });
+  if (type["closed"] !== true) items.push("...");
+  return `{${items.join(", ")}}`;
+}
+
+/**
+ * This function gives the text of a value type (TYPE.TEXT), for the reason of an issue. The function does not throw.
+ *
+ * - A base type gives its name.
+ * - `list<T>` is a list, `{a: T, b?: U}` is a closed record, and `{a: T, ...}` is an open record.
+ * - `(T, U) => V` is a function, and `T | U` is a union.
+ * - `one` gives its values as JSON, and an empty union gives `never`.
+ * - A term that is not a value type gives `unknown`.
+ *
+ * The text shows at most 8 values of `one`, and it cuts a long value.
+ *
+ * @param type - The value type.
+ * @returns The text.
+ */
+export function typeText(type: ValueType): string {
+  return textAt(type, 0, false);
+}
+
+/*
+ * The functions below read one level of a type for the type rules of the kit. The package does not export them.
+ */
+
+/** This function tells if a type reads as `unknown`. Such a type is the top, a term that is not a value type, or a base type without a domain. */
+export function isUnknown(type: unknown, domains: Readonly<Record<string, Domain>> | undefined): boolean {
+  return formOf(type, domains).t === "top";
+}
+
+/** This function gives the type of the items of a list type, or `undefined` for each other type. */
+export function itemOf(type: unknown, domains: Readonly<Record<string, Domain>> | undefined): ValueType | undefined {
+  const form = formOf(type, domains);
+  return form.t === "list" ? form.item : undefined;
+}
+
+/** This function gives the type of a field of a record type, or `undefined` when the type is not a record with the field. */
+export function fieldOf(type: unknown, key: string, domains: Readonly<Record<string, Domain>> | undefined): ValueType | undefined {
+  const form = formOf(type, domains);
+  return form.t === "record" && Object.hasOwn(form.fields, key) ? form.fields[key] : undefined;
+}
+
+/** This function gives the parameters and the result of a function type, or `undefined` for each other type. */
+export function fnOf(type: unknown, domains: Readonly<Record<string, Domain>> | undefined): { readonly params: readonly ValueType[]; readonly to: ValueType } | undefined {
+  const form = formOf(type, domains);
+  return form.t === "fn" ? { params: form.params, to: form.to } : undefined;
+}
+
+/** This function tells if each value of a type can be a function. Such a type is the top, the bottom, a function type, or a union of them. */
+export function callable(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth = 0): boolean {
+  if (depth > MAX_TYPE_DEPTH) return true;
+  const form = formOf(type, domains);
+  if (form.t === "top" || form.t === "bottom" || form.t === "fn") return true;
+  if (form.t === "union") return form.members.every((item) => callable(item, domains, depth + 1));
+  return form.t === "one" && form.values.length === 0;
+}
+
+/** This function tells if a type has no `unknown` at any depth. Then `fits` decides it without the gradual rule. */
+export function isPrecise(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth = 0): boolean {
+  if (depth > MAX_TYPE_DEPTH) return false;
+  const form = formOf(type, domains);
+  const next = depth + 1;
+  switch (form.t) {
+    case "top":
+      return false;
+    case "list":
+      return isPrecise(form.item, domains, next);
+    case "record":
+      return Object.keys(form.fields).every((key) => isPrecise(form.fields[key], domains, next));
+    case "fn":
+      return form.params.every((item) => isPrecise(item, domains, next)) && isPrecise(form.to, domains, next);
+    case "union":
+      return form.members.every((item) => isPrecise(item, domains, next));
+    default:
+      return true;
+  }
 }
 
 /** A term that `typeIssues` reads later: the term, its keys from the root and its depth. */

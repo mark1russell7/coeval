@@ -1,5 +1,6 @@
 import { type Envelope, type Json, type Key, type TypeRef, field, isRecord, typePath } from "./doc.ts";
 import type { Cap } from "./deref.ts";
+import type { ValueType } from "./types.ts";
 
 /** The two sides of evaluation. `derive` is pure. `run` causes effects in order. */
 export type Side = "derive" | "run";
@@ -20,12 +21,15 @@ export type Side = "derive" | "run";
  * A `term` with `address: true` is an address: a reference there gives what its path reaches, not the value. A
  * `term` with `kinds` permits only a part whose type starts with one of the paths. A `record` with `closed: true`
  * permits only its named fields. A `list` with `distinct: true` permits no two equal items.
+ *
+ * `expect` is the value type that a part must have, as `of` is its type (TYPE.CHECK). A shape with parts gives it to
+ * each part that `of` covers. Only a check of types reads it, and it describes the verb `eval`.
  */
 export type Shape =
   | { readonly shape: "none" }
-  | { readonly shape: "term"; readonly of?: string; readonly address?: boolean; readonly kinds?: readonly (readonly Key[])[] }
-  | { readonly shape: "list"; readonly of?: string; readonly item?: Shape; readonly distinct?: boolean }
-  | { readonly shape: "map"; readonly of?: string; readonly item?: Shape }
+  | { readonly shape: "term"; readonly of?: string; readonly address?: boolean; readonly kinds?: readonly (readonly Key[])[]; readonly expect?: ValueType }
+  | { readonly shape: "list"; readonly of?: string; readonly item?: Shape; readonly distinct?: boolean; readonly expect?: ValueType }
+  | { readonly shape: "map"; readonly of?: string; readonly item?: Shape; readonly expect?: ValueType }
   | {
       readonly shape: "record";
       readonly fields: readonly string[] | Readonly<Record<string, Shape>>;
@@ -33,8 +37,9 @@ export type Shape =
       readonly required?: readonly string[];
       readonly rest?: Shape;
       readonly closed?: boolean;
+      readonly expect?: ValueType;
     }
-  | { readonly shape: "deep"; readonly of?: string }
+  | { readonly shape: "deep"; readonly of?: string; readonly expect?: ValueType }
   | { readonly shape: "text" }
   | { readonly shape: "number"; readonly whole?: boolean; readonly min?: number; readonly max?: number }
   | { readonly shape: "one"; readonly values: readonly Json[] };
@@ -145,6 +150,11 @@ export interface Kind extends KindFacts {
    * The text `"type"` means that the kind of the effect is the type of the document itself, as for a call.
    */
   readonly effects?: "type" | readonly string[];
+  /**
+   * The value type of the result of the verb `eval`, when it is fixed (TYPE.SYNTH). A check of types gives it to each
+   * document of the kind, in the place of the type that the rule of the evaluator synthesizes.
+   */
+  readonly result?: ValueType;
   /** One sentence that tells what the kind is. */
   readonly summary?: string;
 }

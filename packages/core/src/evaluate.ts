@@ -3,6 +3,7 @@ import { type Split, partsOf, pathMatches } from "./parts.ts";
 import { answerOf, ask, type Answer } from "./ladder.ts";
 import type { CapsRule, KindFacts, Side } from "./world.ts";
 import type { Domain } from "./types.ts";
+import type { TypeRule } from "./typing.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
@@ -489,6 +490,11 @@ export interface CompiledEvaluator {
    * @returns The code that evaluates the document.
    */
   readonly compile: (input: CompileInput) => Code;
+  /**
+   * The type rule of the evaluator: the value types that a check of types gives its documents and their parts
+   * (TYPE.RULE). Only a check reads it. An evaluator without a rule gives `unknown`.
+   */
+  readonly type?: TypeRule;
 }
 
 /** An evaluator: a function of its input, or a compiler. */

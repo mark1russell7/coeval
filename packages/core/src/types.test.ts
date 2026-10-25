@@ -10,11 +10,13 @@ import {
   STD_MACHINE,
   fits,
   formulaMachine,
+  join,
   member,
   mergeMachines,
   random,
   restrictMachine,
   typeIssues,
+  typeText,
 } from "./index.ts";
 
 /** The domains of a small language: refinements of numbers, a unit of length and a color. */
@@ -415,5 +417,82 @@ describe("value types and value domains", () => {
     const without = restrictMachine(both, [["domains", "color"]]);
     expect(Object.keys(without.domains ?? {})).not.toContain("color");
     expect(fits("color", "number", without.domains)).toBe(true);
+  });
+
+  it("[TYPE.JOIN] the join holds each member of both types, and both types fit it, for generated types without unknown", () => {
+    const pool = poolOf(31, 50, false);
+    const rng = random(13);
+    let checked = 0;
+    for (const a of pool) {
+      for (const b of pool) {
+        const joined = join(a, b, DOMAINS);
+        const label = `${JSON.stringify(a)} join ${JSON.stringify(b)} = ${JSON.stringify(joined)}`;
+        expect(fits(a, joined, DOMAINS) && fits(b, joined, DOMAINS), label).toBe(true);
+        for (const side of [a, b]) {
+          const value = sampleOf(rng, side);
+          if (value === NONE) continue;
+          checked += 1;
+          expect(member(value, joined, DOMAINS), `${JSON.stringify(value)}: ${label}`).toBe(true);
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(5000);
+  });
+
+  it("[TYPE.JOIN] unknown absorbs, never is the unit, and lists, records, one and unions join by their parts", () => {
+    for (const type of poolOf(17, 30, true)) {
+      expect(join("unknown", type, DOMAINS)).toBe("unknown");
+      expect(join(type, "never", DOMAINS)).toBe(type);
+      expect(join(type, type, DOMAINS)).toBe(type);
+    }
+    expect(join({ one: [1] }, { one: [2] })).toEqual({ one: [1, 2] });
+    expect(join({ one: [1] }, { one: [2, 1] })).toEqual({ one: [2, 1] });
+    expect(join("number", { one: [1] })).toBe("number");
+    expect(join("whole", "finite", DOMAINS)).toBe("finite");
+    expect(join("number", "text")).toEqual({ union: ["number", "text"] });
+    expect(join({ list: { one: [1] } }, { list: { one: ["a"] } })).toEqual({ list: { one: [1, "a"] } });
+    expect(join({ union: ["number", { one: ["a"] }] }, { one: ["b"] })).toEqual({ union: ["number", { one: ["a", "b"] }] });
+    // The strict form keeps the join sound: a list of unknown items is wider than a list of numbers.
+    expect(join({ list: "unknown" }, { list: "number" })).toEqual({ list: "unknown" });
+    // Two closed records: a field of one record is optional. An open record keeps only the common fields.
+    expect(join({ record: { a: "number" }, closed: true }, { record: { b: "text" }, closed: true })).toEqual({ record: { a: "number", b: "text" }, optional: ["a", "b"], closed: true });
+    expect(join({ record: { a: "number", c: "bool" } }, { record: { a: "text" }, closed: true })).toEqual({ record: { a: { union: ["number", "text"] } } });
+    expect(join({ record: { a: "number" }, optional: ["a"], closed: true }, { record: { a: "whole" }, closed: true }, DOMAINS)).toEqual({ record: { a: "number" }, optional: ["a"], closed: true });
+    // A field with the name __proto__ stays an own field.
+    const proto = join(JSON.parse('{"record":{"__proto__":{"one":[1]}},"closed":true}') as ValueType, JSON.parse('{"record":{"__proto__":{"one":[2]}},"closed":true}') as ValueType);
+    expect(member(JSON.parse('{"__proto__":2}'), proto)).toBe(true);
+    expect(member({}, proto)).toBe(false);
+  });
+
+  it("[TYPE.TEXT] typeText gives a short text of each term for the reason of an issue", () => {
+    const cases: readonly (readonly [unknown, string])[] = [
+      ["number", "number"],
+      ["color", "color"],
+      [{ list: "text" }, "list<text>"],
+      [{ record: { a: "number", b: "text" }, optional: ["b"], closed: true }, "{a: number, b?: text}"],
+      [{ record: { a: "number" } }, "{a: number, ...}"],
+      [{ record: {} }, "{...}"],
+      [{ record: {}, closed: true }, "{}"],
+      [{ record: { "a b": "null" }, closed: true }, '{"a b": null}'],
+      [{ fn: ["number", "text"], to: "bool" }, "(number, text) => bool"],
+      [{ union: ["number", "null"] }, "number | null"],
+      [{ union: [] }, "never"],
+      [{ one: [] }, "never"],
+      [{ one: [1, "a", null, [true]] }, '1 | "a" | null | [true]'],
+      [{ list: { union: ["number", "text"] } }, "list<number | text>"],
+      [{ union: [{ fn: [], to: "number" }, "null"] }, "(() => number) | null"],
+      [{ fn: ["number"], to: { union: ["text", "null"] } }, "(number) => (text | null)"],
+      [{ var: "A" }, "unknown"],
+      [{ list: "number", extra: 1 }, "unknown"],
+    ];
+    for (const [type, text] of cases) expect(typeText(type as ValueType), JSON.stringify(type)).toBe(text);
+    // A long list of values and a long value are cut.
+    expect(typeText({ one: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] })).toBe("1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | … 4 more");
+    expect(typeText({ one: ["x".repeat(100)] })).toHaveLength(40);
+    // A deep term and a value that JSON cannot write do not throw.
+    let deep: ValueType = "number";
+    for (let index = 0; index < 400; index += 1) deep = { list: deep };
+    expect(typeText(deep)).toMatch(/^list<.*unknown.*>$/);
+    expect(typeText({ one: [10n as unknown as Json] })).toBe("10");
   });
 });
