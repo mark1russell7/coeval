@@ -30,6 +30,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 16. S1b: a list of reads for each evaluation, and `verifyReads` (R4 P3): done (2026-10-24, D26), released in the next batch. An evaluation records each path that it resolves, with what the path reached and the mark `free`. `verifyReads` resolves each free read again with the rules of `sameResult`, and it gives the first changed read. A test of generated documents changes the contexts at random and finds no stale result.
 17. K18 and K19: the effects that reach the host, and the check of the waits of a run (R2 P3, P4) (done, 2026-10-24, D27, released in the next batch). `effectsOf` gives the declared effects that no mask or rule `only` removes, thus a host can grant the least authority. A procedure value keeps the capabilities of its maker, and `checkLatent` compares the latent effects of a procedure with its body. `check` asks the hook `permits`, and its option `run` finds a runner under a parent that cannot wait. The rule `grant` moved to L1a.
 18. K25: the types of the roots, of the names and of the paths (R5 P4) (done, 2026-10-24, D28, released in the next batch). The host gives the types of its names, `self`, `world` and `event` in the option `rootTypes`. A reference gets the type that its path reaches, and a missing field of a closed record gives `#TYPE!`. `typeFromSchema` and `typeFromSamples` make such types, `Domain.steps` types a step into a domain, and `extendDomain` adds parents to a foreign domain. The work closed a hole of K24: a name bound to a reference document had the type of that document.
+19. S1c: two levels of durability (R4 P7) (done, 2026-10-24, D30, released in the next batch). `durable` keeps one epoch for the structure and one for the data. A plan and the facts stay for each document object, thus a change of data compiles nothing. After a change of data, a pure document verifies its reads, and another document evaluates again. A test of random edits, new machines and changes of data finds no stale result.
 
 On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
 
@@ -119,6 +120,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K75 | A language compiles its own paths: an export of `compilePath`, and a route through `Runtime` that records the reads, for the second tier of a language (D13). Today only the formula kit uses compiled paths. From K12. | later | K12 |
 | K76 | The mark "total" for compiled code: `compileNode` does not wrap the code of `lit` in `placedCode`, thus a literal costs one call (R1 P2). From K12. | later | K12 |
 | K77 | The standard evaluator `ref.resolve` compiles its path. It is a function evaluator, thus each evaluation resolves its path again. It needs a definition for the reference (REF.DIRECT). From K12. | later | K12 |
+| K80 | `planner` keeps the plan of `0` for the document `-0`, because a `Map` finds the same entry for both. Thus the plan of `-0` gives `0`. `durable` keeps `-0` apart. From S1c. | later | none |
 
 ## The kits
 
@@ -145,10 +147,10 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
-| S1 | The interface of a schedule: the graph of the data and the side of each kind | later (S1a and S1b are done, from R4. S1 still needs S1c, a CI benchmark of the cost of the list of reads, and answers to the open questions 4 and 5 of R4: the node that a read depends on, and the run side) | K2 |
+| S1 | The interface of a schedule: the graph of the data and the side of each kind | later (S1a, S1b and S1c are done, from R4. S1 still needs a CI benchmark of the cost of the list of reads, and answers to the open questions 4 and 5 of R4: the node that a read depends on, and the run side. Then one interface joins `factsOf`, the reads and `durable`) | K2 |
 | S1a | `factsOf` gives the static facts of a document: its reads with marks for lazy parts, its side, its effects, and the marks `pure` and `volatile` (R4 P2) | done (2026-10-24, D24, released in the next batch) | K2, K3 |
 | S1b | A list of reads for each evaluation, and `verifyReads`, which keeps an old result when each read gives the same thing again (R4 P3) | done (2026-10-24, D26, released in the next batch) | K4 |
-| S1c | Two levels of durability: a host keeps one epoch for the structure and one for the data, thus a change of data compiles nothing (R4 P7) | later | S1a |
+| S1c | Two levels of durability: a host keeps one epoch for the structure and one for the data, thus a change of data compiles nothing (R4 P7) | done (2026-10-24, D30, released in the next batch: `durable`, `Epochs`) | S1a, S1b |
 | S2 | The static analysis: cycles, an order for a push schedule, and the independent groups, with a new `graph.ts` (R4 P5) | later | S1a |
 | S3 | Adapters to the reactive engines of the hosts | later (S3a and S3b first, from R4) | S1 |
 | S3a | A harness for one meaning across schedules: a model-based test, and `agreeSchedule(engine)` for the engine of each host (R4 P4) | later | K9, K22, S1b |
@@ -188,7 +190,7 @@ Each study answers one research question and ranks its proposals. The folder `do
 | R1 | [Staging and partial evaluation](research/r1-staging.md) | done (2026-10-24) | K9, K12 to K17. K12 adds K75 to K77. |
 | R2 | [Algebraic effects, handlers and the run side](research/r2-effects.md) | done (2026-10-24) | K10, K11, K18, K19, L1a, L1b, S4. K18 and K19 add K64 and K65. |
 | R3 | [Attribute grammars and the tree kit](research/r3-attribute-grammars.md) | done (2026-10-24) | L2a to L2i |
-| R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1a to S1c, S2, S3a to S3c, C10. R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
+| R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1a to S1c, S2, S3a to S3c, C10. S1c adds K80. R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
 | R5 | [Types and abstract interpretation for `check`](research/r5-types.md) | done (2026-10-24) | K20, K23 to K31 |
 | R6 | [Language workbenches and extensibility](research/r6-workbenches.md) | done (2026-10-24) | K32 to K38, C11. K34 adds K40 and K41. |
 
