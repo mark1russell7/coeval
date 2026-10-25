@@ -1,7 +1,7 @@
 import type { Key } from "./doc.ts";
 import { type Context, type HostThing, type Thing, THING, context as contextOf } from "./deref.ts";
 import { type Failed, type Result, Failure, fail } from "./errors.ts";
-import type { Machine, Perform, StopSignal } from "./evaluate.ts";
+import { type Machine, type Perform, type StopSignal, rootContext } from "./evaluate.ts";
 import { type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 import type { DocFacts, StaticRead } from "./facts.ts";
 import type { Side } from "./world.ts";
@@ -318,7 +318,9 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       has: (key) => docs.has(String(key)),
       toJson: record,
     };
-    now = { context: { ...base, world: nodesThing }, values: new Map() };
+    // The context has a world, thus `rootContext` only gives it its grant (CAP.NARROW-CODE). Each evaluation of the
+    // epoch then uses this object with no copy.
+    now = { context: rootContext(machine, { ...base, world: nodesThing }), values: new Map() };
     return now;
   };
 

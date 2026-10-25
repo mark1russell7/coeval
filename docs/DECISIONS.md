@@ -694,3 +694,38 @@ A run of the harness compares approximately 8500 reads, and approximately 1800 o
 - S1f: each node gets the same context. One formula at each cell of a grid needs its own `self` for each node.
 
 **Next.** S2 reads `graph()`: the components, the heights for a push schedule and the nodes that an observer needs. S3a takes the harness to more schedules, and S3b gives each node a signal.
+
+## D32 (2026-10-25): a context carries the grant of the kernel, and compiled code cannot widen it
+
+**Context.** The study R7 found a gap in CAP.NARROW (fact 4, P2). The kernel narrows each context that a function evaluator gives a part (`narrow`). A compiled evaluator or a compiled runner gives the code of a part a context that it makes itself. Thus it can give a part more capabilities than its document has.
+
+A probe of R7 gave a part the capabilities `log` and `write`, under a root without capabilities. The plan caused the effect `log` and gave `"hi"`, and the reference gave `#CAP!`. The code of a part is made one time, in `prepare`. Thus it does not know the context of each evaluation of its parent.
+
+**Decision.**
+
+- Each context that the kernel gives the code of a document carries a grant: the capabilities that the kernel gave the document. The grant is a field with a private symbol as its key (CAP.NARROW-CODE).
+- A spread of a context keeps its grant. Thus compiled code passes the grant of its document on, in each context that it makes with a spread. A closure of `fn` keeps the grant of its maker (CAP.LATENT).
+- At the start of each document, the kernel compares the capabilities of the context with its grant. When the two are the same list, nothing changes. Otherwise the context keeps only the capabilities that its grant permits, and it gets the grant of that list.
+- The rules of a contract (D14) narrow the context after this step. Thus compiled code cannot widen what a rule `only` or `mask` gives a part.
+- An effect of compiled code (`Runtime.effect` and `Runtime.runEffect`) gets the same step. Thus the code cannot widen the context of its own effect.
+- A context that compiled code makes without a spread has no grant, thus it gives no capabilities. The kernel cannot know the document of such a context.
+- The root gets the grant of the capabilities that the host gives. A part of a function evaluator gets the grant of the context that `narrow` gives it.
+- A widening is silent. The part keeps the capabilities of its document, and an effect beyond them gives `#CAP!` at its place. The reference narrows the parts of each definition, thus it gives the same result. A trace records the narrowed capabilities.
+
+**Rejected.**
+
+- A view of the runtime for each evaluation of a compiled document (R7 P2, option 1). It costs one object for each evaluation of a document with parts. A runtime that wraps the runtime of the kernel (D29) also loses the view.
+- A promise of the obligation C1, with a strict option of `prepare` (R7 P2, option 2). Then only a test supports the claim, and only for code that keeps the promise.
+- A check in `prepare`. The capabilities come with each evaluation, thus a compilation does not know them.
+- A record of the current document in the runtime. A closure evaluates its body after its maker ends. Such a record then gives the closure the capabilities of its caller, and that breaks CAP.LATENT.
+- A context without a grant that keeps its capabilities. Then compiled code widens with `makeContext`, and the gap stays open.
+- A grant from `makeContext` and `context`. Then each new context has a grant, and the gap stays open the same way.
+- A shared key from `Symbol.for`. Only the kernel writes a grant, thus no other code needs the key.
+
+**Why.** The grant follows each path of a context: a part, a lazy operation, a closure, an own effect and a runtime that another runtime wraps. Thus CAP.NARROW holds by construction for each form of an evaluator. The static kit and the reference stay as they are.
+
+The cost is one comparison at the start of each document, without a new object. A new object comes only when code changes the capabilities of a context. The root also makes one when the host gives a world and no grant. A schedule gives the context of each epoch its grant one time, thus a demand makes no copy.
+
+The change is a correction. A language whose compiled code makes each context with a spread gets the same results. Compiled code that makes the context of a part without a spread gives that part no capabilities after this change. `agree` then finds a difference from the definition of the code.
+
+**Next.** K92 tests the obligation C1 for each evaluator of a kit. K100: a resolution of the root `caps` from compiled code reads the context that the code gives. The rule `grant` of L1a writes the grant of a part, through the rules of the contract.

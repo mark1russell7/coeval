@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   type AgreeOptions,
   type CompiledEvaluator,
+  type CompiledRunner,
   type Context,
+  type Definitions,
   type Effect,
   type EvalError,
   type FormulaProfile,
@@ -24,6 +26,7 @@ import {
   check,
   context,
   docEquals,
+  evaluate,
   fail,
   formulaDefinitions,
   formulaEvaluators,
@@ -34,10 +37,13 @@ import {
   jsTruthy,
   lookupKind,
   mergeMachines,
+  nodeAt,
   ok,
+  permits,
   prepare,
   random,
   reference,
+  run,
   sameValue,
   typeName,
   typesOf,
@@ -153,6 +159,101 @@ const STD_OPTIONS: Omit<GenerateOptions, "seed"> = {
     if (name === "nearest") return rng.pick<Json>([{ type: "panel" }, { type: "box", self: true }, { type: "none" }, "panel"]);
     return undefined;
   },
+};
+
+/*
+ * Compiled code that tries to give its parts more capabilities than its document has (CAP.NARROW-CODE, R7 P2). The
+ * definitions of the reference try the same with function code, which the kernel narrows.
+ */
+
+const WIDE: readonly string[] = ["log", "write", "more"];
+
+/** This function gives the context with more capabilities that each kind below gives its parts. */
+function widened(ctx: Context): Context {
+  return { ...ctx, caps: WIDE };
+}
+
+/** This function gives the values of results in their order, or the first error. */
+function valuesOf(results: Iterable<Result>): Result {
+  const values: unknown[] = [];
+  for (const result of results) {
+    if (!result.ok) return result;
+    values.push(result.value);
+  }
+  return ok(values);
+}
+
+/** A compiled evaluator that gives each part a context with more capabilities. */
+const widenCode: CompiledEvaluator = {
+  compile: ({ parts }) => (ctx, rt) => valuesOf(parts.map((part) => part.code(widened(ctx), rt))),
+};
+
+/** A compiled runner that gives each part a context with more capabilities. */
+const widenRun: CompiledRunner = {
+  compileRun: ({ parts }) =>
+    function* (ctx, rt): Steps {
+      const results: Result[] = [];
+      for (const part of parts) {
+        const result = yield* part.run(widened(ctx), rt);
+        results.push(result);
+        if (!result.ok) break;
+      }
+      return valuesOf(results);
+    },
+};
+
+/** A compiled evaluator that causes its own effect in a context with more capabilities. */
+const shoutCode: CompiledEvaluator = {
+  compile: ({ parts, place }) => (ctx, rt) => {
+    const values = valuesOf(parts.map((part) => part.code(ctx, rt)));
+    return values.ok ? rt.effect(widened(ctx), "log", values.value, place) : values;
+  },
+};
+
+const widening: Machine = {
+  ...waiting,
+  world: {
+    ...waiting.world,
+    kinds: {
+      ...waiting.world.kinds,
+      widen: { verbs: { eval: "test.widen" }, parts: { shape: "list" } },
+      widenRun: { verbs: { eval: "test.widen-run" }, parts: { shape: "list" } },
+      widenLog: { verbs: { eval: "test.widen" }, parts: { shape: "list" }, caps: [{ rule: "only", caps: ["log"] }] },
+      shout: { verbs: { eval: "test.shout" }, parts: { shape: "list", of: "text" }, effects: ["log"] },
+    },
+  },
+  evaluators: { ...waiting.evaluators, "test.widen": widenCode, "test.shout": shoutCode },
+  runners: { ...waiting.runners, "test.widen-run": widenRun },
+};
+
+const WIDENING_DEFINITIONS: Definitions = {
+  evaluators: {
+    "test.widen": ({ parts, context: ctx }) => valuesOf(parts.map((part) => part.evaluate(widened(ctx)))),
+    "test.shout": ({ parts, effect }) => {
+      const values = valuesOf(parts.map((part) => part.evaluate()));
+      return values.ok ? effect("log", values.value) : values;
+    },
+  },
+  runners: {
+    "test.widen-run": function* ({ parts, context: ctx }): Steps {
+      const results: Result[] = [];
+      for (const part of parts) {
+        const result = yield* part.evaluate(widened(ctx));
+        results.push(result);
+        if (!result.ok) break;
+      }
+      return valuesOf(results);
+    },
+  },
+};
+
+const WIDENING_KINDS = new Set(["widen", "widenRun", "widenLog"]);
+
+/** The documents of `widening` often have a kind that widens, and they prefer effects in its parts. */
+const WIDENING_OPTIONS: Omit<GenerateOptions, "seed"> = {
+  ...STD_OPTIONS,
+  types: [...typesOf(widening.world), ...[...WIDENING_KINDS, "shout"].flatMap((kind) => [[kind], [kind], [kind]])],
+  hints: (type) => (WIDENING_KINDS.has(String(type[0])) ? [["log"], ["write"], ["shout"], ["seq"], ["ref"]] : undefined),
 };
 
 /* The formula kit, with test profiles. */
@@ -382,6 +483,7 @@ function hostMock(effect: Effect): unknown {
 const CONFIGS: readonly Config[] = [
   { name: "standard", machine: waiting, options: STD_OPTIONS, agree: { strict: true } },
   { name: "standard, a mock of the host", machine: waiting, options: STD_OPTIONS, agree: { strict: true, perform: hostMock } },
+  { name: "standard, compiled code that widens", machine: widening, options: WIDENING_OPTIONS, agree: { strict: true, definitions: WIDENING_DEFINITIONS } },
   { name: "trees", machine: STD_MACHINE, options: TREE_OPTIONS, agree: { strict: true } },
   {
     name: "standard, depth 3 and a rule of the host",
@@ -531,6 +633,35 @@ describe("one meaning", () => {
     for (const kind of ["let", "ops.add", "ops.twice", "double", "shout"]) expect(outcome.kinds.get(kind) ?? 0, kind).toBeGreaterThan(0);
   });
 
+  it("[CAP.NARROW-CODE] compiled code that widens the contexts of its parts agrees with the reference on generated documents, and causes no effect that the root does not permit", () => {
+    const config = CONFIGS.find((item) => item.machine === widening) as Config;
+    const outcome = outcomeOf(config);
+    expect(report(outcome.findings)).toEqual([]);
+    for (const kind of [...WIDENING_KINDS, "shout"]) expect(outcome.kinds.get(kind) ?? 0, kind).toBeGreaterThan(0);
+    const leaks: string[] = [];
+    let refused = 0;
+    for (let index = 0; index < COUNT; index += 1) {
+      const seed = SEED * 1_000_003 + index;
+      const doc = generate(widening.world, { ...WIDENING_OPTIONS, seed });
+      const wide: (readonly Key[])[] = [];
+      walk(widening.world, doc, (visit) => {
+        if (WIDENING_KINDS.has(typeName(visit.doc.type))) wide.push(visit.place);
+        return undefined;
+      });
+      const plan = prepare(widening, doc);
+      for (const ctx of CONTEXTS) {
+        const effects: Effect[] = [];
+        const result = plan.evaluate(ctx, { effects });
+        for (const effect of effects) if (!permits(ctx.caps, effect.path)) leaks.push(`seed ${seed}: ${effect.kind} at [${effect.place.join(", ")}] under ${show(ctx.caps)}`);
+        // A refused effect under a kind that widens: without the grant, the plan caused it.
+        const place = result.ok ? undefined : result.error.code === "#CAP!" ? result.error.place : undefined;
+        if (place !== undefined && wide.some((at) => place.length > at.length && at.every((key, step) => key === place[step]))) refused += 1;
+      }
+    }
+    expect(leaks.slice(0, 3)).toEqual([]);
+    expect(refused, `${refused} refused effects under a kind that widens`).toBeGreaterThan(COUNT / 20);
+  });
+
   it("[STATIC.AGREES] a generated document that check passes gives none of the errors that check finds", () => {
     for (const config of CONFIGS) expect(report(outcomeOf(config).unchecked), config.name).toEqual([]);
   });
@@ -563,6 +694,55 @@ describe("the disagreements that the harness found", () => {
       ok: true,
       result: { ok: false, error: { code: "#CALC!", place: [1], reason: "The evaluator formula.op threw: Error: The table has no trap." } },
     });
+  });
+
+  it("[CAP.NARROW-CODE] the probe of R7: compiled code that gives its part log and write under a root without capabilities causes no effect, as in the reference", async () => {
+    const options: AgreeOptions = { strict: true, definitions: WIDENING_DEFINITIONS };
+    const log = (text: string): Json => ({ type: "log", value: [text] });
+    const write: Json = { type: "write", value: { key: "k", value: { type: "number", value: 1 } } };
+    // Before K91, the plan caused the effect log and gave ["hi"], and the reference gave #CAP!.
+    const probe = { type: "widen", value: [log("hi")] };
+    const effects: Effect[] = [];
+    expect(prepare(widening, probe).evaluate(context(), { effects })).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
+    expect(effects).toEqual([]);
+    expect(reference(widening, probe, context(), { definitions: WIDENING_DEFINITIONS })).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
+    expect(agree(widening, probe, context(), options)).toMatchObject({ ok: true });
+    expect(nodeAt(evaluate(widening, probe).trace, [0])?.caps).toEqual([]);
+    // A compiled runner, a rule only under compiled code and the own effect of compiled code keep the grant too.
+    const cases: readonly (readonly [Json, Context, string | undefined])[] = [
+      [{ type: "widenRun", value: [log("a")] }, context(), "#CAP!"],
+      [{ type: "widenLog", value: [log("a")] }, context(), "#CAP!"],
+      [{ type: "widenLog", value: [write] }, context({ caps: ["log", "write"] }), "#CAP!"],
+      [{ type: "shout", value: ["a"] }, context(), "#CAP!"],
+      [{ type: "widen", value: [write, log("a")] }, context({ caps: [["log"]] }), "#CAP!"],
+      [{ type: "widen", value: [log("a")] }, context({ caps: [["log"]] }), undefined],
+    ];
+    for (const [doc, ctx, code] of cases) {
+      const outcome = agree(widening, doc, ctx, options);
+      expect(outcome, show(doc)).toMatchObject({ ok: true });
+      if (!outcome.ok) continue;
+      expect(outcome.result.ok ? undefined : outcome.result.error.code, show(doc)).toBe(code);
+      for (const effect of outcome.effects) expect(permits(ctx.caps, effect.path), show(doc)).toBe(true);
+    }
+    // The root caps of a part gives the capabilities of the document, not the wider list.
+    expect(agree(widening, { type: "widen", value: [{ type: "ref", value: ["caps"] }] }, context({ caps: ["log"] }), options)).toMatchObject({ ok: true, result: ok([["log"]]) });
+    // A run keeps the grant: the host sees no effect.
+    const performed: Effect[] = [];
+    const perform = (effect: Effect): null => {
+      performed.push(effect);
+      return null;
+    };
+    const done = await run(widening, { type: "widenRun", value: [log("a")] }, context(), { perform });
+    expect(done.result).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
+    expect(performed).toEqual([]);
+    // A context that compiled code makes without a spread has no grant, thus its part gets no capabilities.
+    const fresh: CompiledEvaluator = { compile: ({ parts }) => (ctx, rt) => valuesOf(parts.map((part) => part.code(context({ names: ctx.names, world: ctx.world, caps: ctx.caps }), rt))) };
+    const machine: Machine = {
+      ...widening,
+      world: { ...widening.world, kinds: { ...widening.world.kinds, fresh: { verbs: { eval: "test.fresh" }, parts: { shape: "list" } } } },
+      evaluators: { ...widening.evaluators, "test.fresh": fresh },
+    };
+    expect(prepare(machine, { type: "fresh", value: [log("a")] }).evaluate(context({ caps: ["log"] }))).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
   });
 
   it("[RUN.WAIT] a runner that waits under a parent that cannot wait gives #CALC! with its own place", () => {

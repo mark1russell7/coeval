@@ -215,6 +215,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | CAP.NAMESPACE | A capability permits a kind by its name, or by its namespace. |
 | CAP.KEYS | A capability permits the kinds under it, key by key. A key with a dot is one key. |
 | CAP.NARROW | A part cannot get more capabilities than its parent. |
+| CAP.NARROW-CODE | A compiled evaluator or a compiled runner cannot give a part more capabilities than its document has. Each context carries the capabilities that the kernel gave its document, and a spread of the context keeps them. A part and an effect of compiled code keep only these capabilities. A context that compiled code makes without a spread has no capabilities. |
 | CAP.HOOK | A machine can give the rule of the host for an effect. |
 | CAP.CONTRACT | A kind declares in its contract the capabilities that it gives its parts: `same`, `mask` or `only`. The kernel narrows the context of each part by these rules, thus an evaluator cannot give the part more. |
 | CAP.ONLY | A rule `only` gives a part only the effects that the capabilities of its document and the list of the rule both permit. |
