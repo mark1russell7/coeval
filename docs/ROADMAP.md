@@ -47,7 +47,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
-| C1 | The repository, the model package and the site with a live diagram for each idea | in progress | |
+| C1 | The repository, the model package and the site with a live diagram for each idea | done (2026-10-25) | |
 | C2 | The site on GitHub Pages, and CI on each push | done (2026-10-20) | C1 |
 | C3 | A diagram of the four schedules: pull, push, demand and once, with the same values | done (2026-10-20) | C1 |
 | C4 | A diagram of one path grammar for names, positions and order | done (2026-10-20) | C1 |
