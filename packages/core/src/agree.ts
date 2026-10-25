@@ -1,4 +1,4 @@
-import { type Key, docEquals, isRecord } from "./doc.ts";
+import { type Key, docEquals, equalWith } from "./doc.ts";
 import type { Context } from "./deref.ts";
 import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
 import { type Effect, type Machine, evaluate, makeContext, prepare } from "./evaluate.ts";
@@ -80,8 +80,9 @@ export type Agreement =
  * errors have the same code and place. Each other object is the same only as itself, unless the rule of the caller
  * tells otherwise.
  *
- * `docEquals` uses the same rules for lists, plain records and the other objects. It has no rules for closures, for
- * `Held` values and for a rule of the caller. Thus two closures are equal there only when they are the same function.
+ * `docEquals` and `sameResult` use the same walk (D20). `docEquals` has no rules for closures, for `Held` values and
+ * for a rule of the caller. `sameResult` is for an early cutoff, thus a closure is the same there only as itself, and
+ * two errors also need the same reason.
  *
  * @param a - The first value.
  * @param b - The second value.
@@ -89,47 +90,14 @@ export type Agreement =
  * @returns `true` when the values are the same.
  */
 export function sameValue(a: unknown, b: unknown, equal?: (a: unknown, b: unknown) => boolean | undefined): boolean {
-  const stack: (readonly [unknown, unknown])[] = [[a, b]];
-  const seen = new Map<object, Set<object>>();
-  while (stack.length > 0) {
-    const [x, y] = stack.pop() as readonly [unknown, unknown];
-    if (Object.is(x, y)) continue;
-    const told = equal?.(x, y);
-    if (told !== undefined) {
-      if (told) continue;
-      return false;
-    }
-    if (typeof x !== "object" && typeof x !== "function") return false;
-    if (typeof y !== "object" && typeof y !== "function") return false;
-    if (x === null || y === null) return false;
-    // A pair that the comparison already visits is the same, unless another pair shows a difference.
-    const pairs = seen.get(x) ?? new Set<object>();
-    if (pairs.has(y)) continue;
-    pairs.add(y);
-    seen.set(x, pairs);
-    if (isClosure(x) || isClosure(y)) {
-      if (!(isClosure(x) && isClosure(y))) return false;
-      stack.push([closureParams(x), closureParams(y)]);
-      continue;
-    }
-    if (x instanceof Held || y instanceof Held) {
-      if (!(x instanceof Held && y instanceof Held) || errorDiffers(x.error, y.error, false) !== undefined) return false;
-      continue;
-    }
-    if (Array.isArray(x) || Array.isArray(y)) {
-      if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return false;
-      for (let index = 0; index < x.length; index += 1) stack.push([x[index], y[index]]);
-      continue;
-    }
-    if (!isRecord(x) || !isRecord(y)) return false;
-    const keys = Object.keys(x);
-    if (keys.length !== Object.keys(y).length) return false;
-    for (const key of keys) {
-      if (!Object.hasOwn(y, key)) return false;
-      stack.push([x[key], y[key]]);
-    }
-  }
-  return true;
+  return equalWith(a, b, equal === undefined ? sameInTiers : (x, y) => equal(x, y) ?? sameInTiers(x, y));
+}
+
+/** The rules of `sameValue` for the values that two tiers make again: closures and held errors. */
+function sameInTiers(x: unknown, y: unknown): boolean | undefined {
+  if (isClosure(x) || isClosure(y)) return isClosure(x) && isClosure(y) && docEquals(closureParams(x), closureParams(y));
+  if (x instanceof Held || y instanceof Held) return x instanceof Held && y instanceof Held && errorDiffers(x.error, y.error, false) === undefined;
+  return undefined;
 }
 
 const CLOSURE = /* @__PURE__ */ Symbol.for("coeval.closure");
