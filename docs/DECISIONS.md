@@ -379,3 +379,50 @@ R4 leaves some choices open. Which reads does a reference give when its resoluti
 **Why.** One walk keeps the facts cheap, thus a host can compute them again for each changed document. The contracts already describe the parts, thus a lazy rule is one more field of the same kind of data.
 
 The test FACTS.SOUND makes the reads a sound over-approximation of each evaluation, and FACTS.LAZY makes each eager read a real read. A copied older kind without the new fields is not equal to the new kind. Thus a merge of the two gives a conflict, and `replaces` resolves it.
+
+## D25 (2026-10-24): a type rule follows its evaluator, a check of types goes in two directions when a host opts in, and a type issue has the static code `#TYPE!`
+
+**Context.** The study R5 proposes signatures of operations and a bidirectional `check` (P3, K24). D22 gave the value types and `fits`. It left two parts for K24: a join of types, and a text of a type for the reasons of issues.
+
+R5 also asks three open questions. Does a type rule live in the contract or in the code (question 4)? Does a type issue keep the code of a run (question 2)? Is a possible failure an issue (question 1)? D23 makes `check` take a verb.
+
+**Decision.**
+
+- A type rule is code with two functions. `part` gives the type that a part must have, and the types of the names of the part. `synth` gives the type of the document from the types of its parts.
+- An evaluator object holds its rule in its field `type`. The rule of a document is the rule of the evaluator that the ladder gives for the verb of the check (TYPE.RULE). Thus an own entry gets the rule of its own evaluator.
+- A runner has no rule yet. The types of the run side wait for K29.
+- The contract holds value types as data. `Kind.result` gives the type of each document of a kind. The `expect` of a shape gives the type that a part must have. They describe the verb `eval`, as `side` and `effects` do.
+- A formula profile gives a signature, or a list of overloads, for each operation (`sigs`). One signature gives the types of the arguments before their check, thus an issue goes to the wrong argument.
+- Overloads select after the check of the arguments, and the first overload that fits gives the result. When an argument has `unknown` in it and two results differ, the result is `unknown`.
+- An operation without a signature, a kind without `result` and an evaluator without a rule give `unknown`. Thus a language without types gets no type issue from them (TYPE.GRADUAL).
+- The pass goes down to give each part its type and the types of its names. Then it goes up to synthesize the type of each document.
+- The pass reads the documents that the walk of `check` visited, and it has its own stack. The parts that give the names of a rule `keysAt` come first. Thus `let` knows the types of its bindings for its body.
+- A part whose type does not fit gets a type issue at its place, and the type `unknown`, as a marked hole of Hazel. A document with another issue also gets `unknown`. Thus one problem does not give a chain of issues.
+- A type issue has the new code `#TYPE!`, with `expected`, `found` and a reason. The reason gives each type with `typeText`.
+- A type issue is a static finding. No evaluation reads a type, thus a run gives the same result with types and without them.
+- A host opts in with the option `types` of `check`, or with `typeCheck`. `typeCheck` also gives the type of the root and of each place. Without the option, `check` gives the same issues as before.
+- `join` gives one type for the branches of an `if`, the items of a list and the terms of the logic "value". It uses a strict form of `fits`, in which `unknown` is only the top. Thus the join is sound.
+- `check` examines each value type of a contract and of a signature with `typeIssues`. It reports a problem one time in a check, at the first use of the type.
+- The claim of soundness is a property test (TYPE.SOUND). A generated document checks with no issue. Then each value of its evaluation is a member of the type of its place.
+- The language keeps its signatures: each operation gives a member of the result of each signature that its arguments match.
+
+**Rejected.**
+
+- A verb `type` with a table `typers`, as R5 P3 sketched. A rule from its own ladder can describe another evaluator than the one that runs, for example under an own entry.
+- A new table of code. It needs new rules in the merge and in the restriction (D17, D18). A field of the evaluator object merges and goes away with its evaluator.
+- The code of a run, for example `#VALUE!`, for a type issue. An operation can accept more than its signature, and `fits` is not complete. Thus a type issue is not always an error of a run.
+- Type issues for each check by default. A host that does not read types then gets new issues and a second pass that it does not use.
+- The first overload that fits, also for an argument with `unknown` in it. Such an argument fits each overload. Then a less precise argument can change the result and add an issue.
+- A join with the gradual `fits`. By the gradual rule, a list of `unknown` items fits a list of numbers, and such a join is not sound.
+- The types of the roots, of the paths and of the names of the host in this item. K25 gives them. Until then, a reference has a type only for a name that a kind around it binds.
+
+**Why.** The code that gives a value is the one source that knows its type. A rule in that code cannot describe another evaluator, and the merge of D17 keeps the two together.
+
+A new code keeps the type issues apart from the issues of `check` that a run confirms. Thus STATIC.AGREES keeps its exact meaning, and a host can filter the type issues. The opt-in keeps each existing check and each existing host unchanged. The new fields are optional, thus the change is backward compatible.
+
+**Next.**
+
+- K25 gives the types of the roots, of the names of the host and of the paths. The rule of `ref` reads them, and the options of `check` get the types of the roots.
+- K26 makes TYPE.SOUND a rule of agreement. It adds a typed generator from the contracts and the signatures, and a local test of each rule.
+- K27 adds `proves` to a signature. The pass then narrows the types of the names in the branches of `if`, `and` and `or`.
+- K28 adds a guard at each boundary where a part of the type `unknown` meets a type that its position needs. The pass already knows each such place.

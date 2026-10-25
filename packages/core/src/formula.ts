@@ -1,10 +1,11 @@
-import { type Json, type Key, isRecord } from "./doc.ts";
+import { type Json, type Key, docEquals, isKey, isRecord } from "./doc.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
 import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
-import { STD_DOMAINS } from "./types.ts";
+import { type ValueType, STD_DOMAINS, callable, fieldOf, fits, fnOf, isPrecise, isUnknown, itemOf, join, typeText } from "./types.ts";
+import type { TypeInput, TypeRule } from "./typing.ts";
 
 /** An operation of a formula language: a function of the values of its arguments. */
 export type OpFn = (...args: never[]) => unknown;
@@ -37,6 +38,11 @@ export type ExtFn = (data: Json, context: Context) => Result;
  * - `pure`: the pure operations, for `factsOf` (D24). `true` names each operation that is not volatile. The default
  *   names no operation.
  * - `volatile`: the operations whose results can change while their arguments stay the same, for example a clock.
+ * - `sigs`: the signatures of the operations, by their name, for a check of types (TYPE.SIGNATURE). A list gives
+ *   overloads. An operation without a signature takes and gives `unknown` (TYPE.GRADUAL).
+ *
+ * A check of types trusts the signatures. Each operation must give a member of the result of each signature that
+ * its arguments match. The hook `check` must keep each result in that type.
  */
 export interface FormulaProfile {
   readonly ops?: Readonly<Record<string, OpFn>> | ((name: string) => OpFn | undefined);
@@ -51,6 +57,21 @@ export interface FormulaProfile {
   readonly combine?: (errors: readonly EvalError[]) => EvalError;
   readonly pure?: true | readonly string[];
   readonly volatile?: readonly string[];
+  readonly sigs?: Readonly<Record<string, Signature | readonly Signature[]>> | ((name: string) => Signature | readonly Signature[] | undefined);
+}
+
+/**
+ * The signature of an operation: the value types of its parameters and of its result (TYPE.SIGNATURE). A parameter of
+ * the type `unknown` at the end of `params` is optional. A later version can add a key, for example the type that a
+ * true result proves.
+ */
+export interface Signature {
+  /** The types of the parameters, in order. */
+  readonly params: readonly ValueType[];
+  /** The type of each argument after the parameters. Without it, the operation takes no more arguments. */
+  readonly rest?: ValueType;
+  /** The type of the result. */
+  readonly to: ValueType;
 }
 
 /** The mark of a field that the profile leaves out of a record. */
@@ -179,14 +200,276 @@ export function formulaKinds(): Readonly<Record<string, WorldEntry>> {
   return kinds as Readonly<Record<string, WorldEntry>>;
 }
 
+/** This function gives the type of a value of a profile: the value itself as `one`. `undefined` and a function give `unknown`. */
+function valueType(value: unknown): ValueType {
+  return value === undefined || typeof value === "function" ? "unknown" : { one: [value as Json] };
+}
+
+/** This function tells if a value has the form of a signature: a record with `params` as a list, and `to`. */
+function isSignature(value: unknown): value is Signature {
+  return typeof value === "object" && value !== null && Array.isArray((value as { readonly params?: unknown }).params) && Object.hasOwn(value, "to");
+}
+
+/** This function gives the text of a signature, for the reason of an issue. */
+function signatureText(sig: Signature): string {
+  const params = sig.params.map(typeText);
+  if (sig.rest !== undefined) params.push(`...${typeText(sig.rest)}`);
+  return `(${params.join(", ")}) => ${typeText(sig.to)}`;
+}
+
+function argumentsText(count: number): string {
+  return `${count} argument${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * This function tells if a signature takes a count of arguments. A parameter of the type `unknown` at the end is
+ * optional, because a missing argument is `undefined`.
+ *
+ * @returns `undefined` when the number is correct, or else the text of the numbers that the signature takes.
+ */
+function arityOf(sig: Signature, count: number, domains: Machine["domains"]): string | undefined {
+  let least = sig.params.length;
+  while (least > 0 && isUnknown(sig.params[least - 1], domains)) least -= 1;
+  const most = sig.rest === undefined ? sig.params.length : Number.POSITIVE_INFINITY;
+  if (count >= least && count <= most) return undefined;
+  if (most === Number.POSITIVE_INFINITY) return `at least ${argumentsText(least)}`;
+  return least === most ? argumentsText(most) : `${least} to ${argumentsText(most)}`;
+}
+
+/** This function gives the parameters of a document of `fn`: the texts of its list `params`. */
+function paramsOf(value: unknown): readonly string[] {
+  const params = isRecord(value) ? value["params"] : undefined;
+  return Array.isArray(params) ? params.filter((param): param is string => typeof param === "string") : [];
+}
+
+/**
+ * This function makes the type rules of the formula kit for one profile (TYPE.SYNTH, D25). Each evaluator of the kit
+ * holds its rule. The rules read the rules of the profile that change a type: `truthy`, `logic`, `otherwise`, `omit`
+ * and `sigs`.
+ */
+function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule>> {
+  // Only the default truth accepts nothing but a truth value. A truth of the profile accepts each value.
+  const truth: ValueType | undefined = profile.truthy === undefined ? "bool" : undefined;
+  const logicValue = profile.logic === "value";
+  const otherwise = Object.hasOwn(profile, "otherwise") ? valueType(profile.otherwise) : "null";
+  const lookup = (name: string): readonly unknown[] | undefined => {
+    const sigs = profile.sigs;
+    if (sigs === undefined) return undefined;
+    let found: unknown;
+    if (typeof sigs === "function") {
+      try {
+        found = sigs(name);
+      } catch {
+        return undefined;
+      }
+    } else {
+      found = Object.hasOwn(sigs, name) ? sigs[name] : undefined;
+    }
+    if (found === undefined) return undefined;
+    return Array.isArray(found) ? found : [found];
+  };
+  const nameOf = (input: TypeInput): string => input.typePath.slice(1).join(".");
+  /** The signatures of an operation. Each type of a signature is a contract, thus the check examines it one time. */
+  const signatures = (input: TypeInput): { readonly sigs: readonly Signature[]; readonly bad: boolean } | undefined => {
+    const name = nameOf(input);
+    const raw = lookup(name);
+    if (raw === undefined) return undefined;
+    const sigs: Signature[] = [];
+    for (const sig of raw) {
+      if (!isSignature(sig)) continue;
+      sig.params.forEach((param, index) => input.contract(param, `parameter ${index + 1} of a signature of ops.${name}`));
+      if (sig.rest !== undefined) input.contract(sig.rest, `rest parameter of a signature of ops.${name}`);
+      input.contract(sig.to, `result of a signature of ops.${name}`);
+      sigs.push(sig);
+    }
+    return { sigs, bad: sigs.length !== raw.length };
+  };
+  const logic = (word: "and" | "or"): TypeRule => ({
+    part: (_input, path) => (truth === undefined ? {} : { expect: truth, what: `term ${Number(path[0]) + 1} of ${word}` }),
+    synth: (input) => {
+      if (!logicValue) return "bool";
+      // With the logic "value", the result is the term that decided, or the last term.
+      if (input.paths.length === 0) return { one: [word === "and"] };
+      return input.paths.reduce<ValueType>((type, path) => join(type, input.typeOf(path), input.machine.domains), "never");
+    },
+  });
+
+  return {
+    "formula.lit": { synth: (input) => valueType(input.doc.value) },
+
+    "formula.ref": {
+      synth: (input) => {
+        const path = input.doc.value;
+        // A name that a kind around the reference binds has a type. Roots, paths and addresses wait for K25.
+        if (input.address || input.paths.length > 0 || !Array.isArray(path) || path.length !== 2 || path[0] !== "names" || !isKey(path[1])) return "unknown";
+        return input.nameType(String(path[1])) ?? "unknown";
+      },
+    },
+
+    "formula.record": {
+      part: (input, path) => {
+        const want = fieldOf(input.expected, String(path[0]), input.machine.domains);
+        return want === undefined ? {} : { expect: want, what: `field ${String(path[0])} of the record` };
+      },
+      synth: (input) => {
+        const fields: Record<string, ValueType> = {};
+        for (const path of input.paths) setOwn(fields, String(path[0]), input.typeOf(path));
+        const keys = Object.keys(fields);
+        // A profile with omit can leave out each field, thus each field is optional.
+        return { record: fields, ...(profile.omit !== undefined && keys.length > 0 ? { optional: keys } : {}), closed: true };
+      },
+    },
+
+    "formula.list": {
+      part: (input, path) => {
+        const want = itemOf(input.expected, input.machine.domains);
+        return want === undefined ? {} : { expect: want, what: `item ${Number(path[0]) + 1} of the list` };
+      },
+      synth: (input) => ({ list: input.paths.reduce<ValueType>((type, path) => join(type, input.typeOf(path), input.machine.domains), "never") }),
+    },
+
+    "formula.let": {
+      part: (input, path) => {
+        if (path[0] !== "body") return {};
+        // The scope rule keysAt puts the bindings first, thus their types are known here.
+        const names: Record<string, ValueType> = {};
+        for (const each of input.paths) if (each[0] === "bind" && each.length === 2) setOwn(names, String(each[1]), input.typeOf(each));
+        return { names, ...(isUnknown(input.expected, input.machine.domains) ? {} : { expect: input.expected, what: "body of let" }) };
+      },
+      synth: (input) => input.typeOf(["body"]),
+    },
+
+    "formula.fn": {
+      part: (input, path) => {
+        if (path[0] !== "body") return {};
+        // An expected function type gives the types of the parameters. Without it, each parameter is unknown.
+        const want = fnOf(input.expected, input.machine.domains);
+        const names: Record<string, ValueType> = {};
+        paramsOf(input.doc.value).forEach((name, index) => setOwn(names, name, want?.params[index] ?? "unknown"));
+        return { names, ...(want === undefined || isUnknown(want.to, input.machine.domains) ? {} : { expect: want.to, what: "body of fn" }) };
+      },
+      synth: (input) => {
+        const want = fnOf(input.expected, input.machine.domains);
+        return { fn: paramsOf(input.doc.value).map((_name, index) => want?.params[index] ?? "unknown"), to: input.typeOf(["body"]) };
+      },
+    },
+
+    "formula.call": {
+      synth: (input, report) => {
+        const domains = input.machine.domains;
+        const target = input.typeOf(["fn"]);
+        if (isUnknown(target, domains)) return "unknown";
+        const want = fnOf(target, domains);
+        if (want === undefined) {
+          if (callable(target, domains)) return "unknown";
+          report({ path: ["fn"], reason: `The fn of call has the type ${typeText(target)}. It must give a function.`, found: target });
+          return "unknown";
+        }
+        const args = input.paths.filter((path) => path[0] === "args");
+        for (const path of args) {
+          const index = Number(path[1]);
+          const param = want.params[index];
+          // The function does not read an argument after its parameters.
+          if (param === undefined) continue;
+          const found = input.typeOf(path);
+          if (!fits(found, param, domains)) {
+            report({ path, reason: `The argument ${index + 1} of the call has the type ${typeText(found)}. The function expects the type ${typeText(param)}.`, expected: param, found });
+          }
+        }
+        const missing = want.params.findIndex((param, index) => index >= args.length && !isUnknown(param, domains));
+        if (missing !== -1) {
+          const param = want.params[missing] as ValueType;
+          report({ reason: `The call gives ${argumentsText(args.length)}. The function expects the type ${typeText(param)} for the argument ${missing + 1}.`, expected: param });
+        }
+        return want.to;
+      },
+    },
+
+    "formula.if": {
+      part: (input, path) => {
+        if (path[0] === "test") return truth === undefined ? {} : { expect: truth, what: "test of if" };
+        return isUnknown(input.expected, input.machine.domains) ? {} : { expect: input.expected, what: `${String(path[0])} branch of if` };
+      },
+      synth: (input) => {
+        const value = input.doc.value;
+        const other = isRecord(value) && Object.hasOwn(value, "else") ? input.typeOf(["else"]) : otherwise;
+        return join(input.typeOf(["then"]), other, input.machine.domains);
+      },
+    },
+
+    "formula.and": logic("and"),
+    "formula.or": logic("or"),
+
+    "formula.op": {
+      part: (input, path) => {
+        const read = signatures(input);
+        // Only one signature gives the types of the arguments before their check. Overloads select after it.
+        if (read === undefined || read.sigs.length !== 1) return {};
+        const sig = read.sigs[0] as Signature;
+        const index = Number(path[0]);
+        const want = index < sig.params.length ? sig.params[index] : sig.rest;
+        return want === undefined ? {} : { expect: want, what: `argument ${index + 1} of ops.${nameOf(input)}` };
+      },
+      synth: (input, report) => {
+        const read = signatures(input);
+        if (read === undefined) return "unknown";
+        const name = nameOf(input);
+        const domains = input.machine.domains;
+        if (read.bad) report({ reason: `A signature of ops.${name} is not a record with params and to. The check does not read it.` });
+        const { sigs } = read;
+        if (sigs.length === 0) return "unknown";
+        const args = input.paths.map((path) => input.typeOf(path));
+        if (sigs.length === 1) {
+          const sig = sigs[0] as Signature;
+          const takes = arityOf(sig, args.length, domains);
+          if (takes !== undefined) report({ reason: `The operation ops.${name} takes ${takes}. It gets ${args.length}.` });
+          return sig.to;
+        }
+        const paramAt = (sig: Signature, index: number): ValueType => sig.params[index] ?? sig.rest ?? "unknown";
+        const fitting = sigs.filter((sig) => arityOf(sig, args.length, domains) === undefined && args.every((arg, index) => fits(arg, paramAt(sig, index), domains)));
+        if (fitting.length === 0) {
+          const given = args.map(typeText).join(", ");
+          report({ reason: `No signature of ops.${name} fits the arguments (${given}). The signatures are ${sigs.map(signatureText).join(" and ")}.` });
+          return "unknown";
+        }
+        const first = fitting[0] as Signature;
+        // Precise arguments are members of the first signature that fits. An argument with unknown can match a later one.
+        if (fitting.length === 1 || args.every((arg) => isPrecise(arg, domains))) return first.to;
+        return fitting.every((sig) => docEquals(sig.to, first.to)) ? first.to : "unknown";
+      },
+    },
+
+    "formula.ext": {
+      synth: (input) => {
+        const name = nameOf(input);
+        const own = profile.ext !== undefined && Object.hasOwn(profile.ext, name);
+        return name === "number" && !own ? "number" : "unknown";
+      },
+    },
+  };
+}
+
 /**
  * This function makes the evaluators of the formula kit for one language. Each evaluator compiles its document
- * one time into code.
+ * one time into code. Each evaluator also holds its type rule, for a check of types (TYPE.SYNTH).
  *
  * @param profile - The operations and the rules of the language.
  * @returns The evaluators, by their name.
  */
 export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record<string, Evaluator>> {
+  const evaluators = formulaCode(profile);
+  const types = formulaTypes(profile);
+  const out: Record<string, Evaluator> = {};
+  for (const name of Object.keys(evaluators)) {
+    const evaluator = evaluators[name] as CompiledEvaluator;
+    const type = Object.hasOwn(types, name) ? types[name] : undefined;
+    out[name] = type === undefined ? evaluator : { compile: evaluator.compile, type };
+  }
+  return out;
+}
+
+/** This function makes the code of the evaluators of the formula kit, without their type rules. */
+function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledEvaluator>> {
   const truthy = profile.truthy ?? strictTruthy;
   const otherwise = ok(Object.hasOwn(profile, "otherwise") ? profile.otherwise : null);
   const logicValue = profile.logic === "value";

@@ -261,7 +261,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 
 ## Types
 
-A value type is a set of values that a result can have (R5 P2, D22). It is a JSON term that only a check reads. It is not a kind, and it does not go into an envelope.
+A value type is a set of values that a result can have (R5 P2, D22). It is a JSON term that only a check reads. It is not a kind, and it does not go into an envelope. A check of types gives each part a type in two directions (R5 P3, D25).
 
 | ID | Rule |
 | --- | --- |
@@ -274,6 +274,14 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | TYPE.DOMAIN | A domain gives a base type its membership test `is` and its parents `under`. A base type fits itself and each parent, through each level. A cycle of parents ends. |
 | TYPE.OPEN | A language adds its domains in the table `domains` of its machine, without a change to the kernel. A domain of the kernel that the table does not name comes from `STD_DOMAINS`. A table entry with the name `unknown` or `never` has no effect. |
 | TYPE.MERGE | `mergeMachines` merges the domains name by name. Two domains with the same test, parents and summary give one domain. Two different domains with one name are a conflict, unless the later part names `["domains", name]` in `replaces`. `formulaMachine` and `STD_MACHINE` give `STD_DOMAINS`. `restrictMachine` removes a domain. |
+| TYPE.JOIN | `join` gives a type that holds each member of two types. `unknown` absorbs each type, and `never` is the unit. Two lists join their items, and two records join their fields. Each other pair gives a union, without the members that fit other members. |
+| TYPE.TEXT | `typeText` gives a short text of a type for the reason of an issue, for example `list<number>`, `{a: number, b?: text}` and `(number) => text`. It does not throw. |
+| TYPE.RULE | The type rule of a document is the rule of the evaluator that the ladder gives for the verb of the check. An evaluator object holds it in its field `type`. A runner and an evaluator without a rule give `unknown`. A rule that throws gives a type issue. |
+| TYPE.SIGNATURE | A formula profile gives each operation a signature or a list of overloads (`sigs`). One signature gives the types of the arguments before their check. The first overload that fits gives the result. A wrong count of arguments, or no overload that fits, is a type issue at the operation. A bad type of a signature is a type issue one time in a check. |
+| TYPE.SYNTH | `typeCheck` synthesizes the type of each document from the types of its parts. `lit` gives `one`, and `record` gives a closed record. `list` gives a list of the join of its items. `let` gives the type of its body, and its names get the types of their bindings. `fn` gives a function type, and `call` gives the result of its function. `if` gives the join of its branches. The profile changes the types of a truth, of the logic, of `otherwise` and of `omit`. `Kind.result` gives the type of each document of its kind. |
+| TYPE.CHECK | With `types: true`, `check` gives each part the type that its position needs, and it checks the type that the part synthesizes. The rule of the parent, the `expect` of a shape, or the option `expect` for the root gives that type. A part that does not fit gives `#TYPE!` with `expected` and `found`, and it gets the type `unknown`. A type issue does not change an evaluation. The value types of a contract describe `eval` only. |
+| TYPE.GRADUAL | An operation without a signature takes and gives `unknown`. A kind without `result` and an evaluator without a rule give `unknown`. A less precise signature does not add a type issue. Without the option `types`, `check` gives the same issues as before. |
+| TYPE.SOUND | A document checks with no issue, and each operation keeps its signatures. Then each value of its evaluation is a member of the type that `typeCheck` gives its place. A property test examines generated documents. |
 
 ## The formula kit
 

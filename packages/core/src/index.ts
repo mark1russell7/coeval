@@ -180,11 +180,13 @@ export {
   type DocVisit,
   type Issue,
   type RefUse,
+  type Typing,
   type WalkOptions,
   type WalkProblem,
   check,
   mapRefs,
   refsOf,
+  typeCheck,
   walk,
 } from "./static.ts";
 export { type DocFacts, type FactsOptions, type StaticRead, factsOf } from "./facts.ts";
@@ -194,6 +196,7 @@ export {
   type FormulaProfile,
   type LazyOp,
   type OpFn,
+  type Signature,
   Held,
   STD_EXT,
   formulaEvaluators,
@@ -209,4 +212,5 @@ export { type AgreeOptions, type Agreement, type Tier, type TierInput, type Tier
 export { sameResult } from "./same.ts";
 export { type Recorder, type ReplayEntry, type ReplayLog, type ReplayOptions, type ReplaySettle, recorder, replayer } from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";
-export { type Domain, type TypeIssue, type ValueType, STD_DOMAINS, fits, member, typeIssues } from "./types.ts";
+export { type Domain, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";
+export { type PartType, type TypeInput, type TypeProblem, type TypeRule, type Typed } from "./typing.ts";

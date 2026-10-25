@@ -26,6 +26,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 12. K33: each verb through the kernel (R6 P3) (done, 2026-10-24, D23, released in the next batch). `prepare`, `check`, the reference and `agree` take a verb, and one ladder serves each verb, also `deref` and `step`. A verb `format` in the spec tests is the demonstration.
 13. K12: compiled paths (R1 P2).
 14. S1a: `factsOf`, the static facts of a document (R4 P2): done (2026-10-24, D24), released in the next batch. It gives the reads with marks for lazy parts, the side, the effects and the marks `pure` and `volatile`. A test of generated documents finds each real read in the static reads. S1b and S2 build on it.
+15. K24: signatures of operations and a bidirectional `check` (R5 P3) (done, 2026-10-24, D25, released in the next batch). A formula profile gives each operation a signature or overloads, and a contract gives `result` and `expect`. With the option `types`, `check` synthesizes the type of each part and checks it against the type that its position needs. A wrong type gives the static issue `#TYPE!`, and an evaluation does not change. The type rule of a document follows its evaluator.
 
 On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
 
@@ -46,6 +47,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | C11 | A structured editor in the playground from the kind contracts. An empty position holds a document of a kind `hole`, thus each state of an edit evaluates (R6 P6). | later | C8 |
 | C12 | A live diagram of record and replay: a run records its effects, and a replay steps through the journal. A changed answer shows `#REPLAY!` at its address. From K11. | later | C1 |
 | C13 | The site shows the work of the research: a page and a live diagram for the merge of languages (D17, D18), a live diagram of the decorated tree (D16), a page for the studies, and the guide as a route on the home page | done (2026-10-24) | C7 |
+| C14 | The explorer and the playground show the type of each place from `typeCheck`, and each `#TYPE!` issue at its place (R5 P3). From K24. | later | C8, K24 |
 
 ## The kernel
 
@@ -74,7 +76,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | done (2026-10-24, version 0.4.3) | K3 |
 | K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | done (2026-10-24, released in 0.6.3: `sameResult`, and one walk for `docEquals`, `sameValue` and `sameResult`, D20) | K5, K21 |
 | K23 | Value types and value domains: a new `types.ts` with open base types, the relation `fits`, and a membership test for each domain (R5 P2) | done (2026-10-24, D22), released in the next batch: `ValueType`, `Domain`, `fits`, `member`, `typeIssues`, `STD_DOMAINS` and `Machine.domains` | K2, K3 |
-| K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | later | K23 |
+| K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | done (2026-10-24, D25, released in the next batch) | K23 |
 | K25 | Types of the roots, of the names and of the paths, from the host, from a JSON Schema or from sample values (R5 P4) | later | K24 |
 | K26 | The agreement rule for types: in a traced evaluation of a document that checks, each value is in the type of its place (R5 P5) | later | K9, K24 |
 | K27 | Narrowing in `if`, `and` and `or`: a test with `proves` narrows the type of a path in its branch (R5 P6) | later | K25 |
@@ -101,6 +103,9 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K53 | The kind `pure` refuses a list with more than one part (CAP.PURE-ONE). Before, it ignored each part after the first. Found by S1a. | done (2026-10-24, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |
+| K50 | A profile with its own `truthy` declares the type of a truth, thus `check` tests the test of `if` and the terms of `and` and `or`. Today such a profile accepts each type there. From K24. | later | K24 |
+| K51 | Signatures of extensions in the profile. Today each `ext.*` has the type `unknown`, except the standard `ext.number`. From K24. | later | K24 |
+| K52 | A check of each value type of a machine before a document exists: each `result`, each `expect` and each signature. Today `check` reports a bad type at its first use. From K24. | later | K24, K36 |
 
 ## The kits
 
