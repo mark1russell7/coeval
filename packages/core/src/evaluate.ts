@@ -1593,6 +1593,8 @@ export function planner(machine: Machine, options: PrepareOptions = {}): (doc: u
       }
       return plan;
     }
+    // A map treats -0 and 0 as one key, so -0 gets its own plan each time.
+    if (Object.is(doc, -0)) return prepare(machine, doc, options);
     let plan = values.get(doc);
     if (plan === undefined) {
       plan = prepare(machine, doc, options);

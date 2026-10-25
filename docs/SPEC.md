@@ -123,6 +123,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | PLAN.FAIL-LATE | A document that does not compile gives a plan that fails when that document evaluates. A compiler that throws fails only its own document. The error has its place. |
 | PLAN.TRACE | A traced evaluation records each document. An evaluation of a plan without a trace records nothing. |
 | PLAN.CACHE | A planner compiles one document object one time. |
+| PLAN.CACHE-ZERO | A planner keeps the bare values `-0` and `0` apart, thus `-0` evaluates to `-0`. |
 | PLAN.COMPILE-SPEED | A compilation without a trace does not record the rungs of the ladder, thus it compiles a small document quickly. |
 | PLAN.LEAN | A plan keeps only its compiled code. It does not keep its document or the split of the value, thus a store can keep many plans. |
 | PLAN.DEPTH | The nesting of documents has a limit. The default is 1000. |
