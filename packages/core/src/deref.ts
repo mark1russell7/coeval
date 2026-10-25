@@ -1,5 +1,6 @@
 import { type Envelope, type Json, type JsonRecord, type Key, type TypeRef, field, isEnvelope, isKey, isRecord, typePath } from "./doc.ts";
-import { type World, entriesAsJson, lookupKind } from "./world.ts";
+import { type Kind, type World, entriesAsJson, lookupKind } from "./world.ts";
+import { answerOf } from "./ladder.ts";
 import type { ErrorCode } from "./errors.ts";
 
 /**
@@ -162,8 +163,37 @@ export interface ResolveOptions {
   readonly hops?: boolean;
 }
 
-function entryOf(verbs: Readonly<Record<string, string>> | undefined, verb: string): string | undefined {
-  return verbs !== undefined && Object.hasOwn(verbs, verb) ? verbs[verb] : undefined;
+/** This function gives the own entries of an envelope, when it has a record of them. */
+function ownEntries(envelope: Envelope): Readonly<Record<string, string>> | undefined {
+  const own = field(envelope as JsonRecord, "own");
+  return isRecord(own) ? (own as Readonly<Record<string, string>>) : undefined;
+}
+
+/** This function gives the kind of a type for the ladder: `null` when the world does not have the kind. */
+function kindFor(world: World, type: TypeRef): Kind | null {
+  const found = lookupKind(world, type);
+  return found.ok ? found.kind : null;
+}
+
+/** This function tells if a table of code has the name. An entry of a document can hold another value than a text. */
+function codeIn(table: Readonly<Record<string, unknown>>, name: unknown): boolean {
+  return typeof name === "string" && Object.hasOwn(table, name);
+}
+
+/**
+ * This function finds the walker of a step document through the ladder of the verb `step` (VERB.LADDER). The rungs
+ * are the own entry, then the kind, then the default of the world. A rung answers only with a walker that the
+ * navigator has. A resolution and `check` use this function, thus they agree on `#STEP?`.
+ *
+ * @param nav - The world and the walkers.
+ * @param step - A step of a path that is not a key.
+ * @returns The walker, or `undefined` when no rung answers.
+ */
+export function walkerOf(nav: Navigator, step: unknown): Walker | undefined {
+  const walkers = nav.walkers;
+  if (walkers === undefined || !isEnvelope(step)) return undefined;
+  const answer = answerOf(nav.world, ownEntries(step), kindFor(nav.world, step.type), "step", (name) => codeIn(walkers, name));
+  return answer === undefined ? undefined : walkers[answer.name];
 }
 
 /** The own fields of a value: the items and the length of a list, and the own properties of an object. */
@@ -182,8 +212,10 @@ function plainStep(thing: unknown, key: Key): { readonly found: true; readonly v
 
 /**
  * This function answers one step of a path on a thing, through the ladder of the verb `deref`. A host thing
- * answers for itself (own). A document asks its own entry, then its kind. The default goes into the value: an own
- * field of an object, or an item of a list.
+ * answers for itself (own). A document asks its own entry, then its kind, then the default of the world
+ * (VERB.LADDER). A rung answers only with a `deref` that the navigator has. When no rung answers, the step goes into
+ * the value: an own field of an object, or an item of a list. A value without a type is data, thus the step goes
+ * into it at once.
  *
  * @param nav - The world and the code of the evaluators.
  * @param thing - The thing that the path reached.
@@ -198,19 +230,12 @@ export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly th
   }
   if (nav.plain !== true && isEnvelope(thing)) {
     const envelope = thing as JsonRecord & Envelope;
-    const ownEntries = field(envelope, "own");
-    const own = isRecord(ownEntries) ? entryOf(ownEntries as Readonly<Record<string, string>>, "deref") : undefined;
-    const ownCode = own === undefined ? undefined : nav.derefs?.[own];
-    if (ownCode !== undefined) {
-      const reached = ownCode(envelope, key);
-      return reached === undefined ? undefined : { thing: reached, by: "own" };
-    }
-    const found = lookupKind(nav.world, envelope.type);
-    const name = found.ok ? entryOf(found.kind.verbs, "deref") : undefined;
-    const code = name === undefined ? undefined : nav.derefs?.[name];
-    if (code !== undefined) {
-      const reached = code(envelope, key);
-      return reached === undefined ? undefined : { thing: reached, by: "kind" };
+    const derefs = nav.derefs;
+    // A navigator without the code of a deref needs no lookup of the kind: no rung can answer.
+    const answer = derefs === undefined ? undefined : answerOf(nav.world, ownEntries(envelope), kindFor(nav.world, envelope.type), "deref", (name) => codeIn(derefs, name));
+    if (answer !== undefined) {
+      const reached = (derefs as Readonly<Record<string, DerefCode>>)[answer.name]?.(envelope, key);
+      return reached === undefined ? undefined : { thing: reached, by: answer.rung };
     }
     const reached = plainStep(envelope.value, key);
     return reached === undefined ? undefined : { thing: reached.value, by: "default" };
@@ -323,9 +348,9 @@ function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): R
  * This function resolves a path from a context, and records each hop.
  *
  * The first step is a root of the context. Each later step is a key or a step document. A key goes up the ladder
- * of the verb `deref` on the thing that the path reached. A step document is evaluated by the walker of its kind,
- * with the thing that the path reached. After each hop, a reference document is followed until the path reaches
- * something else (collapse), except in a plain navigation.
+ * of the verb `deref` on the thing that the path reached. A step document is evaluated by the walker that the
+ * ladder of the verb `step` gives, with the thing that the path reached. After each hop, a reference document is
+ * followed until the path reaches something else (collapse), except in a plain navigation.
  *
  * The codes of a failure:
  *
@@ -398,13 +423,9 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
         here = adopt(reached.thing);
         hops?.push({ step, thing: here, by: reached.by });
       } else {
-        const envelope = isEnvelope(step) ? step : undefined;
-        const found = envelope === undefined ? undefined : lookupKind(nav.world, envelope.type);
-        const name = found?.ok === true ? entryOf(found.kind.verbs, "step") : undefined;
-        const walker = name === undefined ? undefined : nav.walkers?.[name];
-        if (envelope === undefined || walker === undefined) {
-          return failed("#STEP?", "A step is a key, or a document of a kind with the verb step.");
-        }
+        const walker = walkerOf(nav, step);
+        if (walker === undefined) return failed("#STEP?", "A step is a key, or a document of a kind with the verb step.");
+        const envelope = step as Envelope;
         const result = walker({
           data: envelope.value,
           here,

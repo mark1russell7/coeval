@@ -304,3 +304,38 @@ P2 leaves some choices open. Where do the domains live, and how do two languages
 **Why.** A JSON term keeps a value type apart from a kind, and a contract can hold it, as it holds a shape. The domains are code, thus they merge as the other tables of code do (D17). Two languages that share the kernel domains get one table, and two meanings for one name stop the merge.
 
 The tests of the parents make each `under` true by construction. Thus a domain under `number` gets the test of `number`, and the rule for base types is sound. A term that the kernel does not know reads as `unknown`, as a marked hole does. Thus one bad type gives no chain of issues. A later term, for example a type variable of K30, does not break an older check.
+
+## D23 (2026-10-24): each verb goes through the kernel with one ladder, and the contract serves each verb
+
+**Context.** The study R6 found that only the verb `eval` got plans and checks (fact 2). `prepare`, `check` and the reference named `eval` in their code. A language with another verb, for example `format`, wrote its own walk, with no plan, no trace and no check.
+
+The ladders also differed by verb (fact 3). `deref` visited the own entry, the kind and a fixed step into the value, but not the default of the world. `step` had only the kind rung. The open question 2 of R6 asked if this was a decision or a gap.
+
+**Decision.**
+
+- `prepare`, `evaluate`, `run`, `check`, `reference` and `agree` take the option `verb`. The default is `eval`, thus each existing call gives the same result (VERB.DEFAULT).
+- At each document, the ladder answers for the verb, and each part evaluates with the same verb. A verb is one reading of the whole document. The sealed parts of D7 keep each reading compositional.
+- One function gives the rungs of each verb: the own entry, then the kind, then the default of the world. `ask` gives the same answer with the record of the rungs. Thus the different ladders were a gap, and this decision closes it (VERB.LADDER).
+- `deref` gets the default rung. When no rung answers, a step goes into the value of the document, as before. A value without a type is data, thus a step goes into it at once. This clause changes the clause of D10 about the default of `deref`.
+- `step` gets the own rung and the default rung. A rung of `deref` or `step` answers only with code that the machine has, as the kind rung did before. A rung reads only the own names of a table of code (LADDER.OWN-ONLY).
+- The resolution and `check` find the walker of a step with one function, thus they agree on `#STEP?`.
+- The evaluators of each verb share the tables `evaluators` and `runners`, by name. Thus the merge of D17 and the restriction of D18 serve each verb with no new rule.
+- The contract of a kind serves each verb. For each verb, the kernel splits the parts and narrows their capabilities by the rules of D14. `check` reads the shapes, the paths and the scope rules for each verb.
+- `side` and `effects` describe the verb `eval`. Thus `check` tests the declared effects only for `eval` (VERB.CHECK). An effect of another verb uses the same `effect` and the same runners (D9, D11). The capabilities test it when it happens (VERB.CONTRACT).
+- The reference interpreter reads each verb by the same rules: the ladder of the verb, the contract and the sealed parts. A compiled evaluator of a verb needs a definition, as for `eval` (D15).
+- `agree` gives its verb to each tier, also to the second tier of a language (VERB.AGREE).
+- The kernel ships no verb `format`. A spec test adds it to the formula kit with a merge, as a language does (VERB.FORMAT). Today the language replaces three kinds of the kit to give them their own entries.
+
+**Rejected.**
+
+- A table of code for each verb, for example `formatters`. Each verb of evaluation has the form of `eval`, thus one table serves. The merge and the restriction then need no new rules.
+- The step into the value as a named default of `deref` in the standard world, as R6 P3 proposed. Each world without that entry then loses its field steps, and each host breaks.
+- The default of `deref` for a value without a type. A `deref` reads a document, and the quick path of a resolution reads plain values without the ladder (DEREF.QUICK).
+- A check of the declared effects for each verb. A verb `format` causes no effect, thus such a check gives a false `#CAP!` for the text of an effect. A contract that declares the effects of each verb comes later.
+- A field `verb` in the type `Plan`. The code and the trace of a plan keep its verb. A new field that each plan must have breaks a host that makes its own plans.
+
+**Why.** A new verb costs as little as a new kind. A language gives one default and the entries of its own kinds, and it gets plans, traces, `check` and `agree` for the verb. One function for the rungs keeps the plan, `check` and the resolution in agreement.
+
+The new options are optional. The new rungs read entries that the kernel did not read before: a default of `deref` or `step`, and an own entry of `step`. Thus the change is backward compatible.
+
+**Next.** K35 lets a language add a verb that it owns to the kinds of another language, through the merge (R6 P4). The merge writes the entry into the kind, and the kind rung reads it. K36 lists each kind that answers no verb of a list (R6 P5). It asks the same function for each kind and each verb, before a document exists. Neither changes the ladder.
