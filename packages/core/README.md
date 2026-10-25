@@ -40,6 +40,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | Trees | `STD_WORLD` (`panel`, `box`), `nearestWalker` | The decorated tree: each field of a node is an attribute that evaluates on demand, one time in an evaluation. A sibling is a path through the parent, and a cycle gives `#CYCLE!` with its chain |
 | The formula kit | `formulaMachine`, `FormulaProfile`, `formulaKnown`, `formulaFacts` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. A language extends the kit through the merge. An address gives a thing, not its value |
 | One meaning | `agree`, `reference`, `formulaDefinitions`, `STD_DEFINITIONS`, `generate`, `TierInput` | A reference interpreter that compiles nothing, and `agree`, which compares a plan with it and with the second tier of a language. Each tier gets the mock `perform` and the `verb` of `agree`. `generate` builds random documents from the kind contracts |
+| Conformance | `conforms`, `ConformOptions`, `Finding`, `Obligation`, `ConformProbe` | The obligations of host code, examined for one evaluator or runner with probe parts and a probe runtime. Each finding names the obligation, the reason and a probe that shows it (D36) |
 | Early cutoff | `sameResult` | A safe equality of two results for a schedule. Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place |
 | Reads | `verifyReads`, `Read`, `ReadsCheck`, `VerifyOptions` | The option `reads` of an evaluation records each path that it resolves, with what the path reached. `verifyReads` resolves each free read again in a new context, and it tells if the old result stays valid (D26) |
 | Durability | `durable`, `Durable`, `DurableOptions`, `DurableCounts`, `Epochs` | A cache of plans, facts and results with one epoch for the structure and one for the data. A change of data compiles nothing. A pure document verifies its reads, and another document evaluates again (D30) |
@@ -50,6 +51,23 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | The types of the roots | `RootTypes`, `CAPS_TYPE`, `typeFromSchema`, `typeFromSamples`, `TypeReading`, `SampleOptions` | The host gives the types of its names and of the roots in the option `rootTypes`. A reference then gets the type that its path reaches, and a missing field of a closed record gives `#TYPE!`. A host makes such a type from a JSON Schema or from sample values |
 
 Each rule has an ID in [`docs/SPEC.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://mark1russell7.github.io/coeval/) explains each idea with a live diagram.
+
+## Check the code of a language
+
+`conforms` examines the code of an evaluator or a runner against the obligations of host code, C1 to C8 of [`docs/SEMANTICS.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SEMANTICS.md). Start it in a test for each name of your machine. An empty list means that the code conforms.
+
+```ts
+import { conforms, formulaDefinitions } from "@mark1russell7/coeval";
+
+for (const name of Object.keys(machine.evaluators)) {
+  expect(conforms(machine, name, { definitions: formulaDefinitions(profile) })).toEqual([]);
+}
+```
+
+- The kinds of the world that name the code give the probe documents. For code under a namespace, for example `formula.op`, give the types in the option `types`.
+- The option `values` adds values for a type, for example data that the contract does not describe.
+- The option `definitions` gives the code for the reference. Then `conforms` also compares the compiled code with it.
+- Each finding has a `probe`: the document, the result of each part, the waits and the capabilities. The probe shows one case that breaks the obligation.
 
 ## License
 

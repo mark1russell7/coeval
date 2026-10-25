@@ -386,6 +386,23 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
 
+## Conformance
+
+`conforms(machine, name)` examines one evaluator or runner against the obligations of `SEMANTICS.md` (D36). It gives one finding for each obligation that the code breaks.
+
+| ID | Rule |
+| --- | --- |
+| CONFORM.STD | Each evaluator and each runner of `STD_MACHINE`, and each evaluator of the formula kit with three profiles, conforms. `conforms` throws for a name without code, and for code that no kind names. |
+| CONFORM.NARROW | Code that gives a part or an effect more capabilities than its document has breaks C1. A spread, a context from an earlier call and a function evaluator are found. |
+| CONFORM.EFFECTS | Code that causes an effect that its contract does not declare breaks C2. The effects `type` declare the type of the document. |
+| CONFORM.LAZY | Code that skips an eager part, or that evaluates a lazy part whose result does not change the result, breaks C3. The check applies only to the verb `eval`. |
+| CONFORM.PURE | The code of a pure kind that causes an effect breaks C4. Code that reads a root of the context outside `resolve` breaks C4 too. |
+| CONFORM.SEALED | Code whose result changes with the JSON of its parts, when the results of the parts stay the same, breaks C5. The names of the parts are permitted. |
+| CONFORM.WAIT | A runner that drops a wait, makes its own wait or evaluates a part with code that cannot wait breaks C6. An evaluator that gives a promise breaks it too. |
+| CONFORM.SCOPE | Code that binds another name for a part, does not bind a name of the scope rules, or hides a name of the document breaks C7. |
+| CONFORM.LOCAL | Code that gives another record for the same probe in a later call breaks the local lemma. Compiled code that disagrees with its definition for the reference breaks it too. |
+| CONFORM.PROFILE | Compiled code that reads a table whose answer changes after the compilation breaks C8. Code of an earlier compilation and new code differ on the same probe. |
+
 ## The calculus
 
 | ID | Rule |
