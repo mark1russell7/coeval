@@ -10,5 +10,6 @@ This folder keeps one written study for each research question of coeval. A stud
 | R4 | Incremental computation and schedules | [`r4-incremental.md`](r4-incremental.md) | done (2026-10-24) |
 | R5 | Types and abstract interpretation for `check` | [`r5-types.md`](r5-types.md) | done (2026-10-24) |
 | R6 | Language workbenches and extensibility | [`r6-workbenches.md`](r6-workbenches.md) | done (2026-10-24) |
+| R7 | A formal semantics of the kernel | [`r7-semantics.md`](r7-semantics.md) | done (2026-10-24) |
 
-All six studies are done. The roadmap section ["The order of the next work"](../ROADMAP.md#the-order-of-the-next-work) gives the order in which the plan takes up their proposals.
+All seven studies are done. The roadmap section ["The order of the next work"](../ROADMAP.md#the-order-of-the-next-work) gives the order in which the plan takes up their proposals.
