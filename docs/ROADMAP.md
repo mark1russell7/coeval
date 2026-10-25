@@ -24,7 +24,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 10. K10 and K11: a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2) (done, 2026-10-24, released in 0.6.3, D19). An evaluation, a plan, the reference and `agree` take a mock `perform`. Each effect keeps a stable address and its outcome. `recorder` and `replayer` give record and replay, and a request that the log does not have gives `#REPLAY!`.
 11. K23: value types and value domains, the base of the type work (R5 P2): done (2026-10-24, D22), released in the next batch. A value type is a JSON term, and `fits` decides each check. A language adds its base types as domains of its machine, and the domains merge name by name. The type work K24 to K31 builds on it.
 12. K33: each verb through the kernel (R6 P3) (done, 2026-10-24, D23, released in the next batch). `prepare`, `check`, the reference and `agree` take a verb, and one ladder serves each verb, also `deref` and `step`. A verb `format` in the spec tests is the demonstration.
-13. K12: compiled paths (R1 P2).
+13. K12: compiled paths (R1 P2) (done, 2026-10-24, D29, released in the next batch). A reference of the formula kit compiles its static path in `prepare`: the root, the open roots and the walker of each step document. Each evaluation only walks the values of the context. `derefStep` and `walkerOf` keep a memo of `lookupKind` for each world. The results, the errors, the places and the reads stay the same. A CI job prints the speed of the base and of the head.
 14. S1a: `factsOf`, the static facts of a document (R4 P2): done (2026-10-24, D24), released in the next batch. It gives the reads with marks for lazy parts, the side, the effects and the marks `pure` and `volatile`. A test of generated documents finds each real read in the static reads. S1b and S2 build on it.
 15. K24: signatures of operations and a bidirectional `check` (R5 P3) (done, 2026-10-24, D25, released in the next batch). A formula profile gives each operation a signature or overloads, and a contract gives `result` and `expect`. With the option `types`, `check` synthesizes the type of each part and checks it against the type that its position needs. A wrong type gives the static issue `#TYPE!`, and an evaluation does not change. The type rule of a document follows its evaluator.
 16. S1b: a list of reads for each evaluation, and `verifyReads` (R4 P3): done (2026-10-24, D26), released in the next batch. An evaluation records each path that it resolves, with what the path reached and the mark `free`. `verifyReads` resolves each free read again with the rules of `sameResult`, and it gives the first changed read. A test of generated documents changes the contexts at random and finds no stale result.
@@ -67,7 +67,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K9 | A harness for one meaning: a reference interpreter that compiles nothing, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1, D15) | done (2026-10-24, version 0.4.2 with the corrections of four bugs that the harness found) | K2, K3 |
 | K10 | A synchronous mock `perform` for `evaluate`. Its answer becomes the result of the effect, and a promise from it gives `#CALC!` (R2 P1). | done (2026-10-24, released in 0.6.3, D19: the option `perform` of `evaluate`, `plan.evaluate`, `reference` and `agree`) | L1 |
 | K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | done (2026-10-24, released in 0.6.3, D19: `Effect.address`, `Effect.outcome`, `#REPLAY!` and the journal of the waits of `all`) | L1 |
-| K12 | Compiled paths: `compilePath` resolves one static path, and `derefStep` keeps a memo of `lookupKind` (R1 P2) | next | K4, K9 |
+| K12 | Compiled paths: `compilePath` resolves one static path, and `derefStep` keeps a memo of `lookupKind` (R1 P2) | done (2026-10-24, D29, released in the next batch) | K4, K9 |
 | K13 | Folds of closed pure subtrees: a static subtree evaluates one time at compile time, from a `pure` mark in the kind contract (R1 P3) | later (R1 first asks if a plan can share its results) | K9 |
 | K14 | Binding times that the host declares: a path from a root that does not change resolves at compile time (R1 P4) | later | K9, S1 |
 | K15 | A tier of generated JavaScript for hot pure regions (R1 P5) | later (only behind a CI benchmark) | K9, K13 |
@@ -116,6 +116,9 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K72 | A walker declares the type of what it reaches, thus a path with a step document gets a type. Today a step document gives `unknown`. From K25. | later | K25 |
 | K73 | `typeFromSchema` reads `$ref` into `$defs` of the same schema, and `allOf` of records. Today a schema with `$ref` reads as `unknown`, and `allOf` tests nothing. From K25. | later | K25 |
 | K74 | The tree kit gives its kinds type rules with `PartType.roots`, thus an attribute of a node knows the type of `self`. Today the parts of a node get `unknown` roots. From K25. | later | K25, L2b |
+| K75 | A language compiles its own paths: an export of `compilePath`, and a route through `Runtime` that records the reads, for the second tier of a language (D13). Today only the formula kit uses compiled paths. From K12. | later | K12 |
+| K76 | The mark "total" for compiled code: `compileNode` does not wrap the code of `lit` in `placedCode`, thus a literal costs one call (R1 P2). From K12. | later | K12 |
+| K77 | The standard evaluator `ref.resolve` compiles its path. It is a function evaluator, thus each evaluation resolves its path again. It needs a definition for the reference (REF.DIRECT). From K12. | later | K12 |
 
 ## The kits
 
@@ -182,7 +185,7 @@ Each study answers one research question and ranks its proposals. The folder `do
 
 | ID | Study | Status | Roadmap rows |
 | --- | --- | --- | --- |
-| R1 | [Staging and partial evaluation](research/r1-staging.md) | done (2026-10-24) | K9, K12 to K17 |
+| R1 | [Staging and partial evaluation](research/r1-staging.md) | done (2026-10-24) | K9, K12 to K17. K12 adds K75 to K77. |
 | R2 | [Algebraic effects, handlers and the run side](research/r2-effects.md) | done (2026-10-24) | K10, K11, K18, K19, L1a, L1b, S4. K18 and K19 add K64 and K65. |
 | R3 | [Attribute grammars and the tree kit](research/r3-attribute-grammars.md) | done (2026-10-24) | L2a to L2i |
 | R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1a to S1c, S2, S3a to S3c, C10. R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |

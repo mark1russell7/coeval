@@ -565,3 +565,43 @@ The work found a hole of D25. A name bound to a reference document had the type 
 - K72: a walker declares the type of what it reaches, thus a path with a step document gets a type.
 - K73: `typeFromSchema` reads `$ref` into `$defs` of the same schema, and `allOf` of records.
 - K74: the tree kit gives its kinds type rules with `PartType.roots`, thus an attribute of a node knows the type of `self`.
+
+## D29 (2026-10-24): a reference compiles its static path in `prepare`, and the kind of a type has a memo for each world
+
+**Context.** The study R1 found that `prepare` is a first Futamura projection, written by hand (P2, K12). A plan still resolved each reference with the generic algorithm. At each evaluation, the short path examined the root, the open roots, `adopt` and each step, but the path and the navigator are static. A step document asked the ladder of `step` again, and a step on an envelope looked up the kind of its type again. References are the most frequent node.
+
+**Decision.**
+
+- `compilePath(nav, path)` in `deref.ts` compiles one static path for one navigator. It is `resolve` without hops, partially evaluated by hand. It is not an export of the package.
+- The reference of the formula kit compiles its path in `prepare` when the path has no parts (PLAN.PATH). A path with parts, for example step documents under a deep shape, changes at each evaluation. It resolves as before.
+- The compilation reads these items one time: the root, the open roots, `adopt` and `plain`. It also tests one time that each step is a key, and it finds the walker of each step document. The ladder of `step` answers from the navigator and the step document only.
+- A plan keeps its machine (COMPOSE.INCREMENTAL). Thus the navigator and the world of a compiled path do not change during the life of the plan.
+- Each evaluation examines only the values of the context. A compiled path keeps no value of a context, and no thing that a path reached.
+- The compiled path and `resolveQuick` share one step function, `walkQuick`. A value that the short path cannot answer goes to the full algorithm, as before. Thus the two cannot disagree at an edge of DEREF.CODES (PLAN.PATH-SAME).
+- The runtime of the kernel uses a compiled path only for a resolution without hops, and only for the navigator of the compilation. A trace records the hops, thus it resolves the steps again.
+- A runtime that wraps the runtime of the kernel gets the steps through `Runtime.resolve`, as before.
+- The list of reads records the steps of the document for a compiled path: the same list object as before. An exception of the host gives the error value of the read (D26).
+- `kindFor` keeps a memo of `lookupKind` for each world, by the keys of the type (PLAN.KIND-MEMO). `derefStep` and `walkerOf` use it, thus the ladders of `deref` and `step` keep each rung and each default (D23).
+- The memo of a world holds 1000 kinds at most, and then it starts again. Thus the types in the data of a host cannot fill the memory.
+- The short path, `isRef` and `derefStep` read the field `type` of a value first. A value without that field is not an envelope, thus they do not examine its keys. A text type other than `ref` is not a reference.
+- A CI job `bench.yml` compares the base and the head of a pull request in one process, with the rounds in turn. It prints the numbers and blocks nothing. The speed tests of the suite stay as they are.
+
+**Rejected.**
+
+- `Runtime.resolve` with a compiled path as its argument. A runtime that wraps another runtime and reads the paths then gets an object in place of a list, as a test of FACTS.SOUND shows.
+- An export of `compilePath` in this item. A language that resolves a compiled path itself skips the list of reads. A route through the runtime for the second tier of a language is the row K75.
+- A memo for each plan. The kind of a type depends only on the world and its keys, and one world serves many plans. `worldThing` already keeps one thing for each world.
+- A memo by the identity of the type. Each value of a store has its own list for its type, thus such a memo finds almost nothing.
+- A cache of the values that a path reaches. The context changes between evaluations, thus such a cache gives stale values. A root that does not change needs a declaration of the host (R1 P4, K14).
+- One shared list of keys for each call of `resolve` on a host thing. A host that changes its list then changes the next evaluation. The kernel makes a new list at each call, as before.
+- The mark "total" for the code of `lit` (R1 P2). It changes `compileNode`, not the paths, thus it is the row K76.
+
+**Why.** A reference does the static work of its path one time, as `prepare` does for the ladder of each document. The values stay dynamic, thus each result, error, place and read stays the same. One step function for the dynamic path and the compiled path keeps their edges equal. Two property tests compare them on random paths and on generated documents, and `agree` compares the plan with the reference interpreter.
+
+The CI job of this change measured the medians on Node 26, with the base and the head as bundles. An evaluation of the formula of FORMULA.SPEED went from 118 ns to 98 ns. A reference of five steps went from 163 ns to 120 ns. A reference through an envelope went from 387 ns to 253 ns, and a reference with a step document from 387 ns to 134 ns. A compilation of PLAN.COMPILE-SPEED stays at 2.9 µs.
+
+**Next.**
+
+- K75: a language compiles its own paths, through a route of the runtime that records the reads.
+- K76: the mark "total" for the code of `lit`, thus `compileNode` does not wrap it.
+- K77: the standard evaluator `ref.resolve` compiles its path, with a definition for the reference.
