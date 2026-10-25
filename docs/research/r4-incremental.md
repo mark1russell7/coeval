@@ -267,8 +267,8 @@ This is self-adjusting computation inside the plan. It costs time in each evalua
 
 1. **Lazy parts.** Is `lazy` a mark of the shape (K2), or does the static kit get it from the formula kit?
 2. **Purity.** Do R1 P3 and the schedules share one field `pure`? Does the kind, the profile, or both declare `volatile`?
-3. **Cycles across nodes.** In a demand schedule, the node that closes a cycle depends on the first read. Does each node of a cycle give `#CYCLE!`, so that each schedule gives the same error?
-4. **Granularity.** Does a read of `["world", "a", "x"]` depend on the node `a`, or on its field `x`?
-5. **The run side.** Is a run document a sink of the graph, as an effect of a signal library? What starts it (L3)?
+3. **Cycles across nodes.** In a demand schedule, the node that closes a cycle depends on the first read. Does each node of a cycle give `#CYCLE!`, so that each schedule gives the same error? Answered by D31: yes. Each node of a strongly connected component of the reads gives `#CYCLE!`, with a reason that names only the node.
+4. **Granularity.** Does a read of `["world", "a", "x"]` depend on the node `a`, or on its field `x`? Answered by D31: the edge goes to the node `a` and keeps the field `x`. The early cutoff of `verifyReads` is by field.
+5. **The run side.** Is a run document a sink of the graph, as an effect of a signal library? What starts it (L3)? Answered by D31: it is a sink, and a read of it gives `#REF!`. Only the host starts a run, and a change of data does not repeat it.
 6. **Walkers.** Does a walker, for example `nearest`, declare its reads, so that `factsOf` gives exact reads after a computed step?
 7. **Adapters.** Does each adapter live in the repository of its host, or does this repository keep a package of adapters?
