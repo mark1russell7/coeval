@@ -65,8 +65,8 @@ const effectsMachine: Machine = {
       split: { verbs: { eval: "test.in-order" }, parts: { shape: "record", fields: ["inner", "outer"] }, caps: [{ rule: "only", caps: ["log"], in: [["inner"]] }] },
       // The parts get only the effects under git, key by key.
       gate: { verbs: { eval: "test.in-order" }, parts: { shape: "list" }, caps: [{ rule: "only", caps: ["git"] }] },
+      // Each runner keeps C6: it waits only for an effect. The claim of RUN.CAN-WAIT needs C6.
       both: { verbs: { eval: "test.all" }, parts: { shape: "list" } },
-      wait: { verbs: { eval: "test.wait" }, side: "run" },
       // A write without a key: its parts give the payload.
       put: { verbs: { eval: "test.put" }, parts: { shape: "list" }, side: "run", effects: ["write"] },
       // An evaluator that causes an effect: it works in an evaluation, and it cannot wait for the host in a run.
@@ -89,10 +89,6 @@ const effectsMachine: Machine = {
     "test.in-order": inOrder,
     "test.all": function* ({ parts, all }): Steps {
       return valuesOf(yield* all(parts, { failFast: true, concurrency: 2 }));
-    },
-    "test.wait": function* (): Steps {
-      yield Promise.resolve();
-      return ok("waited");
     },
     "test.call": function* ({ typePath, data, effect }): Steps {
       return yield* effect(typePath, data);
@@ -238,21 +234,18 @@ describe("the effects that reach the host", () => {
     ]);
   });
 
-  it("[RUN.CAN-WAIT] with the option run, check gives the #CALC! of a run at its place, before the host does an effect", async () => {
+  it("[RUN.CAN-WAIT] with the option run, check gives the #CALC! of a runner that can wait, at its place and with its reason", async () => {
     const nested = { type: "add", value: [1, log()] };
     const issues = check(STD_MACHINE, nested, { run: true });
     expect(issues).toEqual([{ code: "#CALC!", place: [1], reason: "log waits for effects, and its parent cannot wait. Give the parent a runner.", at: ["value", 1] }]);
     // An evaluation can drive a runner under an evaluator, thus the check without the option finds no problem.
     expect(check(STD_MACHINE, nested)).toEqual([]);
-    const performed: Effect[] = [];
-    const done = await run(STD_MACHINE, nested, makeContext({}, STD_CAPS), {
-      perform: (effect) => {
-        performed.push(effect);
-        return null;
-      },
-    });
+    // The run drives the runner too (RUN.DRIVE-NESTED). A host that waits gives the #CALC! of the check.
+    const done = await run(STD_MACHINE, nested, makeContext({}, STD_CAPS), { perform: () => Promise.resolve(null) });
     expect(done.result).toEqual(fail("#CALC!", issues[0]?.reason ?? "", { place: [1] }));
-    expect(performed).toEqual([]);
+    // A runner whose effects cannot reach the host does not wait: pure gives its part no capability.
+    expect(check(STD_MACHINE, { type: "add", value: [1, { type: "pure", value: [log()] }] }, { run: true })).toEqual([]);
+    expect(check(STD_MACHINE, { type: "add", value: [1, log()] }, { run: true, caps: ["write"] }).map((issue) => issue.code)).toEqual(["#CAP!"]);
     // A runner at the root, and a runner under a runner, can wait.
     expect(check(STD_MACHINE, { type: "seq", value: [log(), { type: "if", value: { test: { type: "bool", value: true }, then: write } }] }, { run: true })).toEqual([]);
     // An evaluator that declares an effect cannot cause it in a run.
@@ -260,12 +253,10 @@ describe("the effects that reach the host", () => {
     const reason = "The effect log needs a runner: in a run, the host does each effect.";
     expect(check(formulaEffects, say, { run: true })).toEqual([{ code: "#CALC!", place: [], reason, at: [] }]);
     expect((await run(formulaEffects, say, makeContext({}, ["log"]))).result).toEqual(fail("#CALC!", reason, { place: [] }));
-    // The closure of fn evaluates its body without a wait, thus a runner in the body fails in a run.
+    // The closure of fn evaluates its body without a wait. A runner without effects in the body does not wait.
     const body = { type: "call", value: { fn: { type: "fn", value: { params: [], body: { type: "pause", value: null } } } } };
-    expect(check(formulaEffects, body, { run: true })).toEqual([
-      { code: "#CALC!", place: ["fn", "body"], reason: "pause waits for effects, and its parent cannot wait. Give the parent a runner.", at: ["value", "fn", "value", "body"] },
-    ]);
-    expect((await run(formulaEffects, body, makeContext())).result).toMatchObject({ ok: false, error: { code: "#CALC!", place: ["fn", "body"] } });
+    expect(check(formulaEffects, body, { run: true })).toEqual([]);
+    expect((await run(formulaEffects, body, makeContext())).result).toEqual(ok("paused"));
     expect(prepare(formulaEffects, body).evaluate()).toEqual(ok("paused"));
     // A parent without code fails before its parts, thus the check finds no wait under it.
     expect(check(STD_MACHINE, { type: "add", value: [log()], own: { eval: "nothing" } }, { run: true }).map((issue) => issue.code)).toEqual(["#NOEVAL"]);

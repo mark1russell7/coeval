@@ -46,6 +46,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D35 | A plan keeps only its data and the closures of its own code. The code of a plan and of a compiled path is on a class, and a plan makes its root and the steps of a run at their first use. A plan of one reference keeps less than 600 bytes. |
 | D36 | `conforms` examines one evaluator or runner against the obligations C1 to C8. It calls the code directly with probe parts and a probe runtime. Two evaluations that differ only in what the code must not read find C4, C5 and C8. C8 is an obligation of the author of a profile. |
 | D37 | Each law of the semantics has a property test on generated documents, and each law states its conditions. A test counts the cases that its conditions skip. Code that reads `doc.value` breaks EVAL.SEALED, and the test finds it. |
+| D38 | A run drives a runner under an evaluator, as an evaluation does. Only a real wait gives `#CALC!`. A branch that does not run does not wait. RUN.SAME holds when no evaluator causes an effect and the host answers at once. |
 
 ## Open
 

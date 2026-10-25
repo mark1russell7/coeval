@@ -21,6 +21,7 @@ import {
   makeContext,
   permits,
   placeText,
+  waitedReason,
 } from "./evaluate.ts";
 import { type FormulaProfile, type OpFn, Held, STD_EXT } from "./formula.ts";
 
@@ -250,7 +251,7 @@ function evaluateSeen(env: Env, seen: Seen, at: At): Result {
   const { chosen } = seen;
   const { place } = at;
   if ("gap" in chosen) return fail("#NOEVAL", chosen.gap, { place });
-  if ("runner" in chosen) return drive(runSeen(env, seen, at, chosen.runner), place);
+  if ("runner" in chosen) return drive(runSeen(env, seen, at, chosen.runner), place, seen.kindText);
   const input = evalInput(env, seen, at);
   try {
     return placed(chosen.evaluator(input), place);
@@ -276,11 +277,11 @@ function* runSeen(env: Env, seen: Seen, at: At, runner: RunFn): Steps {
 }
 
 /** This function drives steps that cannot wait. A step that waits gives `#CALC!` at the document (RUN.WAIT). */
-function drive(steps: Steps, place: readonly Key[]): Result {
+function drive(steps: Steps, place: readonly Key[], kindText: string): Result {
   const step = steps.next();
   if (step.done === true) return step.value;
   void step.value.catch(() => undefined);
-  const waited = fail("#CALC!", "A part waited, and its parent cannot wait.", { place });
+  const waited = fail("#CALC!", waitedReason(kindText), { place });
   steps.return(waited);
   return waited;
 }

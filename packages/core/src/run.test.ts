@@ -5,16 +5,22 @@ import {
   type Machine,
   type Runner,
   type Steps,
+  type TraceNode,
   Failure,
   STD_CAPS,
   STD_MACHINE,
+  check,
+  effectsOf,
   evaluate,
+  generate,
   makeContext,
   ok,
   permits,
   prepare,
   reference,
   run,
+  sameResult,
+  typesOf,
 } from "./index.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
@@ -103,9 +109,71 @@ describe("a run", () => {
   });
 
   it("[RUN.NESTED-WAIT] refuses a step that waits inside a part that cannot wait", async () => {
-    const out = await run(STD_MACHINE, { type: "add", value: [1, { type: "log", value: ["x"] }] }, makeContext({}, STD_CAPS));
-    expect(out.result).toMatchObject({ ok: false, error: { code: "#CALC!" } });
-    expect(out.effects).toEqual([]);
+    const doc: Json = { type: "add", value: [1, { type: "log", value: ["x"] }] };
+    const out = await run(STD_MACHINE, doc, makeContext({}, STD_CAPS), { perform: () => Promise.resolve(2) });
+    expect(out.result).toMatchObject({ ok: false, error: { code: "#CALC!", place: [1] } });
+    // The host started the effect, and the run did not wait for it. Thus the effect has no outcome (RUN.OUTCOME).
+    expect(out.effects.map((effect) => [effect.kind, effect.outcome])).toEqual([["log", undefined]]);
+  });
+
+  it("[RUN.DRIVE-NESTED] a run drives a runner under an evaluator, and only a real wait gives #CALC!", async () => {
+    const ctx = makeContext({}, STD_CAPS);
+    // pure is a runner that does not wait. The run drives it under add, as an evaluation does.
+    const pure: Json = { type: "add", value: [1, { type: "pure", value: [{ type: "number", value: 2 }] }] };
+    expect((await run(STD_MACHINE, pure, ctx)).result).toEqual(ok(3));
+    expect(check(STD_MACHINE, pure, { run: true })).toEqual([]);
+    // An if under an operation in the test of another if. Its branch that waits is not taken, thus the run has no wait.
+    const inner = (test: boolean): Json => ({ type: "if", value: { test: { type: "bool", value: test }, then: { type: "number", value: 3 }, else: { type: "log", value: ["x"] } } });
+    const outer = (test: boolean): Json => ({ type: "if", value: { test: { type: "greater", value: [inner(test), 2] }, then: { type: "text", value: "big" }, else: { type: "text", value: "small" } } });
+    const waits = (): Promise<unknown> => Promise.resolve("done");
+    const taken = await run(STD_MACHINE, outer(true), ctx, { perform: waits });
+    expect(taken.result).toEqual(ok("big"));
+    expect(taken.result).toEqual(evaluate(STD_MACHINE, outer(true), ctx).result);
+    expect(taken.effects).toEqual([]);
+    // The same if with the branch that waits taken gives #CALC! at the place of the if under the operation.
+    const waited = await run(STD_MACHINE, outer(false), ctx, { perform: waits });
+    const issues = check(STD_MACHINE, outer(false), { run: true });
+    expect(issues).toEqual([{ code: "#CALC!", place: ["test", 0], reason: "if waits for effects, and its parent cannot wait. Give the parent a runner.", at: ["value", "test", "value", 0] }]);
+    expect(waited.result).toEqual({ ok: false, error: expect.objectContaining({ code: "#CALC!", place: ["test", 0], reason: issues[0]?.reason }) });
+    // A host that answers at once does not wait, thus the run gives the result of the evaluation with the same mock.
+    const answers = (): string => "done";
+    const atOnce = await run(STD_MACHINE, outer(false), ctx, { perform: answers });
+    expect(atOnce.result).toEqual(evaluate(STD_MACHINE, outer(false), ctx, { perform: answers }).result);
+  });
+});
+
+/** This function tells if a trace has a runner under an evaluator: a run refused such a runner before K110. */
+function nested(node: TraceNode, runners: Readonly<Record<string, unknown>>, parentRuns: boolean): boolean {
+  const name = node.answer.evaluator;
+  const runs = name !== undefined && Object.hasOwn(runners, name);
+  if (runs && !parentRuns) return true;
+  return node.children.some((child) => nested(child, runners, runs));
+}
+
+describe("one meaning of a run and an evaluation", () => {
+  it("[RUN.SAME] a generated document without effects runs to the result of its evaluation", async () => {
+    const world = STD_MACHINE.world;
+    const types = [...typesOf(world), ["pure"], ["pure"], ["if"], ["seq"], ["add"]];
+    const runners = STD_MACHINE.runners ?? {};
+    const ctx = makeContext({ a: 1 }, STD_CAPS);
+    let compared = 0;
+    let drives = 0;
+    const differ: string[] = [];
+    for (let index = 0; index < 400; index += 1) {
+      const doc = generate(world, { seed: 7_100_000 + index, types, names: ["a"], malformed: 0.02 });
+      // A document without effects: its runners do not wait (C6).
+      if (effectsOf(STD_MACHINE, doc).length > 0) continue;
+      const evaluation = evaluate(STD_MACHINE, doc, ctx);
+      const done = await run(STD_MACHINE, doc, ctx);
+      compared += 1;
+      if (nested(evaluation.trace, runners, true)) drives += 1;
+      if (!sameResult(done.result, evaluation.result)) differ.push(`seed ${7_100_000 + index}: ${JSON.stringify(done.result)} for ${JSON.stringify(evaluation.result)}
+  doc ${JSON.stringify(doc)}`);
+    }
+    expect(differ.slice(0, 3)).toEqual([]);
+    expect(compared).toBeGreaterThan(100);
+    // The documents put runners under evaluators, where a run refused them before K110.
+    expect(drives).toBeGreaterThan(20);
   });
 });
 

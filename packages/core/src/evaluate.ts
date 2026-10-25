@@ -1185,13 +1185,25 @@ function holderNode(): Building {
   };
 }
 
-/** This function drives steps that cannot wait. */
-function drive(steps: Steps): Result {
+/**
+ * This function gives the reason of a runner that waits where its parent cannot wait (RUN.WAIT). The plan, the
+ * reference and `check` with the option `run` give the same reason.
+ *
+ * @param kindText - The text of the type of the runner document.
+ * @returns The reason.
+ */
+export function waitedReason(kindText: string): string {
+  return `${kindText} waits for effects, and its parent cannot wait. Give the parent a runner.`;
+}
+
+/** This function drives steps that cannot wait. A step that waits stops the steps, and gives `#CALC!`. */
+function drive(steps: Steps, kindText: string): Result {
   const step = steps.next();
   if (step.done === true) return step.value;
   void step.value.catch(() => undefined);
-  void steps.return(fail("#CALC!", "A part waited, and its parent cannot wait."));
-  return fail("#CALC!", "A part waited, and its parent cannot wait.");
+  const waited = fail("#CALC!", waitedReason(kindText));
+  void steps.return(waited);
+  return waited;
 }
 
 const ABORTED = /* @__PURE__ */ Symbol("aborted");
@@ -1491,14 +1503,12 @@ function placedRun(inner: RunCode, place: readonly Key[], name: string): RunCode
 }
 
 /**
- * This function gives the code of a runner in an evaluation: its steps, which cannot wait. A step that waits gives
- * `#CALC!` at the place of the runner, where the error started (RUN.WAIT).
+ * This function gives the code of a runner under a parent that cannot wait: its steps, driven without a wait. An
+ * evaluation and a run both drive them (RUN.DRIVE-NESTED). Only a step that really waits gives `#CALC!`, at the place
+ * of the runner, where the error started (RUN.WAIT).
  */
 function runnerCode(run: RunCode, place: readonly Key[], kindText: string): Code {
-  return (ctx, rt) =>
-    rt.running
-      ? fail("#CALC!", `${kindText} waits for effects, and its parent cannot wait. Give the parent a runner.`, { place })
-      : placed(drive(run(ctx, rt)), place);
+  return (ctx, rt) => placed(drive(run(ctx, rt), kindText), place);
 }
 
 /**
