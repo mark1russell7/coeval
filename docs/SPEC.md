@@ -190,6 +190,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.SAME | A run gives the same derived values as an evaluation. |
 | RUN.NESTED-WAIT | A step that waits inside a part that cannot wait gives `#CALC!`. |
 | RUN.WAIT | A part that waits under an evaluator gives `#CALC!`. The error has the place of the part. |
+| RUN.CAN-WAIT | With the option `run`, `check` gives `#CALC!` for a runner under a parent without a runner, and for a kind that declares effects and has no runner. The issue has the place and the reason of the run. A document that passes this check gives no such `#CALC!` in a run. |
 | RUN.EVAL | An evaluation of a run document records its effects, and it does none. |
 | RUN.EFFECT | An effect has its kind, its keys, its place and its context. |
 | RUN.CAUSE | An error of the host stays the cause of the error value. |
@@ -214,6 +215,10 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | CAP.CONTRACT | A kind declares in its contract the capabilities that it gives its parts: `same`, `mask` or `only`. The kernel narrows the context of each part by these rules, thus an evaluator cannot give the part more. |
 | CAP.ONLY | A rule `only` gives a part only the effects that the capabilities of its document and the list of the rule both permit. |
 | CAP.DECLARED | Each kind of the standard world that causes an effect declares the effect in its contract. Thus `check` finds a `#CAP!` for it. |
+| CAP.PERMITS | `check` and `effectsOf` ask the hook `permits` of the machine about each declared effect, with the capabilities of its document, as a run does. In a check, the hook gets a context with only the capabilities and the world. Without the hook, the function `permits` decides. |
+| CAP.EFFECTS-OF | `effectsOf` gives the kinds of the effects that can reach the host: the declared effects, without the effects that a rule `mask` or `only` around them removes. Each kind comes one time, in the order of the document. With capabilities at the root, only the effects that the rule of the machine permits stay. |
+| CAP.EFFECTS-SOUND | `effectsOf` permits each effect that an evaluation or a run gives the host, with the capabilities of the run and without capabilities. A property test examines generated documents with a recorder. |
+| CAP.LATENT | A procedure value keeps the capabilities of the document that made it. Its latent effects are the effects of its body, thus `effectsOf` and `check` count them at the body. A procedure entry declares its latent effects in `effects`. `checkLatent` gives a `#CAP!` for each effect of a body that the declaration does not permit. |
 
 ## Order of steps
 

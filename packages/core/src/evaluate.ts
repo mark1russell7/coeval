@@ -613,7 +613,8 @@ export type Runner = RunFn | CompiledRunner;
  * A machine: a world of kinds, and the code of each evaluator name, of each `deref` and of each walker.
  *
  * - `maxDepth`: the deepest nesting of documents. The default is 1000.
- * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities.
+ * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities. A run,
+ *   `check` and `effectsOf` ask it (CAP.PERMITS). In a check, its context has only the capabilities and the world.
  * - `known`: the names that the evaluators know, for `check`. Without it, `check` does not check such names.
  * - `domains`: the value domains of the language, by the name of their base type (D22).
  * - `facts`: the static facts of the names that a fallback kind covers, for `factsOf` (D24).

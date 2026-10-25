@@ -480,8 +480,8 @@ function harness(config: Config, total: number): Outcome {
     }
     const result = outcome.result;
     count(codes, result.ok ? "value" : result.error.code);
-    // A rule of the host for effects (CAP.HOOK) is outside check, thus such a machine skips this test.
-    if (result.ok || config.machine.permits !== undefined) continue;
+    // check asks the rule of the host for effects too (CAP.PERMITS), thus a machine with the hook permits takes this test.
+    if (result.ok) continue;
     const error = result.error;
     const same = sameInCheck(config.machine, doc, error, declared);
     // An overflow of the stack of the host gives #DEPTH! too, but check finds only a nesting deeper than the limit.

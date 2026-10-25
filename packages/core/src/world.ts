@@ -147,7 +147,9 @@ export interface Kind extends KindFacts {
   readonly side?: Side;
   /**
    * The effects that the verb `eval` of a document of this kind can cause. It is a list of the kinds of the effects.
-   * The text `"type"` means that the kind of the effect is the type of the document itself, as for a call.
+   * The text `"type"` means that the kind of the effect is the type of the document itself, as for a call. For a
+   * procedure entry, the list holds the latent effects of the procedure, and `checkLatent` compares them with its body
+   * (CAP.LATENT).
    */
   readonly effects?: "type" | readonly string[];
   /**

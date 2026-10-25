@@ -28,6 +28,7 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 14. S1a: `factsOf`, the static facts of a document (R4 P2): done (2026-10-24, D24), released in the next batch. It gives the reads with marks for lazy parts, the side, the effects and the marks `pure` and `volatile`. A test of generated documents finds each real read in the static reads. S1b and S2 build on it.
 15. K24: signatures of operations and a bidirectional `check` (R5 P3) (done, 2026-10-24, D25, released in the next batch). A formula profile gives each operation a signature or overloads, and a contract gives `result` and `expect`. With the option `types`, `check` synthesizes the type of each part and checks it against the type that its position needs. A wrong type gives the static issue `#TYPE!`, and an evaluation does not change. The type rule of a document follows its evaluator.
 16. S1b: a list of reads for each evaluation, and `verifyReads` (R4 P3): done (2026-10-24, D26), released in the next batch. An evaluation records each path that it resolves, with what the path reached and the mark `free`. `verifyReads` resolves each free read again with the rules of `sameResult`, and it gives the first changed read. A test of generated documents changes the contexts at random and finds no stale result.
+17. K18 and K19: the effects that reach the host, and the check of the waits of a run (R2 P3, P4) (done, 2026-10-24, D27, released in the next batch). `effectsOf` gives the declared effects that no mask or rule `only` removes, thus a host can grant the least authority. A procedure value keeps the capabilities of its maker, and `checkLatent` compares the latent effects of a procedure with its body. `check` asks the hook `permits`, and its option `run` finds a runner under a parent that cannot wait. The rule `grant` moved to L1a.
 
 On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studies is a row with the status `later`.
 
@@ -71,8 +72,8 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K15 | A tier of generated JavaScript for hot pure regions (R1 P5) | later (only behind a CI benchmark) | K9, K13 |
 | K16 | Nodes that specialize themselves: a compiled node keeps a small state, and this state gives profile data to K15 (R1 P6) | later | K9 |
 | K17 | One plan at many positions with `plan.evaluateEach(contexts)` (R1 P7) | later (only after a language asks for it) | K9 |
-| K18 | The rest of R2 P3: the rule `grant` for a handler, `effectsOf` for the effects that reach the host, the latent effects of procedure entries, and a check that uses the hook `permits` of the machine. K8 shipped the rules `same`, `mask` and `only` (`Kind.caps`, D14). | later | K8 |
-| K19 | A static check of the "can wait" bit: `check` reports a runner under a parent without a runner (R2 P4) | later | K3 |
+| K18 | The rest of R2 P3: `effectsOf` for the effects that reach the host, the latent effects of procedure entries, and a check that uses the hook `permits` of the machine. K8 shipped the rules `same`, `mask` and `only` (`Kind.caps`, D14). The rule `grant` for a handler moved to L1a. | done (2026-10-24, D27, released in the next batch: `effectsOf`, `checkLatent` and the hook `permits` in `check`) | K8 |
+| K19 | A static check of the "can wait" bit: `check` reports a runner under a parent without a runner (R2 P4) | done (2026-10-24, D27, released in the next batch: the option `run` of `check`) | K3 |
 | K20 | `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1) | done (2026-10-24, version 0.4.3: the hook `known` of the machine, and `partsOf`) | K3 |
 | K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | done (2026-10-24, version 0.4.3) | K3 |
 | K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | done (2026-10-24, released in 0.6.3: `sameResult`, and one walk for `docEquals`, `sameValue` and `sameResult`, D20) | K5, K21 |
@@ -107,13 +108,15 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K50 | A profile with its own `truthy` declares the type of a truth, thus `check` tests the test of `if` and the terms of `and` and `or`. Today such a profile accepts each type there. From K24. | later | K24 |
 | K51 | Signatures of extensions in the profile. Today each `ext.*` has the type `unknown`, except the standard `ext.number`. From K24. | later | K24 |
 | K52 | A check of each value type of a machine before a document exists: each `result`, each `expect` and each signature. Today `check` reports a bad type at its first use. From K24. | later | K24, K36 |
+| K64 | The effects of an own entry for another evaluator. Its code can cause effects that no contract declares, thus `effectsOf` and `check` do not see them. A declaration in the hook `facts` can give them. From K18. | later | K18 |
+| K65 | A compiled runner can evaluate a part with its code that does not wait. The check of the waits assumes that a runner passes each wait of its parts through. A contract mark for such parts makes the check exact. From K19. | later | K19 |
 
 ## The kits
 
 | ID | Item | Status | Depends on |
 | --- | --- | --- | --- |
 | L1 | The sequence kit: steps with names for the results of earlier steps, capabilities, and the order of effects | done (2026-10-21: parts at the same time, the error of the host, capabilities that only narrow, an abort) | K2 |
-| L1a | A handler kind `handle` with clauses that run in place, so that mocks, retries and logs are documents (R2 P5, and R2 drafts its decision) | later | K10, K18 |
+| L1a | A handler kind `handle` with clauses that run in place, so that mocks, retries and logs are documents (R2 P5, and R2 drafts its decision). It also adds the rule `grant` of R2 P3 to `Kind.caps`: the parts get operations that the handler answers (D27). | later | K10, K18 |
 | L1b | Multi-shot by evaluation again: a kind `choose` evaluates its sealed body again for each branch, with a replay log (R2 P7) | later | K11, L1a |
 | L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later (L2a is done, and L2b to L2i come from R3) | K2, K4 |
 | L2a | The decorated tree: demand evaluation with one memo for each node and attribute, `#CYCLE!` with its chain, and errors that stay errors. It fixes three bugs that R3 found in the standard `tree.node` (R3 P1). | done (2026-10-24, version 0.5.0, D16) | K2, K4 |
@@ -174,7 +177,7 @@ Each study answers one research question and ranks its proposals. The folder `do
 | ID | Study | Status | Roadmap rows |
 | --- | --- | --- | --- |
 | R1 | [Staging and partial evaluation](research/r1-staging.md) | done (2026-10-24) | K9, K12 to K17 |
-| R2 | [Algebraic effects, handlers and the run side](research/r2-effects.md) | done (2026-10-24) | K10, K11, K18, K19, L1a, L1b, S4 |
+| R2 | [Algebraic effects, handlers and the run side](research/r2-effects.md) | done (2026-10-24) | K10, K11, K18, K19, L1a, L1b, S4. K18 and K19 add K64 and K65. |
 | R3 | [Attribute grammars and the tree kit](research/r3-attribute-grammars.md) | done (2026-10-24) | L2a to L2i |
 | R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1a to S1c, S2, S3a to S3c, C10. R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
 | R5 | [Types and abstract interpretation for `check`](research/r5-types.md) | done (2026-10-24) | K20, K23 to K31 |
