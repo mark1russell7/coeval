@@ -1,5 +1,5 @@
 import { type Json, type Key, isRecord } from "./doc.ts";
-import type { Kind, WorldEntry } from "./world.ts";
+import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
 import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine } from "./evaluate.ts";
@@ -34,6 +34,9 @@ export type ExtFn = (data: Json, context: Context) => Result;
  * - `check`: a check of the value of an operation, for example "a number must be finite".
  * - `combine`: the error of two or more failed parts of an operation, a `record` or a `list`. With it, each part
  *   evaluates, and one failed part gives its own error. Without it, the first error stops the evaluation.
+ * - `pure`: the pure operations, for `factsOf` (D24). `true` names each operation that is not volatile. The default
+ *   names no operation.
+ * - `volatile`: the operations whose results can change while their arguments stay the same, for example a clock.
  */
 export interface FormulaProfile {
   readonly ops?: Readonly<Record<string, OpFn>> | ((name: string) => OpFn | undefined);
@@ -46,6 +49,8 @@ export interface FormulaProfile {
   readonly missing?: (value: unknown) => boolean;
   readonly check?: (value: unknown, op: string) => Result | undefined;
   readonly combine?: (errors: readonly EvalError[]) => EvalError;
+  readonly pure?: true | readonly string[];
+  readonly volatile?: readonly string[];
 }
 
 /** The mark of a field that the profile leaves out of a record. */
@@ -132,34 +137,42 @@ export function formulaKinds(): Readonly<Record<string, WorldEntry>> {
   const term = { shape: "term", of: "lit" } as const;
   const terms = { shape: "list", of: "lit" } as const;
   const kinds: Record<string, Kind | WorldEntry> = {
-    lit: { verbs: { eval: "formula.lit" }, summary: LIT_SUMMARY },
-    ref: { verbs: { eval: "formula.ref" }, summary: "A path from a root of the context. Its result is what the path reaches." },
-    record: { verbs: { eval: "formula.record" }, parts: { shape: "map", of: "lit" }, summary: "A record: each field is a term." },
-    list: { verbs: { eval: "formula.list" }, parts: terms, summary: "A list: each item is a term." },
+    lit: { verbs: { eval: "formula.lit" }, pure: true, summary: LIT_SUMMARY },
+    ref: { verbs: { eval: "formula.ref" }, pure: true, summary: "A path from a root of the context. Its result is what the path reaches." },
+    record: { verbs: { eval: "formula.record" }, parts: { shape: "map", of: "lit" }, pure: true, summary: "A record: each field is a term." },
+    list: { verbs: { eval: "formula.list" }, parts: terms, pure: true, summary: "A list: each item is a term." },
     let: {
       verbs: { eval: "formula.let" },
       parts: { shape: "record", fields: { bind: { shape: "map", of: "lit" }, body: term }, required: ["bind", "body"] },
       scope: [{ names: { keysAt: ["bind"] }, in: [["body"]] }],
+      pure: true,
       summary: "Names for the body. Each binding sees the names around the let, not the other bindings.",
     },
     fn: {
       verbs: { eval: "formula.fn" },
       parts: { shape: "record", fields: { params: { shape: "list", item: { shape: "text" }, distinct: true }, body: term }, required: ["params", "body"] },
       scope: [{ names: { listAt: ["params"] }, in: [["body"]] }],
+      // The body evaluates only when something calls the function.
+      pure: true,
+      lazy: [{ in: [["body"]] }],
       summary: "A function: its parameters are names for its body.",
     },
     call: {
       verbs: { eval: "formula.call" },
       parts: { shape: "record", fields: { fn: term, args: terms }, required: ["fn"] },
+      // A host function in a name is a value. When it is volatile, the host marks its read (FACTS.VOLATILE).
+      pure: true,
       summary: "It calls a function with the values of its arguments.",
     },
     if: {
       verbs: { eval: "formula.if" },
       parts: { shape: "record", fields: { test: term, then: term, else: term }, required: ["test", "then"] },
+      pure: true,
+      lazy: [{ in: [["then"], ["else"]] }],
       summary: "It evaluates the test, then only the branch that the test selects.",
     },
-    and: { verbs: { eval: "formula.and" }, parts: terms, summary: "True when each term is true. It stops at the first false term." },
-    or: { verbs: { eval: "formula.or" }, parts: terms, summary: "True when one term is true. It stops at the first true term." },
+    and: { verbs: { eval: "formula.and" }, parts: terms, pure: true, lazy: [{ after: 1 }], summary: "True when each term is true. It stops at the first false term." },
+    or: { verbs: { eval: "formula.or" }, parts: terms, pure: true, lazy: [{ after: 1 }], summary: "True when one term is true. It stops at the first true term." },
     ops: { kinds: {}, fallback: { verbs: { eval: "formula.op" }, parts: terms, summary: "An operation of the language, applied to the values of its terms." } },
     ext: { kinds: {}, fallback: { verbs: { eval: "formula.ext" }, summary: "An extension of the language. Its value is data." } },
   };
@@ -508,11 +521,47 @@ export function formulaKnown(profile: FormulaProfile = {}): (path: readonly Key[
   };
 }
 
+/** The facts of an extension of the profile. It gets the context, thus it can read outside `resolve`. */
+const NOT_PURE: KindFacts = /* @__PURE__ */ Object.freeze({ pure: false });
+
+/** The facts of a standard extension. */
+const PURE: KindFacts = /* @__PURE__ */ Object.freeze({ pure: true });
+
+/** The lazy rule of a lazy operation: it covers each argument. */
+const EACH_PART: readonly LazyRule[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({})]);
+
+/**
+ * This function makes the hook `facts` of the formula kit for one profile (FACTS.PROFILE, D24). It answers for the
+ * operations and the extensions, because one fallback kind covers each of them.
+ *
+ * - An operation of `lazy` has a lazy rule for each argument.
+ * - An operation is pure when the profile names it in `pure`, or when `pure` is `true`. A volatile operation is not pure.
+ * - A standard extension is pure. An extension of the profile gets the context, thus it is not pure.
+ *
+ * @param profile - The operations, the extensions and their facts.
+ * @returns The hook: the facts of a name, or `undefined` for the facts of the contract.
+ */
+export function formulaFacts(profile: FormulaProfile = {}): (path: readonly Key[], code: string) => KindFacts | undefined {
+  const volatile = new Set(profile.volatile ?? []);
+  const pure = profile.pure === true ? undefined : new Set(profile.pure ?? []);
+  const known = formulaKnown(profile);
+  return (path, code) => {
+    if (code !== "formula.op" && code !== "formula.ext") return undefined;
+    const name = path.slice(1).join(".");
+    if (code === "formula.ext") return profile.ext !== undefined && Object.hasOwn(profile.ext, name) ? NOT_PURE : Object.hasOwn(STD_EXT, name) ? PURE : undefined;
+    // An operation that the language does not have gives #NAME?. The kit gives it no facts.
+    if (known(path, code) !== true) return undefined;
+    const isVolatile = volatile.has(name);
+    const lazy = profile.lazy !== undefined && Object.hasOwn(profile.lazy, name);
+    return { pure: !isVolatile && (pure === undefined || pure.has(name)), volatile: isVolatile, ...(lazy ? { lazy: EACH_PART } : {}) };
+  };
+}
+
 /**
  * This function makes a machine for a formula language. It merges the kit and the parts that the language adds with
  * `mergeMachines`. Thus a kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and
  * the fallback of the kit stays. The hook `known` of the kit comes from the profile (`formulaKnown`). A hook `known`
- * of the language answers after it.
+ * of the language answers after it. The hook `facts` of the kit comes from the profile too (`formulaFacts`).
  *
  * A kind or an evaluator of the language that differs from the entry of the kit with its name is a conflict. The
  * language names the path in `replaces` to replace the entry, for example `["world", "kinds", "ref"]` or
@@ -527,5 +576,8 @@ export function formulaKnown(profile: FormulaProfile = {}): (path: readonly Key[
  * @throws {MergeError} The language and the kit have a conflict.
  */
 export function formulaMachine(profile: FormulaProfile = {}, more: MachinePart = {}): Machine {
-  return mergeMachines({ world: { kinds: formulaKinds() }, evaluators: formulaEvaluators(profile), domains: STD_DOMAINS, known: formulaKnown(profile) }, more);
+  return mergeMachines(
+    { world: { kinds: formulaKinds() }, evaluators: formulaEvaluators(profile), domains: STD_DOMAINS, known: formulaKnown(profile), facts: formulaFacts(profile) },
+    more,
+  );
 }

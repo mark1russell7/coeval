@@ -55,6 +55,7 @@ export class MergeError extends Error {
 }
 
 type Known = NonNullable<Machine["known"]>;
+type Facts = NonNullable<Machine["facts"]>;
 
 const NONE: ReadonlySet<string> = /* @__PURE__ */ new Set();
 
@@ -255,7 +256,7 @@ export function mergeWorlds(...parts: readonly (WorldPart | ((prev: World) => Wo
 }
 
 /** The fields of a machine that merge by their own rules. Each other field is one value, or a conflict. */
-const TABLES = /* @__PURE__ */ new Set(["world", "evaluators", "runners", "derefs", "walkers", "domains", "known", "replaces"]);
+const TABLES = /* @__PURE__ */ new Set(["world", "evaluators", "runners", "derefs", "walkers", "domains", "known", "facts", "replaces"]);
 
 interface MachineDraft {
   readonly world: WorldDraft;
@@ -265,6 +266,7 @@ interface MachineDraft {
   walkers?: Record<string, Walker>;
   domains?: Record<string, Domain>;
   readonly hooks: { readonly part: number; readonly known: Known }[];
+  readonly factHooks: { readonly part: number; readonly facts: Facts }[];
   /** The last part that replaced the code of each evaluator name. */
   readonly replaced: Map<string, number>;
   readonly rest: Record<string, unknown>;
@@ -292,8 +294,30 @@ function composeKnown(hooks: readonly { readonly part: number; readonly known: K
   };
 }
 
+/**
+ * This function composes the hooks `facts` in the order of their parts. The first answer that is not `undefined`
+ * wins. A hook does not answer for a name whose code a later part replaces (D24).
+ */
+function composeFacts(hooks: readonly { readonly part: number; readonly facts: Facts }[], replaced: ReadonlyMap<string, number>): Facts | undefined {
+  const first = hooks[0];
+  if (first === undefined) return undefined;
+  if (hooks.length === 1 && replaced.size === 0) return first.facts;
+  const list = [...hooks];
+  const last = new Map(replaced);
+  return (path, code) => {
+    const after = last.get(code);
+    for (const hook of list) {
+      if (after !== undefined && hook.part < after) continue;
+      const answer = hook.facts(path, code);
+      if (answer !== undefined) return answer;
+    }
+    return undefined;
+  };
+}
+
 function machineOf(draft: MachineDraft): Machine {
   const known = composeKnown(draft.hooks, draft.replaced);
+  const facts = composeFacts(draft.factHooks, draft.replaced);
   return {
     ...draft.rest,
     world: worldOf(draft.world),
@@ -303,6 +327,7 @@ function machineOf(draft: MachineDraft): Machine {
     ...(draft.walkers === undefined ? {} : { walkers: { ...draft.walkers } }),
     ...(draft.domains === undefined ? {} : { domains: { ...draft.domains } }),
     ...(known === undefined ? {} : { known }),
+    ...(facts === undefined ? {} : { facts }),
   };
 }
 
@@ -359,6 +384,7 @@ function checkHidden(m: Merger, draft: MachineDraft): void {
  * - The evaluator and the runner of a name are its code. A replacement of the name replaces both.
  * - A runner hides the evaluator of its name. Thus one part must give both, or the merge gives a conflict.
  * - The hooks `known` compose in the order of the parts. A hook does not answer for a name that a later part replaces.
+ *   The hooks `facts` compose the same way, and the first answer that is not `undefined` wins.
  * - Each other field, for example `permits`, `adopt`, `roots`, `plain` or `maxDepth`, is one value. Two different
  *   values are a conflict. An absent field has no value.
  *
@@ -371,7 +397,7 @@ function checkHidden(m: Merger, draft: MachineDraft): void {
  */
 export function mergeMachines(...parts: readonly (MachinePart | ((prev: Machine) => MachinePart))[]): Machine {
   const m = new Merger();
-  const draft: MachineDraft = { world: { kinds: {}, defaults: {} }, evaluators: {}, hooks: [], replaced: new Map(), rest: {}, parts: [] };
+  const draft: MachineDraft = { world: { kinds: {}, defaults: {} }, evaluators: {}, hooks: [], factHooks: [], replaced: new Map(), rest: {}, parts: [] };
   parts.forEach((input, index) => {
     const part = typeof input === "function" ? input(machineOf(draft)) : input;
     draft.parts.push(part);
@@ -391,6 +417,7 @@ export function mergeMachines(...parts: readonly (MachinePart | ((prev: Machine)
       for (const name of Object.keys(part.domains)) mergeLeaf(m, domains, name, part.domains[name], ["domains", name], index, replaces, sameDomain, "Two parts give two different domains for this base type.");
     }
     if (part.known !== undefined && !draft.hooks.some((hook) => hook.known === part.known)) draft.hooks.push({ part: index, known: part.known });
+    if (part.facts !== undefined && !draft.factHooks.some((hook) => hook.facts === part.facts)) draft.factHooks.push({ part: index, facts: part.facts });
     const fields = part as Readonly<Record<string, unknown>>;
     for (const key of Object.keys(fields)) {
       if (TABLES.has(key)) continue;

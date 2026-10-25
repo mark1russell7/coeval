@@ -11,36 +11,43 @@ import { STD_DOMAINS } from "./types.ts";
  */
 export const STD_WORLD: World = {
   kinds: {
-    number: { verbs: { eval: "data.number", view: "view.value" }, summary: "A number. Its value is the result." },
-    text: { verbs: { eval: "data.text", view: "view.value" }, summary: "A text. Its value is the result." },
-    bool: { verbs: { eval: "data.bool", view: "view.value" }, summary: "A truth value. Its value is the result." },
+    number: { verbs: { eval: "data.number", view: "view.value" }, pure: true, summary: "A number. Its value is the result." },
+    text: { verbs: { eval: "data.text", view: "view.value" }, pure: true, summary: "A text. Its value is the result." },
+    bool: { verbs: { eval: "data.bool", view: "view.value" }, pure: true, summary: "A truth value. Its value is the result." },
     add: {
       verbs: { eval: "math.add", view: "view.op" },
       parts: { shape: "list", of: "number" },
+      pure: true,
       summary: "The sum of its parts. A bare number in its list gets the type number.",
     },
     multiply: {
       verbs: { eval: "math.multiply", view: "view.op" },
       parts: { shape: "list", of: "number" },
+      pure: true,
       summary: "The product of its parts.",
     },
     greater: {
       verbs: { eval: "math.greater", view: "view.op" },
       parts: { shape: "list", of: "number" },
+      pure: true,
       summary: "True when the first part is greater than the second part.",
     },
-    list: { verbs: { eval: "list.all", view: "view.op" }, parts: { shape: "list" }, summary: "The results of its parts, as a list." },
+    list: { verbs: { eval: "list.all", view: "view.op" }, parts: { shape: "list" }, pure: true, summary: "The results of its parts, as a list." },
     if: {
       verbs: { eval: "control.if", view: "view.op" },
       parts: { shape: "record", fields: ["test", "then", "else"] },
+      pure: true,
+      lazy: [{ in: [["then"], ["else"]] }],
       summary: "It evaluates the test, then only the branch that the test selects.",
     },
     ref: {
       verbs: { eval: "ref.resolve", view: "view.ref" },
+      pure: true,
       summary: "A path from a root of the context. Each step goes up the ladder of the verb deref.",
     },
     nearest: {
       verbs: { step: "walk.nearest", view: "view.card" },
+      pure: true,
       summary: "A step of a path: it follows a key again and again, until it reaches a node of a type.",
     },
     panel: {
@@ -48,12 +55,17 @@ export const STD_WORLD: World = {
       parts: { shape: "record", fields: ["width", "height", "children"], of: "number" },
       // An attribute evaluates on demand, thus in an order that is not the order of the document. It causes no effect.
       caps: [{ rule: "mask" }],
+      // A node that nothing reads keeps its attributes without an evaluation (TREE.LAZY).
+      pure: true,
+      lazy: [{}],
       summary: "A node of a tree. Each part is an attribute that evaluates on demand, one time, with the node as self.",
     },
     box: {
       verbs: { eval: "tree.node", view: "view.op" },
       parts: { shape: "record", fields: ["width", "height", "children"], of: "number" },
       caps: [{ rule: "mask" }],
+      pure: true,
+      lazy: [{}],
       summary: "A node of a tree, as panel. A formula in a box can read its parent and its siblings.",
     },
     math: {
@@ -69,12 +81,16 @@ export const STD_WORLD: World = {
         { names: { headers: true }, in: [["*"]], sequential: true },
         { names: { fixed: ["last"] }, in: [["*"]], sequential: true },
       ],
+      pure: true,
       summary: "Its steps, in order. The result of a named step is a name for the later steps.",
     },
     pure: {
       verbs: { eval: "control.pure", view: "view.op" },
       parts: { shape: "list" },
       caps: [{ rule: "mask" }],
+      // The runner evaluates only the first part.
+      pure: true,
+      lazy: [{ after: 1 }],
       summary: "It evaluates its part without capabilities, thus an effect in it fails.",
     },
     log: {

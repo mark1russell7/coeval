@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName } from "./doc.ts";
 import { type Split, partsOf, pathMatches } from "./parts.ts";
 import { answerOf, ask, type Answer } from "./ladder.ts";
-import type { CapsRule, Side } from "./world.ts";
+import type { CapsRule, KindFacts, Side } from "./world.ts";
 import type { Domain } from "./types.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
@@ -521,6 +521,7 @@ export type Runner = RunFn | CompiledRunner;
  * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities.
  * - `known`: the names that the evaluators know, for `check`. Without it, `check` does not check such names.
  * - `domains`: the value domains of the language, by the name of their base type (D22).
+ * - `facts`: the static facts of the names that a fallback kind covers, for `factsOf` (D24).
  */
 export interface Machine extends Navigator {
   readonly evaluators: Readonly<Record<string, Evaluator>>;
@@ -544,6 +545,16 @@ export interface Machine extends Navigator {
    * `STD_DOMAINS`.
    */
   readonly domains?: Readonly<Record<string, Domain>>;
+  /**
+   * This function gives the static facts of the code of a name, for `factsOf` (D24). An example is the operation
+   * `["ops", "now"]` of a formula language: a fallback kind names it, and only the language knows that it is volatile.
+   * Each field of the answer wins over the same field of the contract of the kind. The function must be pure.
+   *
+   * @param path - The keys of the kind of the document, after each alias.
+   * @param code - The name of the evaluator of the document, or of the walker of a step document.
+   * @returns The facts, or `undefined` for the facts of the contract.
+   */
+  readonly facts?: (path: readonly Key[], code: string) => KindFacts | undefined;
 }
 
 /** One evaluation in a trace. The children are the evaluations of its parts, in the order that they started. */
