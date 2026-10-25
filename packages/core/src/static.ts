@@ -2,7 +2,7 @@ import { type Envelope, type Json, type Key, isEnvelope, isKey, isRecord, typeNa
 import type { Kind, NamesSource, ScopeRule, World } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, pathMatches } from "./parts.ts";
-import { type Cap, type Root, ROOTS, isRef, walkerOf } from "./deref.ts";
+import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
@@ -437,6 +437,13 @@ export interface CheckOptions {
   readonly types?: boolean;
   /** The type that the root document must have, for the check of the value types. */
   readonly expect?: ValueType;
+  /**
+   * With `true`, the check also finds the problems of a run (RUN.CAN-WAIT). A runner under a parent without a runner
+   * gives `#CALC!`, because the parent cannot pass a wait through. A kind that declares effects and has no runner
+   * gives `#CALC!` too, because in a run only a runner can wait for the host. The default is `false`: an evaluation
+   * has neither problem.
+   */
+  readonly run?: boolean;
 }
 
 /** The result of `typeCheck`. */
@@ -449,14 +456,47 @@ export interface Typing {
   readonly places: readonly Typed[];
 }
 
+/** No declared effect. One list serves each visit without effects. */
+const NO_EFFECTS: readonly (readonly Key[])[] = /* @__PURE__ */ Object.freeze([]);
+
+/**
+ * This function gives the effects that the contract of the kind of a visit declares, as keys (FACTS.EFFECTS). The
+ * text `"type"` gives the type of the document after each alias. A visit without a kind declares no effect. `check`,
+ * `factsOf` and `effectsOf` read the declarations with this one function (D27).
+ *
+ * @param v - The visit.
+ * @returns The keys of each declared effect, in the order of the contract.
+ */
+export function declaredEffects(v: DocVisit): readonly (readonly Key[])[] {
+  const effects = v.kind?.effects;
+  if (effects === undefined || effects.length === 0) return NO_EFFECTS;
+  return effects === "type" ? [v.typePath ?? []] : effects.map((kind) => kind.split("."));
+}
+
+/**
+ * This function gives the rule of a machine for an effect, for the static kit (CAP.PERMITS). The rule is the hook
+ * `permits` of the machine, as in a run, or else the function `permits`. A check has no values, thus the hook gets a
+ * context with the capabilities of the document and the world of the machine. Its names, its self and its event are
+ * empty.
+ *
+ * @param machine - The machine.
+ * @returns The rule. It gets the capabilities of a document and the keys of an effect.
+ */
+export function permitsOf(machine: Machine): (caps: readonly Cap[], kind: readonly Key[]) => boolean {
+  const hook = machine.permits;
+  if (hook === undefined) return permits;
+  let base: Context | undefined;
+  return (caps, kind) => hook(caps, kind, { ...(base ??= context({ world: worldThing(machine.world) })), caps });
+}
+
 /**
  * This function gives the reason of a `#CAP!`. When a kind around the document narrowed the capabilities, the
  * reason names the nearest such kind.
  */
-function capReason(v: DocVisit, kind: readonly Key[]): string {
+function capReason(v: DocVisit, kind: readonly Key[], allowed: (caps: readonly Cap[], kind: readonly Key[]) => boolean): string {
   const text = kind.join(".");
   for (let up = v.parent; up !== undefined; up = up.parent) {
-    if (up.caps !== undefined && permits(up.caps, kind)) {
+    if (up.caps !== undefined && allowed(up.caps, kind)) {
       return `The capabilities do not permit the effect ${text} here. The kind ${typeName(up.doc.type)} around it narrows them for its parts.`;
     }
   }
@@ -476,6 +516,9 @@ function capReason(v: DocVisit, kind: readonly Key[]): string {
  * - `#NAME?`: a name that nothing binds. With the hook `known` of the machine, also a name that the language does not
  *   have, for example an operation.
  * - `#CAP!`: an effect that the capabilities of its document do not permit. A kind around the document can narrow them.
+ *   The hook `permits` of the machine decides, as in a run (CAP.PERMITS).
+ * - `#CALC!`: with the option `run`, a runner under a parent without a runner, or a kind that declares effects and has
+ *   no runner (RUN.CAN-WAIT). The issue has the place and the reason of the run.
  * - `#TYPE!`: with the option `types`, a part whose type does not fit the type that its position needs (TYPE.CHECK).
  *   A run does not always fail there, thus a type issue is a static finding, not an error of a run.
  *
@@ -484,7 +527,7 @@ function capReason(v: DocVisit, kind: readonly Key[]): string {
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
- * @param options - The type of a bare root value, the names of the host, the capabilities, the verb and the types.
+ * @param options - The type of a bare root value, the names of the host, the capabilities, the verb, the types and the run.
  * @returns The problems, in the order of the document. The type issues come after the other issues.
  */
 export function check(machine: Machine, doc: unknown, options: CheckOptions = {}): readonly Issue[] {
@@ -529,6 +572,10 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
   // The effects of a contract are the effects of eval (VERB.CONTRACT). An effect of another verb meets its test when
   // it happens (RUN.CAP).
   const effects = verb === "eval";
+  const allowed = options.caps === undefined ? undefined : permitsOf(machine);
+  // In a run, a part that can wait needs a parent that can wait (RUN.CAN-WAIT). The map tells for each document with
+  // code if that code is a runner. A document without code fails before its parts, thus it is not in the map.
+  const waits = options.run === true ? new Map<DocVisit, boolean>() : undefined;
   const maxDepth = machine.maxDepth ?? 1000;
   const anyName = options.names === "any";
   const roots: readonly string[] = machine.roots ?? ROOTS;
@@ -556,7 +603,10 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
       }
       const name = answer.evaluator;
       if (current !== undefined) current.evaluator = name;
-      if (name === undefined || (!has(machine.evaluators, name) && !has(machine.runners, name))) {
+      // A runner hides the evaluator of its name (MACHINE.RUNNER), as in the compilation of a plan.
+      const runner = name !== undefined && has(machine.runners, name);
+      const coded = name !== undefined && (runner || has(machine.evaluators, name));
+      if (name === undefined || !coded) {
         push({ code: "#NOEVAL", place: v.place, reason: `No rung gives an evaluator for ${typeName(v.doc.type)}.`, at: v.at });
       } else if (machine.known !== undefined) {
         // The evaluator gives #NAME? in a run for a name that the language does not have, for example an operation.
@@ -564,10 +614,22 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
         if (known !== true) push({ code: "#NAME?", place: v.place, reason: known, at: v.at });
       }
       const caps = v.caps;
-      if (effects && caps !== undefined && v.kind?.effects !== undefined) {
-        const kinds: readonly (readonly Key[])[] = v.kind.effects === "type" ? [v.typePath ?? []] : v.kind.effects.map((kind) => kind.split("."));
-        for (const kind of kinds) {
-          if (!permits(caps, kind)) push({ code: "#CAP!", place: v.place, reason: capReason(v, kind), at: v.at });
+      const declared = effects ? declaredEffects(v) : NO_EFFECTS;
+      if (allowed !== undefined && caps !== undefined) {
+        for (const kind of declared) {
+          if (!allowed(caps, kind)) push({ code: "#CAP!", place: v.place, reason: capReason(v, kind, allowed), at: v.at });
+        }
+      }
+      if (waits !== undefined && coded) {
+        waits.set(v, runner);
+        // The parent of the root is the driver of the run, and it can wait. An evaluator gives its parts no wait.
+        if (runner && v.parent !== undefined && waits.get(v.parent) === false) {
+          push({ code: "#CALC!", place: v.place, reason: `${typeName(v.doc.type)} waits for effects, and its parent cannot wait. Give the parent a runner.`, at: v.at });
+        }
+        // In a run, the host does each effect, thus an evaluator cannot cause one.
+        const first = declared[0];
+        if (!runner && first !== undefined) {
+          push({ code: "#CALC!", place: v.place, reason: `The effect ${first.join(".")} needs a runner: in a run, the host does each effect.`, at: v.at });
         }
       }
       const isPath = isRef(v.doc);

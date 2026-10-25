@@ -463,3 +463,47 @@ R4 leaves some choices open. Which equality decides that a read is the same? Whi
 The kept reads over-approximate. A closure makes a document depend on each root, and a tree depends on the whole root `self`. A wrong `false` only costs work (D20). A later item can give a closure only the reads of its body.
 
 The test READS.SOUND changes the contexts of generated documents at random. It found the test of a held binding, which the first draft of this work did not record. A list without the kept reads gives stale results of trees, and the test finds them too.
+
+## D27 (2026-10-24): the effects that reach the host are one fold over the contracts, a procedure value keeps the capabilities of its maker, `check` asks the hook `permits` and finds the waits of a run, and `grant` waits for the handler kind
+
+**Context.** The study R2 proposes an inference of effects and latent effects (P3), and a static check of the "can wait" bit (P4). D14 shipped the rules `same`, `mask` and `only`. It left the rule `grant` of P3 for the handler kind of P5 (L1a).
+
+`check` did not ask the hook `permits` of the machine, thus the harness skipped each machine with that hook (STATIC.AGREES). In a run, a runner under an evaluator failed with `#CALC!`, and `check` did not find it (RUN.NESTED-WAIT).
+
+**Decision.**
+
+- `effectsOf(machine, doc, options?)` gives the kinds of the effects that can reach the host (CAP.EFFECTS-OF). These are the declared effects of each document, without the effects that a rule `mask` or `only` around them removes.
+- The fold is first-order, thus it needs no effect variables. One walk narrows the capabilities with `partCaps`, as a run does.
+- Without capabilities, the root has the capability `[]`, which permits each effect (CAP.KEYS). The result is then the least authority of the document. A host that grants it gets each effect of a run.
+- With capabilities, the rule of the machine decides at each document: the hook `permits`, or else the function `permits`.
+- `check`, `factsOf` and `effectsOf` read the declared effects with one function, `declaredEffects`. `factsOf` keeps each declared effect, and `effectsOf` removes each effect that cannot reach the host. Thus the kernel has one inference.
+- `check` asks the hook `permits` of the machine (CAP.PERMITS). A check has no values, thus the hook gets the capabilities of the document and the world. Its names, its self and its event are empty.
+- A procedure value keeps the capabilities of the document that made it, as the closure of `fn` does (CAP.LATENT). Its latent effects are the effects of its body, and the walk visits the body under those capabilities. Thus `effectsOf` and `check` count them at the body, and a mask around a call does not change them.
+- A procedure entry is a kind whose code evaluates the document of a procedure. Its field `effects` declares the latent effects, and `check` tests each call against them.
+- `checkLatent(machine, declared, body)` compares the declaration with the body. It gives a `#CAP!` for each effect of the body that can reach the host and that the declaration does not permit.
+- With the option `run`, `check` finds the waits of a run (RUN.CAN-WAIT). A runner under a parent without a runner gives `#CALC!`, because an evaluator gives its parts no wait. A kind that declares effects and has no runner gives `#CALC!` too. The issue has the place and the reason of the run.
+- The rule `grant` waits for the handler kind. The row L1a names it.
+
+**Rejected.**
+
+- The rule `grant` in this item. A part that gets an operation needs a handler that answers it. Without the handler frame of P5, the effect goes to the root `perform`, and that breaks CAP.NARROW.
+- A `grant` that only the static kit reads. Then `check` passes an effect that a run refuses, and that breaks STATIC.AGREES. No document without a handler needs the rule.
+- A second inference of effects beside `factsOf`. Two folds can disagree, as `check` and the runner of `pure` did before D14.
+- The hook `permits` for the least authority. The hook expects real capabilities. A hook that reads a capability by its name can then remove an effect that a real grant permits. Without capabilities, only the rules of the kinds narrow, and the result stays sound.
+- A procedure value that takes the capabilities of the caller. Then a call site needs an effect variable, and the static kit needs effect polymorphism (R2, open question 3).
+- A field for the body of a procedure in the kind. The kernel cannot evaluate such a body yet (K40). The host keeps the body, and `checkLatent` reads it.
+- A new code for a wait that a parent cannot pass through. The run already gives `#CALC!`, thus `check` and a run agree on one code.
+- The check of the waits by default. An evaluation drives a runner under an evaluator, thus a host that only evaluates gets no new issues.
+
+**Why.** The contracts already declare the effects and the narrowing, thus the residual effects are one fold over the same data. A host can grant exactly these capabilities. The property test CAP.EFFECTS-SOUND compares the fold with the effects that a recorder sees in evaluations and in runs.
+
+A procedure value that keeps the authority of the document that wrote it acts as an object capability. The check of a call needs only the declaration, and `checkLatent` keeps the declaration true.
+
+The check of the waits reads only the names of the evaluators and of the runners. It finds RUN.NESTED-WAIT before the host does an effect. A property test gives generated documents to `run` and finds no refused wait that the check did not report.
+
+**Room for handlers.** The handler kind of L1a adds the rule `grant` to `Kind.caps`. The walk then records the operations that a handler answers for each part. `effectsOf` removes a handled effect, and `check` gives no `#CAP!` for it. A clause gets the context of the `handle` document, thus its effects count at the clause. CAP.NARROW then reads "a part cannot cause a host effect that its parent cannot cause" (R2, open question 2).
+
+**Limits.**
+
+- K64: the code of an own entry for another evaluator can cause effects that no contract declares. `effectsOf` and `check` do not see them.
+- K65: a compiled runner can evaluate a part with its code that does not wait. The check assumes that a runner passes each wait of its parts through.

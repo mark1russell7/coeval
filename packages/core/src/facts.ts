@@ -4,7 +4,7 @@ import { answerOf } from "./ladder.ts";
 import { pathMatches, splitParts } from "./parts.ts";
 import { type Root, ROOTS, isRef } from "./deref.ts";
 import type { Machine } from "./evaluate.ts";
-import { type DocVisit, walk } from "./static.ts";
+import { type DocVisit, declaredEffects, walk } from "./static.ts";
 
 /**
  * One read of a document: a free reference, with its marks (FACTS.READS). A plan resolves the path of the reference
@@ -198,9 +198,10 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
         above.set(v, { lazy, rules: answer?.lazy ?? EACH });
       }
       if (kind.side === "run") side = "run";
-      if (kind.effects !== undefined) {
-        const kinds = kind.effects === "type" ? [(v.typePath ?? []).join(".")] : kind.effects;
-        for (const text of kinds) if (!effects.includes(text)) effects.push(text);
+      // check and effectsOf read the declared effects with the same function (D27).
+      for (const keys of declaredEffects(v)) {
+        const text = keys.join(".");
+        if (!effects.includes(text)) effects.push(text);
       }
       if (!isRef(v.doc)) return undefined;
       const path = v.doc.value;

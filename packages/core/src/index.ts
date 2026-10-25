@@ -191,6 +191,7 @@ export {
   walk,
 } from "./static.ts";
 export { type DocFacts, type FactsOptions, type StaticRead, factsOf } from "./facts.ts";
+export { type EffectsOptions, checkLatent, effectsOf } from "./effects.ts";
 export {
   type Closure,
   type ExtFn,
