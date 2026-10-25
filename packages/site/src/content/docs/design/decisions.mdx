@@ -36,6 +36,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D25 | A type rule is part of its evaluator, thus it follows the evaluator that the ladder gives. When a host opts in, `check` gives each part its expected type and synthesizes each type. A type issue has the static code `#TYPE!`. |
 | D26 | An evaluation records its reads on request. `verifyReads` resolves each free read again with the rules of `sameResult`, and an old result stays valid when each read is the same. A closure and a tree add reads of whole roots. |
 | D27 | `effectsOf` gives the effects that can reach the host, from the contracts. A procedure value keeps the capabilities of its maker. `check` asks the hook `permits`, and with the option `run` it finds the waits of a run. The rule `grant` waits for the handler kind. |
+| D28 | The host gives the types of the roots, and a reference gets the type that its path reaches. A missing field of a closed record is a type issue. Only a type rule keeps the types of the roots for its parts. A type comes from the host, a JSON Schema or sample values. |
 
 ## Open
 

@@ -58,11 +58,13 @@ export {
   lookupKind,
 } from "./world.ts";
 export {
+  type DomainExtension,
   type MachinePart,
   type MergeConflict,
   type MergePath,
   type WorldPart,
   MergeError,
+  extendDomain,
   mergeMachines,
   mergeWorlds,
   restrictMachine,
@@ -216,4 +218,5 @@ export { type ReadsCheck, type VerifyOptions, verifyReads } from "./reads.ts";
 export { type Recorder, type ReplayEntry, type ReplayLog, type ReplayOptions, type ReplaySettle, recorder, replayer } from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";
 export { type Domain, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";
-export { type PartType, type TypeInput, type TypeProblem, type TypeRule, type Typed } from "./typing.ts";
+export { type PartType, type RootTypes, type TypeInput, type TypeProblem, type TypeRule, type Typed, CAPS_TYPE } from "./typing.ts";
+export { type SampleOptions, type TypeReading, typeFromSamples, typeFromSchema } from "./providers.ts";

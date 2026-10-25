@@ -507,3 +507,61 @@ The check of the waits reads only the names of the evaluators and of the runners
 
 - K64: the code of an own entry for another evaluator can cause effects that no contract declares. `effectsOf` and `check` do not see them.
 - K65: a compiled runner can evaluate a part with its code that does not wait. The check assumes that a runner passes each wait of its parts through.
+
+## D28 (2026-10-24): the host gives the types of the roots, a path steps through the types, and only a type rule keeps the roots of its parts
+
+**Context.** The study R5 proposes the types of the roots, of the names and of the paths (P4, K25). D25 typed only a name that a kind binds. A reference to another root, or with more steps, had the type `unknown`.
+
+K23 left two needs: the types of the steps into a domain, and a way to add parents to the domain of another language. R5 also asks if a record of a store schema is closed by default (question 6).
+
+**Decision.**
+
+- A host gives the types in the option `rootTypes` of `check` and `typeCheck`: the names of the host, `self`, `world` and `event`. The root `caps` has the fixed type `CAPS_TYPE`, because the kernel narrows it.
+- The types of the names of the host go into the names at the root. A kind that binds a name hides the name of the host, as in a run.
+- The check examines each type of the host one time, at the root document.
+- `TypeInput.rootType` gives the type of a root at a document. With `PartType.roots`, a rule gives its parts other types of `self`, `world` and `event`.
+- The parts of an evaluator without a rule get `unknown` for these three roots. No contract tells how an evaluator changes them, and a node of a tree changes `self`.
+- The rule of `ref` steps through the types. A record gives its field, and a list gives its items, or `number` for `length`. A base type reads `Domain.steps`.
+- A union joins the steps of its types, and `one` steps into its values.
+- A field that a closed record does not have is a `#TYPE!` issue. An open record and `unknown` give `unknown`. A union and `one` give the issue only when no type or value of them has the field.
+- An optional field gives its type with no issue. When the field is absent, the path fails and gives no value. Thus the type stays sound (R5, question 1).
+- A type whose member can be an envelope gives `unknown`. A path asks the ladder for a step into an envelope, and it follows a reference document (DEREF.COLLAPSE). A plain machine reads each value as data.
+- The path `["names"]` gives `unknown`, because the record of the names holds the error of a failed binding. A name that is a key of a header gives `unknown`, because such a record of names can be an envelope.
+- `Domain.steps` gives the type of a step with a key into a member. The steps of the domain come first, then the steps of each parent.
+- A merge compares the steps of two domains too. This clause changes the clause of D22 about equal domains.
+- A domain refuses each reference document, because a path does not follow a member of a domain.
+- `extendDomain(name, { under, steps })` makes a part of a merge, as a function of the merge before it. It copies the domain with the new parents and steps, and it names `["domains", name]` in `replaces` (D17).
+- `typeFromSchema` reads a subset of JSON Schema: `type`, `properties`, `required`, `additionalProperties`, `items`, `enum`, `const`, `anyOf` and `oneOf`. Each other keyword tests nothing, and an issue names it.
+- A schema with `$ref` or `nullable` reads as `unknown`, because these keywords can permit more values. `patternProperties` keeps a record open, and a tuple gives a list of `unknown` items.
+- A schema with more than one of `type`, `anyOf` and `oneOf` keeps the first, with an issue for each other. `enum` and `const` keep each value that each other keyword holds.
+- `typeFromSamples` gives base types, not values. All records of the samples join into one record. A key that a record does not have is optional.
+- A record of samples is open, unless the option `closed` is `true`.
+- The claim of soundness is a property test (TYPE.ROOTS-SOUND). Its contexts hold envelopes, reference documents and kinds that change the roots, with a rule and without a rule.
+
+**Rejected.**
+
+- The names of `rootTypes` as names that the check also reads as bound. A check without types then gives other issues, and the option `names` already tells which names exist.
+- A function of a path as the type of `world`, as R5 sketches. A host makes the type one time, for example with `typeFromSchema`. A provider function is a later item (K71).
+- The roots of the document for the parts of an evaluator without a rule. A kind of a tree changes `self`, thus such a check is not sound.
+- A new field of a contract that tells which roots a kind changes. An own entry names another evaluator, thus only the rule of the evaluator describes its code (D25).
+- Path types without the test for an envelope. Without the test, the property test finds a value that a path follows as a reference.
+- Parents that merge as a union of two lists. A new parent changes the members of the domain of another language, thus D17 needs `replaces` for it.
+- A new rule of the merge for a foreign domain. A part of `prev` with `replaces` already gives it, thus `extendDomain` is only a helper.
+- Each record of samples closed by default. Samples do not show that a field cannot exist, and a closed record gives a false issue for a new field. The option `closed` gives the strict reading.
+- `one` of the sample values. Then each new value of a root gives a type issue, and the type does not generalize.
+- The keyword `integer` as a new base type. The kernel has no such domain, thus it reads as `number` with an issue.
+- Each keyword that the reading does not read as an `unknown` schema. Most keywords only test more, thus the rest of the schema stays a sound type.
+
+**Why.** A host already knows the shape of its data: a store schema, the JSON Schema of a procedure or some events. A type of a root brings that knowledge to each reference, thus `check` finds a wrong field before a run.
+
+Each rule gives `unknown` where the kernel cannot know what a path reaches. Thus each claim stays sound, and a type that is less precise gives no new issue. The new options and fields are optional, thus the change is backward compatible.
+
+The work found a hole of D25. A name bound to a reference document had the type of that document, but a path follows the reference. The test for an envelope closes the hole.
+
+**Next.**
+
+- K70: a step into a base type of the kernel or a function is a type issue. A step into a list with a key that is not an index is one too.
+- K71: a type provider for `world` that gives the type of a path on demand, for a large store.
+- K72: a walker declares the type of what it reaches, thus a path with a step document gets a type.
+- K73: `typeFromSchema` reads `$ref` into `$defs` of the same schema, and `allOf` of records.
+- K74: the tree kit gives its kinds type rules with `PartType.roots`, thus an attribute of a node knows the type of `self`.
