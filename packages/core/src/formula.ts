@@ -4,6 +4,7 @@ import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
+import { STD_DOMAINS } from "./types.ts";
 
 /** An operation of a formula language: a function of the values of its arguments. */
 export type OpFn = (...args: never[]) => unknown;
@@ -517,11 +518,14 @@ export function formulaKnown(profile: FormulaProfile = {}): (path: readonly Key[
  * language names the path in `replaces` to replace the entry, for example `["world", "kinds", "ref"]` or
  * `["evaluators", "formula.op"]`. Then the hook of the kit does not answer for a replaced evaluator.
  *
+ * The kit gives the domains of the kernel (`STD_DOMAINS`). Thus a domain of the language with the name `number` is a
+ * conflict. The language names `["domains", "number"]` in `replaces` to replace it.
+ *
  * @param profile - The operations and the rules of the language.
  * @param more - The parts of a machine that the language adds, with the paths of the entries that it replaces.
  * @returns The machine.
  * @throws {MergeError} The language and the kit have a conflict.
  */
 export function formulaMachine(profile: FormulaProfile = {}, more: MachinePart = {}): Machine {
-  return mergeMachines({ world: { kinds: formulaKinds() }, evaluators: formulaEvaluators(profile), known: formulaKnown(profile) }, more);
+  return mergeMachines({ world: { kinds: formulaKinds() }, evaluators: formulaEvaluators(profile), domains: STD_DOMAINS, known: formulaKnown(profile) }, more);
 }

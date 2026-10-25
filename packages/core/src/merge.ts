@@ -1,6 +1,7 @@
 import { type Key, docEquals, isRecord } from "./doc.ts";
 import type { DerefCode, Walker } from "./deref.ts";
 import type { Evaluator, Machine, Runner } from "./evaluate.ts";
+import type { Domain } from "./types.ts";
 import { type Kind, type World, type WorldEntry, isAlias, isKind, isNamespace } from "./world.ts";
 
 /** The keys from a part of a merge to one of its entries, for example `["kinds", "ref"]`. */
@@ -83,6 +84,14 @@ function defined(value: unknown): unknown {
 /** Two values are the same when they are equal by `docEquals`. A function and a host value are equal only to themselves. */
 function same(a: unknown, b: unknown): boolean {
   return Object.is(a, b) || docEquals(defined(a), defined(b));
+}
+
+/**
+ * Two domains are the same when they are one object, or when they have the same test `is`, the same parents and the
+ * same summary. Thus two languages that give one test under one name give one domain.
+ */
+function sameDomain(a: Domain, b: Domain): boolean {
+  return a === b || (a.is === b.is && same(a.under ?? [], b.under ?? []) && a.summary === b.summary);
 }
 
 /** Two lists of roots are the same when they hold the same roots, in any order. */
@@ -246,7 +255,7 @@ export function mergeWorlds(...parts: readonly (WorldPart | ((prev: World) => Wo
 }
 
 /** The fields of a machine that merge by their own rules. Each other field is one value, or a conflict. */
-const TABLES = /* @__PURE__ */ new Set(["world", "evaluators", "runners", "derefs", "walkers", "known", "replaces"]);
+const TABLES = /* @__PURE__ */ new Set(["world", "evaluators", "runners", "derefs", "walkers", "domains", "known", "replaces"]);
 
 interface MachineDraft {
   readonly world: WorldDraft;
@@ -254,6 +263,7 @@ interface MachineDraft {
   runners?: Record<string, Runner>;
   derefs?: Record<string, DerefCode>;
   walkers?: Record<string, Walker>;
+  domains?: Record<string, Domain>;
   readonly hooks: { readonly part: number; readonly known: Known }[];
   /** The last part that replaced the code of each evaluator name. */
   readonly replaced: Map<string, number>;
@@ -291,6 +301,7 @@ function machineOf(draft: MachineDraft): Machine {
     ...(draft.runners === undefined ? {} : { runners: { ...draft.runners } }),
     ...(draft.derefs === undefined ? {} : { derefs: { ...draft.derefs } }),
     ...(draft.walkers === undefined ? {} : { walkers: { ...draft.walkers } }),
+    ...(draft.domains === undefined ? {} : { domains: { ...draft.domains } }),
     ...(known === undefined ? {} : { known }),
   };
 }
@@ -344,6 +355,7 @@ function checkHidden(m: Merger, draft: MachineDraft): void {
  *
  * - The worlds merge with the rules of `mergeWorlds`. The paths of their conflicts start with `"world"`.
  * - The tables `evaluators`, `runners`, `derefs` and `walkers` merge name by name. A function is equal only to itself.
+ * - The table `domains` merges name by name. Two domains with the same test, parents and summary give one domain (D22).
  * - The evaluator and the runner of a name are its code. A replacement of the name replaces both.
  * - A runner hides the evaluator of its name. Thus one part must give both, or the merge gives a conflict.
  * - The hooks `known` compose in the order of the parts. A hook does not answer for a name that a later part replaces.
@@ -373,6 +385,10 @@ export function mergeMachines(...parts: readonly (MachinePart | ((prev: Machine)
     if (part.walkers !== undefined) {
       const walkers = (draft.walkers ??= {});
       for (const name of Object.keys(part.walkers)) mergeLeaf(m, walkers, name, part.walkers[name], ["walkers", name], index, replaces, Object.is, "Two parts give two different walkers for this name.");
+    }
+    if (part.domains !== undefined) {
+      const domains = (draft.domains ??= {});
+      for (const name of Object.keys(part.domains)) mergeLeaf(m, domains, name, part.domains[name], ["domains", name], index, replaces, sameDomain, "Two parts give two different domains for this base type.");
     }
     if (part.known !== undefined && !draft.hooks.some((hook) => hook.known === part.known)) draft.hooks.push({ part: index, known: part.known });
     const fields = part as Readonly<Record<string, unknown>>;
@@ -440,7 +456,7 @@ export function restrictWorld(world: World, paths: readonly MergePath[]): World 
 }
 
 /** The tables of the code of a machine, as the paths of a restriction name them. */
-const CODE_TABLES = ["evaluators", "runners", "derefs", "walkers"] as const;
+const CODE_TABLES = ["evaluators", "runners", "derefs", "walkers", "domains"] as const;
 
 /**
  * This function removes entries from a machine, for a language that restricts another language. A path names an
@@ -448,7 +464,7 @@ const CODE_TABLES = ["evaluators", "runners", "derefs", "walkers"] as const;
  *
  * - A path that starts with `"world"` removes an entry of the world, with the rules of `restrictWorld`.
  * - `["evaluators", name]` or `["runners", name]` removes the code of the name: its evaluator and its runner.
- * - `["derefs", name]` and `["walkers", name]` remove one entry of their tables.
+ * - `["derefs", name]`, `["walkers", name]` and `["domains", name]` remove one entry of their tables.
  *
  * A path that names no entry changes nothing. The function does not change the machine. An own entry names an
  * evaluator directly, thus only a machine without the code of a name refuses each document that names it.
@@ -464,6 +480,7 @@ export function restrictMachine(machine: Machine, paths: readonly MergePath[]): 
     runners: machine.runners === undefined ? undefined : { ...machine.runners },
     derefs: machine.derefs === undefined ? undefined : { ...machine.derefs },
     walkers: machine.walkers === undefined ? undefined : { ...machine.walkers },
+    domains: machine.domains === undefined ? undefined : { ...machine.domains },
   };
   for (const path of paths) {
     const [table, name, ...rest] = path.map(String);
@@ -482,5 +499,6 @@ export function restrictMachine(machine: Machine, paths: readonly MergePath[]): 
     ...(tables.runners === undefined ? {} : { runners: tables.runners as NonNullable<Machine["runners"]> }),
     ...(tables.derefs === undefined ? {} : { derefs: tables.derefs as NonNullable<Machine["derefs"]> }),
     ...(tables.walkers === undefined ? {} : { walkers: tables.walkers as NonNullable<Machine["walkers"]> }),
+    ...(tables.domains === undefined ? {} : { domains: tables.domains as NonNullable<Machine["domains"]> }),
   };
 }

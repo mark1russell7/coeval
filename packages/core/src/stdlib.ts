@@ -3,6 +3,7 @@ import { type Context, type EvalInput, type Evaluator, type Machine, type Part, 
 import { Failure } from "./errors.ts";
 import { type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
+import { STD_DOMAINS } from "./types.ts";
 
 /**
  * The world of the examples: small kinds for numbers, lists, conditions, names, sequences and effects.
@@ -464,8 +465,8 @@ export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
   },
 };
 
-/** The machine of the examples: the standard world, its evaluators, its runners and its walkers. */
-export const STD_MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS, runners: STD_RUNNERS, walkers: STD_WALKERS };
+/** The machine of the examples: the standard world, its evaluators, its runners, its walkers and the domains of the kernel. */
+export const STD_MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS, runners: STD_RUNNERS, walkers: STD_WALKERS, domains: STD_DOMAINS };
 
 /** The capabilities of the examples at the root: the two effects of the standard world. */
 export const STD_CAPS: readonly string[] = ["log", "write"];
