@@ -4,7 +4,7 @@ import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
-import { type Machine, partCaps, permits } from "./evaluate.ts";
+import { type Machine, partCaps, permits, waitedReason } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
 import { type RootTypes, type TypeNode, type Typed, typePass } from "./typing.ts";
 
@@ -447,9 +447,10 @@ export interface CheckOptions {
   readonly expect?: ValueType;
   /**
    * With `true`, the check also finds the problems of a run (RUN.CAN-WAIT). A runner under a parent without a runner
-   * gives `#CALC!`, because the parent cannot pass a wait through. A kind that declares effects and has no runner
-   * gives `#CALC!` too, because in a run only a runner can wait for the host. The default is `false`: an evaluation
-   * has neither problem.
+   * gives `#CALC!` when an effect of its runners can reach the host. The parent cannot pass that wait through.
+   * A runner without such an effect does not wait, and the run drives it (RUN.DRIVE-NESTED). A kind that declares
+   * effects and has no runner gives `#CALC!` too, because in a run only a runner can wait for the host. The default is
+   * `false`.
    */
   readonly run?: boolean;
   /**
@@ -468,6 +469,9 @@ export interface Typing {
   /** The type of each document, in the order of the document. */
   readonly places: readonly Typed[];
 }
+
+/** The least authority: the capability `[]` permits each effect (CAP.KEYS). */
+const EACH: readonly Cap[] = /* @__PURE__ */ Object.freeze([[]]);
 
 /** No declared effect. One list serves each visit without effects. */
 const NO_EFFECTS: readonly (readonly Key[])[] = /* @__PURE__ */ Object.freeze([]);
@@ -530,8 +534,9 @@ function capReason(v: DocVisit, kind: readonly Key[], allowed: (caps: readonly C
  *   have, for example an operation.
  * - `#CAP!`: an effect that the capabilities of its document do not permit. A kind around the document can narrow them.
  *   The hook `permits` of the machine decides, as in a run (CAP.PERMITS).
- * - `#CALC!`: with the option `run`, a runner under a parent without a runner, or a kind that declares effects and has
- *   no runner (RUN.CAN-WAIT). The issue has the place and the reason of the run.
+ * - `#CALC!`: with the option `run`, a runner under a parent without a runner, when an effect of its runners can reach
+ *   the host. Also a kind that declares effects and has no runner (RUN.CAN-WAIT). The issue has the place and the
+ *   reason of the run.
  * - `#TYPE!`: with the option `types`, a part whose type does not fit the type that its position needs (TYPE.CHECK).
  *   A run does not always fail there, thus a type issue is a static finding, not an error of a run.
  *
@@ -573,6 +578,24 @@ export function typeCheck(machine: Machine, doc: unknown, options: CheckOptions 
 }
 
 /**
+ * A runner under an evaluator in a check of a run. The run drives its steps without a wait, thus only a wait for an
+ * effect of its runners fails (RUN.DRIVE-NESTED).
+ */
+interface Drive {
+  /** The issue of the run when a step waits. */
+  readonly issue: Issue;
+  /** The index of the issue in the order of the document. */
+  readonly index: number;
+  /** The node of the runner for the pass of types. */
+  readonly node: TypeNode | undefined;
+  /** `true` when an effect of its runners can reach the host, and thus wait. */
+  wait: boolean;
+}
+
+/** What the code of a document does with a wait: an evaluator stops it, and a runner passes it on. */
+type Waits = boolean | Drive;
+
+/**
  * This function finds the issues of `check`. With a list of nodes, it also records each document that it visits for
  * the pass of types. It marks each document with an issue.
  */
@@ -590,8 +613,11 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
   const effects = verb === "eval";
   const allowed = options.caps === undefined ? undefined : permitsOf(machine);
   // In a run, a part that can wait needs a parent that can wait (RUN.CAN-WAIT). The map tells for each document with
-  // code if that code is a runner. A document without code fails before its parts, thus it is not in the map.
-  const waits = options.run === true ? new Map<DocVisit, boolean>() : undefined;
+  // code if its code passes a wait on: false for an evaluator, true for a runner whose waits reach the driver of the
+  // run, and a drive for a runner under an evaluator. A document without code fails before its parts, thus it is not
+  // in the map.
+  const waits = options.run === true ? new Map<DocVisit, Waits>() : undefined;
+  const drives: Drive[] = [];
   const maxDepth = machine.maxDepth ?? 1000;
   const anyName = options.names === "any";
   const roots: readonly string[] = machine.roots ?? ROOTS;
@@ -637,10 +663,23 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
         }
       }
       if (waits !== undefined && coded) {
-        waits.set(v, runner);
         // The parent of the root is the driver of the run, and it can wait. An evaluator gives its parts no wait.
-        if (runner && v.parent !== undefined && waits.get(v.parent) === false) {
-          push({ code: "#CALC!", place: v.place, reason: `${typeName(v.doc.type)} waits for effects, and its parent cannot wait. Give the parent a runner.`, at: v.at });
+        const up = v.parent === undefined ? true : waits.get(v.parent);
+        let chain: Waits = false;
+        if (runner && up === false) {
+          // The run drives a runner under an evaluator, and only a real wait fails (RUN.DRIVE-NESTED). Its issue goes in
+          // here, in the order of the document, when an effect of its runners can wait.
+          const issue: Issue = { code: "#CALC!", place: v.place, reason: waitedReason(typeName(v.doc.type)), at: v.at };
+          chain = { issue, index: issues.length, node: current, wait: !effects };
+          drives.push(chain);
+        } else if (runner) {
+          chain = up ?? true;
+        }
+        waits.set(v, chain);
+        // A runner waits only for an effect that reaches the host (C6). A refused effect gives #CAP! without a wait.
+        if (typeof chain === "object" && !chain.wait) {
+          const rule = allowed ?? permits;
+          chain.wait = declared.some((kind) => caps === undefined || rule(caps, kind));
         }
         // In a run, the host does each effect, thus an evaluator cannot cause one.
         const first = declared[0];
@@ -688,7 +727,9 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
     {
       ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
       ...(Array.isArray(options.names) ? { names: options.names } : {}),
-      ...(options.caps === undefined ? {} : { caps: options.caps }),
+      // Without capabilities, a check of the run narrows the least authority, as effectsOf does. Thus a mask of a kind
+      // removes the effects that cannot wait. The check of the capabilities stays off.
+      ...(options.caps === undefined ? (waits === undefined ? {} : { caps: EACH }) : { caps: options.caps }),
       problem: (problem) => {
         issues.push({ code: problem.code, place: problem.place, reason: problem.reason, at: problem.at });
         // A value without the shape of its kind is a problem of the document that the walk visited last. A part that is
@@ -697,5 +738,12 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
       },
     },
   );
+  // The issue of each drive that can wait goes in at its place. The last drive goes in first, thus each index stays.
+  for (let index = drives.length - 1; index >= 0; index -= 1) {
+    const drive = drives[index] as Drive;
+    if (!drive.wait) continue;
+    issues.splice(drive.index, 0, drive.issue);
+    if (drive.node !== undefined) drive.node.marked = true;
+  }
   return issues;
 }

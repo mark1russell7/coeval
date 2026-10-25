@@ -201,11 +201,12 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.STOP | A run stops at a failed step. The later effects do not happen. |
 | RUN.CAP | A run refuses an effect without its capability. The host does not see the effect. |
 | RUN.PURE | The kind `pure` refuses an effect, also in a run. |
-| RUN.SAME | A run gives the same derived values as an evaluation, for a document that passes `check` with the option `run`. |
+| RUN.SAME | A run gives the same result as an evaluation with the same `perform`, when the host answers each effect at once and no evaluator causes an effect. Thus a document without effects runs to the result of its evaluation. |
 | RUN.NESTED-WAIT | A step that waits inside a part that cannot wait gives `#CALC!`. |
-| RUN.NEEDS-RUNNER | In a run, an effect of an evaluator gives `#CALC!` before the test of its capability. A runner document under an evaluator gives `#CALC!` before it starts, also when it does not wait. An evaluation drives that runner. |
+| RUN.NEEDS-RUNNER | In a run, an effect of an evaluator gives `#CALC!` before the test of its capability, also when the host does not wait. |
+| RUN.DRIVE-NESTED | A run drives a runner under an evaluator without a wait, as an evaluation does. Only a step that really waits gives `#CALC!`. A branch that does not run does not wait. |
 | RUN.WAIT | A part that waits under an evaluator gives `#CALC!`. The error has the place of the part. |
-| RUN.CAN-WAIT | With the option `run`, `check` gives `#CALC!` for a runner under a parent without a runner, and for a kind that declares effects and has no runner. The issue has the place and the reason of the run. A document that passes this check gives no such `#CALC!` in a run. |
+| RUN.CAN-WAIT | With the option `run`, `check` gives `#CALC!` for a runner under a parent without a runner, when an effect of its runners can reach the host. It also gives `#CALC!` for a kind that declares effects and has no runner. The issue has the place and the reason of the run. A document that passes this check gives no such `#CALC!` in a run. |
 | RUN.EVAL | An evaluation of a run document records its effects, and it does none. |
 | RUN.EFFECT | An effect has its kind, its keys, its place and its context. |
 | RUN.CAUSE | An error of the host stays the cause of the error value. |

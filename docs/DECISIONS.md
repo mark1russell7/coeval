@@ -81,7 +81,7 @@ No question waits on the owner.
 - `run` evaluates a document and gives each effect to the host (`perform`). It waits when the host waits. `evaluate` records each effect and does none.
 - A kind whose parts or effects can wait has a runner: a generator function. It takes the result of a part or of an effect with `yield*`. The same runner serves `evaluate` and `run`.
 - A run goes on at once until an effect waits. Thus an effect that must happen during the event, for example to stop the event, happens in time.
-- In a run, a part that can wait must have a parent that can wait. Otherwise the part fails with `#CALC!` before it starts.
+- In a run, a part that can wait must have a parent that can wait. Otherwise the part fails with `#CALC!` before it starts. D38 replaces this rule: the run drives the part, and only a real wait fails.
 - A capability permits the kind of its name and each kind in its namespace: `store` permits `store.update`.
 
 **Why.** One evaluator for a dry run and for a real run keeps one meaning. With an asynchronous function, each wait defers the rest of the run, also when nothing waits. A generator waits only when the host waits.
@@ -923,3 +923,29 @@ Each evaluation does the same work with the same values. Thus each result, error
 **Why.** A law is a claim about all documents. A property test on generated documents examines many cases that no person writes. Each test counts the cases that its conditions skip, and it fails when it skips too many. A mutant of the kernel for each law shows that its test can fail.
 
 **Limits.** The equations of effects stay with S4. The tests use the standard world, the formula language and the probe language, not each world.
+
+## D38 (2026-10-25): a run drives a runner under an evaluator, and only a real wait fails
+
+**Context.** K110. An evaluation drives a runner under an evaluator without a wait. A run refused that runner before it started, also when the runner did not wait. Thus `add[1, pure[2]]` gave 3 in an evaluation and `#CALC!` in a run. RUN.SAME held only for a document that passed the check of the run.
+
+An `if` under an operation failed in a run, also when its branch that waits did not run. The test of another `if` is such a place.
+
+**Decision.**
+
+- Both handlers drive a runner under an evaluator with the same code (RUN.DRIVE-NESTED). In a run, its effects go to `perform`.
+- When `perform` gives a promise, the wait reaches the drive. The drive gives `#CALC!` at the place of the runner, with the reason of the check. The effect gets no outcome.
+- A branch that does not run does not wait. Thus an `if` whose branch with an effect is not taken gives the result of the evaluation.
+- An effect of an evaluator in a run still gives `#CALC!` before the test of its capability (RUN.NEEDS-RUNNER).
+- RUN.SAME holds when no evaluator causes an effect and the host answers each effect at once. A property test compares a run and an evaluation of generated documents without effects.
+- With the option `run`, the check gives `#CALC!` for a runner under an evaluator only when its runners have an effect that can wait (RUN.CAN-WAIT). Such an effect reaches the host. Without capabilities, it narrows the least authority, as `effectsOf` does. Thus `pure` and a mask of a kind remove effects that cannot wait.
+
+**Rejected.**
+
+- Option B: keep the refusal as the rule. It keeps a second meaning for documents that do not wait, and RUN.SAME keeps a condition of the check.
+- The handler of an evaluation inside the drive. Then an effect under the drive gets a mock answer in a run, and the host does not see it.
+- A `#CALC!` for each effect that cannot reach a waiting parent. It refuses a host that answers at once, and that host is the usual case of a test.
+- An effect of an evaluator that asks `perform` in a run, with `#CALC!` only for a promise. It is a larger change of X-NEEDS-RUNNER. K130 keeps it as a later item.
+
+**Why.** One clause of X-NEEDS-RUNNER goes, and one drive serves both handlers. The run of a runner that really waits keeps its code, its place and its reason. RUN.SAME loses its condition of the check.
+
+**Limits.** The check assumes C6: only a runner waits, and only for an effect. A compiled runner that calls the code of a part without a wait (K65) fails only when that part really waits.

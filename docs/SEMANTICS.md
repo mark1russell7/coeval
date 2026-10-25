@@ -396,7 +396,7 @@ E-APPLY  [EVAL.OWN, EVAL.SEALED, VALUE.ANY, EVAL.DETERMINISTIC]
     ─────────────────────────────────────
     M, Γ ⊢ᵦ v : τd @ ρ, h ⇓ place(r, ρ) ! ε
 
-E-RUNNER  [RUN.WAIT, MACHINE.RUNNER]
+E-RUNNER  [RUN.WAIT, RUN.DRIVE-NESTED, MACHINE.RUNNER]
     ladder = n        M.R(n) = G        M, Γ ⊢ᵦ v : τd @ ρ, h ⇓ S ! ε, by the rule ST-RUNNER
     ─────────────────────────────────────
     M, Γ ⊢ᵦ v : τd @ ρ, h ⇓ place(drive(S), ρ) ! ε
@@ -616,14 +616,16 @@ X-RUN  [RUN.SEQ, RUN.CAUSE, RUN.OUTCOME]
     failed(Failure(e)) = place(err(e), ρ), and failed(x) = err(#CALC!, ρ) with the cause x
     the outcome of the effect is this result, and a run that stops at the wait gives it no outcome
 
-X-NEEDS-RUNNER  [RUN.NEEDS-RUNNER, RUN.NESTED-WAIT]
+X-NEEDS-RUNNER  [RUN.NEEDS-RUNNER]
     the handler run:
         an effect of an evaluator                        ⇒  err(#CALC!, ρ), before X-CAP
-        the code of a runner document under an evaluator ⇒  err(#CALC!, ρ), before the runner starts
 
-DRIVE  [RUN.WAIT, RUN.EVAL]
+DRIVE  [RUN.WAIT, RUN.EVAL, RUN.DRIVE-NESTED, RUN.NESTED-WAIT]
     drive(done(r)) = r
     drive(wait(p, k)) = err(#CALC!), and the steps stop
+    both handlers drive the code of a runner document under an evaluator, by the rule E-RUNNER
+    in a run, its effects go to perform, and a promise of perform reaches drive as a wait
+    the effect of that wait gets no outcome
 
 WAIT  [RUN.SEQ, RUN.EAGER]
     run(done(r)) = r
@@ -644,11 +646,11 @@ ALL  [RUN.ALL, RUN.FAIL-FAST, RUN.REPLAY]
     all gives the results in the order of the items
 ```
 
-X-NEEDS-RUNNER makes the two handlers differ for a runner under an evaluator, also when the runner does not wait. Thus one meaning holds for a document that passes the check of the waits:
+Only two things make the handlers differ: an effect of an evaluator (X-NEEDS-RUNNER), and a promise of `perform`. A runner under an evaluator does not make them differ (K110). Thus one meaning holds without a condition of the check:
 
 ```text
-RUN-SAME  [RUN.SAME, RUN.MOCK, RUN.CAN-WAIT]
-    check(M, d, run) gives no #CALC!        the code of M keeps C2 and C6
+RUN-SAME  [RUN.SAME, RUN.MOCK, RUN.DRIVE-NESTED]
+    no evaluator of d causes an effect      the code of M keeps C2 and C6
     perform answers each effect at once, with the answers of the mock
     ─────────────────────────────────────
     run(M, d, Γ, perform) and evaluate(M, d, Γ, mock) give the same result
@@ -696,10 +698,10 @@ The work on the rules found six facts that the code has and `SPEC.md` did not st
 | One lookup follows at most 32 aliases. A longer chain gives no kind, thus a document of that type gives `#KIND?`. | K-ALIAS-LIMIT | WORLD.ALIAS-LIMIT |
 | A reference in the data resolves in the context of its reader. | C-REF | DEREF.READER |
 | Each call of a handle is a new evaluation. The part evaluates again, and its effects happen again. | H-SEAL | EVAL.BY-NAME |
-| In a run, an effect of an evaluator and a runner under an evaluator give `#CALC!` at once, also without a wait. | X-NEEDS-RUNNER | RUN.NEEDS-RUNNER |
+| In a run, an effect of an evaluator gives `#CALC!` at once, also without a wait. A runner under an evaluator starts, and only a real wait fails. | X-NEEDS-RUNNER, DRIVE | RUN.NEEDS-RUNNER, RUN.DRIVE-NESTED |
 | A step that is not a key, and not a document of a kind with the verb `step`, gives `#STEP?`. | R-NO-WALKER | DEREF.NO-WALKER |
 
-Two rows of `SPEC.md` got a condition. EVAL.SEALED holds for code that keeps C5. RUN.SAME holds for a document that passes the check of the waits.
+Two rows of `SPEC.md` got a condition. EVAL.SEALED holds for code that keeps C5. RUN.SAME holds when no evaluator causes an effect and the host answers at once.
 
 ## The simulation of the plan
 

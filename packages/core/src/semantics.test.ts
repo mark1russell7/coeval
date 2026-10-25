@@ -208,11 +208,11 @@ describe("the facts that the calculus states", () => {
     for (const result of [prepare(STD_MACHINE, doc).evaluate(names), reference(STD_MACHINE, doc, names)]) expect(result).toMatchObject({ ok: false, error: { code: "#STEP?", place: [] } });
   });
 
-  it("[RUN.NEEDS-RUNNER] in a run, a runner under an evaluator and an effect of an evaluator give #CALC! at once", async () => {
-    // pure is a runner that does not wait. An evaluation drives it under add, and a run refuses it before it starts.
+  it("[RUN.NEEDS-RUNNER] in a run, an effect of an evaluator gives #CALC! at once, and a runner under an evaluator starts", async () => {
+    // pure is a runner that does not wait. An evaluation and a run both drive it under add (K110).
     const doc: Json = { type: "add", value: [1, { type: "pure", value: [{ type: "number", value: 2 }] }] };
     expect(evaluate(STD_MACHINE, doc, makeContext({}, STD_CAPS)).result).toEqual(ok(3));
-    expect((await run(STD_MACHINE, doc, makeContext({}, STD_CAPS))).result).toMatchObject({ ok: false, error: { code: "#CALC!", place: [1] } });
+    expect((await run(STD_MACHINE, doc, makeContext({}, STD_CAPS))).result).toEqual(ok(3));
     // An effect of an evaluator gives #CALC! in a run, before the test of the capabilities.
     const say: EvalFn = ({ effect }) => effect("log", "hi");
     const machine = withKinds({ say: { verbs: { eval: "say" } } }, { say });
