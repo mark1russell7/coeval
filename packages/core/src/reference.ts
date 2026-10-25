@@ -4,7 +4,7 @@ import type { CapsRule, Kind } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
 import { STD_EVALUATORS } from "./stdlib.ts";
-import { type EvalError, type Failed, type Result, Failure, fail, ok, placed, thrown } from "./errors.ts";
+import { type EvalError, type Failed, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
   type Effect,
@@ -12,6 +12,7 @@ import {
   type EvalInput,
   type Machine,
   type Part,
+  type Perform,
   type RunFn,
   type RunInput,
   type RunPart,
@@ -19,6 +20,7 @@ import {
   intersectCaps,
   makeContext,
   permits,
+  placeText,
 } from "./evaluate.ts";
 import { type FormulaProfile, type OpFn, Held, STD_EXT } from "./formula.ts";
 
@@ -45,6 +47,18 @@ export interface ReferenceOptions {
   readonly definitions?: Definitions;
   /** A list that gets each effect, in its order. */
   readonly effects?: Effect[];
+  /** The mock of the host (RUN.MOCK). It answers each effect at once. Without it, an effect gives its payload. */
+  readonly perform?: Perform;
+}
+
+/** The scope of the addresses of effects (RUN.ADDRESS): the root of the evaluation, or one item of `all`. */
+interface Scope {
+  /** The text before each address of the scope. */
+  readonly prefix: string;
+  /** The number of earlier effects at each place of the scope, by the text of the place. */
+  readonly counts: Map<string, number>;
+  /** The number of earlier uses of `all` in the scope. */
+  alls: number;
 }
 
 /** The state of one evaluation of the reference. */
@@ -53,6 +67,9 @@ interface Env {
   readonly definitions: Definitions;
   readonly effects: Effect[];
   readonly maxDepth: number;
+  readonly perform: Perform | undefined;
+  /** The scope of the code that evaluates at this time. `all` changes it for each item. */
+  scope: Scope;
 }
 
 /** The code that answers a document: a function evaluator, a runner, or a gap of the reference. */
@@ -167,15 +184,52 @@ function resolveFully(machine: Machine, ctx: Context, path: readonly unknown[], 
   return options?.hops === true ? found : { ...found, hops: [] };
 }
 
-/** This function records an effect when the capabilities permit it (RUN.CAP, CAP.HOOK). */
-function record(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Failed | undefined {
+/**
+ * This function causes an effect when the capabilities permit it (RUN.CAP, CAP.HOOK). It records the effect with its
+ * address (RUN.ADDRESS) and its outcome (RUN.OUTCOME). The mock answers the effect at once (RUN.MOCK). Without a
+ * mock, the effect gives its payload (RUN.EVAL).
+ */
+function cause(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
   const keys = typeof kind === "string" ? kind.split(".") : kind;
   const text = keys.join(".");
   const machine = env.machine;
   const allowed = machine.permits === undefined ? permits(ctx.caps, keys) : machine.permits(ctx.caps, keys, ctx);
   if (!allowed) return fail("#CAP!", `The context has no capability for the effect ${text}.`, { place });
-  env.effects.push({ index: env.effects.length, kind: text, path: keys, payload, node: -1, at: 0, place, context: ctx });
-  return undefined;
+  const at = placeText(place);
+  const count = env.scope.counts.get(at) ?? 0;
+  env.scope.counts.set(at, count + 1);
+  const effect: { -readonly [K in keyof Effect]: Effect[K] } = {
+    index: env.effects.length,
+    kind: text,
+    path: keys,
+    payload,
+    node: -1,
+    at: 0,
+    place,
+    context: ctx,
+    address: `${env.scope.prefix}${at}#${count}`,
+  };
+  env.effects.push(effect);
+  effect.outcome = answer(env.perform, effect, place);
+  return effect.outcome;
+}
+
+/**
+ * This function gives the answer of the mock to an effect. A throw gives `#CALC!` with the cause, and a `Failure`
+ * gives its own error value. A promise gives `#CALC!`, because an evaluation does not wait.
+ */
+function answer(perform: Perform | undefined, effect: Effect, place: readonly Key[]): Result {
+  if (perform === undefined) return ok(effect.payload);
+  let given: unknown;
+  try {
+    given = perform(effect);
+  } catch (error) {
+    if (error instanceof Failure) return placed({ ok: false, error: error.error }, place);
+    return fail("#CALC!", `The host failed the effect ${effect.kind}: ${describe(error)}`, { place, cause: error });
+  }
+  if (!(given instanceof Promise)) return ok(given);
+  void given.catch(() => undefined);
+  return fail("#CALC!", `The mock gave a promise for the effect ${effect.kind}, and an evaluation does not wait.`, { place });
 }
 
 /** This function evaluates a document. Each error gets the place of the document where it started (K5). */
@@ -247,7 +301,7 @@ function evalInput(env: Env, seen: Seen, at: At): EvalInput {
     place: at.place,
     ...(at.address ? { address: true } : {}),
     resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
-    effect: (kind, payload) => record(env, at.ctx, kind, payload, at.place) ?? ok(payload),
+    effect: (kind, payload) => cause(env, at.ctx, kind, payload, at.place),
     fill,
   };
 }
@@ -275,9 +329,9 @@ function runInput(env: Env, seen: Seen, at: At): RunInput {
     place: at.place,
     resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
     effect: function* (kind, payload) {
-      return record(env, at.ctx, kind, payload, at.place) ?? ok(payload);
+      return cause(env, at.ctx, kind, payload, at.place);
     },
-    all: (list, options) => together(list, options),
+    all: (list, options) => together(env, list, options),
     fill,
   };
 }
@@ -287,14 +341,21 @@ function runInput(env: Env, seen: Seen, at: At): RunInput {
  * goes on until it ends or waits. In an evaluation, a part that waits does not end, thus it keeps its place in the
  * limit. With `failFast`, the first failure stops the parts that wait, and the later parts do not start
  * (RUN.FAIL-FAST). When no part failed and a part waits, the steps wait, and the drive gives `#CALC!`.
+ *
+ * Each part has its own scope of addresses. Its prefix names the use of `all` in the scope around it, and the part
+ * (RUN.ADDRESS).
  */
-function* together(list: readonly RunPart[], options: AllOptions = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
+function* together(env: Env, list: readonly RunPart[], options: AllOptions = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
   const limit = Math.max(1, options.concurrency ?? list.length);
   const results: (Result | undefined)[] = list.map(() => undefined);
   const waiting: { readonly steps: Steps; readonly promise: Promise<unknown> }[] = [];
+  const outer = env.scope;
+  const address = `${outer.prefix}all${outer.alls}`;
+  outer.alls += 1;
   let failed = false;
   for (let index = 0; index < list.length && !failed && waiting.length < limit; index += 1) {
     let result: Result | undefined;
+    env.scope = { prefix: `${address}.${index}/`, counts: new Map(), alls: 0 };
     try {
       const steps = (list[index] as RunPart).evaluate();
       const step = steps.next();
@@ -302,6 +363,8 @@ function* together(list: readonly RunPart[], options: AllOptions = {}): Generato
       else waiting.push({ steps, promise: step.value });
     } catch (error) {
       result = thrown(error, "a part");
+    } finally {
+      env.scope = outer;
     }
     results[index] = result;
     if (result !== undefined && options.failFast === true && !result.ok) failed = true;
@@ -325,16 +388,23 @@ function* together(list: readonly RunPart[], options: AllOptions = {}): Generato
 /**
  * This function evaluates a document by the rules, without a compilation. It is the reference of the plans: a plan,
  * a traced plan and the second tier of a language must give its results. It covers evaluations, not runs: an effect
- * gives its payload, and a part that waits gives `#CALC!`.
+ * gives the answer of the mock or its payload, and a part that waits gives `#CALC!`.
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document.
  * @param context - The names and the capabilities at the root.
- * @param options - The type of a bare root value, the definitions of compiled code, and a list for the effects.
+ * @param options - The type of a bare root value, the definitions of compiled code, a list for the effects and a mock.
  * @returns The result.
  */
 export function reference(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceOptions = {}): Result {
-  const env: Env = { machine, definitions: options.definitions ?? {}, effects: options.effects ?? [], maxDepth: machine.maxDepth ?? 1000 };
+  const env: Env = {
+    machine,
+    definitions: options.definitions ?? {},
+    effects: options.effects ?? [],
+    maxDepth: machine.maxDepth ?? 1000,
+    perform: options.perform,
+    scope: { prefix: "", counts: new Map(), alls: 0 },
+  };
   const ctx = context.world === null ? { ...context, world: worldThing(machine.world) } : context;
   try {
     return evaluateAt(env, { value: doc, place: [], declared: options.declaredType, depth: 0, address: false, ctx });

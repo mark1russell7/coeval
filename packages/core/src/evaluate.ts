@@ -2,7 +2,7 @@ import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, typeName 
 import { type Split, partsOf, pathMatches } from "./parts.ts";
 import { ask, type Answer } from "./ladder.ts";
 import type { CapsRule, Kind, Side, World } from "./world.ts";
-import { type ErrorCode, type EvalError, type Result, fail, ok, placed, thrown, describe } from "./errors.ts";
+import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
   type Context,
@@ -135,6 +135,7 @@ export type Steps = Generator<Promise<unknown>, Result, unknown>;
 
 /** An effect that an evaluation caused, in the order of the effects. */
 export interface Effect {
+  /** The number of effects before this effect. Under `all`, this number follows the order of the host. */
   readonly index: number;
   /** The kind of the effect, as a text with dots. */
   readonly kind: string;
@@ -149,10 +150,99 @@ export interface Effect {
   readonly place: readonly Key[];
   /** The context of the document that caused the effect: its names, its node and its capabilities. */
   readonly context: Context;
+  /**
+   * The stable address of the effect (RUN.ADDRESS). The order of the host does not change it. The address has the
+   * keys of the place, a `#` and the count of the earlier effects at that place in its scope. An example is
+   * `1/bind/x#0`. Each item of `all` is a scope, and its prefix comes first: `all0.1/` is the item 1 of the first `all`
+   * of the scope. The kernel gives each effect its address.
+   */
+  readonly address?: string;
+  /**
+   * The outcome of the effect: the result that it gave its document (RUN.OUTCOME). The kernel sets it when the answer
+   * comes. It stays `undefined` when the run stops first, for example at an abort.
+   */
+  readonly outcome?: Result;
 }
 
-/** The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value. */
+/**
+ * The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value, and a
+ * `Failure` gives its own error value. In an evaluation, this function is a mock: it answers at once, and a promise
+ * from it gives `#CALC!` (RUN.MOCK).
+ */
 export type Perform = (effect: Effect) => unknown;
+
+/** The key of the journal of a recorder or of a replayer, on its function. Two copies of the kernel share it. */
+export const JOURNAL: unique symbol = /* @__PURE__ */ Symbol.for("coeval.journal") as never;
+
+/**
+ * The journal of a recorder or of a replayer, on its function `perform`. The kernel tells it the order in which the
+ * waits of each `all` settle. In a replay, the kernel asks the journal for that order (RUN.RECORD, RUN.REPLAY).
+ */
+export interface Journal {
+  /**
+   * This function gets the item whose wait settled.
+   *
+   * @param all - The address of the `all`, for example `all0` or `all0.1/all0`.
+   * @param item - The index of the item.
+   */
+  readonly settled?: (all: string, item: number) => void;
+  /**
+   * This function gives the item whose wait settles next.
+   *
+   * @param all - The address of the `all`.
+   * @param waiting - The indices of the items that wait.
+   * @returns The index of an item that waits, or `undefined` for the order of the host.
+   */
+  readonly next?: (all: string, waiting: readonly number[]) => number | undefined;
+}
+
+/** This function gives the journal of a function `perform`, when it has one. */
+function journalOf(perform: Perform | undefined): Journal | undefined {
+  return perform === undefined ? undefined : (perform as { readonly [JOURNAL]?: Journal })[JOURNAL];
+}
+
+/**
+ * This function gives the outcome of an effect that the host failed. A `Failure` gives its own error value, for
+ * example the recorded error of a replay or `#REPLAY!`. Each other exception gives `#CALC!`, with the exception as the
+ * cause (RUN.CAUSE).
+ */
+function hostFailed(kind: string, place: readonly Key[], error: unknown): Result {
+  if (error instanceof Failure) return placed({ ok: false, error: error.error }, place);
+  return fail("#CALC!", `The host failed the effect ${kind}: ${describe(error)}`, { place, cause: error });
+}
+
+/**
+ * The scope of the addresses of effects (RUN.ADDRESS). The root of an evaluation is one scope, and each item of `all`
+ * is a scope. The code of one scope does not interleave with itself, thus its counts do not depend on the host.
+ */
+interface Scope {
+  /** The text before each address of the scope, for example `all0.1/`. */
+  readonly prefix: string;
+  /** The number of earlier effects at each place, by the text of the place. It is made at the first effect. */
+  counts: Map<string, number> | undefined;
+  /** The number of earlier uses of `all` in the scope. */
+  alls: number;
+}
+
+/**
+ * This function gives the text of a place in an address: each key, with a slash between two keys. A text key with
+ * other characters than letters, digits, `_`, `$` and `-` gets quotes.
+ *
+ * @param place - The keys from the root document to a document.
+ * @returns The text of the place.
+ */
+export function placeText(place: readonly Key[]): string {
+  let text = "";
+  for (let index = 0; index < place.length; index += 1) {
+    const key = place[index] as Key;
+    if (index > 0) text += "/";
+    text += typeof key === "number" || /^[\w$-]+$/.test(key) ? String(key) : JSON.stringify(key);
+  }
+  return text;
+}
+
+/** An effect while the kernel waits for its outcome. */
+type Recorded = { -readonly [K in keyof Effect]: Effect[K] };
 
 /**
  * The runtime of one evaluation or run. Compiled code gets it with the context, and asks it to resolve paths and
@@ -179,7 +269,7 @@ export interface Runtime {
    * @param kind - The kind of the effect.
    * @param payload - The data of the effect.
    * @param place - The place of the document.
-   * @returns The payload, or an error value.
+   * @returns The answer of the mock, the payload without a mock, or an error value.
    */
   effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result;
   /**
@@ -316,7 +406,7 @@ export interface EvalInput {
    *
    * @param kind - The kind of the effect, for example `log`.
    * @param payload - The data of the effect.
-   * @returns The payload, or the error `#CAP!`.
+   * @returns The answer of the mock, the payload without a mock, or an error value, for example `#CAP!`.
    */
   effect(kind: Cap, payload: unknown): Result;
   /**
@@ -360,7 +450,7 @@ export interface RunInput {
   resolve(path: readonly unknown[], options?: ResolveOptions): Resolution;
   /**
    * This function causes an effect. In a run, the host does the effect, and the steps wait when the host waits. In
-   * an evaluation, the effect gives its payload. Take its result with `yield*`.
+   * an evaluation, a mock answers the effect at once, or the effect gives its payload. Take its result with `yield*`.
    *
    * @param kind - The kind of the effect, for example `log`.
    * @param payload - The data of the effect.
@@ -547,6 +637,19 @@ export interface RunOptions {
 export interface EvalOptions {
   /** A list that gets each effect, in its order. */
   readonly effects?: Effect[];
+  /**
+   * The mock of the host (RUN.MOCK). It answers each effect at once, and its answer is the result of the effect.
+   * Without it, an effect gives its payload (RUN.EVAL).
+   */
+  readonly perform?: Perform;
+}
+
+/** The options of `evaluate`. */
+export interface EvaluateOptions {
+  /** The type of a bare root value. */
+  readonly declaredType?: string;
+  /** The mock of the host (RUN.MOCK). Without it, an effect gives its payload (RUN.EVAL). */
+  readonly perform?: Perform;
 }
 
 /** The options of a resolution without a record of hops, and with one. One object of each serves each call. */
@@ -561,6 +664,11 @@ class Session implements Runtime {
   nextId = 0;
   current: Building | undefined;
   readonly holder: Building | undefined;
+  /**
+   * The scope of the addresses of the code that runs at this time (RUN.ADDRESS). `all` changes it for each item. The
+   * root scope is made at the first effect or `all`, thus an evaluation without effects makes no scope.
+   */
+  private scope: Scope | undefined;
 
   constructor(
     readonly machine: Machine,
@@ -589,45 +697,90 @@ class Session implements Runtime {
     return this.machine.permits === undefined ? permits(ctx.caps, keys) : this.machine.permits(ctx.caps, keys, ctx);
   }
 
-  private record(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result | Effect {
+  /** This function checks the capability of an effect, and records the effect with its address (RUN.ADDRESS). */
+  private record(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result | Recorded {
     const keys = typeof kind === "string" ? kind.split(".") : kind;
     const text = keys.join(".");
     if (!this.permitted(ctx, keys)) return fail("#CAP!", `The context has no capability for the effect ${text}.`, { place });
     const node = this.current;
     const list = this.effects;
-    const effect: Effect = { index: list.length, kind: text, path: keys, payload, node: node?.id ?? -1, at: this.tick, place, context: ctx };
+    const scope = (this.scope ??= { prefix: "", counts: undefined, alls: 0 });
+    const at = placeText(place);
+    const counts = (scope.counts ??= new Map<string, number>());
+    const count = counts.get(at) ?? 0;
+    counts.set(at, count + 1);
+    const effect: Recorded = {
+      index: list.length,
+      kind: text,
+      path: keys,
+      payload,
+      node: node?.id ?? -1,
+      at: this.tick,
+      place,
+      context: ctx,
+      address: `${scope.prefix}${at}#${count}`,
+    };
     list.push(effect);
     if (node !== undefined) node.effects.push(effect.index);
     return effect;
+  }
+
+  /**
+   * This function answers an effect at once, without a wait: the mock gives the result, or the effect gives its
+   * payload without a mock (RUN.MOCK, RUN.EVAL). A promise from the mock gives `#CALC!`.
+   */
+  private answer(effect: Recorded, place: readonly Key[]): Result {
+    const perform = this.perform;
+    if (perform === undefined) return (effect.outcome = ok(effect.payload));
+    let done: unknown;
+    try {
+      done = perform(effect);
+    } catch (error) {
+      return (effect.outcome = hostFailed(effect.kind, place, error));
+    }
+    if (!(done instanceof Promise)) return (effect.outcome = ok(done));
+    // The evaluation does not read the promise, thus its rejection must not be unhandled.
+    void done.catch(() => undefined);
+    return (effect.outcome = fail("#CALC!", `The mock gave a promise for the effect ${effect.kind}, and an evaluation does not wait.`, { place }));
   }
 
   effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
     const text = typeof kind === "string" ? kind : kind.join(".");
     if (this.running) return fail("#CALC!", `The effect ${text} needs a runner: in a run, the host does each effect.`, { place });
     const made = this.record(ctx, kind, payload, place);
-    return "ok" in made ? made : ok(payload);
+    return "ok" in made ? made : this.answer(made, place);
   }
 
   *runEffect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps {
     const made = this.record(ctx, kind, payload, place);
     if ("ok" in made) return made;
     const perform = this.perform;
-    if (!this.running || perform === undefined) return ok(payload);
-    const failed = (error: unknown): Result => fail("#CALC!", `The host failed the effect ${made.kind}: ${describe(error)}`, { place, cause: error });
+    if (!this.running || perform === undefined) return this.answer(made, place);
     let done: unknown;
     try {
       done = perform(made);
     } catch (error) {
-      return failed(error);
+      return (made.outcome = hostFailed(made.kind, place, error));
     }
-    if (!(done instanceof Promise)) return ok(done);
-    return (yield done.then((value: unknown) => ok(value), failed)) as Result;
+    if (!(done instanceof Promise)) return (made.outcome = ok(done));
+    const result = (yield done.then(
+      (value: unknown) => ok(value),
+      (error: unknown) => hostFailed(made.kind, place, error),
+    )) as Result;
+    // A run that stops at this wait does not reach this line, thus the effect keeps no outcome (RUN.OUTCOME).
+    return (made.outcome = result);
   }
 
   *all(list: readonly (() => Steps)[], options: AllOptions = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
     const results: Result[] = new Array<Result>(list.length);
     const limit = Math.max(1, options.concurrency ?? list.length);
     const failFast = options.failFast === true;
+    // The address of this call, and a scope for each item (RUN.ADDRESS). The journal of a replay reads the address.
+    const outer = (this.scope ??= { prefix: "", counts: undefined, alls: 0 });
+    const address = `${outer.prefix}all${outer.alls}`;
+    outer.alls += 1;
+    const scopes: Scope[] = new Array<Scope>(list.length);
+    const journal = journalOf(this.perform);
     let failed = false;
     interface Active {
       readonly index: number;
@@ -642,11 +795,15 @@ class Session implements Runtime {
     };
     const advance = (index: number, steps: Steps, input: { readonly value?: unknown; readonly error?: unknown; readonly threw: boolean }): void => {
       let step: IteratorResult<Promise<unknown>, Result>;
+      const before = this.scope;
+      this.scope = scopes[index] as Scope;
       try {
         step = input.threw ? steps.throw(input.error) : steps.next(input.value);
       } catch (error) {
         settle(index, thrown(error, "a part"));
         return;
+      } finally {
+        this.scope = before;
       }
       if (step.done === true) {
         settle(index, step.value);
@@ -663,25 +820,35 @@ class Session implements Runtime {
       while (!failed && active.length < limit && next < list.length) {
         const index = next;
         next += 1;
+        const scope: Scope = { prefix: `${address}.${index}/`, counts: undefined, alls: 0 };
+        scopes[index] = scope;
         const begin = list[index] as () => Steps;
         let steps: Steps;
+        const before = this.scope;
+        this.scope = scope;
         try {
           steps = begin();
         } catch (error) {
           settle(index, thrown(error, "a part"));
           continue;
+        } finally {
+          this.scope = before;
         }
         advance(index, steps, { threw: false });
       }
     };
     start();
     while (active.length > 0 && !failed) {
-      const settled = (yield Promise.race(active.map((item) => item.pending))) as {
+      // A replay settles the waits in the recorded order. Each other run takes the first wait that settles.
+      const chosen = journal?.next?.(address, active.map((item) => item.index));
+      const pick = chosen === undefined ? undefined : active.find((item) => item.index === chosen);
+      const settled = (yield pick === undefined ? Promise.race(active.map((item) => item.pending)) : pick.pending) as {
         readonly item: Active;
         readonly value?: unknown;
         readonly error?: unknown;
         readonly threw: boolean;
       };
+      journal?.settled?.(address, settled.item.index);
       active.splice(active.indexOf(settled.item), 1);
       advance(settled.item.index, settled.item.steps, settled);
       start();
@@ -819,10 +986,11 @@ export interface Plan {
   /** The compiled root document. */
   readonly root: CompiledPart;
   /**
-   * This function evaluates the document. It does not wait, and the host does no effect.
+   * This function evaluates the document. It does not wait, and the host does no effect. A mock can answer each
+   * effect at once (RUN.MOCK).
    *
    * @param context - The names and the capabilities at the root.
-   * @param options - A list that gets the effects.
+   * @param options - A list that gets the effects, and the mock of the host.
    * @returns The result.
    */
   evaluate(context?: Context, options?: EvalOptions): Result;
@@ -1161,7 +1329,7 @@ function planOf(machine: Machine, traced: boolean, root: CompiledPart): Plan {
     traced,
     root,
     evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
-      const s = new Session(machine, false, traced, undefined, undefined, evalOptions?.effects);
+      const s = new Session(machine, false, traced, evalOptions?.perform, undefined, evalOptions?.effects);
       return root.code(rootContext(machine, context), s);
     },
     run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {
@@ -1212,17 +1380,20 @@ function record(s: Session, result: Result): Run {
  *
  * The verb `eval` goes up the ladder for each document. The kind of the document tells where its parts are. The
  * evaluator gets each part sealed: it can evaluate the part, and it cannot read its value. A failure gives an error
- * value, and the function does not throw. An effect is recorded in its order, and nothing does it.
+ * value, and the function does not throw. An effect is recorded in its order, and the host does not do it. A mock
+ * can answer each effect at once (RUN.MOCK).
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
  * @param context - The names and the capabilities at the root.
- * @param declaredType - The type of a bare root value.
+ * @param options - The type of a bare root value, or the options: that type and the mock of the host.
  * @returns The result, the trace and the effects in their order.
  */
-export function evaluate(machine: Machine, doc: unknown, context: Context = makeContext(), declaredType?: string): Run {
+export function evaluate(machine: Machine, doc: unknown, context: Context = makeContext(), options?: string | EvaluateOptions): Run {
+  const given: EvaluateOptions = typeof options === "string" ? { declaredType: options } : (options ?? {});
+  const declaredType = given.declaredType;
   const plan = prepare(machine, doc, { trace: true, ...(declaredType === undefined ? {} : { declaredType }) });
-  const s = new Session(machine, false, true, undefined, undefined, undefined);
+  const s = new Session(machine, false, true, given.perform, undefined, undefined);
   const result = plan.root.code(rootContext(machine, context), s);
   return record(s, result);
 }

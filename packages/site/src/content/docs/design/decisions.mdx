@@ -27,6 +27,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D16 | The standard tree is a decorated tree. Each field of a node evaluates on demand, one time, and a cycle gives `#CYCLE!` with its chain. A failed field keeps its error. |
 | D17 | Worlds and machines compose through one merge. Equal entries merge, and namespaces merge key by key. Each other clash throws one error that lists each conflict, unless the later part names its path in `replaces`. |
 | D18 | A restriction removes entries of a world or a machine by path. It removes the code of a name too, because an own entry names an evaluator directly. |
+| D19 | An evaluation takes a mock `perform`, so a test answers effects without promises. Each effect keeps an address that the host cannot change, and its outcome. A recorder and a replayer give record and replay. |
 | D20 | `docEquals`, `sameValue` and `sameResult` share one walk. `sameResult` is for an early cutoff, thus a closure is the same only as itself, and two errors need the same reason too. |
 | D21 | A host thing tells a field that holds `undefined` from a missing field with an optional `has`. A thing without `has` keeps the old reading. |
 

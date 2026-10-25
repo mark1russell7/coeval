@@ -154,6 +154,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | AGREE.ERRORS | Two errors agree when they have the same code, and the same place when both have one. With `strict`, they also have the same reason, and each has a place. An overflow of the stack of the host is the one permitted difference. |
 | AGREE.EFFECTS | Two tiers agree only when they cause the same effects in the same order, with the same kinds, places and payloads. The host also sees the same calls. |
 | AGREE.TIER | A language gives `agree` its second tier as a function. `agree` names the first tier that disagrees with the plan, and the reason. |
+| AGREE.MOCK | `agree` gives its mock `perform` to each tier, also to the second tier of a language. Thus the tiers agree on documents with effects. When two tiers record the address or the outcome of an effect, these agree too. |
 | AGREE.MUTANT | The harness finds a tier that changes the order of the parts, or that evaluates a branch that the reference does not evaluate. |
 | RESULT.SAME | `sameResult` tells if two results are the same for an early cutoff. Two values compare by the rules of `docEquals`, thus each object that is not a list or a plain record is the same only as itself. `-0` is not `0`, and `NaN` is `NaN`. A rule of the host answers first for two values (D20). |
 | RESULT.SAME-ERROR | For `sameResult`, two errors are the same when they have the same code, reason and place. The cause is not compared. A held error compares by the same rule. A value and an error are not the same. |
@@ -181,6 +182,12 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.ALL | Parts can run at the same time, with a limit. The results keep the order of the parts. |
 | RUN.FAIL-FAST | With `failFast`, the first failed part stops the parts at the same time. The later parts do not start, and the results come at once. |
 | RUN.ABORT | A run stops with `#ABORT` when the host aborts it. |
+| RUN.MOCK | An evaluation can get a mock `perform`. The answer of the mock is the result of the effect, as in a run with the same `perform`. A promise from the mock gives `#CALC!`, because an evaluation does not wait. |
+| RUN.OUTCOME | Each effect records its outcome: the result that it gave its document. A throw of the host gives `#CALC!` with the cause, and a `Failure` gives its own error value. An effect of a run that stopped at its wait has no outcome. |
+| RUN.ADDRESS | Each effect has an address: the keys of its place and the count of the earlier effects at that place in its scope. The root is one scope, and each item of `all` is a scope. Thus the order of the host does not change an address. |
+| RUN.RECORD | `recorder` wraps the `perform` of a host. Its log has each effect with its address, its kind, its payload and its outcome. The log also has the order in which the waits of each `all` settle. |
+| RUN.REPLAY | `replayer` answers each effect from a log, by its address. A replay does no host effect, and it gives the result of the recorded run. The waits of each `all` settle in the recorded order, thus `failFast` gives the same result too. |
+| RUN.REPLAY-MISMATCH | An effect that the log does not have at its address gives `#REPLAY!`: an unknown address, another kind or another payload. The run stops there, as at each failed step. |
 | SEQ.LAST | A sequence gives the result of the step before under the name `last`. |
 | SEQ.NAMES | A sequence gives the result of a named step to the later steps. |
 | EFFECT.ORDER | The effects keep their order. |

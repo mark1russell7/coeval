@@ -1,7 +1,7 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
 import type { Context } from "./deref.ts";
 import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
-import { type Effect, type Machine, evaluate, makeContext, prepare } from "./evaluate.ts";
+import { type Effect, type Machine, type Perform, evaluate, makeContext, prepare } from "./evaluate.ts";
 import { Held, isClosure } from "./formula.ts";
 import { type Definitions, reference } from "./reference.ts";
 
@@ -21,6 +21,12 @@ export interface TierResult {
   readonly effects?: readonly Effect[];
 }
 
+/** What `agree` gives the second tier of a language beside the document and the context. */
+export interface TierInput {
+  /** The mock of the host, when `agree` has one (AGREE.MOCK). The tier answers each effect with it. */
+  readonly perform?: Perform;
+}
+
 /** The options of `agree`. */
 export interface AgreeOptions {
   /** The type of a bare root value. */
@@ -34,9 +40,15 @@ export interface AgreeOptions {
    *
    * @param doc - The document.
    * @param context - The context.
+   * @param input - The mock of the host, when `agree` has one.
    * @returns The result, or the result with the effects.
    */
-  readonly other?: (doc: unknown, context: Context) => Result | TierResult;
+  readonly other?: (doc: unknown, context: Context, input: TierInput) => Result | TierResult;
+  /**
+   * The mock of the host (RUN.MOCK, AGREE.MOCK). Each tier gets it, thus the tiers agree on documents with effects. A
+   * mock must give the same answer to the same effect, because each tier asks it again.
+   */
+  readonly perform?: Perform;
   /**
    * This function compares two values that the rules of `sameValue` do not know, for example two dates.
    *
@@ -133,7 +145,10 @@ function resultDiffers(a: Result, b: Result, options: AgreeOptions): string | un
   return a.ok ? `The plan gives a value, and the tier gives ${codeAndPlace((b as { readonly error: EvalError }).error)}.` : `The plan gives ${codeAndPlace(a.error)}, and the tier gives a value.`;
 }
 
-/** This function gives the difference of two lists of effects, or `undefined` when they agree (EFFECT.ORDER). */
+/**
+ * This function gives the difference of two lists of effects, or `undefined` when they agree (EFFECT.ORDER). When both
+ * tiers record the address or the outcome of an effect, these must agree too (AGREE.MOCK).
+ */
 function effectsDiffer(a: readonly Effect[], b: readonly Effect[], options: AgreeOptions): string | undefined {
   if (a.length !== b.length) return `The plan causes ${a.length} effects, and the tier causes ${b.length}.`;
   for (let index = 0; index < a.length; index += 1) {
@@ -142,6 +157,11 @@ function effectsDiffer(a: readonly Effect[], b: readonly Effect[], options: Agre
     if (x.kind !== y.kind || !docEquals(x.place as readonly Key[], y.place as readonly Key[]) || !sameValue(x.payload, y.payload, options.equal)) {
       return `The effect ${index} differs: ${x.kind} at [${x.place.join(", ")}] in the plan, and ${y.kind} at [${y.place.join(", ")}] in the tier.`;
     }
+    if (x.address !== undefined && y.address !== undefined && x.address !== y.address) {
+      return `The effect ${index} has the address ${x.address} in the plan, and ${y.address} in the tier.`;
+    }
+    const why = x.outcome !== undefined && y.outcome !== undefined ? resultDiffers(x.outcome, y.outcome, options) : undefined;
+    if (why !== undefined) return `The outcome of the effect ${index} differs. ${why}`;
   }
   return undefined;
 }
@@ -150,21 +170,22 @@ function effectsDiffer(a: readonly Effect[], b: readonly Effect[], options: Agre
  * This function evaluates a document with a plan and with other tiers, and compares the results (PLAN.AGREES). Two
  * results agree when they have the same value by `sameValue`, or errors with the same code, and the same place when
  * both have one. The effects must have the same kinds, places and payloads, in the same order. A language gives its
- * own tier with the option `other`.
+ * own tier with the option `other`. Each tier gets the mock of the option `perform` (AGREE.MOCK).
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document.
  * @param context - The names and the capabilities at the root.
- * @param options - The tiers, the definitions for the reference, the rules of the comparison and the second tier.
+ * @param options - The tiers, the definitions for the reference, the rules of the comparison, the second tier and the mock.
  * @returns The result of the plan, or the first tier that disagrees and the reason.
  */
 export function agree(machine: Machine, doc: unknown, context: Context = makeContext(), options: AgreeOptions = {}): Agreement {
   const declared = options.declaredType === undefined ? {} : { declaredType: options.declaredType };
+  const mock = options.perform === undefined ? {} : { perform: options.perform };
   const observe = options.observe;
   observe?.();
   const plan = prepare(machine, doc, declared);
   const effects: Effect[] = [];
-  const result = plan.evaluate(context, { effects });
+  const result = plan.evaluate(context, { effects, ...mock });
   const saw = observe?.();
 
   const differs = (other: Result, otherEffects: readonly Effect[] | undefined): string | undefined => {
@@ -178,13 +199,13 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
     let other: Result;
     let otherEffects: Effect[] = [];
     if (tier === "reference") {
-      other = reference(machine, doc, context, { ...declared, effects: otherEffects, ...(options.definitions === undefined ? {} : { definitions: options.definitions }) });
+      other = reference(machine, doc, context, { ...declared, ...mock, effects: otherEffects, ...(options.definitions === undefined ? {} : { definitions: options.definitions }) });
     } else if (tier === "traced") {
-      const traced = evaluate(machine, doc, context, options.declaredType);
+      const traced = evaluate(machine, doc, context, { ...declared, ...mock });
       other = traced.result;
       otherEffects = [...traced.effects];
     } else {
-      other = plan.evaluate(context, { effects: otherEffects });
+      other = plan.evaluate(context, { effects: otherEffects, ...mock });
     }
     const why = differs(other, otherEffects);
     if (why !== undefined) return { ok: false, tier, plan: result, other, reason: why };
@@ -193,7 +214,7 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
   if (options.other !== undefined) {
     let given: Result | TierResult;
     try {
-      given = options.other(doc, context);
+      given = options.other(doc, context, mock);
     } catch (error) {
       given = thrown(error, "the tier");
     }
