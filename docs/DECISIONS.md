@@ -822,8 +822,9 @@ A heap snapshot of 1000 plans of `{ "type": "ref", "value": ["world", "n1"] }` s
 - A plan makes its compiled root `root` and the steps of a run at their first use. An evaluation needs neither.
 - The steps of a run of an evaluator are `runOf(code)`. The root makes them at the first `run`. A part makes them at compile time, as before.
 - A compiled path is an object of a class with five fields. Its method `resolve` starts the short path at its root, thus a compiled path makes no closure.
+- Both classes declare their fields with `declare`, and the constructor writes each field one time. A field that TypeScript defines as `undefined` and then writes again is not constant for V8.
 - The formula kit makes `give` and `held` one time for each language. The code of a reference with a static path keeps only its compiled path, its first name and its mark `address`.
-- The root document of each plan has one frozen empty place. The code of a function evaluator keeps the fill of its input, not the whole input.
+- The code of a function evaluator keeps the fill of its input, not the whole input.
 - A list that grows by `push` keeps room for more items. Thus `factsOf`, `edgesOf` and the results of `durable` keep a copy of each short list, and one frozen list for each empty list.
 - The test of PLAN.LEAN measures the heap over 10000 plans of bare references, after a full collection. Each plan keeps less than 600 bytes.
 
@@ -833,7 +834,9 @@ A heap snapshot of 1000 plans of `{ "type": "ref", "value": ["world", "n1"] }` s
 - The steps of a run of each part at their first use, through a getter of a class. A compiler can copy a part with a spread, and a spread does not copy a getter. The row K115 keeps the idea.
 - No wrapper `placedCode` for the code of a reference. The wrapper gives the place of each error and of each exception, and it narrows the context to its grant (D32). The mark "total" of K76 removes it.
 - A cache of plans by the JSON of a path. The path is the only data of such a plan. Two nodes of a schedule rarely read the same path, and the cache needs its own memory and a rule to drop entries.
-- A closure for each root of a compiled path, as before. A test of the root costs a few comparisons, and one class keeps the call to `resolve` monomorphic.
+- A closure for each root of a compiled path, as before. A test of the root costs a few comparisons, and one class keeps the call to `resolve` monomorphic. The bench gave mixed numbers for the closures, also 18 % slower with a list of reads.
+- Fields that the class defines and the constructor writes again, as the first draft had them. The bench of CI showed a reference 4 to 12 % slower, because V8 loads such a field at each call.
+- One frozen empty place for the root of each plan. `concat` takes a slow path for a frozen list, and `prepare` was approximately 10 % slower.
 - A heap snapshot in the test. It writes the whole heap of the worker, and it costs much memory and time in CI. The measure of `heapUsed` gives the same number to one byte in two runs.
 
 **Why.** The shared code is on a class or in the scope of a language. Thus each plan keeps only its own data. A host with many nodes pays for its documents, not for copies of the kernel.
@@ -842,13 +845,15 @@ The work measured a bundle without `keepNames` on Node 24, over 10000 plans:
 
 | What | Before (bytes) | After (bytes) |
 | --- | ---: | ---: |
-| A plan of one reference of the formula kit | 1496 | 376 |
-| A plan of one reference of the standard machine | 1312 | 819 |
-| A plan of one literal of the formula kit | 717 | 325 |
+| A plan of one reference of the formula kit | 1496 | 407 |
+| A plan of one reference of the standard machine | 1312 | 849 |
+| A plan of one literal of the formula kit | 717 | 358 |
 | The facts of one reference | 646 | 294 |
-| A node of a schedule of 100000 references, after a read | 2958 | 1198 |
+| A node of a schedule of 100000 references, after a read | 2958 | 1230 |
 
-The test of PLAN.LEAN measures 1521 bytes before and 369 bytes after. The peak of the worker of SCHED.LONG-CHAIN goes from 731 MB to 554 MB.
+The test of PLAN.LEAN measures 1521 bytes before and 401 bytes after. The peak of the worker of SCHED.LONG-CHAIN goes from 731 MB to 551 MB.
+
+The bench of CI compares the change with `main`. The cases of a reference change by -4 % to +2.5 %, and the noise of the bench is up to 1.5 %. `prepare` is 3.5 % faster.
 
 Each evaluation does the same work with the same values. Thus each result, error, place and read stays the same, and `agree` compares the plan with the reference.
 
