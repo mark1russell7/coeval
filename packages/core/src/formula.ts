@@ -2,7 +2,7 @@ import { type Json, type Key, docEquals, isKey, isRecord } from "./doc.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
 import { type Context, type Resolution, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
-import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine } from "./evaluate.ts";
+import type { Code, CompileInput, CompiledEvaluator, CompiledPart, Evaluator, Machine, Runtime } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
 import { type ValueType, STD_DOMAINS, callable, fieldOf, fits, fnOf, isPrecise, isUnknown, itemOf, join, typeText } from "./types.ts";
 import type { TypeInput, TypeRule } from "./typing.ts";
@@ -514,6 +514,7 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       }
       // A path through a name whose binding failed gives the error of the binding.
       const head = path[0] === "names" && typeof path[1] === "string" ? path[1] : undefined;
+      const name: readonly Json[] | undefined = head === undefined ? undefined : ["names", head];
       const give = (found: Resolution): Result => {
         if (!found.ok) return fail(found.code, found.reason);
         // An address gives what the path reaches: a host thing stays a thing.
@@ -523,18 +524,21 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
         if (missing !== undefined && missing(reached)) return fail("#N/A", "The path reaches no value.");
         return ok(reached);
       };
-      const held = (ctx: Context): Failed | undefined => {
-        if (head === undefined || !Object.hasOwn(ctx.names, head)) return undefined;
+      const held = (ctx: Context, rt: Runtime): Failed | undefined => {
+        if (head === undefined || name === undefined || !Object.hasOwn(ctx.names, head)) return undefined;
         const bound = ctx.names[head];
-        return bound instanceof Held ? { ok: false, error: bound.error } : undefined;
+        if (!(bound instanceof Held)) return undefined;
+        // The result comes from the binding of the name, thus the runtime resolves the name for the list of reads (READS.RECORD).
+        rt.resolve(ctx, name);
+        return { ok: false, error: bound.error };
       };
-      if (parts.length === 0) return (ctx, rt) => held(ctx) ?? give(rt.resolve(ctx, path));
+      if (parts.length === 0) return (ctx, rt) => held(ctx, rt) ?? give(rt.resolve(ctx, path));
       // The step documents of a path are its parts when the kind ref has a deep shape. They evaluate first, in order,
       // thus the error of a step comes before the error of a binding that the path reads (FORMULA.STEPS).
       return (ctx, rt) => {
         const steps = valuesOf(parts, ctx, rt);
         if (!Array.isArray(steps)) return steps;
-        return held(ctx) ?? give(rt.resolve(ctx, fill(steps) as readonly unknown[]));
+        return held(ctx, rt) ?? give(rt.resolve(ctx, fill(steps) as readonly unknown[]));
       };
     }),
 
@@ -609,6 +613,8 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       const names = params as readonly string[];
       const body = partsOf(value)["body"] as CompiledPart;
       return (ctx, rt) => {
+        // A closure keeps the context for each later use, thus the list of reads gets each root (READS.KEPT).
+        rt.keepsContext?.();
         const closure = (...args: readonly unknown[]): unknown => {
           const scope: Record<string, unknown> = { ...ctx.names };
           names.forEach((name, index) => setOwn(scope, name, args[index]));
