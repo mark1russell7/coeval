@@ -19,10 +19,11 @@ The plan does the next work in this order (2026-10-24). It takes up the studies 
 5. K32: one merge function for worlds and machines, with conflict rules (R6 P2) (done, 2026-10-24, version 0.6.0, D17). `mergeWorlds` and `mergeMachines` merge equal entries, and namespaces key by key. Each other clash throws one `MergeError` with each conflict, unless the later part names its path in `replaces`. `formulaMachine` uses the merge, thus the `ops` of a language extend the namespace of the kit.
 6. K34: the composition checklist as spec tests (R6 P1) (done, 2026-10-24, version 0.6.1, D18, [`COMPOSITION.md`](COMPOSITION.md)). Five modes work. The new helpers `restrictWorld` and `restrictMachine` give the restriction. Two targets wait as skipped tests: an evaluator that is a document (K40), and the merge of two machines from `formulaMachine` (K41).
 7. K42: the mark of a pure call on each call at the top of a module, a request of a language (done, 2026-10-24, version 0.6.2, PKG.PURE). Before, esbuild kept the standard evaluators and walkers in each bundle.
-8. K10 and K11 (next): a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
-9. K12: compiled paths (R1 P2).
-10. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
-11. K22 and K23: `sameResult`, a safe equality for an early cutoff (R4 P1), and value types and value domains, the base of the type work (R5 P2).
+8. K22: `sameResult`, a safe equality for an early cutoff (R4 P1) (done, 2026-10-24, released in 0.6.3, D20, RESULT.SAME). Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place. `docEquals`, `sameValue` and `sameResult` share one walk.
+9. K10 and K11 (next): a synchronous mock `perform` for `evaluate` (R2 P1), and effect outcomes with record and replay (R2 P2).
+10. K12: compiled paths (R1 P2).
+11. K33: each verb through the kernel (R6 P3). `prepare` and `check` take a verb, and one ladder serves each verb. A verb `format` is the demonstration. Today only `eval` gets plans and checks.
+12. K23: value types and value domains, the base of the type work (R5 P2).
 
 On the site, C10 is next too (R4). K39 is next too: a small correction that K20 found. Each other proposal of the six studies is a row with the status `later`.
 
@@ -67,7 +68,7 @@ On the site, C10 is next too (R4). K39 is next too: a small correction that K20 
 | K19 | A static check of the "can wait" bit: `check` reports a runner under a parent without a runner (R2 P4) | later | K3 |
 | K20 | `check` knows the names of operations and extensions through a hook, and `fn` declares the shape of `params` (R5 P1) | done (2026-10-24, version 0.4.3: the hook `known` of the machine, and `partsOf`) | K3 |
 | K21 | `docEquals` compares the values that are not plain JSON by identity, thus two different dates or maps are not equal (R4) | done (2026-10-24, version 0.4.3) | K3 |
-| K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | next | K5, K21 |
+| K22 | `sameResult`, a safe equality for an early cutoff: host values compare by `Object.is`, and errors by code, reason and place (R4 P1) | done (2026-10-24, released in 0.6.3: `sameResult`, and one walk for `docEquals`, `sameValue` and `sameResult`, D20) | K5, K21 |
 | K23 | Value types and value domains: a new `types.ts` with open base types, the relation `fits`, and a membership test for each domain (R5 P2) | next | K2, K3 |
 | K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | later | K23 |
 | K25 | Types of the roots, of the names and of the paths, from the host, from a JSON Schema or from sample values (R5 P4) | later | K24 |

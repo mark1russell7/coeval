@@ -37,6 +37,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | Trees | `STD_WORLD` (`panel`, `box`), `nearestWalker` | The decorated tree: each field of a node is an attribute that evaluates on demand, one time in an evaluation. A sibling is a path through the parent, and a cycle gives `#CYCLE!` with its chain |
 | The formula kit | `formulaMachine`, `FormulaProfile`, `formulaKnown` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. A language extends the kit through the merge. An address gives a thing, not its value |
 | One meaning | `agree`, `reference`, `formulaDefinitions`, `STD_DEFINITIONS`, `generate` | A reference interpreter that compiles nothing, and `agree`, which compares a plan with it and with the second tier of a language. `generate` builds random documents from the kind contracts |
+| Early cutoff | `sameResult` | A safe equality of two results for a schedule. Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place |
 
 Each rule has an ID in [`docs/SPEC.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://mark1russell7.github.io/coeval/) explains each idea with a live diagram.
 

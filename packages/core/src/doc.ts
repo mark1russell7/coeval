@@ -230,20 +230,41 @@ export function fromJson(value: unknown): Envelope | undefined {
  * with this function does not keep a stale host value.
  *
  * The function does not use the stack for the depth, thus a deep document cannot overflow it. A cycle of lists or
- * records does not make it loop. `sameValue` of `agree` uses the same rules, and it adds rules for closures and for
- * a rule of the caller.
+ * records does not make it loop. `sameValue` of `agree` and `sameResult` use the same walk, and each adds its rules
+ * for other values (D20).
  *
  * @param a - The first value.
  * @param b - The second value.
  * @returns `true` when the values are equal.
  */
 export function docEquals(a: unknown, b: unknown): boolean {
+  return equalWith(a, b, undefined);
+}
+
+/** A rule for two values that are not the same by `Object.is`: `true`, `false`, or `undefined` for the next rule. */
+export type SameRule = (a: unknown, b: unknown) => boolean | undefined;
+
+/**
+ * This function is the one walk of `docEquals`, `sameValue` and `sameResult` (D20). It compares two values by the
+ * rules of `docEquals`. A rule of the caller answers first for each pair that is not the same by `Object.is`.
+ *
+ * @param a - The first value.
+ * @param b - The second value.
+ * @param rule - The rule of the caller. Its `undefined` gives the rules of `docEquals`.
+ * @returns `true` when the values are equal.
+ */
+export function equalWith(a: unknown, b: unknown, rule: SameRule | undefined): boolean {
   const stack: [unknown, unknown][] = [[a, b]];
   // The pairs of containers that the comparison already visits. It is made at the first pair of containers.
   let seen: Map<object, Set<object>> | undefined;
   while (stack.length > 0) {
     const [x, y] = stack.pop() as [unknown, unknown];
     if (Object.is(x, y)) continue;
+    const told = rule?.(x, y);
+    if (told !== undefined) {
+      if (told) continue;
+      return false;
+    }
     const list = Array.isArray(x);
     if (list !== Array.isArray(y)) return false;
     // An object that is not a list and not a plain record is a host value: Object.is above compared it.
