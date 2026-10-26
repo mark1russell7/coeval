@@ -949,3 +949,33 @@ An `if` under an operation failed in a run, also when its branch that waits did 
 **Why.** One clause of X-NEEDS-RUNNER goes, and one drive serves both handlers. The run of a runner that really waits keeps its code, its place and its reason. RUN.SAME loses its condition of the check.
 
 **Limits.** The check assumes C6: only a runner waits, and only for an effect. A compiled runner that calls the code of a part without a wait (K65) fails only when that part really waits.
+
+## D40 (2026-10-25): a domain can have a codec, `ext.domain` holds its members, and `encodeValue` writes each host value as one document
+
+**Context.** K140. A review of duplicate code found two encodings for literals that JSON cannot write. One language wrote a tagged record with the key `$vex`. The formula kit writes `ext.number` and `ext.undefined` (`STD_EXT`). Thus the same `NaN` or `-0` had two documents, and D12 broke.
+
+A member of a domain, for example a time, had no shared document at all.
+
+**Decision.**
+
+- A domain can have a codec (`Domain.codec`): `encode` writes a member as JSON, and `decode` reads it again. Both are pure. `decode(encode(v))` equals `v` by `sameValue`.
+- The standard extension `ext.domain` holds a member: `{ "type": ["ext", "domain"], "value": { "domain": name, "data": json } }`. The value has only these two keys.
+- The evaluation reads the data through the codec of the named domain of the machine (EXT.DOMAIN). A domain without a codec gives `#NAME?`. Data that the codec cannot read gives `#VALUE!`.
+- The result of `decode` must be a member of the domain, or else the evaluation gives `#VALUE!`. Thus the check of types gives `ext.domain` the type of its domain (EXT.TYPE).
+- An extension gets the domains of the machine as a third argument (`ExtFn`). The input of an evaluator and of a runner holds the machine (`EvalInput.machine`). Thus the reference reads the same domains as the plan, and they agree.
+- `encodeValue(machine, value)` writes a host value as a term document (EXT.ENCODE). JSON stays as it is. A literal with the shape of an envelope goes into `lit`. `NaN`, an infinity and `-0` use `ext.number`, and `undefined` uses `ext.undefined`. A member of a domain with a codec uses `ext.domain`. A list or a plain record with such a value becomes the construct `list` or `record`.
+- JSON wins over each codec, thus a value that JSON writes has one document. The domains with a codec go in the order of their names. A value without a document throws a `TypeError`.
+- `decodeValue(machine, doc)` evaluates the document in an empty context, with `lit` as the type of a bare root value. A property test examines the round trip (EXT.ROUNDTRIP).
+- `ext.number` and `ext.undefined` do not change.
+
+**Rejected.**
+
+- A tagged record, for example `{ "$vex": "number" }`. It is a second form for an extension, and a literal record with that key needs an escape.
+- A codec in the formula profile. The domains of the machine already name the base types, and a merge of machines merges them (D22).
+- A codec for each domain of the kernel. JSON writes those members, and `ext.number` covers the numbers that JSON cannot write.
+- A second parameter of `formulaDefinitions` for the domains. A host can forget it, and then the reference disagrees with the plan.
+- The domain of a value by the order of the table. Two merges in another order give the same machine (WORLD.LAWS), thus the order of the names decides.
+
+**Why.** Each language writes the same value as the same document, also a member of a domain (D12). Documents of several languages can then mix. The codec lives next to the test `is` of the domain, thus one table describes a base type.
+
+**Limits.** Two domains with codecs that both hold a value give the document of the first name. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.

@@ -523,6 +523,8 @@ export interface EvalInput {
   readonly context: Context;
   /** The keys from the root document to this document. */
   readonly place: readonly Key[];
+  /** The machine of the evaluation, for example for its domains (D40). The kernel sets it. */
+  readonly machine?: Machine;
   /** `true` when the position of the document declares an address. */
   readonly address?: boolean;
   /**
@@ -580,6 +582,8 @@ export interface RunInput {
   readonly parts: readonly RunPart[];
   readonly context: Context;
   readonly place: readonly Key[];
+  /** The machine of the evaluation, for example for its domains (D40). The kernel sets it. */
+  readonly machine?: Machine;
   resolve(path: readonly unknown[], options?: ResolveOptions): Resolution;
   /**
    * This function causes an effect. In a run, the host does the effect, and the steps wait when the host waits. In
@@ -1534,7 +1538,7 @@ function fillOf(split: Extract<Split, { readonly ok: true }>, doc: Envelope): <P
 
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
-  const { kind, typePath, doc, data, place } = input;
+  const { kind, typePath, doc, data, place, machine } = input;
   const address = input.address === true ? { address: true } : {};
   // The code keeps the fill and not the whole input, thus it does not keep the compiled value of the document (PLAN.LEAN).
   const refill = input.fill;
@@ -1556,6 +1560,7 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
       parts,
       context: ctx,
       place,
+      machine,
       ...address,
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.effect(ctx, effectKind, payload, place),
@@ -1565,7 +1570,7 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
 }
 
 function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): RunCode {
-  const { kind, typePath, doc, data, place } = input;
+  const { kind, typePath, doc, data, place, machine } = input;
   const refill = input.fill;
   const compiled = input.parts;
   const hasParts = compiled.length > 0;
@@ -1585,6 +1590,7 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
       parts,
       context: ctx,
       place,
+      machine,
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.runEffect(ctx, effectKind, payload, place),
       all: (list, options) => rt.all(list.map((part) => () => part.evaluate()), options),

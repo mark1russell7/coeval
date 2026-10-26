@@ -392,6 +392,17 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
 
+## The codec of values
+
+A document holds a value that JSON cannot write as a standard extension (D40). Thus the same value has the same document in each language (D12).
+
+| ID | Requirement |
+|---|---|
+| EXT.DOMAIN | `ext.domain` holds a record with only the text `domain` and the JSON `data`. The codec of that domain of the machine reads the data. A domain without a codec gives `#NAME?`. Data that the codec cannot read gives `#VALUE!`, and so does a value that is not a member of the domain. The plan and the reference agree. |
+| EXT.ENCODE | `encodeValue` writes a host value as a term document. JSON stays as it is, and a literal with the shape of an envelope goes into `lit`. `NaN`, an infinity, `-0` and `undefined` use `ext.number` and `ext.undefined`. A member of a domain with a codec uses `ext.domain`. A cycle and a value without a codec throw. |
+| EXT.ROUNDTRIP | `decodeValue(machine, encodeValue(machine, v))` gives `v` again by `sameValue`. A property test examines generated values. |
+| EXT.TYPE | The check of types gives `ext.domain` the type of its domain when the domain has a codec. |
+
 ## Conformance
 
 `conforms(machine, name)` examines one evaluator or runner against the obligations of `SEMANTICS.md` (D36). It gives one finding for each obligation that the code breaks.

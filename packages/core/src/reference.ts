@@ -307,6 +307,7 @@ function evalInput(env: Env, seen: Seen, at: At): EvalInput {
     parts,
     context: at.ctx,
     place: at.place,
+    machine: env.machine,
     ...(at.address ? { address: true } : {}),
     resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
     effect: (kind, payload) => cause(env, at.ctx, kind, payload, at.place),
@@ -335,6 +336,7 @@ function runInput(env: Env, seen: Seen, at: At): RunInput {
     parts,
     context: at.ctx,
     place: at.place,
+    machine: env.machine,
     resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
     effect: function* (kind, payload) {
       return cause(env, at.ctx, kind, payload, at.place);
@@ -748,12 +750,12 @@ export function formulaDefinitions(profile: FormulaProfile = {}): Definitions {
     }
   };
 
-  const ext: EvalFn = ({ typePath, doc, context }) => {
+  const ext: EvalFn = ({ typePath, doc, context, machine }) => {
     const name = typePath.slice(1).join(".");
     const handler = own(profile.ext, name) ?? own(STD_EXT, name);
     if (handler === undefined) return fail("#NAME?", `The language has no extension ${name}.`);
     try {
-      return handler(doc.value, context);
+      return handler(doc.value, context, machine?.domains);
     } catch (error) {
       return thrown(error, `the extension ${name}`);
     }

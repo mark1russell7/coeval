@@ -518,8 +518,15 @@ F-OP  [FORMULA.OPS, FORMULA.LAZY, FORMULA.COMBINE]
 
 F-EXT  [FORMULA.EXT, FORMULA.EXT-CONTEXT]
     x = the keys of the type after ext
-    the profile, or the standard extensions, give the handler g of x        ⇒  g(d.value, Γ)
+    the profile, or the standard extensions, give the handler g of x        ⇒  g(d.value, Γ, M.domains)
     no handler                                                              ⇒  err(#NAME?)
+
+F-EXT-DOMAIN  [EXT.DOMAIN]
+    x = domain, the profile has no extension x, and d.value = { domain: n, data: j }
+    M.domains has no domain n, or n has no codec                            ⇒  err(#NAME?)
+    decode_n(j) throws, or decode_n(j) = v and v is not a member of n       ⇒  err(#VALUE!)
+    decode_n(j) = v and v is a member of n                                  ⇒  ok(v)
+    another form of d.value                                                 ⇒  err(#VALUE!)
 ```
 
 ### The decorated tree
