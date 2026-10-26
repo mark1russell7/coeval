@@ -122,7 +122,9 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K58 | plan.run gets its own options type, because a plan keeps the verb and the declared type from prepare. From K33. | later | K33 |
 | K60 | A closure records only its own reads. Today a closure counts a read of each whole root, so each change of the context discards its old result. From S1b. | later | S1b |
 | K61 | A check that host values do not change in place. verifyReads compares host values by identity, so a change in place stays hidden. From S1b. | later | S1b |
-| K140 | A codec for values that are not JSON: an ext.domain extension with encode and decode from the domains of a machine, next to ext.number. Then each language writes NaN, -0 and domain values as the same documents (D12). From a review of duplicate code. | later | none |
+| K140 | A codec for values that are not JSON: an ext.domain extension with encode and decode from the domains of a machine, next to ext.number. Then each language writes NaN, -0 and domain values as the same documents (D12). From a review of duplicate code. | done (2026-10-25, D40, released in the next batch) | none |
+| K141 | A kernel check of the laws of a codec: `decode(encode(v))` equals `v` for sample members, and `encode` gives JSON. Today each language tests its own codec. From K140. | later | K140 |
+| K142 | `encodeValue` picks the most specific domain: a domain with a codec under another domain with a codec wins. Today the order of the names decides. From K140. | later | K140 |
 | K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |

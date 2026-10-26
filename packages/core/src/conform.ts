@@ -692,7 +692,7 @@ function finish(shot: Shot, start: () => Result, who: string): Result {
  */
 function instanceOf(env: Env, under: Under, doc: Envelope, split: SplitOk, sample: Sample): Instance {
   const fill = (items: readonly unknown[]): unknown => (split.parts.length === 0 ? doc.value : split.fill(items));
-  const base = { kind: sample.type, typePath: sample.typePath, doc, data: split.data, place: PLACE, fill };
+  const base = { kind: sample.type, typePath: sample.typePath, doc, data: split.data, place: PLACE, machine: env.machine, fill };
   const who = `the ${env.runner ? "runner" : "evaluator"} ${env.name}`;
   if (under.form === "eval" || under.form === "run") {
     if (under.form === "eval") {

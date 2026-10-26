@@ -54,6 +54,33 @@ export interface Domain {
    * a step with the key into a member reaches a member of the type. A key without a type gives `unknown`.
    */
   readonly steps?: Readonly<Record<string, ValueType>>;
+  /**
+   * The codec of the members: it writes a member as JSON and reads it again (D40). A document holds a member as the
+   * standard extension `ext.domain`. A domain without a codec has no such document.
+   */
+  readonly codec?: DomainCodec;
+}
+
+/**
+ * The codec of a domain: it writes a member of the domain as JSON, and it reads the JSON again (D40). Both functions
+ * must be pure. `decode(encode(v))` must equal `v` by `sameValue` (EXT.ROUNDTRIP). The codec must give one JSON
+ * value for each member, thus the same value has the same document in each language (D12).
+ */
+export interface DomainCodec {
+  /**
+   * This function writes a member of the domain as JSON.
+   *
+   * @param value - A member of the domain.
+   * @returns The JSON of the member.
+   */
+  readonly encode: (value: unknown) => Json;
+  /**
+   * This function reads the JSON of a member again. It throws for JSON that does not write a member.
+   *
+   * @param data - The JSON that `encode` gave.
+   * @returns The member.
+   */
+  readonly decode: (data: Json) => unknown;
 }
 
 /** A problem of a value type: the keys from the root of the term to the problem, and the reason. */
@@ -102,7 +129,7 @@ const TOP: Form = { t: "top" };
 const BOTTOM: Form = { t: "bottom" };
 
 /** This function gives the domain of a base type: the domain of the machine, or else the domain of the kernel. */
-function domainOf(name: string, domains: Readonly<Record<string, Domain>> | undefined): Domain | undefined {
+export function domainOf(name: string, domains: Readonly<Record<string, Domain>> | undefined): Domain | undefined {
   // The top and the bottom are not domains. A table entry with their names has no effect.
   if (name === "unknown" || name === "never") return undefined;
   const found = domains !== undefined && Object.hasOwn(domains, name) ? domains[name] : Object.hasOwn(STD_DOMAINS, name) ? STD_DOMAINS[name] : undefined;

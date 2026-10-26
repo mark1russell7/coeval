@@ -47,6 +47,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D36 | `conforms` examines one evaluator or runner against the obligations C1 to C8. It calls the code directly with probe parts and a probe runtime. Two evaluations that differ only in what the code must not read find C4, C5 and C8. C8 is an obligation of the author of a profile. |
 | D37 | Each law of the semantics has a property test on generated documents, and each law states its conditions. A test counts the cases that its conditions skip. Code that reads `doc.value` breaks EVAL.SEALED, and the test finds it. |
 | D38 | A run drives a runner under an evaluator, as an evaluation does. Only a real wait gives `#CALC!`. A branch that does not run does not wait. RUN.SAME holds when no evaluator causes an effect and the host answers at once. |
+| D40 | A domain can have a codec. The extension `ext.domain` holds a member of the domain as JSON, and the codec reads it again. `encodeValue` writes each host value as one document, thus each language writes the same value the same way. |
 
 ## Open
 

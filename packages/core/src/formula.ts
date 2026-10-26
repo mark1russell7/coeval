@@ -4,8 +4,9 @@ import { type CompiledPath, type Context, type Resolution, compilePath, valueOfT
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
-import { type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, stepType, typeText } from "./types.ts";
+import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, stepType, typeText } from "./types.ts";
 import type { TypeInput, TypeRule } from "./typing.ts";
+import { decodeDomain, domainTypeOf } from "./codec.ts";
 
 /** An operation of a formula language: a function of the values of its arguments. */
 export type OpFn = (...args: never[]) => unknown;
@@ -16,15 +17,19 @@ export type OpFn = (...args: never[]) => unknown;
  */
 export type LazyOp = (args: readonly (() => Result)[]) => Result;
 
-/** The code of an extension: it gives the value of the data of an extension document, in the context of the document. */
-export type ExtFn = (data: Json, context: Context) => Result;
+/**
+ * The code of an extension: it gives the value of the data of an extension document, in the context of the document.
+ * It also gets the domains of the machine, for the codecs of `ext.domain` (D40).
+ */
+export type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<string, Domain>>) => Result;
 
 /**
  * The rules of one formula language: its operations, and the rules that differ between languages.
  *
  * - `ops`: the operations of the namespace `ops`, by their name (the keys after `ops`, with dots between them).
  * - `lazy`: the operations that evaluate their arguments themselves.
- * - `ext`: the extensions of the namespace `ext`, by their name. The kit has `ext.undefined` and `ext.number`.
+ * - `ext`: the extensions of the namespace `ext`, by their name. The kit has `ext.undefined`, `ext.number` and
+ *   `ext.domain`.
  * - `truthy`: the truth of a value for `if`, `and` and `or`. `undefined` is an error `#VALUE!`. The default
  *   accepts only `true` and `false`.
  * - `otherwise`: the value of an `if` without `else`. The default is `null`. A profile with this key gives its value,
@@ -97,7 +102,10 @@ export function isClosure(value: unknown): value is Closure {
   return typeof value === "function" && (value as Partial<Closure>)[CLOSURE] !== undefined;
 }
 
-/** The standard extensions: the values that JSON cannot write. */
+/**
+ * The standard extensions: the values that JSON cannot write. `ext.domain` reads a member of a domain through the
+ * codec of the domain (EXT.DOMAIN, D40).
+ */
 export const STD_EXT: Readonly<Record<string, ExtFn>> = {
   undefined: () => ok(undefined),
   number: (data) => {
@@ -107,6 +115,7 @@ export const STD_EXT: Readonly<Record<string, ExtFn>> = {
     if (data === "-0") return ok(-0);
     return fail("#VALUE!", "The value of ext.number is NaN, Infinity, -Infinity or -0.");
   },
+  domain: (data, _context, domains) => decodeDomain(data, domains),
 };
 
 /** The truth of a value in the rules of JavaScript: `0`, `""`, `null`, `undefined` and `NaN` are false. */
@@ -477,7 +486,9 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
       synth: (input) => {
         const name = nameOf(input);
         const own = profile.ext !== undefined && Object.hasOwn(profile.ext, name);
-        return name === "number" && !own ? "number" : "unknown";
+        if (own) return "unknown";
+        if (name === "number") return "number";
+        return name === "domain" ? domainTypeOf(input.doc.value, input.machine.domains) : "unknown";
       },
     },
   };
@@ -811,7 +822,7 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       };
     }),
 
-    "formula.ext": compiled(({ typePath, doc }) => {
+    "formula.ext": compiled(({ typePath, doc, machine }) => {
       const name = typePath.slice(1).join(".");
       const own = profile.ext !== undefined && Object.hasOwn(profile.ext, name) ? profile.ext[name] : undefined;
       const handler = own ?? (Object.hasOwn(STD_EXT, name) ? STD_EXT[name] : undefined);
@@ -821,7 +832,7 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       }
       return (ctx) => {
         try {
-          return handler(doc.value, ctx);
+          return handler(doc.value, ctx, machine.domains);
         } catch (error) {
           return thrown(error, `the extension ${name}`);
         }
