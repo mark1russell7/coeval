@@ -61,7 +61,9 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | C12 | A live diagram of record and replay: a run records its effects, and a replay steps through the journal. A changed answer shows `#REPLAY!` at its address. From K11. | later | C1 |
 | C13 | The site shows the work of the research: a page and a live diagram for the merge of languages (D17, D18), a live diagram of the decorated tree (D16), a page for the studies, and the guide as a route on the home page | done (2026-10-24) | C7 |
 | C14 | The explorer and the playground show the type of each place from `typeCheck`, and each `#TYPE!` issue at its place (R5 P3). From K24. | later | C8, K24 |
-| C15 | The syntax kit: one parser and printer driven by a profile (an operator table, literal rules, reference syntax and call syntax), with documents as output and error spans. It starts from the formula parser of a renderer package. The verb format (K33) is the printer. Each language that has a text syntax becomes a profile, and the site and the playground editor (C11) use it. From K33 and a review of duplicate code. | later | K33 |
+| C15 | The syntax kit: one parser and printer driven by a profile (an operator table, literal rules, reference syntax and call syntax), with documents as output and error spans. It starts from the formula parser of a renderer package. The verb format (K33) is the printer. Each language that has a text syntax becomes a profile, and the site and the playground editor (C11) use it. From K33 and a review of duplicate code. | done (2026-10-25, D41, released in the next batch) | K33 |
+| C16 | A page of the site for the syntax kit, with a live diagram: a text box that parses with a profile, the document tree with each issue at its span, and the printed text. From C15. | later | C15 |
+| C17 | The playground (C8) and the structured editor (C11) show and accept the text of `STD_SYNTAX` next to the tree of a document. From C15. | later | C11, C15 |
 
 ## The kernel
 
@@ -125,6 +127,10 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K140 | A codec for values that are not JSON: an ext.domain extension with encode and decode from the domains of a machine, next to ext.number. Then each language writes NaN, -0 and domain values as the same documents (D12). From a review of duplicate code. | done (2026-10-25, D40, released in the next batch) | none |
 | K141 | A kernel check of the laws of a codec: `decode(encode(v))` equals `v` for sample members, and `encode` gives JSON. Today each language tests its own codec. From K140. | later | K140 |
 | K142 | `encodeValue` picks the most specific domain: a domain with a codec under another domain with a codec wins. Today the order of the names decides. From K140. | later | K140 |
+| K143 | Literal rules for `ext.domain` in a syntax profile, for example a date literal of a spreadsheet. The rule reads the text through the codec of a domain. From C15. | later | C15, K140 |
+| K144 | `parse` recovers after an issue and gives each issue of a text, for an editor. Today it stops at the first issue. From C15. | later | C15 |
+| K145 | Text forms for the constructs `let`, `fn`, `call` and `record` in `STD_SYNTAX`. Today the standard profile writes only operators, calls, `if` and `list`. From C15. | later | C15 |
+| K146 | A check of a syntax profile that finds a call name that a form hides, and a pattern that a name matches. Today `print` refuses such a document at its place. From C15. | later | C15 |
 | K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |
@@ -228,6 +234,8 @@ Since 2026-10-24, the work of each language on its integration happens in the re
 | M14 | The program format of procedures runs on `run`, and its checker uses the static kit | in progress, in the repository of the language (a pull request is open) | M12 |
 | M15 | The formula language of positions reads documents with the static kit, and the kernel is its reference interpreter | in progress, in the repository of the language (the kernel side is done in 0.4.0) | M12 |
 | M16 | The defs of a user interface: bindings through the formula kit, one world for paths and runs, and checks from the static kit | in progress, in the repository of the host | M12 |
+| M17 | The formula language of render reads and writes its text through a profile of the syntax kit (D41), not its own parser | later, in the repository of the language | C15 |
+| M18 | The spreadsheet formula syntax of Vex and the algebra syntax of another language become profiles of the syntax kit (D41) | later, in the repositories of the languages | C15 |
 
 ## The research
 
