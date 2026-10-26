@@ -212,6 +212,23 @@ export {
   jsTruthy,
 } from "./formula.ts";
 export { decodeDomain, decodeValue, encodeValue } from "./codec.ts";
+export {
+  type ParseResult,
+  type SyntaxAssoc,
+  type SyntaxCalls,
+  type SyntaxFixity,
+  type SyntaxForm,
+  type SyntaxIssue,
+  type SyntaxLiterals,
+  type SyntaxOperator,
+  type SyntaxProfile,
+  type SyntaxRefPattern,
+  type SyntaxRefs,
+  STD_SYNTAX,
+  parse,
+  print,
+  syntaxFormat,
+} from "./syntax.ts";
 export { type Definitions, type ReferenceOptions, STD_DEFINITIONS, formulaDefinitions, reference } from "./reference.ts";
 export { type AgreeOptions, type Agreement, type Tier, type TierInput, type TierResult, agree, sameValue } from "./agree.ts";
 export { type ConformOptions, type ConformProbe, type Finding, type Obligation, conforms } from "./conform.ts";

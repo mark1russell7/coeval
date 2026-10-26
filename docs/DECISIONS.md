@@ -979,3 +979,32 @@ A member of a domain, for example a time, had no shared document at all.
 **Why.** Each language writes the same value as the same document, also a member of a domain (D12). Documents of several languages can then mix. The codec lives next to the test `is` of the domain, thus one table describes a base type.
 
 **Limits.** Two domains with codecs that both hold a value give the document of the first name. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.
+
+## D41 (2026-10-25): one syntax kit reads and writes the text of each language with a profile, and its printer is the default of the verb `format`
+
+**Context.** C15. A review of duplicate code found four parsers of expressions. Each had its own tokenizer, its own table of precedence and its own type for an error. The languages were a formula language of a renderer, the formulas of a spreadsheet and a small algebra of named knobs. D13 keeps the text syntax in the language, but the machinery of a parser is the same in each.
+
+**Decision.**
+
+- The module `syntax.ts` holds one parser and one printer. A `SyntaxProfile` drives both: an operator table, literal rules, reference syntax and call syntax.
+- An operator has a symbol, a precedence, a place (`prefix`, `infix` or `postfix`), a grouping (`left`, `right`, `none` or `flat`) and the kind of its document. A larger precedence binds more tightly.
+- `parse(profile, text)` gives a document of the formula kit (D12), or issues. An issue has an offset, a length and a message (SYNTAX.SPAN). `parse` does not throw for a bad text.
+- A literal that JSON cannot write uses `ext.number` and `ext.undefined` through `encodeValue` (D40). A minus sign right before a digit, where a term starts, belongs to the number.
+- A bare name is a path from one root, `names` by default. A root of the profile starts a path, for example `self.price`. A pattern gives other references, for example `A1`.
+- A call `name(args)` applies `ops.name`. A call form makes a construct, for example `if(test, then, else)`. A profile can limit the names of the calls.
+- `print(profile, doc)` writes the fewest parentheses that keep the tree. A document without a text form gives `#VALUE!` at its place. `parse(print(doc))` gives `doc` again (SYNTAX.ROUNDTRIP). A property test examines generated documents of three profiles.
+- `syntaxFormat(profile)` is a part of a merge. It adds the verb `format` as the default of the world, with the printer as its code (D23). Each part gives its text through the ladder, thus an own entry or a kind entry of `format` still wins.
+- `STD_SYNTAX` is the standard profile of the formula kit, for the site and the playground. The tests hold a profile like a spreadsheet and a profile like the algebra (SYNTAX.PROFILE).
+- The syntax profile is a separate value, next to the `FormulaProfile` and not inside it.
+
+**Rejected.**
+
+- A key `syntax` in `FormulaProfile`. The formula profile holds the code of the evaluation, and the syntax profile is data for a reader. One language can have two syntaxes, for example with another separator, and one evaluation. A site can read a syntax without the code of the operations.
+- An operator that names a function. The parser makes documents, and the evaluation stays in the formula kit (D13).
+- A printer that keeps the parentheses of the source. The printer gives one canonical text for each document, thus two texts of the same tree give the same output.
+- The verb `format` in the kernel. The kernel stays without a verb of its own, and a language adds it with a merge, as VERB.FORMAT shows.
+- One symbol as an infix and a postfix operator, and two groupings at one precedence. The parser then has two readings, thus the profile throws a `TypeError`.
+
+**Why.** One parser gives one set of tests for the tokenizer, the precedence and the spans. A language writes only its table. The printer and the parser read the same table, thus the round trip holds for each profile.
+
+**Limits.** `parse` stops at the first issue (K144). `STD_SYNTAX` has no text form for `let`, `fn`, `call` and `record` (K145). A literal of a domain has no rule yet (K143).

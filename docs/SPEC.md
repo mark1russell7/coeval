@@ -403,6 +403,18 @@ A document holds a value that JSON cannot write as a standard extension (D40). T
 | EXT.ROUNDTRIP | `decodeValue(machine, encodeValue(machine, v))` gives `v` again by `sameValue`. A property test examines generated values. |
 | EXT.TYPE | The check of types gives `ext.domain` the type of its domain when the domain has a codec. |
 
+## The syntax kit
+
+A syntax profile gives the text of a language: its operators, literals, references and calls (D41). One parser and one printer read the profile.
+
+| ID | Requirement |
+|---|---|
+| SYNTAX.PARSE | `parse(profile, text)` gives a document of the formula kit. The precedence and the grouping of each operator decide the tree. A literal that JSON cannot write uses `ext.number` or `ext.undefined`. |
+| SYNTAX.SPAN | A bad text gives an issue with a 0-based offset, a length and a message. `parse` does not throw for a bad text. |
+| SYNTAX.PRINT | `print(profile, doc)` writes the fewest parentheses that keep the tree. A document without a text form gives `#VALUE!` at its place. `syntaxFormat` adds the printer as the default of the verb `format`, and an own entry of a part still wins. |
+| SYNTAX.ROUNDTRIP | `parse(profile, print(profile, doc))` gives `doc` again for each document that the profile writes. A property test examines generated documents of three profiles. |
+| SYNTAX.PROFILE | A profile describes the syntax of another language, for example a spreadsheet with `A1`, `&`, `^` and `<>`, or an algebra with named knobs and only `min`, `max` and `floor`. A profile with two readings of one symbol throws a `TypeError`. |
+
 ## Conformance
 
 `conforms(machine, name)` examines one evaluator or runner against the obligations of `SEMANTICS.md` (D36). It gives one finding for each obligation that the code breaks.

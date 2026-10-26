@@ -40,6 +40,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | Trees | `STD_WORLD` (`panel`, `box`), `nearestWalker` | The decorated tree: each field of a node is an attribute that evaluates on demand, one time in an evaluation. A sibling is a path through the parent, and a cycle gives `#CYCLE!` with its chain |
 | The formula kit | `formulaMachine`, `FormulaProfile`, `formulaKnown`, `formulaFacts` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. A language extends the kit through the merge. An address gives a thing, not its value |
 | The codec of values | `encodeValue`, `decodeValue`, `decodeDomain`, `DomainCodec`, `STD_EXT` | A host value as one term document. JSON stays as it is. `ext.number`, `ext.undefined` and `ext.domain` hold the other values. A domain gives its codec (D40) |
+| The syntax kit | `parse`, `print`, `syntaxFormat`, `SyntaxProfile`, `SyntaxOperator`, `SyntaxIssue`, `STD_SYNTAX` | One parser and one printer for the text of a language. A profile gives the operators, the literals, the references and the calls. `parse` gives documents or issues with spans, and `print` gives text that `parse` reads back (D41) |
 | One meaning | `agree`, `reference`, `formulaDefinitions`, `STD_DEFINITIONS`, `generate`, `TierInput` | A reference interpreter that compiles nothing, and `agree`, which compares a plan with it and with the second tier of a language. Each tier gets the mock `perform` and the `verb` of `agree`. `generate` builds random documents from the kind contracts |
 | Conformance | `conforms`, `ConformOptions`, `Finding`, `Obligation`, `ConformProbe` | The obligations of host code, examined for one evaluator or runner with probe parts and a probe runtime. Each finding names the obligation, the reason and a probe that shows it (D36) |
 | Early cutoff | `sameResult` | A safe equality of two results for a schedule. Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place |
@@ -52,6 +53,35 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | The types of the roots | `RootTypes`, `CAPS_TYPE`, `typeFromSchema`, `typeFromSamples`, `TypeReading`, `SampleOptions` | The host gives the types of its names and of the roots in the option `rootTypes`. A reference then gets the type that its path reaches, and a missing field of a closed record gives `#TYPE!`. A host makes such a type from a JSON Schema or from sample values |
 
 Each rule has an ID in [`docs/SPEC.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://mark1russell7.github.io/coeval/) explains each idea with a live diagram.
+
+## Give your language a text syntax
+
+A language with a text form writes a `SyntaxProfile`, not a parser. The profile is data: an operator table, literal rules, reference syntax and call syntax.
+
+```ts
+import { type SyntaxProfile, formulaMachine, mergeMachines, parse, print, syntaxFormat } from "@mark1russell7/coeval";
+
+const algebra: SyntaxProfile = {
+  operators: [
+    { symbol: "+", fixity: "infix", prec: 1, kind: "ops.add" },
+    { symbol: "*", fixity: "infix", prec: 2, kind: "ops.mul" },
+    { symbol: "-", fixity: "prefix", prec: 3, kind: "ops.neg" },
+  ],
+  literals: { strings: false, words: {} },
+  refs: { bare: "world", roots: [], fields: false },
+  calls: { ops: ["min", "max", "floor"] },
+};
+
+const parsed = parse(algebra, "min(gap, 2) * 3"); // { ok: true, doc: { type: ["ops", "mul"], value: [...] } }
+if (parsed.ok) print(algebra, parsed.doc); // { ok: true, value: "min(gap, 2) * 3" }
+const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); // the verb format
+```
+
+- A larger `prec` binds more tightly. `assoc` is `left` (the default), `right`, `none` or `flat`. A `flat` chain gives one document with each term.
+- `kind` is the type of the document, with dots between the keys. A call `name(args)` applies `ops.name`, and a call form in `calls.forms` makes a construct.
+- A bare name is a path from `refs.bare`. A name in `refs.roots` starts a path. `refs.patterns` add other references, for example `A1`, with `read` and `write`.
+- An issue of `parse` has `offset`, `length` and `message`. Show it at its span in an editor.
+- Test your profile with a round trip: `parse(print(doc))` gives `doc` again. `STD_SYNTAX` is the standard profile of the formula kit.
 
 ## Check the code of a language
 
