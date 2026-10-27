@@ -167,10 +167,10 @@ importers:
   .:
     devDependencies:
       '@mark1russell7/cue':
-        specifier: github:mark1russell7/cue
+        specifier: github:mark1russell7/cue#d4fc4d708b2cfeae91e194b18466455ccad875b7
         version: https://codeload.github.com/mark1russell7/cue/tar.gz/d4fc4d708b2cfeae91e194b18466455ccad875b7
       '@mark1russell7/ste-lint':
-        specifier: github:mark1russell7/ste-lint
+        specifier: github:mark1russell7/ste-lint#f597d6c1e09bcfcb487bb575825d6d5f29e9e0c7
         version: https://codeload.github.com/mark1russell7/ste-lint/tar.gz/f597d6c1e09bcfcb487bb575825d6d5f29e9e0c7
       '@mark1russell7/template-cli':
         specifier: ^0.1.0
@@ -191,7 +191,7 @@ importers:
   packages/core:
     devDependencies:
       '@mark1russell7/cue':
-        specifier: github:mark1russell7/cue
+        specifier: github:mark1russell7/cue#d4fc4d708b2cfeae91e194b18466455ccad875b7
         version: https://codeload.github.com/mark1russell7/cue/tar.gz/d4fc4d708b2cfeae91e194b18466455ccad875b7
       '@types/node':
         specifier: ^26.6.4
@@ -234,7 +234,7 @@ importers:
         version: 19.3.1(react@19.3.1)
     devDependencies:
       '@mark1russell7/cue':
-        specifier: github:mark1russell7/cue
+        specifier: github:mark1russell7/cue#d4fc4d708b2cfeae91e194b18466455ccad875b7
         version: https://codeload.github.com/mark1russell7/cue/tar.gz/d4fc4d708b2cfeae91e194b18466455ccad875b7
       '@types/node':
         specifier: ^26.6.4

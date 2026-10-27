@@ -1,5 +1,5 @@
 /*
- * Design tokens of the family of sites (copied from lag). The light theme is the default. The dark theme
+ * Design tokens of the family of sites (shared by the sites of the family). The light theme is the default. The dark theme
  * applies when the reader selects it, or when the system prefers dark and the reader did not select light.
  *
  * Concept: ink on graph paper. Hairlines, no shadows, no gradients. Blue ink for links, focus and the

@@ -1737,8 +1737,8 @@ function record(s: Session, result: Result): Run {
  * tells where its parts are. The evaluator gets each part sealed: it can evaluate the part, and it cannot read its
  * value.
  *
- * A failure gives an error value, and the function does not throw. An effect is recorded in its order, and the host
- * does not do it. A mock can answer each effect at once (RUN.MOCK).
+ * A failure gives an error value, and the function does not throw. The function records each effect in its order,
+ * and the host does not do it. A mock can answer each effect at once (RUN.MOCK).
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.

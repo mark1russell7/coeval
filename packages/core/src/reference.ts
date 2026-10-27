@@ -17,7 +17,6 @@ import {
   type RunInput,
   type RunPart,
   type Steps,
-  intersectCaps,
   makeContext,
   permits,
   placeText,
@@ -150,13 +149,23 @@ function examine(env: Env, at: At): Seen | Failed {
   return { doc, kindText, typePath: read.typePath ?? [], kind, name, chosen, split };
 }
 
+/**
+ * This function gives the effects that two lists of capabilities both permit (CAP.ONLY). The reference reads the rule
+ * from SPEC directly, and not from the intersection of the plan. Thus `agree` finds a bug in either one (D15).
+ */
+function bothPermit(a: readonly Cap[], b: readonly Cap[]): readonly Cap[] {
+  const out: Cap[] = [];
+  for (const cap of [...a, ...b]) if (permits(a, cap) && permits(b, cap) && !permits(out, cap)) out.push(cap);
+  return out;
+}
+
 /** This function gives the capabilities that the rules of a kind give one part (D14, CAP.CONTRACT, CAP.ONLY). */
 function capsOfPart(rules: readonly CapsRule[] | undefined, path: readonly Key[], caps: readonly Cap[]): readonly Cap[] {
   let out = caps;
   for (const rule of rules ?? []) {
     if (rule.in !== undefined && !rule.in.some((pattern) => pathMatches(path, pattern))) continue;
     if (rule.rule === "mask") return [];
-    if (rule.rule === "only") out = intersectCaps(out, rule.caps);
+    if (rule.rule === "only") out = bothPermit(out, rule.caps);
   }
   return out;
 }

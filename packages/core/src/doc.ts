@@ -20,8 +20,8 @@ export type Key = string | number;
 export type TypeRef = string | readonly Key[] | { readonly type: "ref"; readonly value: readonly Json[] };
 
 /**
- * A typed document: an envelope with a header and a value. The header names the type of the value. The value is
- * not changed by the envelope at any time. Thus any JSON value can have a type: a number, a list, a text or a record.
+ * A typed document: an envelope with a header and a value. The header names the type of the value. The envelope
+ * does not change the value at any time. Thus any JSON value can have a type: a number, a list, a text or a record.
  */
 export type Envelope = {
   /** The type: a reference to a kind of the world. */
