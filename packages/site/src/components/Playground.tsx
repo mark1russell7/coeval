@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RefArrows from "../glyphs/RefArrows.tsx";
 import { links } from "../lib/scope.ts";
+import { moveLinks } from "../lib/moves.ts";
 import { STD_CAPS, evaluate, flatten, fromJson, kindNamed, makeContext, typeName, typed, type Json, type TraceNode } from "@mark1russell7/coeval";
 import Explorer, { SITE_MACHINE, pathText } from "../glyphs/Explorer.tsx";
 import { Port } from "../glyphs/Card.tsx";
@@ -82,6 +83,7 @@ export default function Playground() {
   };
 
   const refLinks = useMemo(() => links(doc), [doc]);
+  const moves = useMemo(() => moveLinks(doc, names, SITE_MACHINE), [doc, names]);
   const node = getAt(doc, selected);
   const envelope = node === undefined ? undefined : fromJson(node);
   const declared = declaredAt(SITE_WORLD, doc, selected);
@@ -116,7 +118,7 @@ export default function Playground() {
               <View doc={doc} />
             </OverlayContext.Provider>
           </WorldContext.Provider>
-          <RefArrows container={picture} links={refLinks} version={`${JSON.stringify(doc).length}:${pathKey(selected)}`} />
+          <RefArrows container={picture} links={refLinks} moves={moves} version={`${JSON.stringify(doc).length}:${pathKey(selected)}`} />
         </div>
 
         <aside className="cv-panel" aria-label="Edit the selected card">

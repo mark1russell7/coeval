@@ -13,6 +13,22 @@ interface Entry {
   readonly glyph: () => ReactNode;
 }
 
+/** The glyph of an arrow of a picture: a dashed arrow back to a binding, or a solid arrow for a move with its step. */
+function ArrowGlyph({ move }: { readonly move: boolean }) {
+  const color = move ? "var(--ce-move)" : "var(--ce-names)";
+  return (
+    <svg className="cv-key-arrow" width="64" height="22" viewBox="0 0 64 22" aria-hidden="true">
+      <path d="M4 15 L56 15" className={move ? "cv-arrow-move" : "cv-arrow-ref"} />
+      <path d="M54 11 L62 15 L54 19 Z" style={{ fill: color }} />
+      {move && (
+        <text x="30" y="10" className="cv-arrow-step">
+          parent
+        </text>
+      )}
+    </svg>
+  );
+}
+
 const ENTRIES: readonly Entry[] = [
   { id: "value", page: 1, title: "Data: a value without a type", glyph: () => <ValueGlyph value={42} size="large" /> },
   { id: "card", page: 1, title: "A document: the tab is its type", glyph: () => <View doc={typed("number", 42)} /> },
@@ -40,6 +56,7 @@ const ENTRIES: readonly Entry[] = [
   },
   { id: "name", page: 5, title: "A name tag: a binding for later steps", glyph: () => <View doc={typed("number", 3, { name: "a" })} /> },
   { id: "ref", page: 5, title: "A reference: a path from a root of the context", glyph: () => <View doc={typed("ref", ["names", "a"])} /> },
+  { id: "ref-arrow", page: 5, title: "A dashed blue arrow: from a reference back to the step with its name", glyph: () => <ArrowGlyph move={false} /> },
   {
     id: "skipped",
     page: 6,
@@ -88,6 +105,7 @@ const ENTRIES: readonly Entry[] = [
     title: "A computed step: a document with its own kind",
     glyph: () => <View doc={typed("ref", ["self", typed("nearest", { type: "panel" }), "width"])} />,
   },
+  { id: "move-arrow", page: 9, title: "A solid slate arrow: one move of a path, with the text of its step", glyph: () => <ArrowGlyph move /> },
 ];
 
 /** The props of the glyph key. */

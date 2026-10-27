@@ -23,6 +23,7 @@ import { View, SITE_WORLD, WorldContext } from "./View.tsx";
 import { OverlayContext, pathKey, type Overlay } from "./overlay.ts";
 import { useReducedMotion, prettyJson } from "../lib/motion.ts";
 import { links } from "../lib/scope.ts";
+import { moveLinks } from "../lib/moves.ts";
 import RefArrows from "./RefArrows.tsx";
 
 /**
@@ -116,6 +117,7 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
   const timer = useRef<number | undefined>(undefined);
   const picture = useRef<HTMLDivElement>(null);
   const refLinks = useMemo(() => links(doc), [doc]);
+  const moves = useMemo(() => moveLinks(doc, names, SITE_MACHINE), [doc, names]);
 
   useEffect(() => {
     setTick(initial === "end" ? run.time : 0);
@@ -200,7 +202,7 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
             <input type="checkbox" checked={showJson} onChange={(event) => setShowJson(event.target.checked)} />
             Show the JSON
           </label>
-          {refLinks.length > 0 && (
+          {(refLinks.length > 0 || moves.length > 0) && (
             <label className="ce-check">
               <input type="checkbox" checked={showRefs} onChange={(event) => setShowRefs(event.target.checked)} />
               Show the references
@@ -223,7 +225,7 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
               <View doc={doc} />
             </OverlayContext.Provider>
           </WorldContext.Provider>
-          {showRefs && <RefArrows container={picture} links={refLinks} version={`${tick}:${String(showRungs)}:${selected ?? ""}`} />}
+          {showRefs && <RefArrows container={picture} links={refLinks} moves={moves} version={`${tick}:${String(showRungs)}:${selected ?? ""}`} />}
           {showJson && <pre className="ce-doc cv-json">{prettyJson(doc)}</pre>}
         </div>
 
