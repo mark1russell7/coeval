@@ -83,7 +83,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K10 | A synchronous mock `perform` for `evaluate`. Its answer becomes the result of the effect, and a promise from it gives `#CALC!` (R2 P1). | done (2026-10-24, released in 0.6.3, D19: the option `perform` of `evaluate`, `plan.evaluate`, `reference` and `agree`) | L1 |
 | K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | done (2026-10-24, released in 0.6.3, D19: `Effect.address`, `Effect.outcome`, `#REPLAY!` and the journal of the waits of `all`) | L1 |
 | K12 | Compiled paths: `compilePath` resolves one static path, and `derefStep` keeps a memo of `lookupKind` (R1 P2) | done (2026-10-24, D29, released in the next batch) | K4, K9 |
-| K13 | Folds of closed pure subtrees: a static subtree evaluates one time at compile time, from a `pure` mark in the kind contract (R1 P3) | later (R1 first asks if a plan can share its results) | K9 |
+| K13 | Folds of closed pure subtrees: a static subtree evaluates one time at compile time, from a `pure` mark in the kind contract (R1 P3) | done (2026-10-26, D43) | K9 |
 | K14 | Binding times that the host declares: a path from a root that does not change resolves at compile time (R1 P4) | later | K9, S1 |
 | K15 | A tier of generated JavaScript for hot pure regions (R1 P5) | later (only behind a CI benchmark) | K9, K13 |
 | K16 | Nodes that specialize themselves: a compiled node keeps a small state, and this state gives profile data to K15 (R1 P6) | later | K9 |
@@ -133,6 +133,8 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K144 | `parse` recovers after an issue and gives each issue of a text, for an editor. Today it stops at the first issue. From C15. | later | C15 |
 | K145 | Text forms for the constructs `let`, `fn`, `call` and `record` in `STD_SYNTAX`. Today the standard profile writes only operators, calls, `if` and `list`. From C15. | later | C15 |
 | K146 | A check of a syntax profile that finds a call name that a form hides, and a pattern that a name matches. Today `print` refuses such a document at its place. From C15. | later | C15 |
+| K147 | The place of a node from a hop: a hop of a resolution gives a thing but no place in the document. An export, for example placeOf(thing), lets a view put each hop on its card. Found by C9. | later | |
+| K148 | One hop for each parent step of nearest: the walker gives one hop for the whole walk today. An option records each node on the way. Found by C9. | later | |
 | K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |

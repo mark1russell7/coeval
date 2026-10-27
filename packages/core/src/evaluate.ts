@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, isKey, typeName } from "./doc.ts";
-import { type Split, partsOf, pathMatches } from "./parts.ts";
+import { type PartSlot, type Split, partsOf, pathMatches, scopesOf } from "./parts.ts";
 import { answerOf, ask, type Answer } from "./ladder.ts";
-import type { CapsRule, KindFacts, Side } from "./world.ts";
+import type { CapsRule, Kind, KindFacts, Side } from "./world.ts";
 import type { Domain } from "./types.ts";
 import type { TypeRule } from "./typing.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
@@ -18,6 +18,7 @@ import {
   ROOTS,
   context as makeRootContext,
   isHostThing,
+  isRef,
   resolve,
   worldThing,
 } from "./deref.ts";
@@ -886,6 +887,11 @@ class Session implements Runtime {
     return (this.list ??= []);
   }
 
+  /** `true` when the evaluation records its reads. Then folded code evaluates again, thus each read goes in the list (PLAN.FOLD). */
+  get recording(): boolean {
+    return this.reading !== undefined;
+  }
+
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
     return this.read(ctx, path, undefined, options);
   }
@@ -1265,6 +1271,11 @@ export interface PrepareOptions {
    * The default is `eval` (VERB.PREPARE).
    */
   readonly verb?: string;
+  /**
+   * `false`: no part of the plan folds. The default is `true`. Then a closed pure part of a plan without a trace
+   * evaluates one time, when the plan compiles. Its result is one frozen value for each evaluation (PLAN.FOLD).
+   */
+  readonly fold?: boolean;
 }
 
 /** A compiled document. It evaluates many times, and it does the work of the ladder one time. */
@@ -1301,6 +1312,10 @@ interface Compiler {
   readonly verb: string;
   /** The answer of a document that the ladder did not see, in a trace. */
   readonly noAnswer: Answer;
+  /** `true` when closed pure parts fold (PLAN.FOLD). A plan with a trace does not fold. */
+  readonly fold: boolean;
+  /** The runtime of the folds of this compilation. The first fold makes it. */
+  probe?: Probe;
 }
 
 function failing(c: Compiler, meta: Meta, place: readonly Key[], code: ErrorCode, reason: string): Compiled {
@@ -1385,6 +1400,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   let meta = meta0;
   let name: string | undefined;
   let unknown: boolean;
+  let quick: ReturnType<typeof answerOf>;
   if (c.traced) {
     const answer = ask(world, envelope ?? {}, c.verb, declared === undefined ? {} : { declaredType: declared });
     meta = { ...meta0, answer, side: kind?.side ?? "derive" };
@@ -1392,7 +1408,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     unknown = answer.error === "unknown-kind";
   } else {
     // A document has a type here, thus a kind that the read did not find is a kind that the world does not have.
-    const quick = answerOf(world, envelope?.own, kind ?? null, c.verb);
+    quick = answerOf(world, envelope?.own, kind ?? null, c.verb);
     name = quick?.name;
     unknown = quick === undefined && kind === undefined;
   }
@@ -1406,10 +1422,13 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   }
 
   if (!split.ok) return failing(c, meta, place, "#VALUE!", split.reason);
+  // The free names of each part, for the fold of this document (PLAN.FOLD). A plan without folds does not collect them.
+  const frees: (readonly string[] | undefined)[] | undefined = c.fold ? [] : undefined;
   const parts: CompiledPart[] = split.parts.map((slot) => {
     const item = slot.item;
     // The capability rules of the contract narrow the context of the part, thus no evaluator can forget them.
     const own = compileNode(c, item, place.concat(slot.path), slot.of, depth + 1, slot.address === true);
+    frees?.push(own.free);
     const rules = rulesFor(kind?.caps, slot.path);
     const compiled = rules.length === 0 ? own : gated(rules, own);
     // The binding name is in the header of an envelope. Most parts have no name, thus the cheap test comes first.
@@ -1450,7 +1469,248 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   } catch (error) {
     return failingWith(c, meta, placed(thrown(error, `the evaluator ${name}`), place));
   }
-  return finish(c, meta, placedCode(inner, place, name), undefined);
+  const done = finish(c, meta, placedCode(inner, place, name), undefined);
+  if (frees === undefined || kind === undefined || !pureCode(c, envelope, kind, typePath, name, quick)) return done;
+  const free = freeOf(doc, kind, split.parts, frees);
+  if (free === undefined) return done;
+  return free.length === 0 ? folded(c, done) : { code: done.code, run: done.run, free };
+}
+
+/*
+ * The fold of a closed pure part (PLAN.FOLD, D43). A part folds when it evaluates one time at compile time, and its
+ * code then gives that one result. These conditions make the result the same as at each evaluation:
+ *
+ * - The code of the part and of each part in it is pure, and the kind declares no effect and no run side.
+ * - The part reads no name that it does not bind (STATIC.REFS). A reference is the only document that reads a name.
+ * - The evaluation at compile time gets an empty context and a probe runtime. The probe resolves only the names that
+ *   the part binds. It refuses each other read, each effect and each closure that keeps its context.
+ *
+ * A refusal, an exception, the error #DEPTH! and a result that is not plain data cancel the fold.
+ */
+
+/** The free names of a closed part. */
+const CLOSED: readonly string[] = /* @__PURE__ */ Object.freeze([]);
+
+/**
+ * This function tells if the code of a document is pure, by the facts of D24 (FACTS.PURE). It reads the facts as
+ * `factsOf` reads them. A kind with a run side, with declared effects or with volatile code is not pure here.
+ */
+function pureCode(c: Compiler, envelope: Envelope | undefined, kind: Kind, typePath: readonly Key[], name: string, quick: ReturnType<typeof answerOf>): boolean {
+  if (kind.side === "run" || (kind.effects !== undefined && kind.effects.length > 0)) return false;
+  let answer: KindFacts | undefined;
+  try {
+    answer = c.machine.facts?.(typePath, name);
+  } catch {
+    return false;
+  }
+  // The contract of the kind describes the code of its own name, or an own entry that names the same code (D24).
+  const described = c.verb === "eval" && (envelope === undefined || quick?.rung !== "own" || name === answerOf(c.machine.world, undefined, kind, c.verb)?.name);
+  const pure = described ? (answer?.pure ?? kind.pure) : answer?.pure;
+  const volatile = described ? (answer?.volatile ?? kind.volatile) : answer?.volatile;
+  return pure === true && volatile !== true;
+}
+
+/**
+ * This function gives the names that a document reads and does not bind, or `undefined` when the document can read
+ * other roots. A reference reads the name of its path. Each other document reads the free names of its parts, less
+ * the names that its scope rules give each part (STATIC.REFS).
+ */
+function freeOf(doc: Envelope, kind: Kind, slots: readonly PartSlot[], frees: readonly (readonly string[] | undefined)[]): readonly string[] | undefined {
+  if (isRef(doc)) {
+    const path = doc.value;
+    if (path.length < 2 || path[0] !== "names" || !path.every((step, index) => index === 0 || isKey(step))) return undefined;
+    return [String(path[1])];
+  }
+  let sees: readonly (readonly string[])[] | undefined;
+  let out: string[] | undefined;
+  for (let index = 0; index < frees.length; index += 1) {
+    const free = frees[index];
+    if (free === undefined) return undefined;
+    if (free.length === 0) continue;
+    if (sees === undefined) sees = kind.scope === undefined || kind.scope.length === 0 ? [] : scopesOf(kind.scope, doc.value, slots).sees;
+    const bound = sees[index] ?? CLOSED;
+    for (const name of free) {
+      if (bound.includes(name)) continue;
+      out ??= [];
+      if (!out.includes(name)) out.push(name);
+    }
+  }
+  return out ?? CLOSED;
+}
+
+/** This class is the runtime of a fold. It reads only the names that the folded part binds, and it causes no effect. */
+class Probe implements Runtime {
+  readonly running = false;
+  /** `true` after the part asked for something that a fold cannot give. */
+  refused = false;
+  /** The count of the names that the part read. */
+  reads = 0;
+  /**
+   * The context of the folded part. Its roots `self`, `event` and `names` are traps: a direct read of a field
+   * refuses the fold, as a resolution of these roots does. A copy of the record of the names reads no field.
+   */
+  readonly root: Context;
+
+  constructor(readonly machine: Machine) {
+    const refuse = (): void => {
+      this.refused = true;
+    };
+    const root: Granted = {
+      self: trap(refuse, false),
+      event: trap(refuse, false),
+      names: trap(refuse, true) as Readonly<Record<string, unknown>>,
+      world: worldThing(machine.world),
+      caps: NO_CAPS,
+      [GRANT]: NO_CAPS,
+    };
+    this.root = root;
+  }
+
+  resolve(ctx: Context, path: readonly unknown[]): Resolution {
+    const name = path[1];
+    if (path[0] === "names" && isKey(name) && Object.hasOwn(ctx.names, String(name))) {
+      this.reads += 1;
+      const found = resolve(this.machine, ctx, path, WITH_HOPS);
+      // A reference in the data resolves in the context of its reader, thus it can read a free name (DEREF.READER).
+      if (found.hops.some((hop) => hop.by === "collapse" || isRef(hop.thing))) this.refused = true;
+      return found;
+    }
+    this.refused = true;
+    return { ok: false, code: "#REF!", reason: "A folded part reads only the names that it binds.", hops: [] };
+  }
+
+  effect(): Result {
+    this.refused = true;
+    return fail("#CAP!", "A folded part causes no effect.");
+  }
+
+  *runEffect(): Steps {
+    return this.effect();
+  }
+
+  *all(): Generator<Promise<unknown>, readonly Result[], unknown> {
+    this.refused = true;
+    return [];
+  }
+
+  keepsContext(): void {
+    this.refused = true;
+  }
+}
+
+/**
+ * This function makes a trap for a root of the context of a fold. Each read of a field calls `refuse`. A trap of the
+ * names gives no keys, thus a copy of the names reads no field.
+ */
+function trap(refuse: () => void, copies: boolean): object {
+  const no = (): undefined => {
+    refuse();
+    return undefined;
+  };
+  return new Proxy(
+    {},
+    {
+      get: no,
+      getOwnPropertyDescriptor: no,
+      has: () => (refuse(), false),
+      ownKeys: () => {
+        if (!copies) refuse();
+        return [];
+      },
+      getPrototypeOf: () => (refuse(), null),
+      set: () => (refuse(), false),
+      defineProperty: () => (refuse(), false),
+      deleteProperty: () => (refuse(), false),
+    },
+  );
+}
+
+/**
+ * This function folds the code of a closed pure part. The part evaluates one time with the probe. Its result becomes
+ * one deeply frozen copy, and the code gives that copy at each evaluation (PLAN.SHARED). A fold that the probe cancels
+ * gives the code without free names, thus no parent tries the fold again.
+ */
+function folded(c: Compiler, done: Compiled): Compiled {
+  const probe = (c.probe ??= new Probe(c.machine));
+  probe.refused = false;
+  probe.reads = 0;
+  let constant: Result | undefined;
+  try {
+    const result = done.code(probe.root, probe);
+    if (!probe.refused && (result.ok || result.error.code !== "#DEPTH!")) constant = sharedCopy(result) as Result | undefined;
+  } catch {
+    constant = undefined;
+  }
+  if (constant === undefined) return { code: done.code, run: done.run };
+  const value = constant;
+  if (probe.reads === 0) return { code: () => value, run: undefined, free: CLOSED };
+  // The part reads its own names. A list of reads gets each read, thus the code evaluates again (READS.RECORD).
+  const original = done.code;
+  return { code: (ctx, rt) => (rt instanceof Session && !rt.traced && !rt.recording ? value : original(ctx, rt)), run: undefined, free: CLOSED };
+}
+
+/** The objects that a fold made. Each one is deeply frozen, thus a later fold uses it again and does not copy it. */
+const SHARED: WeakSet<object> = /* @__PURE__ */ new WeakSet();
+
+/** The mark of a value that is not plain data. */
+const NOT_PLAIN: unique symbol = /* @__PURE__ */ Symbol("not plain");
+
+/**
+ * This function gives a deeply frozen copy of plain data, or `undefined` for other values. Plain data is a primitive or
+ * an array without holes and extra keys. It is also a record of enumerable data fields with the prototype of an object
+ * or no prototype. The copy keeps cycles and shared objects. The objects of the host do not change.
+ */
+function sharedCopy(value: unknown): unknown {
+  try {
+    const out = copyPlain(value, new Map());
+    return out === NOT_PLAIN ? undefined : out;
+  } catch {
+    // A very deep value overflows the stack of the host.
+    return undefined;
+  }
+}
+
+/** This function copies one value for `sharedCopy`. The map holds the copy of each object that the copy saw. */
+function copyPlain(value: unknown, memo: Map<object, unknown>): unknown {
+  if (typeof value === "function") return NOT_PLAIN;
+  if (typeof value !== "object" || value === null) return value;
+  if (SHARED.has(value)) return value;
+  const seen = memo.get(value);
+  if (seen !== undefined) return seen;
+  const proto: unknown = Object.getPrototypeOf(value);
+  const keys = Reflect.ownKeys(value);
+  let out: Record<string, unknown> | unknown[];
+  if (Array.isArray(value)) {
+    if (proto !== Array.prototype || keys.length !== value.length + 1) return NOT_PLAIN;
+    const list: unknown[] = [];
+    memo.set(value, list);
+    for (let index = 0; index < value.length; index += 1) {
+      const field = Object.getOwnPropertyDescriptor(value, index);
+      if (field === undefined || !("value" in field) || field.enumerable !== true) return NOT_PLAIN;
+      const item = copyPlain(field.value, memo);
+      if (item === NOT_PLAIN) return NOT_PLAIN;
+      list.push(item);
+    }
+    out = list;
+  } else {
+    if (proto !== Object.prototype && proto !== null) return NOT_PLAIN;
+    const record: Record<string, unknown> = proto === null ? (Object.create(null) as Record<string, unknown>) : {};
+    memo.set(value, record);
+    for (const key of keys) {
+      if (typeof key !== "string") return NOT_PLAIN;
+      const field = Object.getOwnPropertyDescriptor(value, key);
+      if (field === undefined || !("value" in field) || field.enumerable !== true) return NOT_PLAIN;
+      const item = copyPlain(field.value, memo);
+      if (item === NOT_PLAIN) return NOT_PLAIN;
+      // The key __proto__ is a field of the data, thus it does not set the prototype of the copy.
+      if (key === "__proto__") Object.defineProperty(record, key, { value: item, enumerable: true, writable: true, configurable: true });
+      else record[key] = item;
+    }
+    out = record;
+  }
+  Object.freeze(out);
+  SHARED.add(out);
+  return out;
 }
 
 /*
@@ -1522,6 +1782,11 @@ function runnerCode(run: RunCode, place: readonly Key[], kindText: string): Code
 interface Compiled {
   readonly code: Code;
   readonly run: RunCode | undefined;
+  /**
+   * The names that the document reads and does not bind, when it is pure. An empty list marks a folded document.
+   * `undefined` marks a document that cannot fold, or a plan without folds (PLAN.FOLD).
+   */
+  readonly free?: readonly string[];
 }
 
 /** This function gives the steps of a run of an evaluator. The code runs at the first step, and it does not wait. */
@@ -1630,7 +1895,8 @@ export function rootContext(machine: Machine, ctx: Context): Context {
 export function prepare(machine: Machine, doc: unknown, options: PrepareOptions = {}): Plan {
   const verb = options.verb ?? "eval";
   const noAnswer: Answer = verb === "eval" ? NO_ANSWER : { verb, error: "no-answer", steps: [] };
-  const c: Compiler = { machine, traced: options.trace === true, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer };
+  const traced = options.trace === true;
+  const c: Compiler = { machine, traced, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer, fold: !traced && options.fold !== false };
   let root: Compiled;
   try {
     root = compileNode(c, doc, [], options.declaredType, 0);

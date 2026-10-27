@@ -131,6 +131,17 @@ export const CASES: readonly Case[] = [
     },
   },
   {
+    // A closed record of twenty literals. Since K13 the plan folds it, and each evaluation gives one frozen value (PLAN.FOLD).
+    name: "PLAN.FOLD a record of 20 literals",
+    make: (k) => {
+      const fields: Record<string, unknown> = {};
+      for (let index = 0; index < 20; index += 1) fields[`f${index}`] = index % 2 === 0 ? index : `text ${index}`;
+      const plan = k.prepare(k.formulaMachine({ ops: OPS }), { type: "record", value: fields });
+      const ctx = k.context();
+      return () => plan.evaluate(ctx);
+    },
+  },
+  {
     // The cost of a compilation, as PLAN.COMPILE-SPEED measures it.
     name: "PLAN.COMPILE-SPEED prepare",
     make: (k) => {

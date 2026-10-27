@@ -357,17 +357,19 @@ let hooks = 0;
 /** This function makes a machine whose kind `tick` gives `value`, and counts the work of the kernel. */
 function counting(value: number): Machine {
   const tick: CompiledEvaluator = {
-    compile: () => {
+    compile: ({ parts }) => {
       compiles += 1;
-      return () => {
+      // The parts read the name a. Thus a plan does not fold the code (PLAN.FOLD), and each evaluation runs it.
+      return (ctx, rt) => {
         runs += 1;
+        for (const part of parts) part.code(ctx, rt);
         return ok(value);
       };
     },
   };
   const base = formulaMachine(
     { ops: OPS, ext: EXT, pure: true },
-    { world: { kinds: { tick: { verbs: { eval: "test.tick" }, pure: true } }, defaults: {} }, evaluators: { "test.tick": tick } },
+    { world: { kinds: { tick: { verbs: { eval: "test.tick" }, parts: { shape: "list" }, pure: true } }, defaults: {} }, evaluators: { "test.tick": tick } },
   );
   const facts = base.facts;
   return {
@@ -379,7 +381,8 @@ function counting(value: number): Machine {
   };
 }
 
-const TICK: Json = { type: "tick", value: null };
+/** The kind tick ignores the result of its part. The part reads the name `a`, thus the tick does not fold. */
+const TICK: Json = { type: "tick", value: [ref("names", "a")] };
 /** A pure document: it reads the name `a`. */
 const PURE: Json = { type: "list", value: [TICK, ref("names", "a")] };
 /** A document that is not pure: an extension of the profile reads the context outside `resolve`. */

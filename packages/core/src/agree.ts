@@ -11,9 +11,11 @@ import { type Definitions, reference } from "./reference.ts";
  * - `reference`: the reference interpreter, which compiles nothing.
  * - `traced`: the traced evaluation, `evaluate`.
  * - `again`: a second evaluation of the same plan.
+ * - `folds`: a second plan with the other choice of folds (PLAN.FOLD). It has no folds when the plan has them, and
+ *   it has folds when the option `observe` stops the folds of the plan.
  * - `other`: the second tier of a language, from the option `other`.
  */
-export type Tier = "reference" | "traced" | "again" | "other";
+export type Tier = "reference" | "traced" | "again" | "folds" | "other";
 
 /** What a second tier gives: its result, and its effects when it records them. */
 export interface TierResult {
@@ -41,7 +43,10 @@ export interface AgreeOptions {
   readonly verb?: string;
   /** The definitional code of the compiled evaluators of the machine, for the reference. */
   readonly definitions?: Definitions;
-  /** The tiers to compare with the plan. The default is the reference, the traced evaluation and a second evaluation. */
+  /**
+   * The tiers to compare with the plan. The default is the reference, the traced evaluation, a second evaluation and
+   * the plan with the other choice of folds.
+   */
   readonly tiers?: readonly Exclude<Tier, "other">[];
   /**
    * This function gives the result of the second tier of a language, for example a compiler to loops.
@@ -70,12 +75,16 @@ export interface AgreeOptions {
   /**
    * This function gives what the host saw since its last call, for example the calls of an operation. `agree` uses
    * it before the plan and after each tier, and compares the results. Thus a tier that evaluates a part that the plan
-   * does not evaluate fails.
+   * does not evaluate fails. A fold moves the calls of a part to the compilation, thus with this option the plan has
+   * no folds. The tier `folds` then has folds, and `agree` does not compare its calls.
    *
    * @returns What the host saw.
    */
   readonly observe?: () => unknown;
 }
+
+/** The tiers that `agree` compares when its options name none. */
+const DEFAULT_TIERS: readonly Exclude<Tier, "other">[] = /* @__PURE__ */ Object.freeze(["reference", "traced", "again", "folds"]);
 
 /** The outcome of `agree`: the result of the plan, or the first tier that disagrees with it. */
 export type Agreement =
@@ -195,7 +204,9 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
   const tierInput: TierInput = { ...mock, ...(options.verb === undefined ? {} : { verb: options.verb }) };
   const observe = options.observe;
   observe?.();
-  const plan = prepare(machine, doc, declared);
+  // A fold moves host calls to the compilation, thus a plan whose calls the host compares has no folds (PLAN.FOLD).
+  const folds = observe === undefined;
+  const plan = prepare(machine, doc, { ...declared, fold: folds });
   const effects: Effect[] = [];
   const result = plan.evaluate(context, { effects, ...mock });
   const saw = observe?.();
@@ -207,7 +218,7 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
     return sameValue(saw, observe(), options.equal) ? undefined : "The host saw other calls in the tier.";
   };
 
-  for (const tier of options.tiers ?? ["reference", "traced", "again"]) {
+  for (const tier of options.tiers ?? DEFAULT_TIERS) {
     let other: Result;
     let otherEffects: Effect[] = [];
     if (tier === "reference") {
@@ -216,6 +227,16 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
       const traced = evaluate(machine, doc, context, { ...declared, ...mock });
       other = traced.result;
       otherEffects = [...traced.effects];
+    } else if (tier === "folds") {
+      other = prepare(machine, doc, { ...declared, fold: !folds }).evaluate(context, { effects: otherEffects, ...mock });
+      if (observe !== undefined) {
+        // The folds of this tier call the host when it compiles. Thus only the result and the effects compare.
+        observe();
+        if (overflowed(result) || overflowed(other)) continue;
+        const why = resultDiffers(result, other, options) ?? effectsDiffer(effects, otherEffects, options);
+        if (why !== undefined) return { ok: false, tier, plan: result, other, reason: why };
+        continue;
+      }
     } else {
       other = plan.evaluate(context, { effects: otherEffects, ...mock });
     }

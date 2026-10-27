@@ -703,7 +703,7 @@ The soundness claims hold for a machine whose host code keeps these obligations.
 | C1 | Each context that an evaluator gives a part has only capabilities that the context of its document permits. | The kernel: H-CONTEXT for function code, and H-GRANT for compiled code since K91 (D32). A context that compiled code keeps from an earlier call escapes H-GRANT (K120). | CAP.NARROW, CAP.NARROW-CODE, CAP.EFFECTS-SOUND, PLAN.AGREES |
 | C2 | The code causes only the effects that its contract declares. | The author. An own entry for another evaluator has no contract (K64). | CAP.EFFECTS-SOUND, STATIC.AGREES |
 | C3 | Each part that no lazy rule covers evaluates in each evaluation that gives a value. | The author | FACTS.LAZY |
-| C4 | A kind with the mark `pure` reads the context only through `resolve`, and it causes no effect. | The author | FACTS.SOUND, READS.SOUND |
+| C4 | A kind with the mark `pure` reads the context only through `resolve`, and it causes no effect. | The author. The probe of a fold refuses a direct read of `self`, `event` and `names` (D43). | FACTS.SOUND, READS.SOUND, PLAN.FOLD |
 | C5 | The code reads its parts only through their handles, not through `doc.value`. | The author | EVAL.SEALED |
 | C6 | Only a runner waits, and it passes each wait of its parts through. | The author (K65) | RUN.CAN-WAIT |
 | C7 | The names that the code binds for a part are the names of the scope rules of its kind. | The author | STATIC.AGREES, TYPE.SOUND |
@@ -762,6 +762,33 @@ The argument goes by induction on the height of `d`.
 By the steps 1 and 2, the hypothesis of the induction gives the premise of the step 3 for the parts of `d`. Each kit gives one lemma for each construct. `conforms` examines each lemma with probe parts, and the lemma of a kit with a profile needs C8.
 
 Two limits apply. `sameValue` compares two closures by their parameters, thus `agree` is weaker than the claim for closures. And the claim holds only for the shared code of the judgments 1 to 3. An overflow of the stack of the host is the one permitted difference between the tiers (AGREE.ERRORS).
+
+### The folds of the plan
+
+A plan without a trace can fold a closed pure part (K13, D43). The part evaluates one time, when the plan compiles, and its code then gives that one result. The reference does not fold at any time.
+
+```text
+P-FREE  [PLAN.FOLD]
+    free(⟨ref, [names, x, k̄]⟩) = {x}                           each step of k̄ is a key
+    free(⟨ref, π⟩) = ⊤                                          for each other path π
+    free(d) = ⋃ (free(pi) − sees(κ, i))                        for each other document, with its parts pi
+    free(d) = ⊤                                                 when a part gives ⊤, or when d is not pure
+    sees(κ, i) is the list of the names that the scope rules of κ give the part i (STATIC.REFS)
+
+P-FOLD  [PLAN.FOLD, PLAN.SHARED]
+    the plan has no trace, and the option fold is not false        free(d) = ∅
+    d is not a runner, and the facts mark its code pure and not volatile        κ.side ≠ run        κ.effects = []
+    C⟦d⟧(Γ₀, probe) = r, without a refusal and without an exception        r ≠ err(#DEPTH!)        r is plain data
+    ─────────────────────────────────────
+    C⟦d⟧(Γ, rt) = v at each evaluation, with v = freeze(copy(r)), the same object each time
+    Γ₀ has traps for self, event and names, the world of M and no capabilities
+    the probe resolves a path [names, x, k̄] only when the code bound x, and it refuses each other read
+    a read that reaches reference data, an effect, a wait and a kept context are refusals too
+```
+
+The facts of the rule are the facts of D24, as `factsOf` reads them. A trap of a root refuses each read of a field, thus code that reads its context directly cannot fold. A copy of the names reads no field, thus `let` can fold. `copy` takes plain data: primitives, lists without holes, and records with the prototype of an object or no prototype. It keeps each object that an earlier fold made.
+
+P-FOLD keeps SIM-PLAN. A pure code keeps C4, thus its result depends only on its data, its parts and what its paths reach. A closed part reaches only the names that it binds, and these are the same in each context. Thus `r` is the result of the part in each context, and the copy gives a value that `sameValue` finds the same. A list of reads gets each read of the part. Thus a folded part that reads its own names evaluates again when the evaluation records reads (READS.RECORD). The tier `folds` of `agree` compares the plan with folds and the plan without folds.
 
 ## The laws of the semantics
 
