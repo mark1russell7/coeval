@@ -6,17 +6,19 @@ import { MOVES, TREE, targets, type Move } from "../lib/tree.ts";
 
 type Tab = "sequence" | "moves" | "tree";
 
-const SEQUENCE: Json = {
+const nameRef = (key: string): Json => ({ type: "ref", value: ["names", key] });
+
+const SEQUENCE = {
   type: "seq",
   value: [
     { type: "add", value: [1, 2], name: "a" },
-    { type: "multiply", value: [{ type: "ref", value: "a" }, 10], name: "b" },
-    { type: "log", value: [{ type: "ref", value: "b" }] },
-    { type: "add", value: [{ type: "ref", value: "a" }, { type: "ref", value: "b" }], name: "c" },
+    { type: "multiply", value: [nameRef("a"), 10], name: "b" },
+    { type: "log", value: [nameRef("b")] },
+    { type: "add", value: [nameRef("a"), nameRef("b")], name: "c" },
   ],
-};
+} satisfies Json;
 
-const STEP_NAMES: readonly (string | undefined)[] = ["a", "b", undefined, "c"];
+const STEP_NAMES: readonly (string | undefined)[] = SEQUENCE.value.map((step) => ("name" in step ? step.name : undefined));
 
 function SequenceTab() {
   const [selected, setSelected] = useState<readonly string[]>(["3"]);

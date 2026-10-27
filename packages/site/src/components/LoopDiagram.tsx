@@ -1,10 +1,56 @@
 import { useEffect, useRef, useState } from "react";
+import { durable, evaluate, makeContext, type Durable, type DurableCounts, type Json } from "@mark1russell7/coeval";
+import { SITE_MACHINE } from "../glyphs/Explorer.tsx";
 import { useReducedMotion } from "../lib/motion.ts";
 
 type Phase = "idle" | "event" | "run1" | "run2" | "run3" | "store" | "derive" | "view";
 
+interface Store {
+  readonly done: number;
+  readonly total: number;
+}
+
+const nameRef = (key: string): Json => ({ type: "ref", value: ["names", key] });
+
+/** The run: three steps in the written order. The last step writes the store with an effect. */
+const RUN = {
+  type: "seq",
+  value: [
+    { type: "ref", value: ["names", "done"], name: "card" },
+    {
+      type: "if",
+      value: {
+        test: { type: "greater", value: [nameRef("total"), nameRef("card")] },
+        then: { type: "add", value: [nameRef("card"), 1] },
+        else: { type: "number", value: 0 },
+      },
+      name: "next",
+    },
+    { type: "write", value: { key: "done", value: nameRef("next") } },
+  ],
+} satisfies Json;
+
 const RUN_STEPS = ["find the card", "toggle it", "save it"] as const;
-const DERIVE_NODES = ["count", "share", "label"] as const;
+
+/** The derive side: three pure documents over the store. No document reads another, thus each order gives the same values. */
+const DERIVE = {
+  count: nameRef("done"),
+  left: { type: "add", value: [nameRef("total"), { type: "multiply", value: [nameRef("done"), -1] }] },
+  "all done": {
+    type: "if",
+    value: {
+      test: { type: "greater", value: [nameRef("total"), nameRef("done")] },
+      then: { type: "bool", value: false },
+      else: { type: "bool", value: true },
+    },
+  },
+} satisfies Record<string, Json>;
+
+type DeriveKey = keyof typeof DERIVE;
+
+const DERIVE_NODES = Object.keys(DERIVE) as readonly DeriveKey[];
+
+type Derived = Readonly<Record<DeriveKey, Json | undefined>>;
 
 function bezier(t: number, p0: number, p1: number, p2: number, p3: number): number {
   const u = 1 - t;
@@ -14,33 +60,53 @@ function bezier(t: number, p0: number, p1: number, p2: number, p3: number): numb
 const DERIVE_POINTS = [0.22, 0.5, 0.78].map((t) => ({ x: bezier(t, 200, 300, 420, 520), y: bezier(t, 140, 20, 20, 140) }));
 const RUN_POINTS = [0.22, 0.5, 0.78].map((t) => ({ x: bezier(t, 520, 420, 300, 200), y: bezier(t, 180, 300, 300, 180) }));
 
-function shuffled<T>(items: readonly T[]): T[] {
-  const copy = [...items];
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const other = Math.floor(Math.random() * (index + 1));
-    const a = copy[index];
-    const b = copy[other];
-    if (a !== undefined && b !== undefined) {
-      copy[index] = b;
-      copy[other] = a;
-    }
-  }
-  return copy;
+/** This function runs the steps of the run with the kernel, and gives the new store from the write effect. */
+function runOnce(store: Store): Store {
+  const out = evaluate(SITE_MACHINE, RUN, makeContext({ ...store }, ["write"]));
+  const write = out.effects.find((effect) => effect.kind === "write")?.payload;
+  const next = typeof write === "object" && write !== null && "value" in write ? write.value : undefined;
+  return typeof next === "number" ? { ...store, done: next } : store;
 }
 
 /**
- * The loop diagram. An event starts a run: its steps go in order and write the store. The store change makes the
- * derive side compute again, in any order, and the view shows the new values. A write from another tab skips the run.
+ * This function computes the derive side through the durable cache of the kernel, in the given order. After a change
+ * of data, a document whose reads are the same keeps its result without an evaluation.
+ */
+function deriveAll(cache: Durable, store: Store, order: readonly DeriveKey[]): Derived {
+  cache.changeData();
+  const context = makeContext({ ...store }, []);
+  const values: Partial<Record<DeriveKey, Json | undefined>> = {};
+  for (const key of order) {
+    const result = cache.evaluate(key, DERIVE[key], context);
+    values[key] = result.ok ? (result.value as Json) : undefined;
+  }
+  return values as Derived;
+}
+
+/** This function gives the nodes in another order for each pass, to show that the order does not change a value. */
+function rotated(pass: number): readonly DeriveKey[] {
+  const shift = pass % DERIVE_NODES.length;
+  return [...DERIVE_NODES.slice(shift), ...DERIVE_NODES.slice(0, shift)];
+}
+
+/**
+ * The loop diagram. An event starts a run: the kernel evaluates its steps in order, and the write effect changes the
+ * store. The store change makes the derive side compute again through a durable cache, in any order, and the view shows
+ * the new values. A write from another tab skips the run.
  */
 export default function LoopDiagram() {
   const reduced = useReducedMotion();
+  const [cache] = useState(() => durable(SITE_MACHINE));
+  const [initial] = useState(() => {
+    const store: Store = { done: 1, total: 3 };
+    return { store, derived: deriveAll(cache, store, DERIVE_NODES), counts: { ...cache.counts } };
+  });
   const [phase, setPhase] = useState<Phase>("idle");
-  const [done, setDone] = useState(1);
-  const [total, setTotal] = useState(3);
-  const [shown, setShown] = useState({ done: 1, total: 3 });
+  const [store, setStore] = useState<Store>(initial.store);
+  const [shown, setShown] = useState<Derived>(initial.derived);
+  const [counts, setCounts] = useState<DurableCounts>(initial.counts);
   const [runs, setRuns] = useState(0);
-  const [derives, setDerives] = useState(0);
-  const [order, setOrder] = useState<readonly string[]>(DERIVE_NODES);
+  const [pass, setPass] = useState(0);
   const [source, setSource] = useState<"click" | "tab" | undefined>(undefined);
   const timers = useRef<number[]>([]);
 
@@ -67,50 +133,43 @@ export default function LoopDiagram() {
 
   const nothing = (): void => undefined;
 
-  const click = (): void => {
-    const next = (done + 1) % (total + 1);
-    setSource("click");
-    play([
-      ["event", nothing],
-      ["run1", nothing],
-      ["run2", nothing],
-      ["run3", () => setRuns((count) => count + 1)],
-      ["store", () => setDone(next)],
+  /** The kernel computes the new values at once. The phases only show the steps one by one. */
+  const deriveSteps = (next: Store): readonly (readonly [Phase, () => void])[] => {
+    const nextPass = pass + 1;
+    const derived = deriveAll(cache, next, rotated(nextPass));
+    const nextCounts = { ...cache.counts };
+    return [
+      ["store", () => setStore(next)],
       [
         "derive",
         () => {
-          setOrder(shuffled(DERIVE_NODES));
-          setDerives((count) => count + 1);
+          setPass(nextPass);
+          setCounts(nextCounts);
         },
       ],
-      ["view", () => setShown({ done: next, total })],
-    ]);
+      ["view", () => setShown(derived)],
+    ];
+  };
+
+  const click = (): void => {
+    const next = runOnce(store);
+    setSource("click");
+    play([["event", nothing], ["run1", nothing], ["run2", nothing], ["run3", () => setRuns((count) => count + 1)], ...deriveSteps(next)]);
   };
 
   const otherTab = (): void => {
-    const nextTotal = total >= 6 ? 3 : total + 1;
-    const nextDone = Math.min(done, nextTotal);
+    const total = store.total >= 6 ? 3 : store.total + 1;
     setSource("tab");
-    play([
-      ["store", () => {
-        setTotal(nextTotal);
-        setDone(nextDone);
-      }],
-      [
-        "derive",
-        () => {
-          setOrder(shuffled(DERIVE_NODES));
-          setDerives((count) => count + 1);
-        },
-      ],
-      ["view", () => setShown({ done: nextDone, total: nextTotal })],
-    ]);
+    play(deriveSteps({ total, done: Math.min(store.done, total) }));
   };
 
   const runLit = (index: number): boolean =>
     (phase === "run1" && index === 0) || (phase === "run2" && index <= 1) || (phase === "run3" && index <= 2);
   const deriveLit = phase === "derive";
-  const share = shown.total === 0 ? 0 : shown.done / shown.total;
+  const count = typeof shown.count === "number" ? shown.count : 0;
+  const left = typeof shown.left === "number" ? shown.left : 0;
+  const share = count + left === 0 ? 0 : count / (count + left);
+  const order = rotated(pass);
 
   return (
     <figure className="ce-figure not-content" aria-label="The loop of derive and run">
@@ -124,8 +183,8 @@ export default function LoopDiagram() {
           </button>
         </div>
         <span className="ce-bar-label" aria-live="polite">
-          The run side ran {runs} {runs === 1 ? "time" : "times"}. The derive side ran {derives}{" "}
-          {derives === 1 ? "time" : "times"}.
+          The run side ran {runs} {runs === 1 ? "time" : "times"}. The derive side evaluated {counts.evaluations}{" "}
+          {counts.evaluations === 1 ? "time" : "times"} and kept {counts.reuses} {counts.reuses === 1 ? "result" : "results"}.
         </span>
       </div>
       <div className="ce-stage ce-scroll">
@@ -185,10 +244,10 @@ export default function LoopDiagram() {
               Store
             </text>
             <text x="120" y="172" textAnchor="middle" fontSize="13" style={{ fontFamily: "var(--font-mono)" }}>
-              done: {done}
+              done: {store.done}
             </text>
             <text x="120" y="190" textAnchor="middle" fontSize="13" style={{ fontFamily: "var(--font-mono)" }}>
-              total: {total}
+              total: {store.total}
             </text>
           </g>
 
@@ -200,7 +259,7 @@ export default function LoopDiagram() {
             <rect x="540" y="160" width="120" height="10" rx="5" style={{ fill: "var(--color-surface-sunken)", stroke: "var(--color-rule-strong)" }} />
             <rect x="540" y="160" width={120 * share} height="10" rx="5" style={{ fill: "var(--ce-derive)" }} />
             <text x="600" y="192" textAnchor="middle" fontSize="13">
-              {shown.done} of {shown.total} done
+              {count} of {count + left} done
             </text>
           </g>
 
@@ -215,7 +274,8 @@ export default function LoopDiagram() {
       <figcaption className="ce-caption">
         <strong>Click a card</strong> starts the full loop. The event starts a run, the run writes the store, and the derive
         side computes again. <strong>Write from another tab</strong> changes the store directly. The derive side computes
-        again, and the run does not start, because a change of data does not repeat an effect.
+        again, and the run does not start, because a change of data does not repeat an effect. The kernel evaluates each
+        step, and a node whose reads did not change keeps its result.
       </figcaption>
     </figure>
   );
