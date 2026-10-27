@@ -49,6 +49,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D38 | A run drives a runner under an evaluator, as an evaluation does. Only a real wait gives `#CALC!`. A branch that does not run does not wait. RUN.SAME holds when no evaluator causes an effect and the host answers at once. |
 | D40 | A domain can have a codec. The extension `ext.domain` holds a member of the domain as JSON, and the codec reads it again. `encodeValue` writes each host value as one document, thus each language writes the same value the same way. |
 | D41 | One syntax kit reads and writes the text of each language. A profile gives the operators, the literals, the references and the calls. `parse` gives documents or issues with spans, and `print` writes the text that `parse` reads back. |
+| D42 | A kind gives equations in its contract `tree`. A step to an attribute visits five rungs in order: the own part, the kind, the parent, a copy, then a default. |
 
 ## Open
 

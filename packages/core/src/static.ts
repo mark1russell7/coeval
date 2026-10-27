@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
-import type { Kind, NamesSource, ScopeRule, World } from "./world.ts";
+import { type Kind, type NamesSource, type ScopeRule, type World, equationType } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
@@ -595,11 +595,55 @@ interface Drive {
 /** What the code of a document does with a wait: an evaluator stops it, and a runner passes it on. */
 type Waits = boolean | Drive;
 
+/** The names that an equation of `down` sees (TREE.DOWN). */
+const DOWN_NAMES: readonly string[] = /* @__PURE__ */ Object.freeze(["child", "index", "prev"]);
+
+/** The names that the term `combine` of a fold sees (TREE.FOLD). */
+const FOLD_NAMES: readonly string[] = /* @__PURE__ */ Object.freeze(["acc", "item"]);
+
+/**
+ * This function gives each equation of the tree contract of a kind, with the names that it sees (D42). An equation of
+ * `equations`, a `unit` and a `default` see no names.
+ */
+function equationsOf(kind: Kind): readonly { readonly label: string; readonly term: Json; readonly names: readonly string[] }[] {
+  const tree = kind.tree;
+  if (tree === undefined) return [];
+  const out: { readonly label: string; readonly term: Json; readonly names: readonly string[] }[] = [];
+  for (const [name, term] of Object.entries(tree.equations ?? {})) out.push({ label: `tree.equations.${name}`, term, names: [] });
+  for (const [name, term] of Object.entries(tree.down ?? {})) out.push({ label: `tree.down.${name}`, term, names: DOWN_NAMES });
+  for (const [name, declared] of Object.entries(tree.attributes ?? {})) {
+    if (declared.fold !== undefined) {
+      out.push({ label: `tree.attributes.${name}.fold.unit`, term: declared.fold.unit, names: [] });
+      out.push({ label: `tree.attributes.${name}.fold.combine`, term: declared.fold.combine, names: FOLD_NAMES });
+    }
+    if (declared.default !== undefined) out.push({ label: `tree.attributes.${name}.default`, term: declared.default, names: [] });
+  }
+  return out;
+}
+
+/**
+ * This function checks the equations of the tree contract of a kind, each with the names of its rung (TREE.DOWN-NAMES).
+ * An equation evaluates without capabilities, thus a check with capabilities gives it none. Each issue gets the place
+ * of the document of the kind, and its reason names the equation.
+ */
+function equationIssues(machine: Machine, kind: Kind, kindText: string, options: CheckOptions, seen: Set<Kind>): readonly Issue[] {
+  const of = equationType(kind);
+  const out: Issue[] = [];
+  for (const { label, term, names } of equationsOf(kind)) {
+    const inner: CheckOptions = { names, ...(of === undefined ? {} : { declaredType: of }), ...(options.caps === undefined ? {} : { caps: [] }) };
+    for (const issue of checkAll(machine, term, inner, undefined, seen)) {
+      out.push({ code: issue.code, place: [], reason: `In the equation ${label} of the kind ${kindText}: ${issue.reason}` });
+    }
+  }
+  return out;
+}
+
 /**
  * This function finds the issues of `check`. With a list of nodes, it also records each document that it visits for
- * the pass of types. It marks each document with an issue.
+ * the pass of types. It marks each document with an issue. The set `seen` holds the kinds whose equations the check
+ * walked, thus it walks the equations of each kind one time.
  */
-function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: TypeNode[] | undefined): readonly Issue[] {
+function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: TypeNode[] | undefined, seen: Set<Kind> = new Set()): readonly Issue[] {
   const issues: Issue[] = [];
   const verb = options.verb ?? "eval";
   const indices = nodes === undefined ? undefined : new Map<DocVisit, number>();
@@ -642,6 +686,11 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
       if (answer.error === "unknown-kind") {
         push({ code: "#KIND?", place: v.place, reason: `The world has no kind ${typeName(v.doc.type)}.`, at: v.at });
         return "skip";
+      }
+      // The equations of a kind are code of the kind. The check walks them at the first document of the kind (D42).
+      if (v.kind?.tree !== undefined && !seen.has(v.kind)) {
+        seen.add(v.kind);
+        for (const issue of equationIssues(machine, v.kind, typeName(v.doc.type), options, seen)) push({ ...issue, place: v.place, at: v.at });
       }
       const name = answer.evaluator;
       if (current !== undefined) current.evaluator = name;
