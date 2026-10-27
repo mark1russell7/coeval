@@ -1,6 +1,7 @@
 /*
  * The diagrams of coeval. Each color has one meaning on every page, and a label or a shape always goes
  * with it. Derive (pure) is cyan, run (effects) is magenta. The five parts of a context have five colors.
+ * Slate is a move of a path: a solid arrow with the text of its step.
  * Each figure root has the class not-content, so the Markdown styles of Starlight do not apply in it.
  */
 
@@ -14,6 +15,7 @@
   --ce-world: #a16207;
   --ce-event: #dc2626;
   --ce-caps: #7c3aed;
+  --ce-move: #475569;
   --ce-answer: var(--color-accent);
   --ce-answer-wash: var(--color-accent-wash);
   --ce-stop: var(--color-mark);
@@ -30,6 +32,7 @@
   --ce-world: #f2c14e;
   --ce-event: #ff8a8a;
   --ce-caps: #b69cff;
+  --ce-move: #cbd5e1;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +46,7 @@
     --ce-world: #f2c14e;
     --ce-event: #ff8a8a;
     --ce-caps: #b69cff;
+    --ce-move: #cbd5e1;
   }
 }
 

@@ -45,6 +45,8 @@ After each hop, the walk examines what it reached. When that is a reference, the
 
 <WalkDiagram client:visible />
 
+Each picture of a document draws the walk too. A dashed blue arrow goes from a reference back to the step with its name. A solid slate arrow goes along each move of a path, with the text of its step. The kernel resolves each reference, and its hops give these arrows.
+
 ## A type is a path too
 
 The type of a document is a reference into the world: `"add"`, or `["math", "product"]`. A namespace groups kinds, and an alias is a reference to another kind. The walk follows an alias by collapse. A text or a list of keys in the field `type` is a base reference that the kernel resolves itself. Thus the chain of types stops there, and it does not expand forever.

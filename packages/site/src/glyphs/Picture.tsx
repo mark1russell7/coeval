@@ -5,6 +5,7 @@ import RefArrows from "./RefArrows.tsx";
 import { View, SITE_WORLD, WorldContext } from "./View.tsx";
 import { OverlayContext, pathKey, type Overlay } from "./overlay.ts";
 import { links } from "../lib/scope.ts";
+import { moveLinks } from "../lib/moves.ts";
 
 const NO_NAMES: Readonly<Record<string, Json>> = {};
 
@@ -14,7 +15,7 @@ export interface PictureProps {
   readonly names?: Readonly<Record<string, Json>>;
   /** `true` evaluates the document and shows the ports. */
   readonly evaluated?: boolean;
-  /** `true` draws an arrow from each reference back to its binding. */
+  /** `true` draws an arrow from each reference back to its binding, and an arrow for each move of a path. */
   readonly arrows?: boolean;
   /** The key of the selected path, if a card is selected. */
   readonly selected?: string;
@@ -23,12 +24,13 @@ export interface PictureProps {
 }
 
 /**
- * A picture of a document: its cards, its results when it is evaluated, and the arrows of its references. Each
- * diagram that shows a document uses this component, so that each document has one picture on each page.
+ * A picture of a document: its cards, its results when it is evaluated, and the arrows of its references and of their
+ * moves. Each diagram that shows a document uses this component, so that each document has one picture on each page.
  */
 export default function Picture({ doc, names = NO_NAMES, evaluated = true, arrows = true, selected, onSelect }: PictureProps) {
   const box = useRef<HTMLDivElement>(null);
   const refLinks = useMemo(() => links(doc), [doc]);
+  const moves = useMemo(() => (arrows ? moveLinks(doc, names, SITE_MACHINE) : []), [doc, names, arrows]);
   const overlay = useMemo<Overlay>(() => {
     if (!evaluated) return { tick: 0, showRungs: false };
     const run = evaluate(SITE_MACHINE, doc, makeContext(names, STD_CAPS));
@@ -48,7 +50,7 @@ export default function Picture({ doc, names = NO_NAMES, evaluated = true, arrow
           <View doc={doc} />
         </OverlayContext.Provider>
       </WorldContext.Provider>
-      {arrows && <RefArrows container={box} links={refLinks} version={selected ?? ""} />}
+      {arrows && <RefArrows container={box} links={refLinks} moves={moves} version={selected ?? ""} />}
     </div>
   );
 }
