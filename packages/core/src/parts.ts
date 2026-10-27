@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, docEquals, isEnvelope, isRecord, typeName, typePath } from "./doc.ts";
-import { type Kind, type Shape, type World, lookupKind } from "./world.ts";
+import { type Kind, type NamesSource, type ScopeRule, type Shape, type World, lookupKind } from "./world.ts";
 import type { ValueType } from "./types.ts";
 
 /** One part of a value: its place in the value, the JSON of the part, and the type that its position declares. */
@@ -267,4 +267,73 @@ export function pathMatches(path: readonly Key[], pattern: readonly Key[]): bool
     if (want !== "*" && String(want) !== String(path[index])) return false;
   }
   return true;
+}
+
+function valueAt(value: unknown, path: readonly Key[]): unknown {
+  let here: unknown = value;
+  for (const key of path) {
+    if (Array.isArray(here)) here = here[Number(key)];
+    else if (isRecord(here) && Object.hasOwn(here, String(key))) here = here[String(key)];
+    else return undefined;
+  }
+  return here;
+}
+
+function headerName(item: Json): string | undefined {
+  return isEnvelope(item) && typeof (item as { readonly name?: unknown }).name === "string" ? (item as { readonly name: string }).name : undefined;
+}
+
+function namesOf(source: NamesSource, value: unknown, covered: readonly PartSlot[]): readonly string[] {
+  if ("fixed" in source) return source.fixed;
+  if ("keysAt" in source) {
+    const at = valueAt(value, source.keysAt);
+    return isRecord(at) ? Object.keys(at) : [];
+  }
+  if ("listAt" in source) {
+    const at = valueAt(value, source.listAt);
+    return Array.isArray(at) ? (at as readonly unknown[]).filter((item): item is string => typeof item === "string") : [];
+  }
+  if ("textAt" in source) {
+    const at = valueAt(value, source.textAt);
+    if (typeof at === "string") return [at];
+    return source.otherwise === undefined ? [] : [source.otherwise];
+  }
+  return covered.map((slot) => headerName(slot.item)).filter((name): name is string => name !== undefined);
+}
+
+/**
+ * This function gives the names that the scope rules of a kind give each part, and the names that only later parts
+ * see. `check`, `conforms` and the plan read the scope rules with it.
+ *
+ * @param rules - The scope rules of the kind.
+ * @param value - The value of the document.
+ * @param slots - The parts of the value, in order.
+ * @returns The names that each part sees, and the names that only the later parts see, by the index of the part.
+ */
+export function scopesOf(rules: readonly ScopeRule[] | undefined, value: unknown, slots: readonly PartSlot[]): { readonly sees: readonly (readonly string[])[]; readonly later: readonly (readonly string[])[] } {
+  const sees: string[][] = slots.map(() => []);
+  const later: string[][] = slots.map(() => []);
+  for (const rule of rules ?? []) {
+    const covered = slots.map((slot, index) => ({ slot, index })).filter(({ slot }) => rule.in.some((pattern) => pathMatches(slot.path, pattern)));
+    if (rule.sequential !== true) {
+      const names = namesOf(rule.names, value, covered.map(({ slot }) => slot));
+      for (const { index } of covered) sees[index]?.push(...names);
+      continue;
+    }
+    if ("headers" in rule.names) {
+      covered.forEach(({ index }, position) => {
+        const before = covered.slice(0, position).map(({ slot }) => headerName(slot.item)).filter((name): name is string => name !== undefined);
+        const after = covered.slice(position).map(({ slot }) => headerName(slot.item)).filter((name): name is string => name !== undefined);
+        sees[index]?.push(...before);
+        later[index]?.push(...after);
+      });
+      continue;
+    }
+    const names = namesOf(rule.names, value, covered.map(({ slot }) => slot));
+    covered.forEach(({ index }, position) => {
+      if (position > 0) sees[index]?.push(...names);
+      else later[index]?.push(...names);
+    });
+  }
+  return { sees, later };
 }

@@ -27,12 +27,11 @@ import {
   permits,
   rootContext,
 } from "./evaluate.ts";
-import { type PartSlot, type Split, pathMatches, splitParts } from "./parts.ts";
+import { type PartSlot, type Split, pathMatches, scopesOf, splitParts } from "./parts.ts";
 import { type Definitions, STD_DEFINITIONS } from "./reference.ts";
 import { STD_EVALUATORS } from "./stdlib.ts";
 import { sameValue } from "./agree.ts";
 import { type Random, random } from "./generate.ts";
-import { scopesOf } from "./static.ts";
 import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, isKind, isNamespace, lookupKind } from "./world.ts";
 
 /*

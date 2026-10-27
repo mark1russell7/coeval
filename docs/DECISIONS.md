@@ -1041,3 +1041,31 @@ Attribute grammars give equations on the kinds and a ladder of defaults. L2b tak
 **Why.** A kind gives its rules one time, and each document gives only its own values. A column and a row give positions to children of any kind. The ladder has a fixed order, thus a reader knows which rung wins. An equation without capabilities keeps each attribute pure (TREE.PURE), and `check` finds an effect before a run.
 
 **Limits.** An equation evaluates in its own session, thus the record of a traced plan does not show the reads of an equation. The parts of a node still get `unknown` roots for the type pass (K74). Memo cells between evaluations wait for L2c.
+
+## D43 (2026-10-26): a plan can share result values, and a closed pure part folds into one frozen value
+
+**Context.** A plan evaluates a document many times. A closed pure part, for example a record of literals, gives the same result at each evaluation, but the plan builds it again each time. The study R1 (P3) proposes to evaluate such a part one time, when the plan compiles. Then each evaluation gets the same object. A host that changes that object in place changes the result of each later evaluation. Thus the kernel must decide if a plan can share a result between evaluations.
+
+**Decision.**
+
+- A plan can give one result object to many evaluations (PLAN.SHARED). A host must not change a result in place.
+- A part of a plan without a trace folds when it is closed and pure (PLAN.FOLD). A closed part reads no name that it does not bind (STATIC.REFS). A reference is the only document that reads a name.
+- A pure part has only code that the facts of D24 mark pure and not volatile. Its kind declares no effect and no run side, and its code is not a runner. The plan reads the facts as `factsOf` reads them, also through the hook `facts`.
+- In the formula kit, `lit`, `record`, `list`, `let`, `if`, `and`, `or`, `call`, `ref` and `fn` are pure, as D24 marks them. A standard `ext` is pure. An operation is pure only when the profile names it, and the default is none.
+- A folded part evaluates one time in `prepare`, with an empty context and a probe runtime. The probe resolves only the names that the part binds. Traps for `self`, `event` and `names` refuse a direct read of these roots.
+- These cancel the fold: a read of another root or of reference data, an effect, a kept context and an exception. `#DEPTH!` and a result that is not plain data also cancel it. Thus `ref` alone, a closure of `fn` and a profile `ext` do not fold.
+- The fold copies the result, and it freezes each object of the copy with `Object.freeze`. The copy keeps the field `__proto__` as data, and it uses each object of an earlier fold again. The document of the host does not change.
+- A folded part that reads its own names evaluates again when its evaluation records reads, thus the list of reads stays the same (READS.RECORD).
+- The option `fold: false` of `prepare` stops the folds. The reference interpreter does not fold. `agree` has the tier `folds`: the plan with the other choice of folds. With the option `observe`, the plan of `agree` does not fold, because a fold moves the calls of the host to the compilation.
+
+**Rejected.**
+
+- A freeze of the result in place, without a copy. A literal gives the value of its document, thus the freeze changes the document of the host.
+- A new copy of the folded value at each evaluation. The copy costs as much as the evaluation, thus the fold gains nothing.
+- A new field of the contract for the fold. D24 already has the fact `pure`, and `factsOf` reads it. A second mark can disagree with the first.
+- A fold of only the parts that each evaluation reaches. A part in a lazy branch, for example a branch of `if`, then does not fold.
+- A static test of purity only, without the probe. A kind can read its context outside `resolve`, as the tree node reads `self`. The probe finds this, and the fold does not happen.
+
+**Why.** A closed pure part has one result in each context, thus one evaluation is sufficient. In strict code, a change in place of a frozen value is an error, and not a silent change of later results. The probe is a safety net for code that does not keep C4.
+
+**Limits.** A part in a branch that no evaluation takes still evaluates one time, when the plan compiles. A slow or endless pure operation there makes the compilation slow or endless. A pure operation can give a host function, and a call of it can then read the context. The plan then does not fold the call, because the function is not plain data. A result that is not plain data, for example a host thing or an instance of a class, does not fold.

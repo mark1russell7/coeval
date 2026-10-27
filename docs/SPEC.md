@@ -146,6 +146,8 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | PLAN.PATH | A reference of the formula kit compiles its static path one time, in `prepare`. The compiled path reads the root and the open roots one time, and the ladder of `step` answers each step document one time. Each evaluation then examines only the values of the context. A trace and a runtime with another navigator resolve the steps again. The list of reads gets the steps of the document. |
 | PLAN.PATH-SAME | A compiled path gives the same thing, error and reason as `resolve` without hops, and the host sees the same calls. A plan with compiled paths gives the result and the reads of a traced evaluation. Property tests examine random paths and generated documents. |
 | PLAN.KIND-MEMO | A step on an envelope and the ladder of `step` look up the kind of a type one time for each world. The memo keeps each answer of the ladder: the own entry, the kind, the default and a kind that the world does not have. A memo with 1000 kinds starts again. |
+| PLAN.FOLD | A part of a plan without a trace folds when it is closed and pure. A closed part reads no name that it does not bind (STATIC.REFS). A pure part has only code that the facts of D24 mark pure and not volatile, and no kind with effects or a run side. A folded part evaluates one time in `prepare`, with an empty context and a probe runtime. The probe resolves only the names that the part binds. A read of another root or of reference data, an effect, a kept context, an exception, `#DEPTH!` or a result that is not plain data cancels the fold. A plan whose evaluation records its reads evaluates a folded part that reads names again. The option `fold: false` stops the folds, and the reference does not fold. |
+| PLAN.SHARED | A plan can give one result object to many evaluations. A folded part gives one deeply frozen copy of its result at each evaluation. The fold copies the data, thus the document of the host does not change. A host must not change a result in place. |
 | EVAL.DECLARED | A bare value in a list gets the type that the list declares. |
 | EVAL.LAZY-IF | The kind `if` evaluates only the branch that the test selects. |
 | EVAL.PATH | A reference reads a field of a name by a path. |
@@ -180,7 +182,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 
 | ID | Rule |
 | --- | --- |
-| PLAN.AGREES | A plan, a traced plan, a second evaluation of the plan and the reference interpreter give the same result for each generated document. |
+| PLAN.AGREES | A plan, a traced plan, a second evaluation of the plan, the plan with the other choice of folds and the reference interpreter give the same result for each generated document. With the option `observe`, the plan has no folds, and `agree` compares only the result and the effects of the tier `folds`. |
 | REF.DIRECT | The reference interpreter evaluates a document by the rules, and it compiles nothing. A compiled evaluator needs a definition, or the reference gives `#NOEVAL`. |
 | REF.FORMULA | `formulaDefinitions` gives a definition for each evaluator of the formula kit: a function evaluator, written from this specification. |
 | REF.TREE | The reference has its own definition of the evaluator `tree.node` in `STD_DEFINITIONS`. It uses that definition for the standard evaluator, also without the option `definitions`. |
