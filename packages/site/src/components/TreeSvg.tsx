@@ -8,13 +8,39 @@ const HALF_HEIGHT = 15;
 export interface TreeArrow {
   readonly from: string;
   readonly to: string;
-  /** A CSS color, for example `var(--ce-names)`. */
+  /** A CSS color, for example `var(--ce-move)`. */
   readonly color: string;
-  readonly dashed?: boolean;
+  /** The pattern of the dashes of the line, as `stroke-dasharray`. No pattern gives a solid line. */
+  readonly dash?: string | undefined;
+  /** The text on the arrow, for example the step of a move. */
+  readonly label?: string;
   /** A sideways shift of the arrow in pixels, so that two arrows between the same nodes do not overlap. */
   readonly shift?: number;
   /** A bend of the arrow in pixels. 0 gives a straight line. */
   readonly bend?: number;
+}
+
+/** A direction of data in a tree. */
+export type Flow = "down" | "up" | "side";
+
+/** The dashes of the arrows of each direction. Down is solid, up is dotted and sideways is dashed. */
+export const FLOW_DASH: Readonly<Record<Flow, string | undefined>> = { down: undefined, up: "2 4", side: "8 5" };
+
+/** The color of the arrows of each direction, from the tokens of `diagrams.css`. */
+export const FLOW_COLOR: Readonly<Record<Flow, string>> = {
+  down: "var(--ce-flow-down)",
+  up: "var(--ce-flow-up)",
+  side: "var(--ce-flow-side)",
+};
+
+/** The key of one direction of data: a short arrow with the color and the dashes of its arrows in the tree. */
+export function FlowKey({ flow }: { readonly flow: Flow }) {
+  return (
+    <svg className="ce-flow-key" data-flow={flow} width="34" height="12" viewBox="0 0 34 12" aria-hidden="true">
+      <path d="M2 6 L26 6" strokeDasharray={FLOW_DASH[flow]} />
+      <path className="ce-flow-head" d="M25 2 L33 6 L25 10 Z" />
+    </svg>
+  );
 }
 
 /** The props of the tree drawing. */
@@ -37,10 +63,17 @@ function edgePoint(from: TreeNode, toX: number, toY: number): readonly [number, 
   return [from.x + dx * scale, from.y + dy * scale];
 }
 
-function arrowPath(arrow: TreeArrow): string {
+/** The drawing of one arrow: its path, and the middle point of its curve for a label. */
+interface ArrowShape {
+  readonly d: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+function arrowShape(arrow: TreeArrow): ArrowShape | undefined {
   const a = find(arrow.from);
   const b = find(arrow.to);
-  if (a === undefined || b === undefined) return "";
+  if (a === undefined || b === undefined) return undefined;
   const shift = arrow.shift ?? 0;
   const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
   const nx = -(b.y - a.y) / length;
@@ -52,7 +85,12 @@ function arrowPath(arrow: TreeArrow): string {
   const bend = arrow.bend ?? 0;
   const cx = (x1 + x2) / 2 + nx * bend;
   const cy = (y1 + y2) / 2 + ny * bend;
-  return `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+  return {
+    d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`,
+    // The middle point of a quadratic curve.
+    x: (x1 + 2 * cx + x2) / 4,
+    y: (y1 + 2 * cy + y2) / 4,
+  };
 }
 
 /** The drawing of the example tree, with nodes that a reader can select and arrows between them. */
@@ -100,16 +138,20 @@ export default function TreeSvg({ label, stateOf, arrows, onSelect }: TreeSvgPro
           />
         );
       })}
-      {arrows.map((arrow, index) => (
-        <path
-          key={`${arrow.from}-${arrow.to}-${String(index)}`}
-          className="ce-arrow"
-          d={arrowPath(arrow)}
-          style={{ stroke: arrow.color }}
-          strokeDasharray={arrow.dashed === true ? "6 5" : undefined}
-          markerEnd={`url(#${markerId(arrow.color)})`}
-        />
-      ))}
+      {arrows.map((arrow, index) => {
+        const shape = arrowShape(arrow);
+        if (shape === undefined) return null;
+        return (
+          <path
+            key={`${arrow.from}-${arrow.to}-${String(index)}`}
+            className="ce-arrow"
+            d={shape.d}
+            style={{ stroke: arrow.color }}
+            strokeDasharray={arrow.dash}
+            markerEnd={`url(#${markerId(arrow.color)})`}
+          />
+        );
+      })}
       {TREE.map((item) => (
         <g
           key={item.id}
@@ -127,6 +169,15 @@ export default function TreeSvg({ label, stateOf, arrows, onSelect }: TreeSvgPro
           </text>
         </g>
       ))}
+      {arrows.map((arrow, index) => {
+        const shape = arrow.label === undefined ? undefined : arrowShape(arrow);
+        if (shape === undefined) return null;
+        return (
+          <text key={`label-${String(index)}`} className="ce-arrow-step" x={shape.x} y={shape.y + 4} aria-hidden="true">
+            {arrow.label}
+          </text>
+        );
+      })}
     </svg>
   );
 }

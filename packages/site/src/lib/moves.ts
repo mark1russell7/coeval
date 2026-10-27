@@ -135,6 +135,65 @@ function placeOfHop(doc: Json, hop: Hop, before: readonly string[] | undefined, 
   return getAt(doc, place) === undefined ? undefined : place;
 }
 
+/** One reference of a document: the moves of its path, and the outcome of its resolution by the model. */
+export interface RefTrace {
+  /** The path of the reference document. */
+  readonly ref: readonly string[];
+  /** The path of the reference. */
+  readonly path: readonly Json[];
+  /** `true` when the resolution reached the end of the path. */
+  readonly ok: boolean;
+  /** The code and the reason of a failed resolution. */
+  readonly error?: { readonly code: string; readonly reason: string };
+  /** `true` when each hop reached a place of the document. Else the moves stop at the first hop without a place. */
+  readonly placed: boolean;
+  /** The moves of the path, in the order of its steps. */
+  readonly moves: readonly Move[];
+}
+
+/**
+ * This function traces each reference of a document. The model evaluates the document, and its resolution of each
+ * reference gives the hops. Each hop that reaches a place of the document gives a move. A path that starts at a root
+ * without a place, for example `names`, has no moves.
+ *
+ * @param doc - The document.
+ * @param names - The names of the context.
+ * @param machine - The machine that evaluates the document. The default is the standard machine.
+ * @returns One trace for each reference, in the order of the evaluation.
+ */
+export function refTraces(doc: Json, names: Readonly<Record<string, Json>> = NO_NAMES, machine: Machine = STD_MACHINE): readonly RefTrace[] {
+  const { seen, nodes: nodePlaces } = record(machine, doc, names);
+  const out: RefTrace[] = [];
+  const done = new Set<string>();
+  for (const item of seen) {
+    const key = item.place.join("/");
+    if (done.has(key)) continue;
+    // An equation of a kind also holds references, but its places are not places of this document.
+    const at = fromJson(getAt(doc, item.place));
+    if (at === undefined || typeName(at.type) !== "ref" || JSON.stringify(at.value) !== JSON.stringify(item.path)) continue;
+    done.add(key);
+    const moves: Move[] = [];
+    let from: readonly string[] = item.place;
+    let before: readonly string[] | undefined;
+    let placed = true;
+    for (const hop of item.resolution.hops) {
+      const to = hop.by === "root" ? nodePlaces.get(hop.thing) : placeOfHop(doc, hop, before, nodePlaces);
+      if (to === undefined) {
+        placed = false;
+        break;
+      }
+      before = to;
+      if (to.join("/") === from.join("/")) continue;
+      moves.push({ ref: item.place, index: moves.length, step: stepText(hop.step), from, to });
+      from = to;
+    }
+    const { resolution } = item;
+    const trace: RefTrace = { ref: item.place, path: item.path, ok: resolution.ok, placed, moves };
+    out.push(resolution.ok ? trace : { ...trace, error: { code: resolution.code, reason: resolution.reason } });
+  }
+  return out;
+}
+
 /**
  * This function lists each move of each path that goes through the places of a document. The model evaluates the
  * document, and its resolution of each reference gives the hops. A path that starts at a root without a place, for
@@ -146,28 +205,5 @@ function placeOfHop(doc: Json, hop: Hop, before: readonly string[] | undefined, 
  * @returns The moves, in the order of the references and of their steps.
  */
 export function moveLinks(doc: Json, names: Readonly<Record<string, Json>> = NO_NAMES, machine: Machine = STD_MACHINE): readonly Move[] {
-  const { seen, nodes: nodePlaces } = record(machine, doc, names);
-  const out: Move[] = [];
-  const done = new Set<string>();
-  for (const item of seen) {
-    const key = item.place.join("/");
-    if (done.has(key)) continue;
-    // An equation of a kind also holds references, but its places are not places of this document.
-    const at = fromJson(getAt(doc, item.place));
-    if (at === undefined || typeName(at.type) !== "ref" || JSON.stringify(at.value) !== JSON.stringify(item.path)) continue;
-    done.add(key);
-    let from: readonly string[] = item.place;
-    let before: readonly string[] | undefined;
-    let index = 0;
-    for (const hop of item.resolution.hops) {
-      const to = hop.by === "root" ? nodePlaces.get(hop.thing) : placeOfHop(doc, hop, before, nodePlaces);
-      if (to === undefined) break;
-      before = to;
-      if (to.join("/") === from.join("/")) continue;
-      out.push({ ref: item.place, index, step: stepText(hop.step), from, to });
-      index += 1;
-      from = to;
-    }
-  }
-  return out;
+  return refTraces(doc, names, machine).flatMap((trace) => trace.moves);
 }

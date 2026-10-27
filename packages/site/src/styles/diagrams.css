@@ -2,6 +2,8 @@
  * The diagrams of coeval. Each color has one meaning on every page, and a label or a shape always goes
  * with it. Derive (pure) is cyan, run (effects) is magenta. The five parts of a context have five colors.
  * Slate is a move of a path: a solid arrow with the text of its step.
+ * Three more colors are the directions of data in a tree. Orange goes down, teal goes up and fuchsia goes sideways.
+ * Each direction also has its own line: solid, dotted or dashed.
  * Each figure root has the class not-content, so the Markdown styles of Starlight do not apply in it.
  */
 
@@ -16,6 +18,9 @@
   --ce-event: #dc2626;
   --ce-caps: #7c3aed;
   --ce-move: #475569;
+  --ce-flow-down: #c2410c;
+  --ce-flow-up: #0f766e;
+  --ce-flow-side: #a21caf;
   --ce-answer: var(--color-accent);
   --ce-answer-wash: var(--color-accent-wash);
   --ce-stop: var(--color-mark);
@@ -33,6 +38,9 @@
   --ce-event: #ff8a8a;
   --ce-caps: #b69cff;
   --ce-move: #cbd5e1;
+  --ce-flow-down: #fb923c;
+  --ce-flow-up: #2dd4bf;
+  --ce-flow-side: #e879f9;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -47,6 +55,9 @@
     --ce-event: #ff8a8a;
     --ce-caps: #b69cff;
     --ce-move: #cbd5e1;
+    --ce-flow-down: #fb923c;
+    --ce-flow-up: #2dd4bf;
+    --ce-flow-side: #e879f9;
   }
 }
 
@@ -55,6 +66,9 @@
 [data-part="world"] { --part: var(--ce-world); }
 [data-part="event"] { --part: var(--ce-event); }
 [data-part="caps"] { --part: var(--ce-caps); }
+[data-flow="down"] { --flow: var(--ce-flow-down); }
+[data-flow="up"] { --flow: var(--ce-flow-up); }
+[data-flow="side"] { --flow: var(--ce-flow-side); }
 
 /* ------------------------------------------------------------------------------------- the frame */
 
@@ -577,18 +591,20 @@
   cursor: pointer;
 }
 
+/* The focus of a move is the self of its path. A node that the path reaches is the answer of the path. */
 .ce-node[data-state="focus"] rect,
 .ce-node[data-state="focus"] circle {
-  fill: var(--ce-answer-wash);
-  stroke: var(--ce-answer);
+  fill: color-mix(in srgb, var(--ce-focus) 16%, var(--color-surface));
+  stroke: var(--ce-focus);
   stroke-width: 2.5;
 }
 
 .ce-node[data-state="target"] rect,
 .ce-node[data-state="target"] circle {
-  fill: color-mix(in srgb, var(--ce-focus) 16%, var(--color-surface));
-  stroke: var(--ce-focus);
-  stroke-width: 2;
+  fill: var(--ce-answer-wash);
+  stroke: var(--ce-answer);
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
 }
 
 .ce-node[data-state="dim"] {
@@ -605,6 +621,33 @@
   fill: none;
   stroke-width: 2;
   transition: opacity 200ms;
+}
+
+.ce-svg .ce-arrow-step {
+  fill: var(--ce-move);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.ce-flow-key {
+  flex: none;
+  overflow: visible;
+}
+
+.ce-flow-key path {
+  fill: none;
+  stroke: var(--flow);
+  stroke-width: 2.5;
+}
+
+.ce-flow-key .ce-flow-head {
+  fill: var(--flow);
+  stroke: none;
 }
 
 .ce-steps {
