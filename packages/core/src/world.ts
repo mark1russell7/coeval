@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, type TypeRef, field, isRecord, typePath } from "./doc.ts";
-import type { Cap } from "./deref.ts";
+import type { Cap, Root } from "./deref.ts";
 import type { ValueType } from "./types.ts";
 
 /** The two sides of evaluation. `derive` is pure. `run` causes effects in order. */
@@ -114,11 +114,14 @@ export interface LazyRule {
  *   because the static facts do not see that read.
  * - `volatile`: `true` when its result can change while each read gives the same thing, for example a clock.
  * - `lazy`: the parts that an evaluation can skip and still give a value.
+ * - `reads`: the roots that the code of the kind resolves as a whole, with the path of one root. The static facts
+ *   give a read of each root at each document of the kind (D44). The tree node reads `self` this way.
  */
 export interface KindFacts {
   readonly pure?: boolean;
   readonly volatile?: boolean;
   readonly lazy?: readonly LazyRule[];
+  readonly reads?: readonly Root[];
 }
 
 /**

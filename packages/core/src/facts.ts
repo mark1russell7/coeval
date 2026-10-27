@@ -8,7 +8,8 @@ import { type DocVisit, declaredEffects, walk } from "./static.ts";
 
 /**
  * One read of a document: a free reference, with its marks (FACTS.READS). A plan resolves the path of the reference
- * when it evaluates the reference. The static read covers each path that the plan resolves there (FACTS.SOUND).
+ * when it evaluates the reference. The static read covers each path that the plan resolves there (FACTS.SOUND). A
+ * root that a kind declares in `reads` is a read too, with the path of the root alone.
  */
 export interface StaticRead {
   /** The root of the path. */
@@ -34,7 +35,10 @@ export interface StaticRead {
 
 /** The static facts of one document (D24). They depend only on the document and the machine, not on a context. */
 export interface DocFacts {
-  /** The free references, in the order of the document (FACTS.READS). A reference to a name that a kind binds is not here. */
+  /**
+   * The free references, in the order of the document (FACTS.READS). A reference to a name that a kind binds is not
+   * here. The roots that a kind declares in `reads` are here too, each one at the place of its document.
+   */
   readonly reads: readonly StaticRead[];
   /** `"run"` when one kind of the document is on the run side (FACTS.SIDE). */
   readonly side: Side;
@@ -146,7 +150,8 @@ function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean
  * by the contracts of its kinds:
  *
  * - `reads`: each free reference, with the root and the keys of its path. A read under a lazy part has the mark
- *   `lazy`, for example a read in a branch of `if`. A read after a step document has `exact: false`.
+ *   `lazy`, for example a read in a branch of `if`. A read after a step document has `exact: false`. A kind that
+ *   declares `reads` adds a read of each of its roots at each document of the kind.
  * - `side` and `effects`: from the contract of each kind.
  * - `pure`: each kind declares `pure`, and the document has no effect and is not volatile.
  * - `volatile`: a kind, an operation or a step document declares `volatile`, or the host marks a read.
@@ -200,13 +205,22 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
       }
       const code = codeOf(world, v.declared ? undefined : v.doc.own, kind, verb, "eval");
       const answer = code.name === undefined ? undefined : hook?.(v.typePath ?? [], code.name);
+      let roots: readonly Root[] | undefined;
       if (code.described) {
         note(answer?.pure ?? kind.pure, answer?.volatile ?? kind.volatile);
         above.set(v, { lazy, rules: answer?.lazy ?? kind.lazy });
+        roots = answer?.reads ?? kind.reads;
       } else {
         // The contract of the kind does not describe this code. Only the hook can.
         note(answer?.pure, answer?.volatile);
         above.set(v, { lazy, rules: answer?.lazy ?? EACH });
+        roots = answer?.reads;
+      }
+      // The code of the kind resolves each of these roots as a whole, at the place of its document (FACTS.KIND-READS).
+      for (const root of roots ?? NONE) {
+        const read: StaticRead = { root, keys: NONE, exact: true, lazy, address: false, path: [root], place: tight(v.place), at: tight(v.at) };
+        reads.push(read);
+        if (options.volatile?.(read) === true) volatile = true;
       }
       if (kind.side === "run") side = "run";
       // check and effectsOf read the declared effects with the same function (D27).

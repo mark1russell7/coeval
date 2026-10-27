@@ -913,6 +913,8 @@ class Session implements Runtime {
     const free = isFree(reading.root, ctx, path);
     // A kind that sets another self can give the old self on, as the parent of a node of a tree does (READS.KEPT).
     if (!free && path[0] === "self" && !reading.self) this.keep(reading, ["self"]);
+    // A free read of the whole root self already holds what a kept read of self holds, as the root of a tree reads it.
+    else if (free && path.length === 1 && path[0] === "self") reading.self = true;
     let found: Resolution;
     try {
       found = this.find(ctx, path, compiled, hops);

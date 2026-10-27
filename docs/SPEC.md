@@ -130,6 +130,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | TREE.FOLD | An attribute that its kind declares with a `fold` starts from the `unit`. The term `combine` then adds the attribute of each node in the list `children`, with the names `acc` and `item`. A value in the list that is not a node does not count. A node without children gives the unit. A child without an answer gives `#N/A`. |
 | TREE.DOWN-NAMES | `check` examines the equations of each kind one time, each with the names of its rung. The names `child`, `index` and `prev` exist only in `down`. `check` finds an effect in an equation. Each issue has the place of the first document of the kind, and its reason names the equation. |
 | TREE.PLAN | The equations of a kind compile one time for each machine, through a cached planner. The plan of a document does not keep them, and a new plan uses the same compiled equations. |
+| TREE.SELF | A node of a tree reads `self` only through `resolve` (C4), in the plan and in the reference. The read is in the list of reads, and `factsOf` gives it. A closed node does not fold. A machine that closes the root `self` makes each node the root of a new tree. |
 
 ## Evaluation and plans
 
@@ -282,6 +283,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | ID | Rule |
 | --- | --- |
 | FACTS.READS | Each free reference from a root is a read. A read has its root, its keys up to the first step document, its place and its JSON path. A read after a step document is not exact. A reference in an address position is an address. |
+| FACTS.KIND-READS | A kind can declare in `reads` the roots that its code resolves as a whole. Each document of the kind then has an exact read of each root, with the path of the root alone, at its own place. The hook `facts` can give the roots too. |
 | FACTS.LAZY | A lazy rule of a kind names the parts that an evaluation can skip and still give a value. A read under a lazy part is lazy. An eager read evaluates in each evaluation in which each document around it gives a value. Each part of a document with an own entry for another evaluator is lazy. |
 | FACTS.SIDE | The side of a document is `run` when one kind in it is on the run side. Else the side is `derive`. |
 | FACTS.EFFECTS | The effects are the kinds of effects that the contracts declare, each one time, in the order of the document. The effects `"type"` of a kind give the type of the document. |
@@ -301,12 +303,12 @@ An evaluation can record its reads. `verifyReads` tells if an old result stays v
 | READS.RECORD | `evaluate`, `plan.evaluate`, `run` and `plan.run` take a list `reads`. The list gets each resolution: the path, what it reached and the mark `free`. An exception of the host gives the error value of the read. A reference through a name that holds an error reads that name. Without the list, an evaluation records nothing and gives the same result. |
 | READS.ORDER | The reads are in the order of the resolutions. The step documents of a path evaluate first, thus their reads come before the read of the path. |
 | READS.FREE | A read is free when it reads the context at the root of the evaluation. A name that a kind binds, a `self` that a kind sets and a path without a root are not free. `verifyReads` skips each read that is not free. |
-| READS.KEPT | A value that keeps the context adds a read of each whole root, one time in an evaluation. A closure of `fn` keeps the context. The first read of a `self` that a kind sets adds a read of the root `self`, because a node of a tree gives that `self` as its parent. |
+| READS.KEPT | A value that keeps the context adds a read of each whole root, one time in an evaluation. A closure of `fn` keeps the context. The first read of a `self` that a kind sets adds a read of the root `self`, because the kind can give the old `self` on. An earlier free read of the whole root `self` takes its place. |
 | READS.VERIFY | `verifyReads` takes a machine or a plan, the reads and a new context. It resolves each free read again, and it compares the two answers with `sameResult`. The rule `equal` of the host answers first. When each read is the same, the old result stays valid. Code that asks for the hops gets them in its read, and the verification compares each hop. A longer path through a name that holds an error in the new context is changed. |
 | READS.CHANGED | When a read is not the same, `verifyReads` gives the first such read, its index and what its path reaches in the new context. It does not resolve the later reads. |
 | READS.LAZY | A part that the evaluation skips has no reads, for example the branch of `if` that the test did not select. A change that only such a part reads keeps the old result. |
 | READS.DATA | A reference in the data that a resolution follows is a part of one read (DEREF.COLLAPSE), as `factsOf` counts it. A change of its target changes that read. |
-| READS.SOUND | For the generated documents of six machines, the test changes the context at random. When each free read of a pure document is the same, a new evaluation gives the same result by `sameResult`. A list without the kept reads gives stale results of trees, and the test finds them. |
+| READS.SOUND | For the generated documents of six machines, the test changes the context at random. When each free read of a pure document is the same, a new evaluation gives the same result by `sameResult`. A list without the reads of whole roots gives stale results of trees, and the test finds them. |
 | READS.SUBSET | Each free read of an evaluation has a static read of `factsOf` with the same root, and the keys of the static read start its path. A kept read, the read of a name that holds an error and a name that a kind binds to the value of the context are the exceptions. |
 
 ## Two levels of durability

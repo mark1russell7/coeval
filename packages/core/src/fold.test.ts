@@ -7,6 +7,7 @@ import {
   type Machine,
   type Random,
   type Read,
+  STD_MACHINE,
   agree,
   fail,
   formulaDefinitions,
@@ -163,6 +164,19 @@ describe("the fold of a closed pure part", () => {
     const plan = prepare(machine, { type: "who", value: null });
     expect(plan.evaluate(makeContext({}, [], "me"))).toEqual({ ok: true, value: "me" });
     expect(plan.evaluate(makeContext())).toEqual({ ok: true, value: "nobody" });
+  });
+
+  it("[PLAN.FOLD] a closed node of a tree does not fold, because its result depends on the self of its context (TREE.SELF)", () => {
+    // The box reads nothing outside itself. In the open tree of the panel, it gives its node, and the panel reads its parent.
+    const box: Json = { type: "box", value: { width: 1 } };
+    const doc: Json = { type: "panel", value: { width: 2, height: ref("self", "children", 0, "parent", "width"), children: { type: "list", value: [box] } } };
+    const expected = { ok: true, value: { width: 2, height: 2, children: [{ width: 1 }] } };
+    expect(prepare(STD_MACHINE, doc).evaluate()).toEqual(expected);
+    expect(prepare(STD_MACHINE, doc, { fold: false }).evaluate()).toEqual(expected);
+    // The node resolves self, and the probe of the fold refuses that read. Thus each evaluation reads the self again.
+    const reads: Read[] = [];
+    expect(prepare(STD_MACHINE, box).evaluate(makeContext(), { reads })).toEqual({ ok: true, value: { width: 1 } });
+    expect(reads.map((read) => read.path)).toEqual([["self"]]);
   });
 
   it("[PLAN.FOLD] a closure of fn does not fold, and a plan with a trace or with the option fold: false has no folds", () => {
