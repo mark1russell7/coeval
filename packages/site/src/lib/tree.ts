@@ -44,8 +44,11 @@ export const MOVES: readonly TreeMove[] = [
   { id: "nearest panel", path: [{ type: "nearest", value: { type: "panel" } }] },
 ];
 
-/** The key of the attribute of the focus that holds the reference of a move. */
-const GOAL = "goal";
+/**
+ * The key of the attribute of the focus that holds the reference of a move. A tree kind evaluates only its fields,
+ * thus the reference uses the field `height`. No node of the example reads it.
+ */
+const GOAL = "height";
 
 /** The example tree as a document, and the ID of the node at each place of the document. */
 export interface TreeDoc {
@@ -57,8 +60,8 @@ export interface TreeDoc {
 }
 
 /**
- * This function builds the example tree as documents of the kinds `panel` and `box`. The focus gets one more
- * attribute: a reference with the path of the move from `self`.
+ * This function builds the example tree as documents of the kinds `panel` and `box`. The attribute `height` of the
+ * focus is a reference with the path of the move from `self`.
  *
  * @param focus - The ID of the focus node.
  * @param path - The steps of the path after `self`.

@@ -13,7 +13,7 @@ describe("the example tree as documents", () => {
     expect(places.get("")).toBe("page");
     expect(places.get("children/1")).toBe("list");
     expect(places.get("children/1/children/1")).toBe("b");
-    expect(goal).toEqual(["children", "1", "children", "1", "goal"]);
+    expect(goal).toEqual(["children", "1", "children", "1", "height"]);
   });
 });
 
