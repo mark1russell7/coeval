@@ -135,6 +135,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K146 | A check of a syntax profile that finds a call name that a form hides, and a pattern that a name matches. Today `print` refuses such a document at its place. From C15. | later | C15 |
 | K147 | The place of a node from a hop: a hop of a resolution gives a thing but no place in the document. An export, for example placeOf(thing), lets a view put each hop on its card. Found by C9. | later | |
 | K148 | One hop for each parent step of nearest: the walker gives one hop for the whole walk today. An option records each node on the way. Found by C9. | later | |
+| K149 | The tree node reads `self` through `resolve`, and not directly (C4). Then the list of reads and the static facts hold the read, and `verifyReads` finds a changed `self`. A kind declares such reads in `reads` (D44). | done (2026-10-26) | |
 | K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |

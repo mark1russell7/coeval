@@ -634,10 +634,13 @@ function plainValue(value: unknown, open: readonly object[]): Result {
 
 /**
  * TREE.LAZY, TREE.PARENT, TREE.SIBLING and TREE.ERROR: a node of an open tree gives its thing, and the root of a new
- * tree gives its JSON. A step on the thing reads an attribute, and a failed attribute throws its own error.
+ * tree gives its JSON. A step on the thing reads an attribute, and a failed attribute throws its own error. The node
+ * reads `self` only through `resolve` (C4, TREE.SELF).
  */
-const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath }) => {
-  const outer = refNodeOf(context.self);
+const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath, resolve: walk }) => {
+  const reached = walk(["self"]);
+  const parent: Thing | undefined = reached.ok ? reached.thing : undefined;
+  const outer = refNodeOf(parent);
   const nested = outer !== undefined && outer.tree.open;
   const found = machine === undefined || typePath.length === 0 ? undefined : lookupKind(machine.world, typePath);
   const contract = found?.ok === true ? found.kind.tree : undefined;
@@ -661,7 +664,7 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath
     type: kind,
     label: `node ${kind}`,
     deref: (key): Thing | undefined => {
-      if (key === "parent") return context.self;
+      if (key === "parent") return parent;
       if (key === "type") return kind;
       const result = attributeOf(node, String(key));
       if (result === undefined || result.ok) return result?.ok === true ? result.value : undefined;

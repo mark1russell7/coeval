@@ -71,6 +71,8 @@ export const STD_WORLD: World = {
       // A node that nothing reads keeps its attributes without an evaluation (TREE.LAZY).
       pure: true,
       lazy: [{}],
+      // The code resolves self to find an open tree and the parent (C4, D44).
+      reads: ["self"],
       summary: "A node of a tree. Each part is an attribute that evaluates on demand, one time, with the node as self.",
     },
     box: {
@@ -79,6 +81,7 @@ export const STD_WORLD: World = {
       caps: [{ rule: "mask" }],
       pure: true,
       lazy: [{}],
+      reads: ["self"],
       summary: "A node of a tree, as panel. A formula in a box can read its parent and its siblings.",
     },
     math: {
@@ -396,11 +399,12 @@ function plainOf(value: unknown, path: Set<object>): Result {
  * step `type` gives its type. Another step reads an attribute through its ladder (TREE.LADDER). The rungs are a part of
  * the node, an equation of its kind and an equation `down` of the kind of its parent. A copy from the parent, then a
  * fold or a default, come last. A failed attribute throws `Failure` with its own error, thus a reference to it gives that error.
+ * The argument `outer` is the self of the context, that `treeNode` resolved. The node reads no root of the context directly (C4).
  */
-function treeThing(input: EvalInput, build: TreeBuild): HostThing {
+function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined): HostThing {
   const { parts, context, kind: type, place, machine } = input;
   const { tree, of } = contractOf(machine, input.typePath);
-  const above = stateOf(context.self);
+  const above = stateOf(outer);
   // Only a node of the same tree is a parent for the rungs `parent` and `copy`.
   const up = above !== undefined && above.build === build ? above : undefined;
   const cells = new Map<string, Cell>();
@@ -522,7 +526,7 @@ function treeThing(input: EvalInput, build: TreeBuild): HostThing {
     type,
     label: `node ${type}`,
     deref(key: Key): Thing | undefined {
-      if (key === "parent") return context.self;
+      if (key === "parent") return outer;
       if (key === "type") return type;
       const result = read(String(key));
       if (result === undefined) return undefined;
@@ -556,15 +560,24 @@ export function attributeTrace(node: Thing, attribute: string): AttributeTrace |
   return stateOf(node)?.trace(attribute);
 }
 
+/** The path of the root `self`. A node of the tree resolves it, thus the list of reads holds the read (C4). */
+const SELF_PATH: readonly Json[] = /* @__PURE__ */ Object.freeze(["self"]);
+
+/** The options of the resolution of `self`: the node needs no hops. */
+const NO_HOPS = /* @__PURE__ */ Object.freeze({ hops: false });
+
 /**
  * This function evaluates a node of the decorated tree. Inside an attribute of an open tree, the node gives its host
- * thing, and no attribute evaluates. Else the node is the root of a new tree, and it gives the JSON of the tree.
+ * thing, and no attribute evaluates. Else the node is the root of a new tree, and it gives the JSON of the tree. The
+ * node reads `self` through `resolve` (C4, D44). A machine that closes the root `self` thus gives no nested trees.
  */
 function treeNode(input: EvalInput): Result {
-  const above = stateOf(input.context.self);
-  if (above !== undefined && above.build.open) return ok(treeThing(input, above.build));
+  const found = input.resolve(SELF_PATH, NO_HOPS);
+  const outer = found.ok ? found.thing : undefined;
+  const above = stateOf(outer);
+  if (above !== undefined && above.build.open) return ok(treeThing(input, above.build, outer));
   const build: TreeBuild = { open: true };
-  const root = treeThing(input, build);
+  const root = treeThing(input, build, outer);
   try {
     return (stateOf(root) as NodeState).json(new Set());
   } finally {

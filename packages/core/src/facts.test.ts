@@ -551,8 +551,9 @@ describe("factsOf", () => {
     expect(lazyOf(machine, { type: "fn", value: { params: ["x"], body: { type: ["ops", "add"], value: [ref("names", "x"), ref("names", "y")] } } })).toEqual([["y", true]]);
     expect(lazyOf(machine, { type: ["ops", "ifError"], value: [ref("names", "p"), ref("names", "q")] })).toEqual([["p", true], ["q", true]]);
     expect(lazyOf(machine, { type: ["ops", "add"], value: [ref("names", "p"), ref("names", "q")] })).toEqual([["p", false], ["q", false]]);
-    // Each attribute of a node evaluates on demand (TREE.LAZY). The first part of pure is the only part that it evaluates.
-    expect(lazyOf(STD_MACHINE, { type: "panel", value: { width: ref("self", "a") } })).toEqual([["a", true]]);
+    // Each attribute of a node evaluates on demand (TREE.LAZY). The node itself reads the root self (FACTS.KIND-READS).
+    // The first part of pure is the only part that it evaluates.
+    expect(lazyOf(STD_MACHINE, { type: "panel", value: { width: ref("self", "a") } })).toEqual([["", false], ["a", true]]);
     expect(lazyOf(STD_MACHINE, { type: "pure", value: [ref("names", "p"), ref("names", "q")] })).toEqual([["p", false], ["q", true]]);
     // A rule after counts only the parts that its patterns match.
     const counted: Machine = {
@@ -631,6 +632,24 @@ describe("factsOf", () => {
     expect(mergeMachines({ facts: first }, { facts: first }).facts).toBe(first);
     // The hook can answer for the evaluator of an own entry.
     expect(factsOf(merged, { type: "y", own: { eval: "a" }, value: null }).pure).toBe(true);
+  });
+
+  it("[FACTS.KIND-READS] a kind declares the roots that its code resolves as a whole, and each document of the kind reads them", () => {
+    // Each node of a tree resolves self (TREE.SELF). The read has the place of the node, and the lazy mark of its way.
+    const tree = { type: "panel", value: { width: 1, children: { type: "list", value: [{ type: "box", value: { width: 2 } }] } } };
+    const facts = factsOf(STD_MACHINE, tree);
+    expect(facts.pure).toBe(true);
+    expect(facts.reads.map((read) => [read.root, read.keys, read.exact, read.lazy, read.path, read.place])).toEqual([
+      ["self", [], true, false, ["self"], []],
+      ["self", [], true, true, ["self"], ["children", 0]],
+    ]);
+    // The hook can give the roots for a name, and the contract does not describe the code of an own entry.
+    const kinds = { peek: { verbs: { eval: "peek" }, pure: true, reads: ["event" as const] } };
+    const peeker: Machine = { world: { kinds, defaults: {} }, evaluators: { peek: () => ok(1), other: () => ok(2) }, facts: (_path, code) => (code === "other" ? { reads: ["names"] } : undefined) };
+    expect(factsOf(peeker, { type: "peek", value: null }).reads).toMatchObject([{ root: "event", keys: [], exact: true, place: [] }]);
+    expect(factsOf(peeker, { type: "peek", own: { eval: "other" }, value: null }).reads).toMatchObject([{ root: "names", keys: [] }]);
+    // A host marks a declared read volatile, as a reference.
+    expect(factsOf(peeker, { type: "peek", value: null }, { volatile: (read) => read.root === "event" }).volatile).toBe(true);
   });
 
   it("[FACTS.VERB] the option verb names the verb whose code the facts describe, and only the hook describes the code of another verb", () => {

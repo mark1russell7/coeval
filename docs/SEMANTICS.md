@@ -531,16 +531,16 @@ F-EXT-DOMAIN  [EXT.DOMAIN]
 
 ### The decorated tree
 
-The evaluator `tree.node` of the kinds `panel` and `box` gives the decorated tree of D16. Each node `ν` is a host thing, and each part `qa` is an attribute `a`. Each node keeps one cell `state(ν, a)` for each attribute, for one evaluation.
+The evaluator `tree.node` of the kinds `panel` and `box` gives the decorated tree of D16. Each node `ν` is a host thing, and each part `qa` is an attribute `a`. Each node keeps one cell `state(ν, a)` for each attribute, for one evaluation. The node reads `Γ.self` only through `resolve` (C4, D44). Thus the list of reads and the static facts hold the read of `self`.
 
 ```text
-T-NODE  [TREE.LAZY, TREE.RESULT, TREE.PURE]
-    Γ.self is a node of an open tree        ⇒  F(tree.node) = ok(ν), and no attribute evaluates
+T-NODE  [TREE.LAZY, TREE.RESULT, TREE.PURE, TREE.SELF]
+    resolve(self) gives a node of an open tree  ⇒  F(tree.node) = ok(ν), and no attribute evaluates
     else                                    ⇒  ν is the root of a new tree, and F(tree.node) = json(ν)
     json(ν) gives each attribute in the order of the parts, with the JSON of each node in a value
 
 T-STEP  [TREE.PARENT, TREE.SIBLING]
-    step(ν, parent) = Γ.self        step(ν, type) = the kind of ν        step(ν, a) = demand(ν, a)
+    step(ν, parent) = resolve(self)        step(ν, type) = the kind of ν        step(ν, a) = demand(ν, a)
 
 T-DEMAND  [TREE.ONCE, TREE.MEMO, TREE.ORDER-FREE]
     state(ν, a) = done(r)        ⇒  demand(ν, a) = r
@@ -703,7 +703,7 @@ The soundness claims hold for a machine whose host code keeps these obligations.
 | C1 | Each context that an evaluator gives a part has only capabilities that the context of its document permits. | The kernel: H-CONTEXT for function code, and H-GRANT for compiled code since K91 (D32). A context that compiled code keeps from an earlier call escapes H-GRANT (K120). | CAP.NARROW, CAP.NARROW-CODE, CAP.EFFECTS-SOUND, PLAN.AGREES |
 | C2 | The code causes only the effects that its contract declares. | The author. An own entry for another evaluator has no contract (K64). | CAP.EFFECTS-SOUND, STATIC.AGREES |
 | C3 | Each part that no lazy rule covers evaluates in each evaluation that gives a value. | The author | FACTS.LAZY |
-| C4 | A kind with the mark `pure` reads the context only through `resolve`, and it causes no effect. | The author. The probe of a fold refuses a direct read of `self`, `event` and `names` (D43). | FACTS.SOUND, READS.SOUND, PLAN.FOLD |
+| C4 | A kind with the mark `pure` reads the context only through `resolve`, and it causes no effect. | The author. The probe of a fold refuses a direct read of `self`, `event` and `names` (D43). The tree node keeps C4 since K149 (D44). | FACTS.SOUND, READS.SOUND, PLAN.FOLD |
 | C5 | The code reads its parts only through their handles, not through `doc.value`. | The author | EVAL.SEALED |
 | C6 | Only a runner waits, and it passes each wait of its parts through. | The author (K65) | RUN.CAN-WAIT |
 | C7 | The names that the code binds for a part are the names of the scope rules of its kind. | The author | STATIC.AGREES, TYPE.SOUND |

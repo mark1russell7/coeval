@@ -1,19 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
   STD_CAPS,
+  STD_DEFINITIONS,
   STD_MACHINE,
   agree,
   attributeTrace,
   check,
   evaluate,
   fail,
+  isHostThing,
   makeContext,
   ok,
   prepare,
+  reference,
+  verifyReads,
+  type EvalFn,
   type Evaluator,
   type Json,
   type Kind,
   type Machine,
+  type Plan,
+  type Read,
   type Result,
   type Thing,
   type TreeContract,
@@ -26,6 +33,8 @@ const treeKind = (tree?: TreeContract): Kind => ({
   caps: [{ rule: "mask" }],
   pure: true,
   lazy: [{}],
+  // The code of a node resolves self, as the standard kinds declare (D44).
+  reads: ["self"],
   ...(tree === undefined ? {} : { tree }),
 });
 
@@ -191,5 +200,79 @@ describe("the ladder of an attribute", () => {
     expect(plan.evaluate().ok).toBe(true);
     expect(prepare(machine, node("top", { children: list(leaf) })).evaluate().ok).toBe(true);
     expect(compiles).toBe(1);
+  });
+});
+
+describe("the reads of a node of a tree (K149)", () => {
+  /**
+   * This function wraps the code of a node. The code gets a context whose self is a trap, and each direct read of the
+   * trap counts. A resolution through `resolve` still reaches the real self.
+   */
+  const trapped =
+    (base: EvalFn, direct: string[]): EvalFn =>
+    (input) => {
+      const count = (what: string): undefined => {
+        direct.push(what);
+        return undefined;
+      };
+      const trap = new Proxy(
+        {},
+        {
+          get: (_target, key) => count(String(key)),
+          has: (_target, key) => (count(String(key)), false),
+          ownKeys: () => (count("keys"), []),
+          getPrototypeOf: () => (count("prototype"), null),
+        },
+      );
+      return base({ ...input, context: { ...input.context, self: trap } });
+    };
+  const doc = node("panel", {
+    width: 10,
+    children: list(node("box", { width: path("self", "parent", "width") }), node("box", { width: path("self", "parent", "children", 0, "width") })),
+  });
+  const expected = ok({ width: 10, children: [{ width: 10 }, { width: 10 }] });
+
+  it("[TREE.SELF] a node reads self only through resolve (C4), in the plan and in the reference", () => {
+    const direct: string[] = [];
+    const machine = withKinds({}, { "tree.node": trapped(STD_MACHINE.evaluators["tree.node"] as EvalFn, direct) });
+    expect(prepare(machine, doc).evaluate()).toEqual(expected);
+    const definition = STD_DEFINITIONS.evaluators?.["tree.node"] as EvalFn;
+    expect(reference(STD_MACHINE, doc, makeContext(), { definitions: { evaluators: { "tree.node": trapped(definition, direct) } } })).toEqual(expected);
+    expect(direct).toEqual([]);
+    // The list of reads holds the read of the root self, thus a change of self is visible (READS.SOUND).
+    const reads: Read[] = [];
+    expect(prepare(STD_MACHINE, doc).evaluate(makeContext(), { reads })).toEqual(expected);
+    expect(reads[0]).toMatchObject({ path: ["self"], free: true });
+  });
+
+  it("[TREE.SELF] a nested evaluation inside an open tree records the read of self, thus verifyReads sees another self", () => {
+    const inner: Read[] = [];
+    let plan: Plan | undefined;
+    let first: Result | undefined;
+    const machine = withKinds(
+      { top: treeKind(), again: { verbs: { eval: "test.again" } } },
+      {
+        "test.again": ({ context }) => {
+          plan = prepare(STD_MACHINE, node("box", { width: 1 }));
+          first = plan.evaluate(context, { reads: inner });
+          return ok(0);
+        },
+      },
+    );
+    expect(prepare(machine, node("top", { probe: { type: "again", value: null } })).evaluate()).toEqual(ok({ probe: 0 }));
+    // The self of the nested evaluation is a node of an open tree, thus the box is a node of that tree.
+    expect(first?.ok === true && isHostThing(first.value)).toBe(true);
+    // Before K149, the list was empty, and verifyReads kept the old result for another self.
+    expect(inner.map((read) => [read.path, read.free])).toEqual([[["self"], true]]);
+    expect(verifyReads(plan as Plan, inner, makeContext()).same).toBe(false);
+    expect(plan?.evaluate(makeContext())).toEqual(ok({ width: 1 }));
+  });
+
+  it("[TREE.SELF] a machine that closes the root self still gives the JSON of each tree, in the plan and in the reference", () => {
+    // Each node is then the root of a new tree. No path reaches a node, thus the JSON stays the same.
+    const closed: Machine = { ...STD_MACHINE, roots: ["names", "world"] };
+    const flat = node("panel", { width: 1, children: list(node("box", { width: 2 })) });
+    expect(prepare(closed, flat).evaluate()).toEqual(ok({ width: 1, children: [{ width: 2 }] }));
+    expect(agreed(closed, flat)).toEqual(ok({ width: 1, children: [{ width: 2 }] }));
   });
 });

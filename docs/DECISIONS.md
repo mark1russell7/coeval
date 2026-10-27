@@ -1064,8 +1064,33 @@ Attribute grammars give equations on the kinds and a ladder of defaults. L2b tak
 - A new copy of the folded value at each evaluation. The copy costs as much as the evaluation, thus the fold gains nothing.
 - A new field of the contract for the fold. D24 already has the fact `pure`, and `factsOf` reads it. A second mark can disagree with the first.
 - A fold of only the parts that each evaluation reaches. A part in a lazy branch, for example a branch of `if`, then does not fold.
-- A static test of purity only, without the probe. A kind can read its context outside `resolve`, as the tree node reads `self`. The probe finds this, and the fold does not happen.
+- A static test of purity only, without the probe. A kind can read its context outside `resolve`, as the tree node read `self` before K149. The probe finds this, and the fold does not happen.
 
 **Why.** A closed pure part has one result in each context, thus one evaluation is sufficient. In strict code, a change in place of a frozen value is an error, and not a silent change of later results. The probe is a safety net for code that does not keep C4.
 
 **Limits.** A part in a branch that no evaluation takes still evaluates one time, when the plan compiles. A slow or endless pure operation there makes the compilation slow or endless. A pure operation can give a host function, and a call of it can then read the context. The plan then does not fold the call, because the function is not plain data. A result that is not plain data, for example a host thing or an instance of a class, does not fold.
+
+## D44 (2026-10-26): the tree node resolves `self`, and a kind declares the roots that its code resolves as a whole
+
+**Context.** The kinds `panel` and `box` have the mark `pure`, but their code `tree.node` read `context.self` directly. This breaks C4. The list of reads did not hold the read, thus `verifyReads` found no change of `self`. A nested evaluation inside an open tree then got a stale result: a node in place of the JSON of a new tree. The static facts of D24 hold only the reads of references. Thus a resolution of `self` by the code of a kind has no covering static read, and FACTS.SOUND fails.
+
+**Decision.**
+
+- The tree node resolves the path `["self"]` through `resolve`, without hops, in the plan and in the reference (TREE.SELF). It reads no root of the context directly.
+- The contract of a kind gets the optional field `reads`: the roots that its code resolves as a whole. The hook `facts` can give the roots too, and its answer wins.
+- `factsOf` gives an exact read of each declared root at the place of each document of the kind (FACTS.KIND-READS). The path of the read is the root alone. The lazy mark of the way applies.
+- `panel` and `box` declare `reads: ["self"]`. They stay pure.
+- A free read of the whole root `self` takes the place of a kept read of `self` in the list of reads (READS.KEPT).
+- A machine that closes the root `self` makes each node the root of a new tree. The JSON of each tree stays the same.
+- A tree still does not fold. The probe of D43 refuses the resolution of `self`, as its trap refused the direct read before.
+
+**Rejected.**
+
+- Removal of the mark `pure` from `panel` and `box`. Each document with a tree is then not pure, and a durable host does not use its result again. The checks of C4 and READS.SOUND then do not examine trees.
+- A separate channel for the open tree, in place of `self`. The parent step of a node gives `self`, thus the node reads `self` in each case.
+- A hook `facts` on `STD_MACHINE` for `tree.node`. Each machine that uses the standard kinds without that hook then gives facts without the read. The contract goes with the kind.
+- A kept read of `self` next to the free read of `self`. The two reads hold the same path, thus the second read adds nothing.
+
+**Why.** A read through `resolve` goes into the list of reads, into the static facts and into the checks of the probe. Thus the existing proofs of reads and facts cover the tree with no special rule.
+
+**Limits.** Each evaluation of a tree records a read of the whole root `self`. A durable host then verifies or evaluates a tree again after each change of `self`, also of a field that the tree does not read.

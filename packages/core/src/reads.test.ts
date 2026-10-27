@@ -427,8 +427,9 @@ describe("the reads of generated documents", () => {
     expect(total("touched")).toBeGreaterThan(0);
     expect(total("kept")).toBeGreaterThan(0);
     expect(total("inner")).toBeGreaterThan(0);
-    // A list without the reads that the kernel adds keeps stale results of trees, and the harness finds them.
-    expect(harness(CONFIGS[1] as Config, (read) => read.kept !== true).stale.length).toBeGreaterThan(0);
+    // A list without the reads of whole roots keeps stale results of trees, and the harness finds them. The root of a
+    // tree reads the whole root self (TREE.SELF), and the kernel adds the kept reads.
+    expect(harness(CONFIGS[1] as Config, (read) => read.path.length > 1).stale.length).toBeGreaterThan(0);
   }, 120_000);
 
   it("[READS.SUBSET] each free read of an evaluation has a static read of factsOf with its root and the start of its path", () => {
@@ -556,20 +557,36 @@ describe("the reads of an evaluation", () => {
       ["v", false],
       ["a", true],
     ]);
-    // A node of a tree is the self of its attributes.
+    // A node of a tree is the self of its attributes. The root of the tree reads the root self itself (TREE.SELF).
     const tree: Read[] = [];
     prepare(STD_MACHINE, { type: "panel", value: { width: 2, height: ref("self", "width") } }).evaluate(context({ self: { width: 9 } }), { reads: tree });
-    expect(tree.filter((read) => read.kept !== true).map((read) => [read.path, read.free])).toEqual([[["self", "width"], false]]);
+    expect(tree.filter((read) => read.kept !== true).map((read) => [read.path, read.free])).toEqual([
+      [["self"], true],
+      [["self", "width"], false],
+    ]);
   });
 
   it("[READS.KEPT] a closure of fn adds a read of each root, and a read of a self that a kind sets adds a read of the root self", () => {
-    // The parent of a node of the tree is the self of the context. Only the kept read sees a change of that self.
+    // A kind that sets another self can give the old self on. The first read of the new self adds a kept read of the root self.
+    // The kind reads its self directly to give it on, thus it does not declare pure (C4).
+    const within: EvalFn = ({ parts, context: ctx }) => parts[0]?.evaluate({ ...ctx, self: { inner: ctx.self } }) ?? ok(null);
+    const kinds = { ...STD_MACHINE.world.kinds, within: { verbs: { eval: "t.within" }, parts: { shape: "list" as const } } };
+    const setter: Machine = { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds }, evaluators: { ...STD_MACHINE.evaluators, "t.within": within } };
+    const kept: Read[] = [];
+    const inner = prepare(setter, { type: "within", value: [ref("self", "inner", "w")] });
+    expect(inner.evaluate(context({ self: { w: 5 } }), { reads: kept })).toEqual({ ok: true, value: 5 });
+    expect(kept.map((read) => [read.path, read.free, read.kept === true])).toEqual([
+      [["self"], true, true],
+      [["self", "inner", "w"], false, false],
+    ]);
+    expect(verifyReads(inner, kept, context({ self: { w: 7 } }))).toMatchObject({ same: false, index: 0, now: { ok: true, value: { w: 7 } } });
+    // The root of a tree reads the root self itself, thus the kernel adds no kept read of self (TREE.SELF).
     const tree: Read[] = [];
     const doc = { type: "panel", value: { width: ref("self", "parent", "w"), height: ref("self", "width") } };
     const plan = prepare(STD_MACHINE, doc);
     expect(plan.evaluate(context({ self: { w: 5 } }), { reads: tree })).toEqual({ ok: true, value: { width: 5, height: 5 } });
     expect(tree.map((read) => [read.path, read.free, read.kept === true])).toEqual([
-      [["self"], true, true],
+      [["self"], true, false],
       [["self", "parent", "w"], false, false],
       [["self", "width"], false, false],
     ]);
