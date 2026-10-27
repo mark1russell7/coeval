@@ -65,6 +65,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | C16 | A page of the site for the syntax kit, with a live diagram: a text box that parses with a profile, the document tree with each issue at its span, and the printed text. From C15. | later | C15 |
 | C17 | The playground (C8) and the structured editor (C11) show and accept the text of `STD_SYNTAX` next to the tree of a document. From C15. | later | C11, C15 |
 | C18 | Machine checks for the decisions. Tests check D2 (no path to the classifier), D7 (no value field on a part), D22 (the domains are on the machine), D29 (no export of `compilePath`) and D32 (a private grant symbol). The audit fixes: references in the sequence diagram name their root, the loop diagram uses the kernel, and the `github:` dependencies have a pinned commit. | done (2026-10-26) | |
+| C19 | The colors of the diagrams keep one meaning: the arrows of the direction diagram and the glyphs of collapse, text and bool get their own tokens in `diagrams.css`. The moves tab finds its targets with the kernel, not with a walk of the site. From the audit of C18. | later | C18 |
 
 ## The kernel
 
