@@ -32,7 +32,7 @@ r     ::= ok(u) | err(c, ρ?)                        a result: a value, or an er
 
 σ     ::= none | term | list | map | record | deep | text | number | one   a shape
 γ     ::= same(in?) | mask(in?) | only(caps, in?)   a capability rule (D14)
-κ     ::= {verbs: β ⇀ n, parts: σ, scope, caps: [γ, …], side, effects, pure, lazy}          a kind and its contract
+κ     ::= {verbs: β ⇀ n, parts: σ, scope, caps: [γ, …], side, effects, pure, lazy, tree}    a kind and its contract
 e     ::= κ | ns({s: e, …}, κ?) | alias([world, k, …])                      an entry of the world
 W     ::= {kinds: {s: e, …}, defaults: β ⇀ n, fallback: κ?}                a world
 M     ::= {W, E: n ⇀ code, R: n ⇀ code, derefs, walkers, permits?, maxDepth?, plain?, roots?, adopt?}
@@ -544,7 +544,7 @@ T-STEP  [TREE.PARENT, TREE.SIBLING]
 
 T-DEMAND  [TREE.ONCE, TREE.MEMO, TREE.ORDER-FREE]
     state(ν, a) = done(r)        ⇒  demand(ν, a) = r
-    state(ν, a) = new            ⇒  state(ν, a) := pending, r = qa(Γ with self = ν),
+    state(ν, a) = new            ⇒  state(ν, a) := pending, r = rungs(ν, a),
                                     state(ν, a) := done(r), and demand(ν, a) = r
 
 T-CYCLE  [TREE.CYCLE]
@@ -554,6 +554,37 @@ T-CYCLE  [TREE.CYCLE]
 T-ERROR  [TREE.ERROR]
     demand(ν, a) = err(e) in a step        ⇒  the reference gives e, with its code, reason, place and cause
 ```
+
+The contract `κ.tree` of a kind gives equations (D42). `κ.tree.equations(a)` gives the attribute `a` of a node of the kind. `κ.tree.down(a)` gives the attribute `a` of each child. `κ.tree.attributes(a)` declares `copy`, a `fold` or a `default`. In these rules, `μ` is the parent of `ν` in the same tree, and `κν` is the kind of `ν`. `eq(ν, t, N)` evaluates the term `t` with `self = ν`, the names `N` and no capabilities. `rungs(ν, a)` takes the first rule that applies, in this order.
+
+```text
+T-LADDER  [TREE.LADDER, TREE.RUNGS]
+    qa is a part of ν                       ⇒  rungs(ν, a) = qa(Γ with self = ν)                  own
+    κν.tree.equations(a) = t                ⇒  rungs(ν, a) = eq(ν, t, {})                         kind
+    κμ.tree.down(a) = t                     ⇒  rungs(ν, a) = eq(μ, t, names(μ, ν))                parent
+    κν.tree.attributes(a) declares copy     ⇒  rungs(ν, a) = demand(μ, a)                         copy
+    κν.tree.attributes(a) declares a fold   ⇒  rungs(ν, a) = fold(ν, a)                           default
+    κν.tree.attributes(a).default = t       ⇒  rungs(ν, a) = eq(ν, t, {})                         default
+    else                                    ⇒  rungs(ν, a) = err(#N/A)
+    trace(ν, a) gives the rungs that the demand visited, and the rung that answered
+
+T-DOWN  [TREE.DOWN, TREE.DOWN-NAMES]
+    demand(μ, children) = ok([u0, …, un])
+    names(μ, ν) = {child: ν, index: i, prev: ui-1}        when ui = ν, with prev = null when i = 0
+    names(μ, ν) = {child: ν, index: null, prev: null}     when ν is no item of the list
+
+T-COPY  [TREE.COPY]
+    ν has no parent μ        ⇒  the rung copy does not apply, and the rung default tries
+
+T-FOLD  [TREE.FOLD]
+    fold(ν, a) = eq(ν, unit, {})                          when ν has no attribute children
+    fold(ν, a) = combine(… combine(eq(ν, unit, {}), demand(ν1, a)) …, demand(νk, a))
+        where ν1 … νk are the nodes of the tree in demand(ν, children), in their order
+        and combine(x, y) = eq(ν, κν.tree.attributes(a).fold.combine, {acc: x, item: y})
+    the first err of the unit, of a child or of combine is the result of the fold
+```
+
+The equations of a kind are not parts of a document. Thus the plan of a document holds none of them, and a cache of the machine keeps each compiled equation (TREE.PLAN).
 
 ## 5. The run side
 

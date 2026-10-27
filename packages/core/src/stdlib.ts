@@ -1,8 +1,21 @@
 import { type Json, type Key, field, isRecord } from "./doc.ts";
-import { type Context, type EvalInput, type Evaluator, type Machine, type Part, type Result, type RunPart, type Runner, type Steps, fail, ok } from "./evaluate.ts";
+import {
+  type EvalInput,
+  type Evaluator,
+  type Machine,
+  type Plan,
+  type Result,
+  type RunPart,
+  type Runner,
+  type Steps,
+  fail,
+  ok,
+  planner,
+} from "./evaluate.ts";
 import { Failure } from "./errors.ts";
-import { type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
+import { type Cap, type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
+import { type AttributeDeclaration, type TreeContract, equationType, lookupKind } from "./world.ts";
 import { STD_DOMAINS } from "./types.ts";
 
 /**
@@ -188,11 +201,57 @@ interface TreeBuild {
   open: boolean;
 }
 
+/** The rungs of the ladder of an attribute, in their order (TREE.LADDER, D42). */
+export type AttributeRung = "own" | "kind" | "parent" | "copy" | "default";
+
+/** The rungs of the ladder of an attribute, in their order (TREE.LADDER, D42). */
+export const ATTRIBUTE_RUNGS: readonly AttributeRung[] = /* @__PURE__ */ Object.freeze(["own", "kind", "parent", "copy", "default"] as const);
+
+/** The record of the demand of one attribute of a node (TREE.RUNGS). */
+export interface AttributeTrace {
+  readonly attribute: string;
+  /** The rungs that the demand visited, in their order. The last one answered, unless no rung answered. */
+  readonly rungs: readonly AttributeRung[];
+  /** The rung that answered. It is `undefined` when no rung answered. */
+  readonly by?: AttributeRung;
+}
+
 /** The state of a node behind its brand. */
 interface NodeState {
   readonly build: TreeBuild;
   readonly type: string;
   readonly place: readonly Key[];
+  /** The tree contract of the kind of the node (D42). */
+  readonly tree: TreeContract | undefined;
+  /**
+   * This function gives an attribute through its ladder (TREE.LADDER).
+   *
+   * @param key - The name of the attribute.
+   * @returns The result, or `undefined` when no rung answers.
+   */
+  read(key: string): Result | undefined;
+  /**
+   * This function evaluates an equation of the kind of the node, with the node as `self` and no capabilities.
+   *
+   * @param term - The equation.
+   * @param names - The names that the equation sees.
+   * @returns The result.
+   */
+  equation(term: Json, names: Readonly<Record<string, unknown>>): Result;
+  /**
+   * This function gives the names of a child for an equation of `down`: `child`, `index` and `prev` (TREE.DOWN).
+   *
+   * @param child - The thing of the child.
+   * @returns The names, or the error of the list `children`.
+   */
+  childNames(child: HostThing): Result;
+  /**
+   * This function gives the record of the demand of an attribute that ended (TREE.RUNGS).
+   *
+   * @param key - The name of the attribute.
+   * @returns The record, or `undefined` before the end of the demand.
+   */
+  trace(key: string): AttributeTrace | undefined;
   /**
    * This function gives the JSON of the node: each attribute in the order of the parts, with the JSON of each node in
    * its value.
@@ -203,8 +262,60 @@ interface NodeState {
   json(path: Set<object>): Result;
 }
 
-/** The memo cell of one attribute: in evaluation, or done with its result. */
-type Cell = { readonly busy: true } | { readonly busy: false; readonly result: Result };
+/**
+ * The memo cell of one attribute: in evaluation, or done with its result and the rung that answered. A done cell
+ * without a result tells that no rung answered.
+ */
+type Cell = { readonly busy: true } | { readonly busy: false; readonly result: Result | undefined; readonly by: AttributeRung | undefined };
+
+/** The capabilities of an equation: none (CAP.PURE). */
+const NO_CAPS: readonly Cap[] = /* @__PURE__ */ Object.freeze([]);
+
+/** The names of an equation of `equations`, of a `unit` and of a `default`. */
+const NO_NAMES: Readonly<Record<string, unknown>> = /* @__PURE__ */ Object.freeze({});
+
+/** The planners of equations, for each machine and each type of a bare equation (TREE.PLAN). */
+const equationPlanners = /* @__PURE__ */ new WeakMap<Machine, Map<string, (doc: unknown) => Plan>>();
+
+/**
+ * This function gives the plan of an equation. Each equation compiles one time for each machine (PLAN.CACHE). The
+ * plan of the document does not keep it (PLAN.LEAN).
+ */
+function equationPlan(machine: Machine, of: string | undefined, term: Json): Plan {
+  let byType = equationPlanners.get(machine);
+  if (byType === undefined) {
+    byType = new Map();
+    equationPlanners.set(machine, byType);
+  }
+  const key = of ?? "";
+  let plans = byType.get(key);
+  if (plans === undefined) {
+    plans = planner(machine, of === undefined ? {} : { declaredType: of });
+    byType.set(key, plans);
+  }
+  return plans(term);
+}
+
+/** This function gives the own entry of a table of a tree contract, or `undefined`. */
+function entryOf<T>(table: Readonly<Record<string, T>> | undefined, key: string): T | undefined {
+  return table !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+/** The contract of the kind of a node: its tree contract and the type of a bare equation. */
+interface NodeContract {
+  readonly tree: TreeContract | undefined;
+  readonly of: string | undefined;
+}
+
+const NO_CONTRACT: NodeContract = /* @__PURE__ */ Object.freeze({ tree: undefined, of: undefined });
+
+/** This function finds the tree contract of the kind of a node in the world of the machine. */
+function contractOf(machine: Machine | undefined, typePath: readonly Key[]): NodeContract {
+  if (machine === undefined || typePath.length === 0) return NO_CONTRACT;
+  const found = lookupKind(machine.world, typePath);
+  if (!found.ok || found.kind.tree === undefined) return NO_CONTRACT;
+  return { tree: found.kind.tree, of: equationType(found.kind) };
+}
 
 const BUSY: Cell = /* @__PURE__ */ Object.freeze({ busy: true });
 
@@ -282,21 +393,71 @@ function plainOf(value: unknown, path: Set<object>): Result {
 
 /**
  * This function makes a node of the decorated tree. A step `parent` gives the self of the context of the node, and a
- * step `type` gives its type. A step with the key of a part reads that attribute. A failed attribute throws `Failure`
- * with its own error, thus a reference to it gives that error.
+ * step `type` gives its type. Another step reads an attribute through its ladder (TREE.LADDER). The rungs are a part of
+ * the node, an equation of its kind and an equation `down` of the kind of its parent. A copy from the parent, then a
+ * fold or a default, come last. A failed attribute throws `Failure` with its own error, thus a reference to it gives that error.
  */
-function treeThing(parts: readonly Part[], context: Context, type: string, place: readonly Key[], build: TreeBuild): HostThing {
+function treeThing(input: EvalInput, build: TreeBuild): HostThing {
+  const { parts, context, kind: type, place, machine } = input;
+  const { tree, of } = contractOf(machine, input.typePath);
+  const above = stateOf(context.self);
+  // Only a node of the same tree is a parent for the rungs `parent` and `copy`.
+  const up = above !== undefined && above.build === build ? above : undefined;
   const cells = new Map<string, Cell>();
+  /** The positions of the items of the list `children`, for the names of the children. */
+  let positions: { readonly list: readonly unknown[]; readonly at: Map<unknown, number> } | undefined;
+
+  const fold = (key: string, declared: NonNullable<AttributeDeclaration["fold"]>): Result => {
+    let acc = state.equation(declared.unit, NO_NAMES);
+    if (!acc.ok) return acc;
+    const children = read("children");
+    if (children === undefined) return acc;
+    if (!children.ok) return children;
+    if (!Array.isArray(children.value)) return fail("#VALUE!", `The fold of ${key} needs a list in children.`);
+    for (const item of children.value as readonly unknown[]) {
+      const child = stateOf(item);
+      // An item that is not a node of this tree does not count.
+      if (child === undefined || child.build !== build) continue;
+      const value = child.read(key);
+      if (value === undefined) return fail("#N/A", `No rung gives ${attributeText(key, child.type, child.place)}.`);
+      if (!value.ok) return value;
+      acc = state.equation(declared.combine, { acc: acc.value, item: value.value });
+      if (!acc.ok) return acc;
+    }
+    return acc;
+  };
+
+  /** This function visits the rungs of the ladder of an attribute in their order, until one answers. */
+  const climb = (key: string): { readonly result: Result; readonly by: AttributeRung } | undefined => {
+    const part = parts.find((item) => item.key === key);
+    if (part !== undefined) return { result: part.evaluate({ ...context, self: node }), by: "own" };
+    const equation = entryOf(tree?.equations, key);
+    if (equation !== undefined) return { result: state.equation(equation, NO_NAMES), by: "kind" };
+    const down = up === undefined ? undefined : entryOf(up.tree?.down, key);
+    if (up !== undefined && down !== undefined) {
+      const names = up.childNames(node);
+      return { result: names.ok ? up.equation(down, names.value as Readonly<Record<string, unknown>>) : names, by: "parent" };
+    }
+    const declared = entryOf(tree?.attributes, key);
+    if (declared?.copy === true && up !== undefined) {
+      const copied = up.read(key);
+      if (copied !== undefined) return { result: copied, by: "copy" };
+    }
+    if (declared?.fold !== undefined) return { result: fold(key, declared.fold), by: "default" };
+    if (declared?.default !== undefined) return { result: state.equation(declared.default, NO_NAMES), by: "default" };
+    return undefined;
+  };
+
   const read = (key: string): Result | undefined => {
     const cell = cells.get(key);
     if (cell !== undefined) return cell.busy ? cycleAt(cells, key, attributeText(key, type, place)) : cell.result;
-    const part = parts.find((item) => item.key === key);
-    if (part === undefined) return undefined;
+    // A node without a contract has only its parts, as before D42. Thus a missing part needs no cell.
+    if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
     cells.set(key, BUSY);
     demands.push({ cells, key, text: attributeText(key, type, place) });
-    let result: Result;
+    let answer: { readonly result: Result; readonly by: AttributeRung } | undefined;
     try {
-      result = part.evaluate({ ...context, self: node });
+      answer = climb(key);
     } catch (error) {
       // An exception of the host, for example an overflow of the stack, leaves the attribute without a result.
       cells.delete(key);
@@ -304,13 +465,40 @@ function treeThing(parts: readonly Part[], context: Context, type: string, place
     } finally {
       demands.pop();
     }
-    cells.set(key, { busy: false, result });
-    return result;
+    cells.set(key, { busy: false, result: answer?.result, by: answer?.by });
+    return answer?.result;
   };
+
   const state: NodeState = {
     build,
     type,
     place,
+    tree,
+    read,
+    equation(term, names) {
+      if (machine === undefined) return fail("#NOEVAL", "The evaluation of an equation needs the machine.");
+      return equationPlan(machine, of, term).evaluate({ ...context, names, caps: NO_CAPS, self: node });
+    },
+    childNames(child) {
+      const children = read("children");
+      if (children !== undefined && !children.ok) return children;
+      const list = children !== undefined && Array.isArray(children.value) ? (children.value as readonly unknown[]) : [];
+      if (positions?.list !== list) {
+        const at = new Map<unknown, number>();
+        list.forEach((item, index) => {
+          if (!at.has(item)) at.set(item, index);
+        });
+        positions = { list, at };
+      }
+      const index = positions.at.get(child);
+      return ok({ child, index: index ?? null, prev: index === undefined || index === 0 ? null : list[index - 1] });
+    },
+    trace(key) {
+      const cell = cells.get(key);
+      if (cell === undefined || cell.busy) return undefined;
+      const rungs = cell.by === undefined ? ATTRIBUTE_RUNGS : ATTRIBUTE_RUNGS.slice(0, ATTRIBUTE_RUNGS.indexOf(cell.by) + 1);
+      return cell.by === undefined ? { attribute: key, rungs } : { attribute: key, rungs, by: cell.by };
+    },
     json(path) {
       path.add(node);
       try {
@@ -343,7 +531,9 @@ function treeThing(parts: readonly Part[], context: Context, type: string, place
     },
     has(key: Key): boolean {
       // DEREF.HOST-UNDEFINED: an attribute with the value undefined is a field, not a missing step.
-      return key === "parent" || key === "type" || parts.some((part) => part.key === String(key));
+      if (key === "parent" || key === "type" || parts.some((part) => part.key === String(key))) return true;
+      const cell = cells.get(String(key));
+      return cell !== undefined && !cell.busy && cell.result !== undefined;
     },
     toJson(): unknown {
       const result = state.json(new Set());
@@ -355,14 +545,26 @@ function treeThing(parts: readonly Part[], context: Context, type: string, place
 }
 
 /**
+ * This function gives the record of the demand of an attribute of a node of the decorated tree (TREE.RUNGS). The
+ * record holds the rungs that the demand visited, and the rung that answered. An explorer draws the ladder with it.
+ *
+ * @param node - The thing of a node.
+ * @param attribute - The name of the attribute.
+ * @returns The record, or `undefined` for a thing that is not a node or an attribute that no demand reached.
+ */
+export function attributeTrace(node: Thing, attribute: string): AttributeTrace | undefined {
+  return stateOf(node)?.trace(attribute);
+}
+
+/**
  * This function evaluates a node of the decorated tree. Inside an attribute of an open tree, the node gives its host
  * thing, and no attribute evaluates. Else the node is the root of a new tree, and it gives the JSON of the tree.
  */
-function treeNode({ parts, context, kind, place }: EvalInput): Result {
-  const above = stateOf(context.self);
-  if (above !== undefined && above.build.open) return ok(treeThing(parts, context, kind, place, above.build));
+function treeNode(input: EvalInput): Result {
+  const above = stateOf(input.context.self);
+  if (above !== undefined && above.build.open) return ok(treeThing(input, above.build));
   const build: TreeBuild = { open: true };
-  const root = treeThing(parts, context, kind, place, build);
+  const root = treeThing(input, build);
   try {
     return (stateOf(root) as NodeState).json(new Set());
   } finally {

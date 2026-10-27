@@ -1008,3 +1008,36 @@ A member of a domain, for example a time, had no shared document at all.
 **Why.** One parser gives one set of tests for the tokenizer, the precedence and the spans. A language writes only its table. The printer and the parser read the same table, thus the round trip holds for each profile.
 
 **Limits.** `parse` stops at the first issue (K144). `STD_SYNTAX` has no text form for `let`, `fn`, `call` and `record` (K145). A literal of a domain has no rule yet (K143).
+
+## D42 (2026-10-26): a kind gives equations in its contract `tree`, and a ladder of five rungs finds each attribute
+
+**Context.** In the decorated tree of D16, each attribute of a node is a part of the node. Thus each document of a layout repeats the same rules in each node. A column and a row cannot place the same child kind in different positions. An inherited value, for example a theme, needs a reference in each level.
+
+Attribute grammars give equations on the kinds and a ladder of defaults. L2b takes them up, from R3 P2.
+
+**Decision.**
+
+- A kind has an optional contract field `tree`, with three tables. `equations` gives the attributes of a node of the kind. `down` gives the attributes of each child. `attributes` declares an attribute with `copy`, a `fold` or a `default`.
+- A step to an attribute visits five rungs in this order: the own part, the kind (`tree.equations`), the parent (`tree.down` of the kind of the parent), the copy, and the default. The first rung that answers gives the attribute (TREE.LADDER).
+- Each equation is a document, also a `unit`, a `combine` and a `default`. A bare value gets the type `of` of the parts of the kind, through `equationType`.
+- An equation evaluates with the node as `self`, without capabilities and without the names of the document. An equation of `down` evaluates with the parent as `self`, and it sees the names `child`, `index` and `prev` (TREE.DOWN).
+- `index` is the position of the child in the list `children` of the parent, by identity. A child outside that list has the index `null`.
+- An attribute declared `copy` gives the full ladder of the same attribute of the parent. A root has no parent, thus its default answers (TREE.COPY).
+- A `fold` starts from its `unit`. Its term `combine` adds the attribute of each node of the tree in `children`, with the names `acc` and `item`. A value that is not a node does not count (TREE.FOLD).
+- When no rung answers, the step gives `#N/A`. The JSON of a node still holds only its parts.
+- The equations of a kind compile one time for each machine and each type, through a cached `planner`. The plan of a document holds none of them, thus PLAN.LEAN (D35) and PLAN.CACHE hold (TREE.PLAN).
+- `check` examines the equations of each kind one time, each with the names of its rung. Each issue gets the place of the first document of the kind, and its reason names the equation (TREE.DOWN-NAMES).
+- `attributeTrace(node, attribute)` gives the rungs that a demand visited and the rung that answered (TREE.RUNGS). The reference interpreter has its own ladder, and `agree` compares both (D15).
+
+**Rejected.**
+
+- A new evaluator `tree.attr`, as R3 P2 proposed. The evaluator `tree.node` of D16 already holds the memo, the cycle chain and the errors. The ladder extends it, and the standard kinds keep their behavior.
+- The declarations in the spec of a tree kit, as R3 P2 proposed. D14 keeps each rule of a kind in the kind, thus the declarations go into the contract of the kind. This answers the open question 4 of R3.
+- A name of an operation in `fold`, as in R3 (`fold.op`). The kernel has no table of operations (D13), thus `combine` is a term.
+- A field `dir` for each attribute. No code reads it before L2d, thus it waits for L2d.
+- `index` and `prev` as structural steps of a node. D16 keeps only `parent` and `type` as steps, thus they are names of `down`.
+- A kernel table `RUNGS` in each result, as the open question 3 of R3 asked. The record of the rungs is a function of the tree kit, and the trace of the kernel stays the same.
+
+**Why.** A kind gives its rules one time, and each document gives only its own values. A column and a row give positions to children of any kind. The ladder has a fixed order, thus a reader knows which rung wins. An equation without capabilities keeps each attribute pure (TREE.PURE), and `check` finds an effect before a run.
+
+**Limits.** An equation evaluates in its own session, thus the record of a traced plan does not show the reads of an equation. The parts of a node still get `unknown` roots for the type pass (K74). Memo cells between evaluations wait for L2c.

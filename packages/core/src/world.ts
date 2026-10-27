@@ -122,6 +122,51 @@ export interface KindFacts {
 }
 
 /**
+ * The declaration of one attribute of the nodes of a kind (D42). The last two rungs of the ladder of an attribute
+ * read it (TREE.LADDER). Each term is a document. A bare term gets the type `of` of the parts of the kind.
+ *
+ * - `copy`: `true` gives a node without an answer of the first three rungs the same attribute of its parent
+ *   (TREE.COPY).
+ * - `fold`: the value of a node without an answer of the first four rungs. The fold starts with the term `unit`.
+ *   Then the term `combine` adds the attribute of each node in the list `children`, one at a time (TREE.FOLD).
+ *   `combine` sees the names `acc` and `item`.
+ * - `default`: the term that gives the value when no rung before it answers and the declaration has no fold.
+ */
+export interface AttributeDeclaration {
+  readonly copy?: boolean;
+  readonly fold?: { readonly unit: Json; readonly combine: Json };
+  readonly default?: Json;
+}
+
+/**
+ * The tree contract of a kind (D42): the equations of the attributes of its nodes. Each equation is a document that
+ * evaluates with the node as `self` and without capabilities. A bare equation gets the type `of` of the parts of the
+ * kind.
+ *
+ * - `equations`: the attributes of the node itself. An equation sees no names.
+ * - `down`: the attributes of each child of the node. `self` is this node. An equation sees the names `child`,
+ *   `index` and `prev` (TREE.DOWN).
+ * - `attributes`: the declarations of the attributes of the node, for the rungs `copy` and `default`.
+ */
+export interface TreeContract {
+  readonly equations?: Readonly<Record<string, Json>>;
+  readonly down?: Readonly<Record<string, Json>>;
+  readonly attributes?: Readonly<Record<string, AttributeDeclaration>>;
+}
+
+/**
+ * This function gives the type of a bare equation of a kind (D42). It is the type `of` of the shape of its parts, or
+ * else the type `of` of the shape `rest` of a record. The plan, the reference and `check` read it with this one function.
+ *
+ * @param kind - The kind.
+ * @returns The type, or `undefined` when the shape declares none.
+ */
+export function equationType(kind: Kind): string | undefined {
+  const parts = kind.parts as { readonly of?: string; readonly rest?: { readonly of?: string } } | undefined;
+  return parts?.of ?? parts?.rest?.of;
+}
+
+/**
  * A kind gives the name of an evaluator for each verb, and the contract of its value. The contract serves each verb.
  * For each verb, the kernel splits the parts and narrows their capabilities by it, and `check` reads its scope rules.
  * `side` and `effects` tell what the verb `eval` does (VERB.CONTRACT).
@@ -157,6 +202,11 @@ export interface Kind extends KindFacts {
    * document of the kind, in the place of the type that the rule of the evaluator synthesizes.
    */
   readonly result?: ValueType;
+  /**
+   * The equations and the declarations of the attributes of a node of the decorated tree (D42). Only the evaluator
+   * `tree.node` reads them, and `check` checks each equation one time (TREE.LADDER).
+   */
+  readonly tree?: TreeContract;
   /** One sentence that tells what the kind is. */
   readonly summary?: string;
 }

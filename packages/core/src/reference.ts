@@ -1,9 +1,9 @@
 import { type Envelope, type Json, type Key, isEnvelope, isRecord, typeName } from "./doc.ts";
 import { ask } from "./ladder.ts";
-import type { CapsRule, Kind } from "./world.ts";
+import { type AttributeDeclaration, type CapsRule, type Kind, type TreeContract, equationType, lookupKind } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
-import { STD_EVALUATORS } from "./stdlib.ts";
+import { type AttributeRung, STD_EVALUATORS } from "./stdlib.ts";
 import { type EvalError, type Failed, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
@@ -429,12 +429,19 @@ export function reference(machine: Machine, doc: unknown, context: Context = mak
     scope: { prefix: "", counts: new Map(), alls: 0 },
   };
   const ctx = context.world === null ? { ...context, world: worldThing(machine.world) } : context;
+  // A node of a tree reads the definitions of this evaluation for its equations (TREE.LADDER).
+  activeEnvs.push(env);
   try {
     return evaluateAt(env, { value: doc, place: [], declared: options.declaredType, depth: 0, address: false, ctx });
   } catch (error) {
     return placed(thrown(error, "the reference"), []);
+  } finally {
+    activeEnvs.pop();
   }
 }
+
+/** The evaluations of the reference that run at this time, the innermost last. */
+const activeEnvs: Env[] = [];
 
 /*
  * The definition of the decorated tree (TREE.*), written from docs/SPEC.md. It shares no code with `tree.node` of
@@ -453,6 +460,16 @@ interface RefNode {
   readonly place: readonly Key[];
   readonly parts: readonly Part[];
   readonly ctx: Context;
+  /** The tree contract of the kind of the node (D42). */
+  readonly contract: TreeContract | undefined;
+  /** The type of a bare equation: the type `of` of the parts of the kind. */
+  readonly of: string | undefined;
+  /** The parent node in the same tree, for the rungs `parent` and `copy`. */
+  readonly up: RefNode | undefined;
+  /** The evaluation of the reference that made the node. Its equations evaluate with its definitions. */
+  readonly env: Env | undefined;
+  /** The host thing of the node. */
+  thing: HostThing;
   /** The results of the attributes that ended. */
   readonly values: Map<string, Result>;
   /** The attributes in evaluation. */
@@ -472,8 +489,86 @@ function refNodeOf(thing: unknown): RefNode | undefined {
   return typeof thing === "object" && thing !== null ? refNodes.get(thing) : undefined;
 }
 
-/** TREE.ONCE, TREE.MEMO and TREE.CYCLE: the result of one attribute, or `undefined` when the node has no such part. */
-function attributeOf(node: RefNode, self: HostThing, name: string): Result | undefined {
+/**
+ * TREE.LADDER: an equation of the kind of a node evaluates in the reference. It gets the node as `self`, the names of
+ * its rung and no capabilities. A bare equation gets the type `of` of the parts of the kind.
+ */
+function equationOf(node: RefNode, term: Json, names: Readonly<Record<string, unknown>>): Result {
+  const env = node.env;
+  if (env === undefined) return fail("#NOEVAL", "The evaluation of an equation needs the machine.");
+  const ctx: Context = { ...node.ctx, names, caps: [], self: node.thing };
+  return reference(env.machine, term, ctx, { definitions: env.definitions, ...(node.of === undefined ? {} : { declaredType: node.of }) });
+}
+
+function termIn<T>(table: Readonly<Record<string, T>> | undefined, name: string): T | undefined {
+  return table === undefined || !Object.hasOwn(table, name) ? undefined : table[name];
+}
+
+/** TREE.DOWN: the names of a child for an equation of `down` of its parent: `child`, `index` and `prev`. */
+function namesOfChild(up: RefNode, child: RefNode): Result {
+  const children = attributeOf(up, "children");
+  if (children !== undefined && !children.ok) return children;
+  const list: readonly unknown[] = children !== undefined && Array.isArray(children.value) ? children.value : [];
+  const index = list.indexOf(child.thing);
+  return ok({ child: child.thing, index: index < 0 ? null : index, prev: index > 0 ? list[index - 1] : null });
+}
+
+/** TREE.FOLD: the unit, then `combine` with the attribute of each node of this tree in the list `children`. */
+function foldOf(node: RefNode, name: string, fold: NonNullable<AttributeDeclaration["fold"]>): Result {
+  let acc = equationOf(node, fold.unit, {});
+  if (!acc.ok) return acc;
+  const children = attributeOf(node, "children");
+  if (children === undefined) return acc;
+  if (!children.ok) return children;
+  if (!Array.isArray(children.value)) return fail("#VALUE!", `The fold of ${name} needs a list in children.`);
+  for (const item of children.value) {
+    const child = refNodeOf(item);
+    if (child === undefined || child.tree !== node.tree) continue;
+    const value = attributeOf(child, name);
+    if (value === undefined) return fail("#N/A", `No rung gives ${nameOfAttribute(child, name)}.`);
+    if (!value.ok) return value;
+    acc = equationOf(node, fold.combine, { acc: acc.value, item: value.value });
+    if (!acc.ok) return acc;
+  }
+  return acc;
+}
+
+/**
+ * TREE.LADDER: the rungs of the ladder of an attribute, in their order. A rung gives `undefined` when it does not
+ * answer, and the next rung then tries.
+ */
+const REF_RUNGS: readonly (readonly [AttributeRung, (node: RefNode, name: string) => Result | undefined])[] = [
+  ["own", (node, name) => node.parts.find((item) => item.key === name)?.evaluate({ ...node.ctx, self: node.thing })],
+  [
+    "kind",
+    (node, name) => {
+      const term = termIn(node.contract?.equations, name);
+      return term === undefined ? undefined : equationOf(node, term, {});
+    },
+  ],
+  [
+    "parent",
+    (node, name) => {
+      const up = node.up;
+      const term = up === undefined ? undefined : termIn(up.contract?.down, name);
+      if (up === undefined || term === undefined) return undefined;
+      const names = namesOfChild(up, node);
+      return names.ok ? equationOf(up, term, names.value as Readonly<Record<string, unknown>>) : names;
+    },
+  ],
+  ["copy", (node, name) => (node.up !== undefined && termIn(node.contract?.attributes, name)?.copy === true ? attributeOf(node.up, name) : undefined)],
+  [
+    "default",
+    (node, name) => {
+      const declared = termIn(node.contract?.attributes, name);
+      if (declared?.fold !== undefined) return foldOf(node, name, declared.fold);
+      return declared?.default === undefined ? undefined : equationOf(node, declared.default, {});
+    },
+  ],
+];
+
+/** TREE.ONCE, TREE.MEMO and TREE.CYCLE: the result of one attribute, or `undefined` when no rung of its ladder answers. */
+function attributeOf(node: RefNode, name: string): Result | undefined {
   const done = node.values.get(name);
   if (done !== undefined) return done;
   if (node.pending.has(name)) {
@@ -481,14 +576,16 @@ function attributeOf(node: RefNode, self: HostThing, name: string): Result | und
     const steps = from < 0 ? [nameOfAttribute(node, name)] : inEvaluation.slice(from).map((entry) => nameOfAttribute(entry.node, entry.name));
     return fail("#CYCLE!", `The attributes form a cycle: ${[...steps, nameOfAttribute(node, name)].join(" -> ")}.`);
   }
-  const part = node.parts.find((item) => item.key === name);
-  if (part === undefined) return undefined;
   node.pending.add(name);
   inEvaluation.push({ node, name });
   try {
-    const result = part.evaluate({ ...node.ctx, self });
-    node.values.set(name, result);
-    return result;
+    for (const [, rung] of REF_RUNGS) {
+      const result = rung(node, name);
+      if (result === undefined) continue;
+      node.values.set(name, result);
+      return result;
+    }
+    return undefined;
   } finally {
     node.pending.delete(name);
     inEvaluation.pop();
@@ -499,7 +596,7 @@ function attributeOf(node: RefNode, self: HostThing, name: string): Result | und
 function jsonOfNode(node: RefNode, self: HostThing, open: readonly object[]): Result {
   const record: Record<string, unknown> = {};
   for (const part of node.parts) {
-    const result = attributeOf(node, self, part.key) as Result;
+    const result = attributeOf(node, part.key) as Result;
     if (!result.ok) return result;
     const value = plainValue(result.value, [...open, self]);
     if (!value.ok) return value;
@@ -539,10 +636,26 @@ function plainValue(value: unknown, open: readonly object[]): Result {
  * TREE.LAZY, TREE.PARENT, TREE.SIBLING and TREE.ERROR: a node of an open tree gives its thing, and the root of a new
  * tree gives its JSON. A step on the thing reads an attribute, and a failed attribute throws its own error.
  */
-const treeDefinition: EvalFn = ({ parts, context, kind, place }) => {
+const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath }) => {
   const outer = refNodeOf(context.self);
   const nested = outer !== undefined && outer.tree.open;
-  const node: RefNode = { tree: nested ? outer.tree : { open: true }, kind, place, parts, ctx: context, values: new Map(), pending: new Set() };
+  const found = machine === undefined || typePath.length === 0 ? undefined : lookupKind(machine.world, typePath);
+  const contract = found?.ok === true ? found.kind.tree : undefined;
+  const of = contract === undefined || found?.ok !== true ? undefined : equationType(found.kind);
+  const node: RefNode = {
+    tree: nested ? outer.tree : { open: true },
+    kind,
+    place,
+    parts,
+    ctx: context,
+    contract,
+    of,
+    up: nested ? outer : undefined,
+    env: activeEnvs[activeEnvs.length - 1],
+    thing: null as unknown as HostThing,
+    values: new Map(),
+    pending: new Set(),
+  };
   const self: HostThing & { readonly type: string } = {
     [THING]: true,
     type: kind,
@@ -550,17 +663,18 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place }) => {
     deref: (key): Thing | undefined => {
       if (key === "parent") return context.self;
       if (key === "type") return kind;
-      const result = attributeOf(node, self, String(key));
+      const result = attributeOf(node, String(key));
       if (result === undefined || result.ok) return result?.ok === true ? result.value : undefined;
       throw new Failure(result.error);
     },
-    has: (key) => key === "parent" || key === "type" || parts.some((part) => part.key === String(key)),
+    has: (key) => key === "parent" || key === "type" || parts.some((part) => part.key === String(key)) || node.values.has(String(key)),
     toJson: () => {
       const result = jsonOfNode(node, self, []);
       if (result.ok) return result.value;
       throw new Failure(result.error);
     },
   };
+  node.thing = self;
   refNodes.set(self, node);
   if (nested) return ok(self);
   try {

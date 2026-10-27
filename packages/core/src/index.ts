@@ -36,6 +36,7 @@ export {
 } from "./errors.ts";
 export {
   type Alias,
+  type AttributeDeclaration,
   type CapsRule,
   type Kind,
   type KindFacts,
@@ -47,9 +48,11 @@ export {
   type ScopeRule,
   type Shape as PartShape,
   type Side,
+  type TreeContract,
   type World,
   type WorldEntry,
   entriesAsJson,
+  equationType,
   isAlias,
   isKind,
   isNamespace,
@@ -157,7 +160,20 @@ export {
   prepare,
   run,
 } from "./evaluate.ts";
-export { type NearestOptions, STD_CAPS, STD_EVALUATORS, STD_MACHINE, STD_RUNNERS, STD_WALKERS, STD_WORLD, nearestWalker } from "./stdlib.ts";
+export {
+  type AttributeRung,
+  type AttributeTrace,
+  type NearestOptions,
+  ATTRIBUTE_RUNGS,
+  STD_CAPS,
+  STD_EVALUATORS,
+  STD_MACHINE,
+  STD_RUNNERS,
+  STD_WALKERS,
+  STD_WORLD,
+  attributeTrace,
+  nearestWalker,
+} from "./stdlib.ts";
 export {
   type Edge,
   type OrderProblem,
