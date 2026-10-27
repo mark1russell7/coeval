@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Json } from "@mark1russell7/coeval";
-import { moveLinks, stepText } from "./moves.ts";
+import { moveLinks, refTraces, stepText } from "./moves.ts";
 import { NAMES, TREE } from "./programs.ts";
 
 const ref = (...steps: Json[]): Json => ({ type: "ref", value: steps });
@@ -45,6 +45,34 @@ describe("the moves of the paths", () => {
   it("stops at a step that reaches no place of the document", () => {
     const doc: Json = { type: "panel", value: { width: 10, height: ref("self", "type") } };
     expect(moveLinks(doc).map((move) => move.step)).toEqual(["self"]);
+  });
+});
+
+describe("the traces of the references", () => {
+  it("gives the moves and the outcome of each reference", () => {
+    const doc: Json = { type: "panel", value: { width: 10, height: ref("self", "width") } };
+    const [trace] = refTraces(doc);
+    expect(trace?.ref).toEqual(["height"]);
+    expect(trace?.path).toEqual(["self", "width"]);
+    expect(trace?.ok).toBe(true);
+    expect(trace?.placed).toBe(true);
+    expect(trace?.error).toBeUndefined();
+    expect(trace?.moves.map((move) => move.step)).toEqual(["self", "width"]);
+  });
+
+  it("gives the error of a failed resolution", () => {
+    const doc: Json = { type: "panel", value: { width: 10, height: ref("self", "depth") } };
+    const [trace] = refTraces(doc);
+    expect(trace?.ok).toBe(false);
+    expect(trace?.error?.code).toMatch(/^#/);
+    expect(trace?.moves.map((move) => move.step)).toEqual(["self"]);
+  });
+
+  it("marks a trace whose hop reaches no place of the document", () => {
+    const doc: Json = { type: "panel", value: { width: 10, height: ref("self", "type") } };
+    const [trace] = refTraces(doc);
+    expect(trace?.ok).toBe(true);
+    expect(trace?.placed).toBe(false);
   });
 });
 

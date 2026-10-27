@@ -10,7 +10,7 @@ import GlyphKey from "../../../components/GlyphKey.tsx";
 
 The direction of data is the direction of the references that a construct permits. Three shapes cover the languages that coeval serves.
 
-<GlyphKey page={7} />
+<GlyphKey page={10} />
 
 <DirectionDiagram client:visible />
 
@@ -20,7 +20,7 @@ A step of a sequence can name each earlier step. It cannot name a later step. Th
 
 ## Moves, from a focus
 
-A formula over a structure reads by position. It starts at a focus and moves: to the parent, to the children, to the siblings or to all of the others. A spreadsheet reads cells in the same way.
+A formula over a structure reads by position. It starts at a focus and moves: to the parent, to the children, or to the nearest node of a kind. A spreadsheet reads cells in the same way. The diagram builds the tree as documents, and the kernel resolves each path from `self`. The kernel has no step for all of the siblings, the ancestors or the descendants yet.
 
 ## Down, up and sideways, in a tree
 

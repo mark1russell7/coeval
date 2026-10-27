@@ -112,11 +112,14 @@ function walks(): readonly Walk[] {
   return list;
 }
 
-/** The glyph of a thing that a hop reached: a node of a tree, a value, or a summary of a large record. */
-function ThingGlyph({ thing }: { readonly thing: Thing }) {
+/**
+ * The glyph of a thing that a hop reached: a node of a tree, a value, or a summary of a large record. Only the node
+ * that the root self reached has the color of self. Another node keeps the neutral border.
+ */
+function ThingGlyph({ thing, self = false }: { readonly thing: Thing; readonly self?: boolean }) {
   if (isHostThing(thing)) {
     return (
-      <span className="cv-thing" data-part="focus">
+      <span className="cv-thing" data-part={self ? "focus" : undefined}>
         {thing.label}
       </span>
     );
@@ -212,7 +215,7 @@ export default function WalkDiagram() {
                 <span className="cv-hop-arrow" aria-hidden="true">
                   →
                 </span>
-                <ThingGlyph thing={hop.thing} />
+                <ThingGlyph thing={hop.thing} self={index === 0 && hop.step === "self"} />
               </li>
             ))}
           </ol>

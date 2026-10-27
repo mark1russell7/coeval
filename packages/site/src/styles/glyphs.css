@@ -261,12 +261,9 @@
   font-size: 1.15rem;
 }
 
-.cv-value[data-of="text"] {
-  color: color-mix(in srgb, var(--ce-focus) 70%, var(--color-ink));
-}
-
+/* A text has quotes, and a truth value is a word. Thus they keep the ink, and no color of a context part. */
 .cv-value[data-of="bool"] {
-  color: color-mix(in srgb, var(--ce-caps) 70%, var(--color-ink));
+  font-style: italic;
 }
 
 .cv-value[data-of="null"] {
@@ -821,8 +818,8 @@
 }
 
 .cv-move[data-lit="true"] {
-  border-color: var(--ce-focus);
-  background: color-mix(in srgb, var(--ce-focus) 12%, var(--color-surface));
+  border-color: var(--ce-move);
+  background: color-mix(in srgb, var(--ce-move) 12%, var(--color-surface));
   color: var(--color-ink);
 }
 
@@ -837,7 +834,7 @@
 }
 
 .cv-move[data-lit="true"] .cv-move-symbol {
-  background: var(--ce-focus);
+  background: var(--ce-move);
   color: var(--color-surface);
 }
 
@@ -856,7 +853,7 @@
 
 .cv-field-step {
   padding: 0 0.5rem;
-  border: 1.5px solid var(--ce-focus);
+  border: 1.5px solid var(--ce-move);
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 0.8rem;
@@ -1253,15 +1250,14 @@
   color: var(--color-accent-strong);
 }
 
-.cv-hop[data-by="kind"] .cv-hop-by,
-.cv-hop[data-by="step"] .cv-hop-by {
-  background: color-mix(in srgb, var(--ce-focus) 14%, var(--color-surface));
-  color: var(--ce-focus);
-}
+/* The rungs kind, step and default keep the neutral badge. Its text names the rung. */
 
-.cv-hop[data-by="collapse"] .cv-hop-by {
-  background: color-mix(in srgb, var(--ce-caps) 14%, var(--color-surface));
-  color: var(--ce-caps);
+/* A collapse follows a reference. Its badge has a dashed border, and no color of a context part. */
+.cv-hop[data-by="collapse"] .cv-hop-by,
+.cv-hop-by[data-by="collapse"] {
+  border: 1.5px dashed var(--color-ink-muted);
+  background: var(--color-surface);
+  color: var(--color-ink);
 }
 
 .cv-hop-arrow {

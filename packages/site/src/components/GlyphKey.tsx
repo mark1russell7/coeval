@@ -5,6 +5,7 @@ import ValueGlyph from "../glyphs/Value.tsx";
 import { View } from "../glyphs/View.tsx";
 import { SealedPart } from "../glyphs/Panels.tsx";
 import { Port } from "../glyphs/Card.tsx";
+import { FlowKey } from "./TreeSvg.tsx";
 
 interface Entry {
   readonly id: string;
@@ -106,6 +107,19 @@ const ENTRIES: readonly Entry[] = [
     glyph: () => <View doc={typed("ref", ["self", typed("nearest", { type: "panel" }), "width"])} />,
   },
   { id: "move-arrow", page: 9, title: "A solid slate arrow: one move of a path, with the text of its step", glyph: () => <ArrowGlyph move /> },
+  {
+    id: "collapse",
+    page: 9,
+    title: "A dashed rung: the walk follows a reference to its target (collapse)",
+    glyph: () => (
+      <span className="cv-hop-by" data-by="collapse">
+        collapse
+      </span>
+    ),
+  },
+  { id: "flow-down", page: 10, title: "An orange solid arrow: data and the box go down a tree", glyph: () => <FlowKey flow="down" /> },
+  { id: "flow-up", page: 10, title: "A teal dotted arrow: a size or an event goes up a tree", glyph: () => <FlowKey flow="up" /> },
+  { id: "flow-side", page: 10, title: "A fuchsia dashed arrow: a reference goes sideways, to another branch", glyph: () => <FlowKey flow="side" /> },
 ];
 
 /** The props of the glyph key. */

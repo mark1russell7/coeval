@@ -29,8 +29,9 @@ function Picture({ evaluator }: { readonly evaluator: string | undefined }) {
     return (
       <svg className="ce-svg" viewBox="0 0 140 96" role="img" aria-label="A picture">
         <rect x="10" y="8" width="120" height="80" rx="3" fill="var(--color-surface-sunken)" stroke={stroke} strokeWidth="1.5" />
-        <path d="M18 80 L52 44 L74 66 L92 50 L122 80 Z" fill="var(--ce-focus)" opacity="0.55" />
-        <circle cx="104" cy="28" r="8" fill="var(--ce-world)" opacity="0.8" />
+        {/* A picture is not a part of a context, thus it uses the ink and no color of a part. */}
+        <path d="M18 80 L52 44 L74 66 L92 50 L122 80 Z" fill="var(--color-ink-muted)" />
+        <circle cx="104" cy="28" r="8" fill="none" stroke={stroke} strokeWidth="1.5" />
       </svg>
     );
   }
