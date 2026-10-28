@@ -1475,7 +1475,8 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   } catch (error) {
     return failingWith(c, meta, placed(thrown(error, `the evaluator ${name}`), place));
   }
-  const done = finish(c, meta, placedCode(inner, place, name), undefined);
+  // Code that cannot fail needs no place and no catch, and it does not read the context of its grant (PLAN.TOTAL).
+  const done = finish(c, meta, TOTAL.has(inner) ? inner : placedCode(inner, place, name), undefined);
   if (frees === undefined || kind === undefined || !pureCode(c, envelope, kind, typePath, name, quick)) return done;
   const free = freeOf(doc, kind, split.parts, frees);
   if (free === undefined) return done;
@@ -1724,6 +1725,24 @@ function copyPlain(value: unknown, memo: Map<object, unknown>): unknown {
  * compilation made in its own scope keeps each variable of that scope that any closure there reads, for example
  * the split of the value. Thus a plan with these helpers keeps only its code.
  */
+
+/**
+ * The compiled code that cannot fail (PLAN.TOTAL). Such code gives a value and throws nothing. It does not read its
+ * context or its runtime. Only the kits of the kernel mark code, thus the code of a host always gets its grant.
+ */
+const TOTAL: WeakSet<Code> = /* @__PURE__ */ new WeakSet();
+
+/**
+ * This function marks compiled code that cannot fail (PLAN.TOTAL). Then `compileNode` does not wrap the code in
+ * `placedCode`, thus a literal costs one call. The kits of the kernel use it. The package does not export it.
+ *
+ * @param code - The code. It gives a value and throws nothing. It does not read its context or its runtime.
+ * @returns The same code.
+ */
+export function totalCode(code: Code): Code {
+  TOTAL.add(code);
+  return code;
+}
 
 /**
  * This function gives the code of a document: the code of its evaluator, with the place of each error and of each

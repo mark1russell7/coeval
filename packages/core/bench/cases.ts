@@ -142,6 +142,17 @@ export const CASES: readonly Case[] = [
     },
   },
   {
+    // The same record without folds: each literal evaluates. Since K76 the code of a literal has no wrapper (PLAN.TOTAL).
+    name: "PLAN.TOTAL a record of 20 literals, without folds",
+    make: (k) => {
+      const fields: Record<string, unknown> = {};
+      for (let index = 0; index < 20; index += 1) fields[`f${index}`] = index % 2 === 0 ? index : `text ${index}`;
+      const plan = k.prepare(k.formulaMachine({ ops: OPS }), { type: "record", value: fields }, { fold: false });
+      const ctx = k.context();
+      return () => plan.evaluate(ctx);
+    },
+  },
+  {
     // The cost of a compilation, as PLAN.COMPILE-SPEED measures it.
     name: "PLAN.COMPILE-SPEED prepare",
     make: (k) => {

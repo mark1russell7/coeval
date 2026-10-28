@@ -2,7 +2,7 @@ import { type Json, type Key, docEquals, isKey, isRecord } from "./doc.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
 import { type CompiledPath, type Context, type Resolution, compilePath, valueOfThing } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
-import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled } from "./evaluate.ts";
+import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled, totalCode } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
 import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeText } from "./types.ts";
 import type { TypeInput, TypeRule } from "./typing.ts";
@@ -697,8 +697,9 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
 
   return {
     "formula.lit": compiled(({ doc }) => {
+      // A literal cannot fail, thus its code needs no place (PLAN.TOTAL).
       const result = ok(doc.value);
-      return () => result;
+      return totalCode(() => result);
     }),
 
     "formula.ref": compiled(({ doc, parts, fill, address, machine }) => {
@@ -718,7 +719,7 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       // A step document without parts is its own value. A step document with parts gets the result of each part.
       if (parts.length === 0) {
         const same = ok(doc);
-        return () => same;
+        return totalCode(() => same);
       }
       return (ctx, rt) => {
         const values = valuesOf(parts, ctx, rt);
