@@ -1500,3 +1500,38 @@ R4 names four orders of a schedule: demand with a memo, push-pull with dirty mar
 - An engine gives the reasons of D31 for `#CYCLE!` and `#REF!`, because two errors agree only with the same reason.
 - No step makes a disagreement smaller. The outcome gives the whole graph of the read.
 - The harness starts no run of a node on the run side (SCHED.RUN).
+
+## D59 (2026-10-28): `placeOf` reads the place that a node keeps, and `nearest` can record a hop for each step
+
+**Context.** K147 and K148, from C9. The picture of C9 draws an arrow for each hop of a resolution. A hop gives a thing, but no place in the document. Thus the site wrapped the evaluator `tree.node` to find the place of each node.
+
+The walker `nearest` gave one hop for the whole walk. Thus a picture drew one arrow from the start to the node that the walk reached, also across several parents.
+
+The design calls are the record of the place, the cost without hops, the option of the walk and the steps of the new hops.
+
+**Decision.**
+
+- The kernel exports `placeOf(thing)` (HOP.PLACE). It gives the place of a node of the decorated tree: the keys from the root document to the document of the node.
+- `placeOf` reads the place that the state of each node keeps already. It adds no record, thus it costs nothing when no hops are recorded.
+- A value, a plain record of the document and another host thing give `undefined`.
+- `nearestWalker` gets the option `eachStep` (HOP.EACH-STEP). With it, a resolution with hops gets one hop for each node on the way before the node that the walk reaches.
+- Each such hop has the followed key as its step, for example `parent`, and `by: "step"`. The hop of the whole walk comes after them, as before. A failed walk keeps them.
+- `WalkInput` gets the optional function `visit`. The resolution gives it only when it records hops, thus a resolution without hops does no new work.
+- The default of `eachStep` is `false`. The standard walker records one hop for the whole walk, thus each result and each list of hops without the option stays the same.
+- The site reads the place of each node with `placeOf`, and it does not wrap `tree.node`. It keeps the standard walker, because each walk of its examples has one parent step.
+
+**Rejected.**
+
+- A new record of the place of each thing that a hop reaches, for example a map in the resolution. The node already keeps its place, and a map costs work in each resolution with hops.
+- A place for each plain record of the document. A plain record has no record of its place, and a key of a hop from a known place already gives it.
+- An option of `ResolveOptions`. The runtime gives each resolution one fixed object of options, and `verifyReads` resolves a read again without them. Then a read with each step differs from its new resolution.
+- An option in the step document. A view changes the document then, and the facts and the reads of the document change with it.
+- A hop for each step that repeats the step document. Then a picture gives the same text to each arrow, and a reader cannot see the followed key.
+
+**Why.** A node of the decorated tree keeps its place for the reasons of its errors and of its cycles. Thus `placeOf` gives a view the place of a hop without new state. An option of the walker belongs to the machine, thus each resolution of one machine gives the same hops, also a resolution again in `verifyReads`.
+
+**Limits.**
+
+- `placeOf` knows only the nodes of the decorated tree. A host thing of a host needs its own record of its place.
+- The place of a node that an equation of a kind makes is a place in that equation, not in the document.
+- Only the walker `nearest` has the option. Another walker records each step only when it uses `visit`.
