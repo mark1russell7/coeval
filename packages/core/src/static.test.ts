@@ -10,6 +10,7 @@ import {
   STD_WORLD,
   THING,
   check,
+  checkWorld,
   context,
   docEquals,
   formulaDefinitions,
@@ -459,6 +460,47 @@ describe("the static kit", () => {
     for (const [name, entry] of Object.entries(STD_WORLD.kinds)) {
       if (isKind(entry) && entry.side === "run") expect(entry.effects, name).toBeDefined();
     }
+  });
+
+  it("[STATIC.COVERAGE] checkWorld lists each kind with no entry and no default for a verb of the language", () => {
+    const coverage: Machine = {
+      world: {
+        kinds: {
+          number: { verbs: { eval: "data.number", view: "view.value" } },
+          note: { verbs: { eval: "data.text" } },
+          math: {
+            kinds: {
+              add: { verbs: { eval: "math.add" } },
+              sub: { verbs: { eval: "math.sub", view: "view.op" } },
+              plus: { type: "ref", value: ["world", "math", "add"] },
+            },
+            fallback: { verbs: { eval: "math.op" } },
+          },
+        },
+        defaults: {},
+        fallback: { verbs: {} },
+      },
+      evaluators: { "data.text": () => ({ ok: true, value: "" }) },
+    };
+    const issues = checkWorld(coverage, ["eval", "view"]);
+    expect(issues.map((issue) => `${issue.kind.join(".") || "world"}${issue.fallback === true ? "*" : ""}:${issue.verb}`)).toEqual([
+      "note:view",
+      "math.add:view",
+      "math*:view",
+      "world*:eval",
+      "world*:view",
+    ]);
+    expect(issues[0]).toEqual({ code: "#NOEVAL", kind: ["note"], verb: "view", reason: "The kind note has no entry for the verb view, and the world has no default for it." });
+    expect(issues[2]?.reason).toBe("The fallback kind of math has no entry for the verb view, and the world has no default for it.");
+    // A default of the verb covers each kind, and a kind with an entry is not in the list.
+    const withDefault: Machine = { ...coverage, world: { ...coverage.world, defaults: { view: "view.card" } } };
+    expect(checkWorld(withDefault, ["eval", "view"]).map((issue) => `${issue.kind.join(".")}:${issue.verb}`)).toEqual([":eval"]);
+    expect(checkWorld(coverage, [])).toEqual([]);
+    // A document of a kind in the list gives #NOEVAL in check with the same verb.
+    expect(check(coverage, { type: "note", value: "x" }, { verb: "view" }).map((issue) => issue.code)).toEqual(["#NOEVAL"]);
+    // Each standard kind has a view. The step kind nearest has no eval, because only a path walks it.
+    expect(checkWorld(STD_MACHINE, ["view"])).toEqual([]);
+    expect(checkWorld(STD_MACHINE, ["eval", "view"]).map((issue) => `${issue.kind.join(".")}:${issue.verb}`)).toEqual(["nearest:eval"]);
   });
 });
 
