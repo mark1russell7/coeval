@@ -56,6 +56,7 @@ export default defineConfig({
             { label: "Roadmap", link: "https://github.com/mark1russell7/coeval/blob/main/docs/ROADMAP.md" },
           ],
         },
+        { label: "Project", items: [{ label: "Status", link: "https://mark1russell7.github.io/coeval/status/" }, { label: "Releases", link: "https://mark1russell7.github.io/coeval/releases/" }] },
       ],
     }),
     react(),
