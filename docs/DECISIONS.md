@@ -1265,6 +1265,7 @@ D23 put off a contract that declares the effects of each verb. The design calls 
 **Why.** A reason that names the bound tells the writer of a document to make the chain shorter, not to look for a cycle. The evaluation of a path is a function of the path and the context, thus a reference in its own evaluation is always a cycle. The code and the bounds do not change.
 
 **Limits.** A cycle of more than 64 references, or of references that a walker makes again at each step, gets the reason of the bound. An alias that adds a key to its own path makes a new path at each step, thus it gets `too-long`. The type `Lookup` has one more reason, and a host that tests each reason sees it.
+
 ## D52 (2026-10-28): compiled code reads the root `caps` through the grant, with the meet of the context and its grant
 
 **Context.** K100, from K91 (D32). Compiled code can resolve a path in a context that it makes, through `Runtime.resolve`. A resolution of the root `caps` read the capabilities of that context, also of a context that the code widened. Such a list permits no effect, because each part and each effect keeps only its grant (CAP.NARROW-CODE). But its value differed from the reference, whose definitions resolve each path in the context of the document.
