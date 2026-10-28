@@ -315,6 +315,15 @@ describe("the composition checklist", () => {
     // Two lists are equal by their items.
     expect(conflictNames({ ...PROFILE, pure: ["add"] })).toEqual(kitNames);
     expect(conflictsOf(() => mergeMachines(formulaMachine({ ...PROFILE, pure: ["add"] }), formulaMachine({ ...PROFILE, pure: ["add"] })))).toEqual([]);
+    // The mark pureExt is a field of the canonical form too (D47). A profile with it gives other facts and folds.
+    const ext = { tag: () => ok("t") };
+    const unmarked = formulaMachine({ ext });
+    const marked = formulaMachine({ ext, pureExt: ["tag"] });
+    expect(conflictsOf(() => mergeMachines(unmarked, marked)).map((item) => String(item.path[1])).sort()).toEqual(kitNames);
+    expect(marked.facts).not.toBe(unmarked.facts);
+    expect(marked.evaluators["formula.ext"]).not.toBe(unmarked.evaluators["formula.ext"]);
+    expect([unmarked.facts?.(["ext", "tag"], "formula.ext"), marked.facts?.(["ext", "tag"], "formula.ext")]).toEqual([{ pure: false }, { pure: true }]);
+    expect(conflictsOf(() => mergeMachines(formulaMachine({ ext, pureExt: ["tag"] }), formulaMachine({ ext, pureExt: ["tag"] })))).toEqual([]);
     // The replacement of the kit of one language still resolves each conflict.
     const other = formulaMachine({ ...PROFILE, otherwise: "none" }, TEXT);
     const replaced = mergeMachines(formulaMachine(PROFILE, STATS), { ...other, replaces: kitNames.map((key) => ["evaluators", key]) });

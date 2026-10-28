@@ -16,6 +16,7 @@ import {
   makeContext,
   ok,
   prepare,
+  reference,
   typesOf,
 } from "./index.ts";
 
@@ -126,6 +127,47 @@ describe("the fold of a closed pure part", () => {
     plan.evaluate();
     plan.evaluate();
     expect(calls).toEqual([1, 1]);
+  });
+
+  it("[PLAN.FOLD] an extension that the profile names in pureExt folds, and an extension without the mark runs at each evaluation (D47)", () => {
+    const calls: Json[] = [];
+    const ext: FormulaProfile["ext"] = {
+      tag: (data) => {
+        calls.push(data);
+        return ok({ tag: data });
+      },
+      who: (_data, ctx) => ok(ctx.self === null ? "nobody" : String(ctx.self)),
+    };
+    const profile: FormulaProfile = { ext, pureExt: ["tag", "who"] };
+    const marked = formulaMachine(profile);
+    const definitions = formulaDefinitions(profile);
+    const unmarked = formulaMachine({ ext });
+    const doc: Json = { type: "record", value: { a: { type: ["ext", "tag"], value: "x" }, b: 1 } };
+    const plan = prepare(marked, doc);
+    expect(calls).toEqual(["x"]);
+    const first = plan.evaluate();
+    expect(first).toEqual({ ok: true, value: { a: { tag: "x" }, b: 1 } });
+    const second = plan.evaluate();
+    expect(first.ok && second.ok && first.value === second.value).toBe(true);
+    expect(calls).toEqual(["x"]);
+    expect(deeplyFrozen(first)).toBe(true);
+    // Without the mark, with fold: false, with a trace and in the reference, the extension runs at each evaluation.
+    calls.length = 0;
+    for (const options of [{}, { fold: false }, { trace: true }]) {
+      const machine = Object.keys(options).length === 0 ? unmarked : marked;
+      const other = prepare(machine, doc, options);
+      other.evaluate();
+      other.evaluate();
+    }
+    expect(reference(marked, doc, makeContext(), { definitions })).toEqual(first);
+    reference(marked, doc, makeContext(), { definitions });
+    expect(calls).toEqual(["x", "x", "x", "x", "x", "x", "x", "x"]);
+    const outcome = agree(marked, doc, makeContext(), { strict: true, definitions });
+    expect(outcome.ok, outcome.ok ? "" : `${outcome.tier}: ${outcome.reason}`).toBe(true);
+    // The probe of the fold refuses a direct read of self, also for an extension with the mark.
+    const who = prepare(marked, { type: ["ext", "who"], value: null });
+    expect(who.evaluate(makeContext({}, [], "me"))).toEqual({ ok: true, value: "me" });
+    expect(who.evaluate(makeContext())).toEqual({ ok: true, value: "nobody" });
   });
 
   it("[PLAN.FOLD] a part with a free reference does not fold, and it reads the context of each evaluation", () => {
