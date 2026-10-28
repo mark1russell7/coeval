@@ -1265,3 +1265,25 @@ D23 put off a contract that declares the effects of each verb. The design calls 
 **Why.** A reason that names the bound tells the writer of a document to make the chain shorter, not to look for a cycle. The evaluation of a path is a function of the path and the context, thus a reference in its own evaluation is always a cycle. The code and the bounds do not change.
 
 **Limits.** A cycle of more than 64 references, or of references that a walker makes again at each step, gets the reason of the bound. An alias that adds a key to its own path makes a new path at each step, thus it gets `too-long`. The type `Lookup` has one more reason, and a host that tests each reason sees it.
+## D52 (2026-10-28): compiled code reads the root `caps` through the grant, with the meet of the context and its grant
+
+**Context.** K100, from K91 (D32). Compiled code can resolve a path in a context that it makes, through `Runtime.resolve`. A resolution of the root `caps` read the capabilities of that context, also of a context that the code widened. Such a list permits no effect, because each part and each effect keeps only its grant (CAP.NARROW-CODE). But its value differed from the reference, whose definitions resolve each path in the context of the document.
+
+The design calls are the list that a read gives and the paths that get the step.
+
+**Decision.**
+
+- A resolution of the root `caps` through the runtime reads the capabilities that both the context and its grant permit. This list is the meet `intersectCaps` of the two lists (CAP.CAPS-GRANT).
+- A context whose grant is its own list stays the same object, thus each context of the kernel pays one comparison. A context without a grant reads no capabilities, as D32 gives such a context no capabilities.
+- A context that the code widened reads the list of its grant, with the same items in the same order. Thus the plan and the reference give the same value. A context that the code narrowed reads its own list.
+- `Runtime.resolve` and the resolution of a compiled path both take the step. A path from another root does not change.
+
+**Rejected.**
+
+- The grant itself as the value of the read. A context that the code narrowed then reads more capabilities than it has, and a read then disagrees with each effect of that context.
+- The step of a part, the list of the context that its grant permits (H-GRANT). For a grant `[["log"]]` under a wider list `["log", "write"]`, that list is `["log"]`. Its items come from the wider list, thus the value differs from the reference.
+- The step for each root. Only the root `caps` reads the capabilities, and a resolution of another root then pays for nothing.
+
+**Why.** The meet is the most that the context and its grant both permit. It keeps a narrowed list, and it gives back the list of the document for a widened one. The step costs one test of the root, and a new object only for a context that the code changed.
+
+**Limits.** A walker of a step document still gets the context that the code gives, and it can read its capabilities directly. A part of a widened context gets the items of the wider list that its grant permits (H-GRANT). Thus its read of the root `caps` can have another form than a direct read, with the same permissions.

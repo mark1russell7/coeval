@@ -59,6 +59,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D49 | A contract declares the effects of the other verbs in the new field `verbEffects`, and `check` with a verb tests them. A verb without an entry gives no effect issue, as before. |
 | D50 | The kits of the kernel mark compiled code that cannot fail, for example a literal. A plan does not wrap that code in the code that places errors. A host cannot set the mark. |
 | D51 | `#CYCLE!` keeps its code. Its reason tells a real cycle of references from a resolution that follows more than 64 references. A lookup gives `too-long` after 32 aliases without a cycle. |
+| D52 | Compiled code reads the root `caps` through the grant: the capabilities that both its context and the grant permit. A widened context reads the list of its document, as in the reference. |
 
 ## Open
 
