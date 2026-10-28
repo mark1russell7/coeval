@@ -12,8 +12,10 @@ import {
   isHostThing,
   lookupKind,
   makeContext,
+  nearestWalker,
   nodeAt,
   ok,
+  placeOf,
   prepare,
   ref,
   resolve,
@@ -23,8 +25,10 @@ import {
   type Json,
   type Key,
   type Machine,
+  type Resolution,
   type Result,
   type Thing,
+  type WalkInput,
 } from "./index.ts";
 
 const run = (doc: Json, names: Record<string, Json> = {}) => evaluate(STD_MACHINE, doc, makeContext(names, STD_CAPS));
@@ -191,6 +195,83 @@ describe("trees: self, parent and nearest", () => {
     // The JSON of the panel reads its width, and the first box reads it again.
     const widthEvaluations = flatten(out.trace).filter((node) => node.path.join("/") === "width");
     expect(widthEvaluations).toHaveLength(1);
+  });
+});
+
+describe("the hops of a walk in a tree", () => {
+  const NEAREST: Json = { type: "nearest", value: { type: "panel" } };
+  /** A machine whose kind `probe` resolves a path from its node with hops. The probe gives 0. */
+  const probing = (walkers?: Machine["walkers"]): { readonly machine: Machine; readonly found: Resolution[] } => {
+    const found: Resolution[] = [];
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, probe: { verbs: { eval: "test.probe" } } } },
+      evaluators: {
+        ...STD_MACHINE.evaluators,
+        "test.probe": ({ data, resolve: find }) => {
+          found.push(find(["self", ...(data as readonly Json[])], { hops: true }));
+          return ok(0);
+        },
+      },
+      ...(walkers === undefined ? {} : { walkers }),
+    };
+    return { machine, found };
+  };
+  /** A panel, a box in it, and a box in that box. The inner box resolves the steps of the probe. */
+  const nested = (steps: readonly Json[]): Json => ({
+    type: "panel",
+    value: {
+      children: {
+        type: "list",
+        value: [{ type: "box", value: { children: { type: "list", value: [{ type: "box", value: { width: { type: "probe", value: steps } } }] } } }],
+      },
+    },
+  });
+
+  it("[HOP.PLACE] placeOf gives the place of each node that a hop reaches, and undefined for another thing", () => {
+    const { machine, found } = probing();
+    expect(evaluate(machine, nested(["parent", "parent"]), makeContext({}, STD_CAPS)).result.ok).toBe(true);
+    const [resolution] = found;
+    expect(resolution?.ok).toBe(true);
+    const places = resolution?.hops.map((hop) => placeOf(hop.thing));
+    expect(places).toEqual([
+      ["children", 0, "children", 0],
+      ["children", 0],
+      [],
+    ]);
+    // A value, a host thing and a plain record of the document have no place.
+    const host: HostThing = { [THING]: true, label: "host", deref: () => undefined, toJson: () => null };
+    expect([placeOf(3), placeOf(null), placeOf({ width: 1 }), placeOf(host)]).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("[HOP.EACH-STEP] the walker nearest with eachStep records one hop for each node on the way", () => {
+    const one = probing();
+    const each = probing({ ...STD_MACHINE.walkers, "walk.nearest": nearestWalker({ eachStep: true }) });
+    const doc = nested([NEAREST, "type"]);
+    const before = evaluate(one.machine, doc, makeContext({}, STD_CAPS)).result;
+    expect(evaluate(each.machine, doc, makeContext({}, STD_CAPS)).result).toEqual(before);
+    const [plain] = one.found;
+    const [stepped] = each.found;
+    expect([plain, stepped]).toMatchObject([{ ok: true, thing: "panel" }, { ok: true, thing: "panel" }]);
+    // The default gives one hop for the whole walk. The option adds a hop for the box between, with the key parent.
+    expect(plain?.hops.map((hop) => [hop.step, hop.by])).toEqual([["self", "root"], [NEAREST, "step"], ["type", "own"]]);
+    expect(stepped?.hops.map((hop) => [hop.step, hop.by])).toEqual([["self", "root"], ["parent", "step"], [NEAREST, "step"], ["type", "own"]]);
+    expect(stepped?.hops.slice(1, 3).map((hop) => placeOf(hop.thing))).toEqual([["children", 0], []]);
+    // The walk stops at the node itself with self: true, thus it has no hop between.
+    const self = probing({ ...STD_MACHINE.walkers, "walk.nearest": nearestWalker({ eachStep: true }) });
+    evaluate(self.machine, nested([{ type: "nearest", value: { type: "box", self: true } }]), makeContext({}, STD_CAPS));
+    expect(self.found[0]?.hops.map((hop) => hop.by)).toEqual(["root", "step"]);
+    // A failed walk keeps the hops of the nodes on the way.
+    const failed = probing({ ...STD_MACHINE.walkers, "walk.nearest": nearestWalker({ eachStep: true }) });
+    evaluate(failed.machine, nested([{ type: "nearest", value: { type: "card" } }]), makeContext({}, STD_CAPS));
+    expect(failed.found[0]).toMatchObject({ ok: false, code: "#N/A" });
+    expect(failed.found[0]?.hops.map((hop) => hop.step)).toEqual(["self", "parent", "parent"]);
+    // A resolution without a record of hops gives the walker no visit.
+    const visits: boolean[] = [];
+    const nav = { world: { kinds: { near: { verbs: { step: "near" } } }, defaults: {} }, walkers: { near: (input: WalkInput) => (visits.push(input.visit !== undefined), { ok: true, thing: 1 } as const) } };
+    resolve(nav, context(), ["names", { type: "near", value: null }], { hops: false });
+    resolve(nav, context(), ["names", { type: "near", value: null }]);
+    expect(visits).toEqual([false, true]);
   });
 });
 

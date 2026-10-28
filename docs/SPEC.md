@@ -115,6 +115,8 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | TREE.PARENT | A node of a tree reads its parent through the field `parent`. |
 | TREE.NEAREST-SELF | A walk `nearest` with `self: true` starts at the node itself. |
 | TREE.NEAREST-MATCH | A host can give the walker `nearest` its own test of a type and its own limit of hops. |
+| HOP.PLACE | `placeOf` gives the place of a node of the decorated tree: the keys from the root document to the document of the node. A view puts each hop on its node with it. A value, a plain record and another host thing give `undefined`. |
+| HOP.EACH-STEP | The walker `nearest` with the option `eachStep` gives a resolution with hops one hop for each node on the way. Each such hop has the followed key as its step, and the hop of the whole walk comes after them. A failed walk keeps them. Without the option, the walk has one hop. A resolution without hops gives the walker no `visit`. |
 | TREE.ONCE | An attribute of a node evaluates one time in an evaluation, also when two readers ask for it. |
 | TREE.LAZY | A node of a tree is a host thing, and each part of the node is an attribute. A node in an attribute of an open tree gives its thing. An attribute evaluates only when something reads it. |
 | TREE.SIBLING | A node reads an attribute of a sibling through its parent, for example `["self", "parent", "children", 0, "width"]`. The read does not recurse, also for a later sibling. |

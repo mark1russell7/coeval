@@ -125,6 +125,14 @@ export interface WalkInput {
    * @returns What the step reaches, or `undefined`.
    */
   deref(thing: Thing, key: Key): Thing | undefined;
+  /**
+   * This optional function records one hop inside the walk (HOP.EACH-STEP). The resolution gives it only when it
+   * records hops. The hop of the whole walk comes after these hops, as before.
+   *
+   * @param key - The key that the walk followed.
+   * @param thing - The thing that the key reached.
+   */
+  readonly visit?: (key: Key, thing: Thing) => void;
 }
 
 /** A walker: the code of the verb `step` of a kind of step documents. */
@@ -660,15 +668,16 @@ function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], ho
         const walker = given === undefined ? walkerOf(nav, step) : (given ?? undefined);
         if (walker === undefined) return failed("#STEP?", "A step is a key, or a document of a kind with the verb step.");
         const envelope = step as Envelope;
-        const result = walker({
-          data: envelope.value,
-          here,
-          context: ctx,
-          deref: (thing, key) => {
-            const reached = derefStep(nav, thing, key);
-            return reached === undefined ? undefined : adopt(reached.thing);
-          },
-        });
+        const deref = (thing: Thing, key: Key): Thing | undefined => {
+          const reached = derefStep(nav, thing, key);
+          return reached === undefined ? undefined : adopt(reached.thing);
+        };
+        // A resolution without a record of hops gives no `visit`, thus a walker records nothing (HOP.EACH-STEP).
+        const result = walker(
+          hops === undefined
+            ? { data: envelope.value, here, context: ctx, deref }
+            : { data: envelope.value, here, context: ctx, deref, visit: (key, thing) => hops.push({ step: key, thing, by: "step" }) },
+        );
         if (!result.ok) return failed(result.code ?? "#N/A", result.reason);
         here = adopt(result.thing);
         hops?.push({ step: envelope as Json, thing: here, by: "step" });
