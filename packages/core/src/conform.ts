@@ -23,6 +23,7 @@ import {
   type Runtime,
   type Steps,
   capKeys,
+  intersectCaps,
   makeContext,
   permits,
   rootContext,
@@ -371,8 +372,8 @@ class Shot implements Runtime {
   /** This function answers an effect as the kernel does: it checks the capability, and it asks the mock. */
   private answer(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
     const keys = capKeys(kind);
-    // The kernel keeps only the capabilities that the document permits (H-GRANT).
-    const caps = ctx.caps.filter((cap) => permits(this.context.caps, cap));
+    // The kernel keeps the capabilities that both the context and the document permit (H-GRANT, CAP.MEET).
+    const caps = intersectCaps(ctx.caps, this.context.caps);
     const allowed = this.machine.permits === undefined ? permits(caps, keys) : this.machine.permits(caps, keys, { ...ctx, caps });
     if (!allowed) return fail("#CAP!", `The context has no capability for the effect ${keys.join(".")}.`, { place });
     if (this.perform === undefined) return ok(payload);

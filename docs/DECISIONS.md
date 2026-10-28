@@ -1291,4 +1291,34 @@ The design calls are the list that a read gives and the paths that get the step.
 
 **Why.** The meet is the most that the context and its grant both permit. It keeps a narrowed list, and it gives back the list of the document for a widened one. The step costs one test of the root, and a new object only for a context that the code changed.
 
-**Limits.** A walker of a step document still gets the context that the code gives, and it can read its capabilities directly. A part of a widened context gets the items of the wider list that its grant permits (H-GRANT). Thus its read of the root `caps` can have another form than a direct read, with the same permissions.
+**Limits.** A walker of a step document still gets the context that the code gives, and it can read its capabilities directly. A part of a widened context gets the items of the wider list that its grant permits (H-GRANT). Thus its read of the root `caps` can have another form than a direct read, with the same permissions. D53 closes both limits with the meet for each part, effect and resolution.
+
+## D53 (2026-10-28): the meet narrows each part, each effect and each resolution, for function code and for compiled code
+
+**Context.** K152, from K100 (D52). The kernel narrowed the context of a part with a filter (H-CONTEXT, H-GRANT). The part kept only the items of its list that the parent permits. An effect of compiled code got the same filter against its grant.
+
+A filter is coarser than the meet of D52. Under the document `["log.a"]`, code that gives the list `["log"]` kept no capability, thus an effect `log.a` gave `#CAP!`.
+
+The reference causes the own effects of a definition in the context of the document, thus it permitted that effect. A walker of a step document also got the context that compiled code widened, and it read the wider list.
+
+The design calls are the rule that narrows, the code that gets it and the cost for each part.
+
+**Decision.**
+
+- A context that code gives a part, an effect or a resolution keeps the meet `intersectCaps` with its document (CAP.MEET). This meet replaces the filter in `narrow`, in the grant step of compiled code, in the probe runtime of `conforms` and in the reference.
+- A list that the document permits stays the same object. Thus a context that the code narrowed keeps its own list, and the function `narrow` gives the same object as before for it.
+- A resolution of compiled code, of each root, starts in the context that the grant permits. Thus a walker of a step document and a read of the root `caps` get the capabilities of the document from a widened context.
+- The rules of a contract apply after this step, as before. They already used the meet (CAP.ONLY).
+
+**Rejected.**
+
+- The meet only for an effect of compiled code. A part and an effect then narrow by two rules. A part of compiled code then disagrees with an own effect of the same document.
+- The meet for compiled code, with the filter for function code. The reference narrows a part of a definition with the rule of function code. Thus a part of compiled code then disagrees with the reference.
+- The grant itself as the context of a walker. A context that the code narrowed then gives a walker more capabilities than it has.
+- A test of each step of a path for a step document before the step of the grant. A context whose grant is its own list already costs one comparison, thus the test saves nothing for the contexts of the kernel.
+
+**Why.** The meet is the most that both lists permit, and a rule `only` already uses it. Thus one rule narrows each context, and code cannot widen what a part can do (CAP.NARROW-CODE). The filter gave a subset of the meet, thus the change only permits effects that both the code and the document permit.
+
+The cost stays one comparison for a context whose grant is its own list, without a new object. A context that the code changed costs one meet, and a new object only when the meet differs from its list. The change is a correction, but a result changes for code that widens to a coarser capability. An effect that gave `#CAP!` starts after the change, and a part or a walker reads another list.
+
+**Limits.** A context that compiled code keeps from an earlier evaluation still escapes the grant (K120).

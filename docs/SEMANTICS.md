@@ -427,23 +427,24 @@ H-SEAL  [EVAL.SEALED, EVAL.BY-NAME]
     eval(Γ') = r        when        M, part(Γ, Γ', ℓ) ⊢ᵦ p : of @ ρ·ℓ, h + 1 ⇓ r ! ε'
     each call of eval is a new evaluation, and ε' joins the effects in the order of the calls
 
-H-CONTEXT  [CAP.NARROW, CAP.CONTRACT, CAP.ONLY, CAP.MONOTONE]
+H-CONTEXT  [CAP.NARROW, CAP.MEET, CAP.CONTRACT, CAP.ONLY, CAP.MONOTONE]
     part(Γ, Γ', ℓ) = rules(κ.caps, ℓ, narrow(Γ, Γ'))        Γ' = Γ when the code gives no context
-    narrow(Γ, Γ') = Γ' with caps = [c in Γ'.caps such that permits(Γ.caps, c)]
+    narrow(Γ, Γ') = Γ'                                when Γ.caps permits each c in Γ'.caps
+                  = Γ' with caps = Γ.caps ⊓ Γ'.caps   else
     rules(γ̄, ℓ, Γ) = Γ with caps = []                when a rule mask covers ℓ
                    = Γ with caps = Γ.caps ⊓ L1 ⊓ …   for each rule only Li that covers ℓ
                    = Γ                               else
 
-H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT]
+H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT, CAP.MEET]
     in the plan, a context Γ can carry a grant g(Γ): the capabilities that the kernel gave its document
     a spread of Γ keeps g(Γ), and a context that the code makes without a spread has no grant
     at the start of each document, and at each effect of compiled code, the kernel takes grant(Γ):
         grant(Γ) = Γ                                    when g(Γ) is the same list as Γ.caps
                  = Γ with caps = [] and g = []          when Γ has no grant
-                 = Γ with caps = C and g = C            else, with C = [c in Γ.caps such that permits(g(Γ), c)]
+                 = Γ with caps = C and g = C            else, with C = Γ.caps ⊓ g(Γ)
     the root gets g = the capabilities of the host, and a part of a function evaluator gets g = the caps of narrow
-    a resolution of the root caps that compiled code asks for reads Γ.caps when g(Γ) is the same list as Γ.caps,
-        [] when Γ has no grant, and Γ.caps ⊓ g(Γ) else
+    a resolution of each root that compiled code asks for resolves in grant(Γ):
+        thus the root caps and each walker of a step document get the capabilities of grant(Γ)
     the rules of the contract apply after this step, as in H-CONTEXT
 
 H-PLACE  [VALUE.FAILURES]

@@ -231,6 +231,8 @@ describe("capabilities", () => {
     const parent = makeContext({}, ["log"]);
     expect(narrow(parent, { ...parent, caps: ["log", "write"] }).caps).toEqual(["log"]);
     expect(narrow(parent, { ...parent, caps: ["log.debug"] }).caps).toEqual(["log.debug"]);
+    // A coarser capability keeps the meet with the parent (CAP.MEET), not nothing.
+    expect(narrow(makeContext({}, ["log.a"]), { ...parent, caps: ["log"] }).caps).toEqual(["log.a"]);
   });
 
   it("[CAP.CONTRACT] the kernel narrows the context of each part by the capability rules of its kind", async () => {
