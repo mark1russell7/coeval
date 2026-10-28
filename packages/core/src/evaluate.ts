@@ -1468,6 +1468,15 @@ export interface PrepareOptions {
    * evaluates one time, when the plan compiles. Its result is one frozen value for each evaluation (PLAN.FOLD).
    */
   readonly fold?: boolean;
+  /**
+   * The values that the host declares fixed for each evaluation of the plan (PLAN.FIXED, D60). The field `names` gives
+   * a value for each fixed name. A path from a fixed name then resolves one time, when the plan compiles, and a pure
+   * part that reads only fixed names folds. Only a deeply frozen value of plain data fixes its name.
+   *
+   * Each folded part compares the value of its names with one own-key test and `Object.is`. A different value gives
+   * the code without the fold. A plan without folds ignores this option.
+   */
+  readonly fixed?: { readonly names?: Readonly<Record<string, unknown>> };
 }
 
 /** A compiled document. It evaluates many times, and it does the work of the ladder one time. */
@@ -1506,6 +1515,8 @@ interface Compiler {
   readonly noAnswer: Answer;
   /** `true` when closed pure parts fold (PLAN.FOLD). A plan with a trace does not fold. */
   readonly fold: boolean;
+  /** The fixed names and their values, or `undefined` when the plan has none (PLAN.FIXED). */
+  readonly fixed: Readonly<Record<string, unknown>> | undefined;
   /** The runtime of the folds of this compilation. The first fold makes it. */
   probe?: Probe;
 }
@@ -1666,7 +1677,11 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   if (frees === undefined || kind === undefined || !pureCode(c, envelope, kind, typePath, name, quick)) return done;
   const free = freeOf(doc, kind, split.parts, frees);
   if (free === undefined) return done;
-  return free.length === 0 ? folded(c, done) : { code: done.code, run: done.run, free };
+  if (free.length === 0) return folded(c, done, undefined);
+  // A part that reads only fixed names folds, and its code compares the values of these names (PLAN.FIXED).
+  const fixed = c.fixed;
+  if (fixed !== undefined && free.every((each) => Object.hasOwn(fixed, each))) return folded(c, done, free);
+  return { code: done.code, run: done.run, free };
 }
 
 /*
@@ -1759,6 +1774,20 @@ class Probe implements Runtime {
     this.root = root;
   }
 
+  /** The context of a part that folds with fixed names: the context of the probe, with the fixed names (PLAN.FIXED). */
+  private withFixed: Context | undefined;
+
+  /**
+   * This function gives the context of a part that folds with fixed names. Its root `names` holds only the fixed
+   * names, thus the probe resolves each fixed name and refuses each other name.
+   *
+   * @param fixed - The fixed names and their values.
+   * @returns The context.
+   */
+  fixedRoot(fixed: Readonly<Record<string, unknown>>): Context {
+    return (this.withFixed ??= { ...this.root, names: fixed });
+  }
+
   resolve(ctx: Context, path: readonly unknown[]): Resolution {
     const name = path[1];
     if (path[0] === "names" && isKey(name) && Object.hasOwn(ctx.names, String(name))) {
@@ -1823,23 +1852,104 @@ function trap(refuse: () => void, copies: boolean): object {
  * one deeply frozen copy, and the code gives that copy at each evaluation (PLAN.SHARED). A fold that the probe cancels
  * gives the code without free names, thus no parent tries the fold again.
  */
-function folded(c: Compiler, done: Compiled): Compiled {
+function folded(c: Compiler, done: Compiled, fixed: readonly string[] | undefined): Compiled {
   const probe = (c.probe ??= new Probe(c.machine));
   probe.refused = false;
   probe.reads = 0;
   let constant: Result | undefined;
   try {
-    const result = done.code(probe.root, probe);
+    const root = fixed === undefined ? probe.root : probe.fixedRoot(c.fixed as Readonly<Record<string, unknown>>);
+    const result = done.code(root, probe);
     if (!probe.refused && (result.ok || result.error.code !== "#DEPTH!")) constant = sharedCopy(result) as Result | undefined;
   } catch {
     constant = undefined;
   }
   if (constant === undefined) return { code: done.code, run: done.run };
   const value = constant;
+  const original = done.code;
+  if (fixed !== undefined) return { code: fixedCode(fixed, c.fixed as Readonly<Record<string, unknown>>, value, original), run: undefined, free: fixed };
   if (probe.reads === 0) return { code: () => value, run: undefined, free: CLOSED };
   // The part reads its own names. A list of reads gets each read, thus the code evaluates again (READS.RECORD).
-  const original = done.code;
   return { code: (ctx, rt) => (rt instanceof Session && !rt.traced && !rt.recording ? value : original(ctx, rt)), run: undefined, free: CLOSED };
+}
+
+/**
+ * This function gives the code of a part that folded with fixed names (PLAN.FIXED, D60). The code gives the folded
+ * value when the context has the fixed value of each name, by an own-key test and `Object.is`. A fixed value is
+ * deeply frozen, thus the same object gives the same result. Each other context, a list of reads and another runtime
+ * get the code without the fold. The probe of a parent fold gets the folded value, and it counts a read.
+ */
+function fixedCode(names: readonly string[], fixed: Readonly<Record<string, unknown>>, value: Result, original: Code): Code {
+  if (names.length === 1) {
+    const name = names[0] as string;
+    const want = fixed[name];
+    return (ctx, rt) => {
+      const given = ctx.names;
+      return Object.hasOwn(given, name) && Object.is(given[name], want) && folds(rt) ? value : original(ctx, rt);
+    };
+  }
+  const wants = names.map((name) => fixed[name]);
+  return (ctx, rt) => {
+    const given = ctx.names;
+    for (let index = 0; index < names.length; index += 1) {
+      const name = names[index] as string;
+      if (!Object.hasOwn(given, name) || !Object.is(given[name], wants[index])) return original(ctx, rt);
+    }
+    return folds(rt) ? value : original(ctx, rt);
+  };
+}
+
+/**
+ * This function tells if the code of a part with fixed names can give its folded value in a runtime. The probe of a
+ * fold counts the read of the part, as the code without the fold reads the names.
+ */
+function folds(rt: Runtime): boolean {
+  if (rt instanceof Session) return !rt.recording;
+  if (!(rt instanceof Probe)) return false;
+  rt.reads += 1;
+  return true;
+}
+
+/**
+ * This function gives the fixed names of the options of `prepare` (PLAN.FIXED). A name fixes only when its value is
+ * deeply frozen plain data. Then no change in place can make the folded value stale.
+ *
+ * @returns A record without a prototype, or `undefined` when no name fixes.
+ */
+function fixedNamesOf(given: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> | undefined {
+  if (given === undefined) return undefined;
+  let out: Record<string, unknown> | undefined;
+  for (const name of Object.keys(given)) {
+    const value = given[name];
+    if (!frozenPlain(value)) continue;
+    out ??= Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(out, name, { value, enumerable: true });
+  }
+  return out;
+}
+
+/** This function tells if a value is plain data, as `sharedCopy` reads it, and if each of its objects is frozen. */
+function frozenPlain(value: unknown): boolean {
+  const seen = new Set<object>();
+  const walk = (here: unknown): boolean => {
+    if (typeof here === "function") return false;
+    if (typeof here !== "object" || here === null || SHARED.has(here) || seen.has(here)) return true;
+    if (!Object.isFrozen(here)) return false;
+    seen.add(here);
+    const proto: unknown = Object.getPrototypeOf(here);
+    if (Array.isArray(here) ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) return false;
+    for (const key of Reflect.ownKeys(here)) {
+      const field = Object.getOwnPropertyDescriptor(here, key);
+      if (typeof key !== "string" || field === undefined || !("value" in field) || !walk(field.value)) return false;
+    }
+    return true;
+  };
+  try {
+    return walk(value);
+  } catch {
+    // A very deep value overflows the stack of the host.
+    return false;
+  }
 }
 
 /** The objects that a fold made. Each one is deeply frozen, thus a later fold uses it again and does not copy it. */
@@ -1851,9 +1961,13 @@ const NOT_PLAIN: unique symbol = /* @__PURE__ */ Symbol("not plain");
 /**
  * This function gives a deeply frozen copy of plain data, or `undefined` for other values. Plain data is a primitive or
  * an array without holes and extra keys. It is also a record of enumerable data fields with the prototype of an object
- * or no prototype. The copy keeps cycles and shared objects. The objects of the host do not change.
+ * or no prototype. The copy keeps cycles and shared objects. The objects of the host do not change. The tier `fixed`
+ * of `agree` uses it. The package does not export it.
+ *
+ * @param value - The value.
+ * @returns The frozen copy, or `undefined`.
  */
-function sharedCopy(value: unknown): unknown {
+export function sharedCopy(value: unknown): unknown {
   try {
     const out = copyPlain(value, new Map());
     return out === NOT_PLAIN ? undefined : out;
@@ -2108,7 +2222,9 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
   const verb = options.verb ?? "eval";
   const noAnswer: Answer = verb === "eval" ? NO_ANSWER : { verb, error: "no-answer", steps: [] };
   const traced = options.trace === true;
-  const c: Compiler = { machine, traced, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer, fold: !traced && options.fold !== false };
+  const fold = !traced && options.fold !== false;
+  const fixed = fold ? fixedNamesOf(options.fixed?.names) : undefined;
+  const c: Compiler = { machine, traced, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer, fold, fixed };
   let root: Compiled;
   try {
     root = compileNode(c, doc, [], options.declaredType, 0);

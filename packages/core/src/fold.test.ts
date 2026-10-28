@@ -16,7 +16,9 @@ import {
   makeContext,
   ok,
   prepare,
+  random,
   reference,
+  sameValue,
   typesOf,
 } from "./index.ts";
 
@@ -313,6 +315,134 @@ describe("folds on generated documents", () => {
       calls.length = 0;
       unfolded.evaluate(ctx);
       if (withFolds < calls.length) fewer += 1;
+    }
+    expect(fewer).toBeGreaterThan(10);
+  });
+});
+
+/** This function freezes a value and each object in it, as a host does before it declares the value fixed. */
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const item of Object.values(value)) deepFreeze(item);
+  }
+  return value;
+}
+
+describe("the names that the host declares fixed", () => {
+  const config = deepFreeze({ rows: [{ value: 10 }, { value: 20 }], scale: 2 });
+
+  it("[PLAN.FIXED] a path from a fixed name resolves one time, when the plan compiles, and a pure part that reads only fixed names folds", () => {
+    const { machine, calls } = withCount(true);
+    const doc: Json = { type: "record", value: { a: op("count", ref("names", "config", "rows", 1, "value")), b: op("add", ref("names", "config", "scale"), 1) } };
+    const plan = prepare(machine, doc, { fixed: { names: { config } } });
+    expect(calls).toEqual([20]);
+    const ctx = makeContext({ config, other: 1 });
+    const first = plan.evaluate(ctx);
+    const second = plan.evaluate(ctx);
+    expect(first).toEqual({ ok: true, value: { a: 20, b: 3 } });
+    expect(first.ok && second.ok && first.value === second.value && deeplyFrozen(first.value)).toBe(true);
+    expect(calls).toEqual([20]);
+    // The same plan with a list of reads evaluates the part again, and the reads are the reads of the plan without folds.
+    const folded: Read[] = [];
+    const unfolded: Read[] = [];
+    expect(plan.evaluate(ctx, { reads: folded })).toEqual(first);
+    prepare(machine, doc, { fold: false }).evaluate(ctx, { reads: unfolded });
+    expect(folded).toEqual(unfolded);
+    expect(folded).toHaveLength(2);
+  });
+
+  it("[PLAN.FIXED] a context with another value of a fixed name gets the code without the fold, thus each result stays the result of the reference", () => {
+    const { machine, calls, profile } = withCount(true);
+    const doc = op("count", ref("names", "config", "scale"));
+    const plan = prepare(machine, doc, { fixed: { names: { config } } });
+    expect(calls).toEqual([2]);
+    calls.length = 0;
+    expect(plan.evaluate(makeContext({ config: { scale: 5 } }))).toEqual({ ok: true, value: 5 });
+    expect(plan.evaluate(makeContext({}))).toMatchObject({ ok: false, error: { code: "#NAME?" } });
+    expect(calls).toEqual([5]);
+    // The comparison is Object.is, thus -0 is not the fixed 0.
+    const zero = prepare(machine, ref("names", "n"), { fixed: { names: { n: 0 } } });
+    const negative = zero.evaluate(makeContext({ n: -0 }));
+    expect(negative.ok && Object.is(negative.value, -0)).toBe(true);
+    // A let that binds the fixed name again gives its own value to the parts in its scope.
+    const shadow: Json = { type: "let", value: { bind: { config: { type: "lit", value: { scale: 7 } } }, body: ref("names", "config", "scale") } };
+    const shadowed = prepare(machine, { type: "list", value: [shadow, ref("names", "config", "scale")] }, { fixed: { names: { config } } });
+    const ctx = makeContext({ config });
+    expect(shadowed.evaluate(ctx)).toEqual({ ok: true, value: [7, 2] });
+    expect(shadowed.evaluate(ctx)).toEqual(reference(machine, { type: "list", value: [shadow, ref("names", "config", "scale")] }, ctx, { definitions: formulaDefinitions(profile) }));
+  });
+
+  it("[PLAN.FIXED] a value that is not deeply frozen plain data does not fix its name, and the default, fold: false and a trace keep the reads of each evaluation", () => {
+    const { machine, calls } = withCount(true);
+    const doc = op("count", ref("names", "config", "scale"));
+    const open = { scale: 3 };
+    const shallow = Object.freeze({ inner: { scale: 4 } });
+    for (const options of [{}, { fixed: { names: { config: open } } }, { fold: false, fixed: { names: { config } } }, { trace: true, fixed: { names: { config } } }]) {
+      const plan = prepare(machine, doc, options);
+      plan.evaluate(makeContext({ config }));
+      plan.evaluate(makeContext({ config }));
+    }
+    expect(calls).toEqual([2, 2, 2, 2, 2, 2, 2, 2]);
+    // A change in place of a value that is not frozen shows at the next evaluation.
+    calls.length = 0;
+    const plan = prepare(machine, doc, { fixed: { names: { config: open } } });
+    expect(plan.evaluate(makeContext({ config: open }))).toEqual({ ok: true, value: 3 });
+    open.scale = 6;
+    expect(plan.evaluate(makeContext({ config: open }))).toEqual({ ok: true, value: 6 });
+    const deep = prepare(machine, op("count", ref("names", "config", "inner", "scale")), { fixed: { names: { config: shallow } } });
+    deep.evaluate(makeContext({ config: shallow }));
+    expect(calls).toEqual([3, 6, 4]);
+  });
+
+  it("[PLAN.FIXED] the plan with fixed names agrees with the reference on random formulas, with the fixed values and with other values, and more parts fold", () => {
+    const { machine, calls, profile } = withCount(true);
+    const definitions = formulaDefinitions(profile);
+    // The names a and b are fixed. The name c holds a value that is not frozen, thus it does not fix.
+    const fixedNames = { a: deepFreeze({ x: 1, list: [2, "three"] }), b: "two", c: { x: 5 } };
+    const formula = (rng: Random, depth: number): Json => {
+      if (depth === 0 || rng.chance(0.25)) {
+        if (!rng.chance(0.7)) return rng.pick<Json>([1, "t", true, null]);
+        const steps: Json[] = [];
+        for (let index = rng.int(3); index > 0; index -= 1) steps.push(rng.pick<Json>(["x", "list", 0, 1, "nope"]));
+        return ref("names", rng.pick(["a", "b", "c", "a"]), ...steps);
+      }
+      const next = (): Json => formula(rng, depth - 1);
+      switch (rng.int(6)) {
+        case 0:
+          return { type: "record", value: { p: next(), q: next() } };
+        case 1:
+          return { type: "list", value: [next(), next()] };
+        case 2:
+          return { type: "if", value: { test: next(), then: next(), else: next() } };
+        case 3:
+          // A let that binds a again gives its own value to the parts in its scope.
+          return { type: "let", value: { bind: { a: next() }, body: next() } };
+        case 4:
+          return op("count", next());
+        default:
+          return op("add", next(), next());
+      }
+    };
+    const contexts = [makeContext(fixedNames), makeContext({ ...fixedNames, a: deepFreeze({ x: 9, list: [8] }) }), makeContext({ b: "two" })];
+    let fewer = 0;
+    for (let index = 0; index < 300; index += 1) {
+      const doc = formula(random(9_000_000 + index), 4);
+      const fixed = prepare(machine, doc, { fixed: { names: fixedNames } });
+      const plain = prepare(machine, doc);
+      for (const ctx of contexts) {
+        const expected = reference(machine, doc, ctx, { definitions });
+        expect(sameValue(fixed.evaluate(ctx), expected), JSON.stringify(doc)).toBe(true);
+        expect(sameValue(fixed.evaluate(ctx), expected), JSON.stringify(doc)).toBe(true);
+      }
+      const outcome = agree(machine, doc, contexts[0], { strict: true, definitions, tiers: ["fixed"] });
+      expect(outcome.ok, outcome.ok ? "" : `${outcome.tier}: ${outcome.reason} ${JSON.stringify(doc)}`).toBe(true);
+      calls.length = 0;
+      fixed.evaluate(contexts[0]);
+      const withFixed = calls.length;
+      calls.length = 0;
+      plain.evaluate(contexts[0]);
+      if (withFixed < calls.length) fewer += 1;
     }
     expect(fewer).toBeGreaterThan(10);
   });
