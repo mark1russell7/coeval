@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { SyntaxIssue } from "@mark1russell7/coeval";
 import RefArrows from "../glyphs/RefArrows.tsx";
 import { links } from "../lib/scope.ts";
 import { moveLinks } from "../lib/moves.ts";
@@ -11,8 +12,12 @@ import { OverlayContext, pathKey, type Overlay } from "../glyphs/overlay.ts";
 import { appendAt, declaredAt, getAt, newDoc, newPart, removeAt, setAt } from "../lib/edit.ts";
 import { prettyJson } from "../lib/motion.ts";
 import { PROGRAMS } from "../lib/programs.ts";
+import { docText, markIssue, readText } from "../lib/syntax.ts";
 
 const KINDS = Object.keys(SITE_WORLD.kinds).filter((name) => name !== "kind");
+
+/** The wait after the last key, in milliseconds, before the text pane reads its text. */
+const TEXT_WAIT = 300;
 
 /** This function reads a document from the hash of the address, so that a link can open the playground with it. */
 function fromHash(): Json | undefined {
@@ -39,7 +44,11 @@ export default function Playground() {
   const [jsonText, setJsonText] = useState(prettyJson(doc));
   const [jsonError, setJsonError] = useState<string | undefined>(undefined);
   const [stepping, setStepping] = useState(false);
+  // The text that the reader writes. `undefined` means that the pane shows the text of the document.
+  const [draft, setDraft] = useState<string | undefined>(undefined);
+  const [issue, setIssue] = useState<SyntaxIssue | undefined>(undefined);
   const picture = useRef<HTMLDivElement>(null);
+  const textBox = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const linked = fromHash();
@@ -47,8 +56,28 @@ export default function Playground() {
       setDoc(linked);
       setNames({});
       setJsonText(prettyJson(linked));
+      setDraft(undefined);
+      setIssue(undefined);
     }
   }, []);
+
+  // The pane reads the text of the reader after a short wait. A good text replaces the document. A bad text keeps the last good document.
+  useEffect(() => {
+    if (draft === undefined) return undefined;
+    const timer = window.setTimeout(() => {
+      const result = readText(draft);
+      if (result.ok) {
+        setDoc(result.doc);
+        setJsonText(prettyJson(result.doc));
+        setJsonError(undefined);
+        setSelected([]);
+        setIssue(undefined);
+      } else {
+        setIssue(result.issues[0]);
+      }
+    }, TEXT_WAIT);
+    return () => window.clearTimeout(timer);
+  }, [draft]);
 
   const load = (id: string): void => {
     const next = PROGRAMS.find((item) => item.id === id);
@@ -59,12 +88,26 @@ export default function Playground() {
     setSelected([]);
     setJsonText(prettyJson(next.doc));
     setJsonError(undefined);
+    setDraft(undefined);
+    setIssue(undefined);
   };
 
   const change = (next: Json): void => {
     setDoc(next);
     setJsonText(prettyJson(next));
     setJsonError(undefined);
+    setDraft(undefined);
+    setIssue(undefined);
+  };
+
+  const printed = useMemo(() => docText(doc), [doc]);
+  const shownText = draft ?? (printed.ok ? printed.text : "");
+  const marked = issue === undefined || draft === undefined ? undefined : markIssue(draft, issue);
+  const showIssue = (): void => {
+    const box = textBox.current;
+    if (box === null || issue === undefined) return;
+    box.focus();
+    box.setSelectionRange(issue.offset, issue.offset + issue.length);
   };
 
   const run = useMemo(() => evaluate(SITE_MACHINE, doc, makeContext(names, STD_CAPS)), [doc, names]);
@@ -244,6 +287,54 @@ export default function Playground() {
         </aside>
       </div>
 
+      <section className="cv-syntax" aria-labelledby="cv-syntax-title">
+        <h3 id="cv-syntax-title" className="cv-panel-head">
+          The text
+        </h3>
+        <p className="cv-small cv-muted">
+          The text and the picture show the same document. Change the text, and the picture changes when the text is good.
+        </p>
+        <textarea
+          ref={textBox}
+          className="cv-syntax-text"
+          value={shownText}
+          spellCheck={false}
+          rows={3}
+          placeholder={printed.ok ? undefined : "Write a text to replace the document."}
+          aria-label="The text of the document"
+          aria-describedby="cv-syntax-status"
+          aria-invalid={marked !== undefined}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <div id="cv-syntax-status" className="cv-syntax-status" aria-live="polite">
+          {marked !== undefined && issue !== undefined ? (
+            <>
+              <p className="cv-problem cv-syntax-problem">
+                <span className="cv-syntax-label">Problem</span> at character {issue.offset + 1}: {issue.message} The picture keeps the last good document.
+              </p>
+              <pre className="cv-syntax-echo" aria-hidden="true">
+                {marked.before}
+                <mark className="cv-syntax-mark" data-empty={marked.marked === "" ? "true" : undefined}>
+                  {marked.marked}
+                </mark>
+                {marked.after}
+              </pre>
+              <button type="button" className="ce-btn" onClick={showIssue}>
+                Select the problem in the text
+              </button>
+            </>
+          ) : (
+            draft === undefined &&
+            !printed.ok && (
+              <p className="cv-small cv-muted">
+                The text form is not available for this document. {printed.reason}
+                {printed.place.length > 0 && <> The part is at {pathText(printed.place)}.</>}
+              </p>
+            )
+          )}
+        </div>
+      </section>
+
       {run.effects.length > 0 && <EffectsLog effects={run.effects} tick={run.time} />}
 
       <div className="cv-final">
@@ -277,6 +368,8 @@ export default function Playground() {
                 setDoc(parsed);
                 setSelected([]);
                 setJsonError(undefined);
+                setDraft(undefined);
+                setIssue(undefined);
               } catch (error) {
                 setJsonError(String(error));
               }
