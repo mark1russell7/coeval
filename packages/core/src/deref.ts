@@ -363,8 +363,8 @@ export function context(parts: Partial<Context> = {}): Context {
 }
 
 const MAX_COLLAPSE = 64;
-/** The reason of a resolution that reaches the bound of collapses without a cycle that it found (DEREF.CHAIN-REASON). */
-const CHAIN_REASON = `The path follows more than ${MAX_COLLAPSE} references. One resolution follows at most ${MAX_COLLAPSE}.`;
+/** The reason of a resolution that reaches the bound of collapses without a cycle that it found (DEREF.CHAIN-REASON). It is a plain string, thus a bundle drops it (PKG.PURE). */
+const CHAIN_REASON = "The path follows more than 64 references. One resolution follows at most 64.";
 const NO_HOPS: readonly Hop[] = /* @__PURE__ */ Object.freeze([]);
 
 /** A value that can be a reference document: a record with the type `ref`. The full check comes after. */
