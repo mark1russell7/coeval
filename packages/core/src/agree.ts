@@ -1,9 +1,10 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
 import type { Context } from "./deref.ts";
 import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
-import { type Effect, type Machine, type Perform, evaluate, makeContext, prepare } from "./evaluate.ts";
+import { type Effect, type Journal, type Machine, type Perform, JOURNAL, evaluate, makeContext, prepare, run } from "./evaluate.ts";
 import { Held, isClosure } from "./formula.ts";
-import { type Definitions, reference } from "./reference.ts";
+import { type Definitions, reference, referenceRun } from "./reference.ts";
+import { type ReplaySettle, recorder, replayer } from "./replay.ts";
 
 /**
  * A tier that `agree` compares with the plan.
@@ -256,4 +257,111 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
     if (why !== undefined) return { ok: false, tier: "other", plan: result, other, reason: why };
   }
   return { ok: true, result, effects };
+}
+
+/** The options of `agreeRun`: the options of `agree` without the second tier of a language. */
+export interface AgreeRunOptions extends Omit<AgreeOptions, "other" | "perform"> {
+  /**
+   * The host of the run of the plan (RUN.AGREES). A recorder wraps it, and each other tier replays the log of that run.
+   * Thus the host does each effect one time. Without it, an effect gives its payload.
+   */
+  readonly perform?: Perform;
+}
+
+/** The function `perform` of one run, with the effects that it got and the waits of `all` that settled. */
+interface Watched {
+  readonly perform: Perform;
+  readonly effects: Effect[];
+  readonly settles: ReplaySettle[];
+}
+
+/**
+ * This function wraps the function `perform` of a run. The wrapper keeps each effect and each wait of `all` that
+ * settles. It gives each effect to the inner function, and each call of its journal to the inner journal.
+ */
+function watched(perform: Perform): Watched {
+  const effects: Effect[] = [];
+  const settles: ReplaySettle[] = [];
+  const inner = (perform as { readonly [JOURNAL]?: Journal })[JOURNAL];
+  const settled = (all: string, item: number): void => {
+    settles.push({ all, item });
+    inner?.settled?.(all, item);
+  };
+  const journal: Journal = inner?.next === undefined ? { settled } : { settled, next: (all, waiting) => inner.next?.(all, waiting) };
+  const host = (effect: Effect): unknown => {
+    effects.push(effect);
+    return perform(effect);
+  };
+  return { perform: Object.assign(host, { [JOURNAL]: journal }), effects, settles };
+}
+
+function settleText(settle: ReplaySettle | undefined): string {
+  return settle === undefined ? "no item" : `the item ${settle.item} of ${settle.all}`;
+}
+
+/** This function gives the first difference of two orders of the waits of `all`, or `undefined` when they agree. */
+function settlesDiffer(a: readonly ReplaySettle[], b: readonly ReplaySettle[]): string | undefined {
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const x = a[index];
+    const y = b[index];
+    if (x?.all !== y?.all || x?.item !== y?.item) return `The wait ${index} settles ${settleText(x)} in the plan, and ${settleText(y)} in the tier.`;
+  }
+  return undefined;
+}
+
+/**
+ * This function compares the run of a document in a plan with its run in other tiers (RUN.AGREES). First the plan
+ * starts the run with a recorder around the host. Then each tier replays the log of that run. These tiers are the
+ * reference run, the traced run, a second run of the plan and the plan with the other choice of folds.
+ *
+ * The rules of `agree` compare the results and the effects, with their addresses and outcomes. A tier must also
+ * settle the waits of each `all` in the order of the plan, thus a replay keeps the order of the waits.
+ *
+ * @param machine - The world, the evaluators and the runners.
+ * @param doc - The document.
+ * @param context - The names and the capabilities at the root.
+ * @param options - The tiers, the definitions for the reference, the rules of the comparison and the host.
+ * @returns The result of the plan, or the first tier that disagrees and the reason.
+ */
+export async function agreeRun(machine: Machine, doc: unknown, context: Context = makeContext(), options: AgreeRunOptions = {}): Promise<Agreement> {
+  const declared = {
+    ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
+    ...(options.verb === undefined ? {} : { verb: options.verb }),
+  };
+  const observe = options.observe;
+  observe?.();
+  // A fold moves host calls to the compilation, thus a plan whose calls the host compares has no folds (PLAN.FOLD).
+  const folds = observe === undefined;
+  const plan = prepare(machine, doc, { ...declared, fold: folds });
+  const recording = recorder(options.perform);
+  const first = watched(recording.perform);
+  const result = await plan.run(context, { perform: first.perform });
+  const saw = observe?.();
+  const log = recording.log();
+
+  for (const tier of options.tiers ?? DEFAULT_TIERS) {
+    const replay = watched(replayer(log));
+    const host = { perform: replay.perform };
+    let other: Result;
+    if (tier === "reference") {
+      other = await referenceRun(machine, doc, context, { ...declared, ...host, ...(options.definitions === undefined ? {} : { definitions: options.definitions }) });
+    } else if (tier === "traced") {
+      other = (await run(machine, doc, context, { ...declared, ...host })).result;
+    } else if (tier === "folds") {
+      other = await prepare(machine, doc, { ...declared, fold: !folds }).run(context, host);
+    } else {
+      other = await plan.run(context, host);
+    }
+    // The folds of the tier folds call the host when it compiles. Thus only its result, effects and waits compare.
+    const compareCalls = observe !== undefined && tier !== "folds";
+    const calls = observe?.();
+    if (overflowed(result) || overflowed(other)) continue;
+    const why =
+      resultDiffers(result, other, options) ??
+      effectsDiffer(first.effects, replay.effects, options) ??
+      settlesDiffer(first.settles, replay.settles) ??
+      (compareCalls && !sameValue(saw, calls, options.equal) ? "The host saw other calls in the tier." : undefined);
+    if (why !== undefined) return { ok: false, tier, plan: result, other, reason: why };
+  }
+  return { ok: true, result, effects: first.effects };
 }

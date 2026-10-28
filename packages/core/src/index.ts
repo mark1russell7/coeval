@@ -250,8 +250,8 @@ export {
   print,
   syntaxFormat,
 } from "./syntax.ts";
-export { type Definitions, type ReferenceOptions, STD_DEFINITIONS, formulaDefinitions, reference } from "./reference.ts";
-export { type AgreeOptions, type Agreement, type Tier, type TierInput, type TierResult, agree, sameValue } from "./agree.ts";
+export { type Definitions, type ReferenceOptions, type ReferenceRunOptions, STD_DEFINITIONS, formulaDefinitions, reference, referenceRun } from "./reference.ts";
+export { type AgreeOptions, type AgreeRunOptions, type Agreement, type Tier, type TierInput, type TierResult, agree, agreeRun, sameValue } from "./agree.ts";
 export { type ConformOptions, type ConformProbe, type Finding, type Obligation, conforms } from "./conform.ts";
 export { sameResult } from "./same.ts";
 export { type ReadsCheck, type VerifyOptions, verifyReads } from "./reads.ts";

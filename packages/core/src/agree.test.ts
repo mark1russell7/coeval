@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type AgreeOptions,
+  type AgreeRunOptions,
   type CompiledEvaluator,
   type CompiledRunner,
   type Context,
@@ -14,16 +15,19 @@ import {
   type Key,
   type Machine,
   type MachinePart,
+  type Perform,
   type Result,
   type Runtime,
   type Steps,
   type TierInput,
   type TierResult,
   Failure,
+  JOURNAL,
   STD_DEFINITIONS,
   STD_MACHINE,
   THING,
   agree,
+  agreeRun,
   check,
   context,
   docEquals,
@@ -44,7 +48,10 @@ import {
   permits,
   prepare,
   random,
+  recorder,
   reference,
+  referenceRun,
+  replayer,
   run,
   sameValue,
   typeName,
@@ -428,6 +435,8 @@ interface Config {
   readonly machine: Machine;
   readonly options: Omit<GenerateOptions, "seed">;
   readonly agree: AgreeOptions;
+  /** The contexts of the documents, in turn. The default is `CONTEXTS`. */
+  readonly contexts?: readonly Context[];
 }
 
 function formulaConfig(name: string, profile: FormulaProfile, more: Partial<Machine> = {}): Config {
@@ -612,6 +621,99 @@ function harness(config: Config, total: number): Outcome {
   return { findings, unchecked, kinds, codes };
 }
 
+/**
+ * A host that answers an effect at once, or after a few turns of promises (RUN.AGREES). The number of turns depends on
+ * the address, thus the waits of an `all` settle in another order than their start, and each run gets the same order.
+ */
+function waitingHost(effect: Effect): unknown {
+  let turns = 0;
+  for (const char of effect.address ?? "") turns = (turns + char.charCodeAt(0)) % 3;
+  if (turns === 0) return hostMock(effect);
+  let answer: Promise<unknown> = Promise.resolve();
+  for (let turn = 0; turn < turns * 2; turn += 1) answer = answer.then(() => undefined);
+  return answer.then(() => hostMock(effect));
+}
+
+/** The machine `waiting`, with the kind `par`: its parts start at the same time, without a limit and without failFast. */
+const running: Machine = {
+  ...waiting,
+  world: { ...waiting.world, kinds: { ...waiting.world.kinds, par: { verbs: { eval: "test.par" }, parts: { shape: "list" } } } },
+  runners: {
+    ...waiting.runners,
+    "test.par": function* ({ parts, all }): Steps {
+      const results = yield* all(parts);
+      return ok(results.map((result) => (result.ok ? result.value : result.error.code)));
+    },
+  },
+};
+
+/** The kinds that start their parts at the same time or in a sequence. Their parts prefer effects, waits and other runners. */
+const RUNNING_KINDS = new Set(["both", "par", "seq"]);
+
+/** The documents of the runs that wait: mostly runners with effects, `all` and waits in their parts. */
+const RUN_OPTIONS: Omit<GenerateOptions, "seed"> = {
+  ...STD_OPTIONS,
+  malformed: 0.01,
+  types: ["both", "par", "par", "seq", "log", "log", "write", "wait", "ref", "text", "number"].map((kind) => [kind]),
+  hints: (type) => {
+    const kind = String(type[0]);
+    if (RUNNING_KINDS.has(kind)) return [["log"], ["log"], ["write"], ["wait"], ["par"], ["both"], ["seq"]];
+    return kind === "log" || kind === "write" ? [["text"], ["number"], ["ref"]] : undefined;
+  },
+};
+
+/** The configurations of the harness of runs: each configuration of the evaluations, and runs that wait under `all`. */
+const RUN_CONFIGS: readonly Config[] = [...CONFIGS, {
+  name: "standard, runs that wait under all",
+  machine: running,
+  options: RUN_OPTIONS,
+  agree: { strict: true },
+  contexts: [CONTEXTS[0] as Context, CONTEXTS[0] as Context, CONTEXTS[2] as Context],
+}];
+
+/** What the harness of runs found, and the number of documents whose waits settled out of their order. */
+interface RunOutcome {
+  readonly findings: readonly Finding[];
+  readonly codes: ReadonlyMap<string, number>;
+  readonly reordered: number;
+}
+
+/** This function gives the options of `agreeRun` for a configuration. Without a mock, the host waits. */
+function runOptions(config: Config): AgreeRunOptions {
+  const { perform, other: _other, ...rest } = config.agree;
+  return { ...rest, perform: perform ?? waitingHost };
+}
+
+/** This function tells if a log has a wait of an `all` that settled before the wait of an earlier item of that `all`. */
+function reorders(settles: readonly { readonly all: string; readonly item: number }[]): boolean {
+  return settles.some((settle, index) => settles.slice(index + 1).some((later) => later.all === settle.all && later.item < settle.item));
+}
+
+async function harnessRun(config: Config, total: number): Promise<RunOutcome> {
+  const findings: Finding[] = [];
+  const codes = new Map<string, number>();
+  const options = runOptions(config);
+  const declared = config.agree.declaredType === undefined ? {} : { declaredType: config.agree.declaredType };
+  let reordered = 0;
+  for (let index = 0; index < total; index += 1) {
+    const seed = SEED * 1_000_003 + index;
+    const doc = generate(config.machine.world, { ...config.options, seed });
+    const contexts = config.contexts ?? CONTEXTS;
+    const ctx = contexts[index % contexts.length] as Context;
+    const outcome = await agreeRun(config.machine, doc, ctx, options);
+    if (!outcome.ok) {
+      findings.push({ seed, reason: outcome.reason, doc, plan: outcome.plan, other: outcome.other, tier: outcome.tier });
+      continue;
+    }
+    count(codes, outcome.result.ok ? "value" : outcome.result.error.code);
+    const recording = recorder(options.perform);
+    await prepare(config.machine, doc, declared).run(ctx, { perform: recording.perform });
+    config.agree.observe?.();
+    if (reorders(recording.log().settles)) reordered += 1;
+  }
+  return { findings, codes, reordered };
+}
+
 const outcomes = new Map<string, Outcome>();
 
 function outcomeOf(config: Config): Outcome {
@@ -689,6 +791,57 @@ describe("one meaning", () => {
     // The trees read attributes, and some reads form a cycle (TREE.CYCLE).
     const trees = outcomeOf(CONFIGS.find((config) => config.name === "trees") as Config);
     expect(trees.codes.get("#CYCLE!") ?? 0, show(Object.fromEntries(trees.codes))).toBeGreaterThan(0);
+  });
+});
+
+describe("one meaning of runs", () => {
+  for (const config of RUN_CONFIGS) {
+    it("[RUN.AGREES] the run of the plan, the reference run, the traced run, a second run and the other folds agree on generated documents, and replay the waits in their order: " + config.name, async () => {
+      const outcome = await harnessRun(config, COUNT);
+      expect(report(outcome.findings), `results ${show(Object.fromEntries(outcome.codes))}`).toEqual([]);
+      // Some runs that wait settle the waits of an all out of their order. The test of the mutant below checks that order.
+      if (config.options === RUN_OPTIONS) expect(outcome.reordered, `results ${show(Object.fromEntries(outcome.codes))}`).toBeGreaterThan(0);
+    }, 300_000);
+  }
+
+  it("[RUN.AGREES] agreeRun finds a tier that settles the waits of a replay in another order, also when the result and the effects agree", async () => {
+    const ctx = context({ caps: ["log"] });
+    const doc = { type: "both", value: [{ type: "log", value: ["a"] }, { type: "log", value: ["c"] }] };
+    // The host answers the second item first, thus the plan records the order 1, 0.
+    const host: Perform = (effect) => (effect.payload === "a" ? Promise.resolve().then(() => Promise.resolve()).then(() => "A") : Promise.resolve("C"));
+    expect(await agreeRun(waiting, doc, ctx, { strict: true, perform: host })).toMatchObject({ ok: true, result: ok(["A", "C"]) });
+    // A definition that waits one more time at the end of the first item settles three waits, and the plan settles two.
+    const slower: Definitions = {
+      runners: {
+        "test.all": function* ({ parts, all }): Steps {
+          const slow = parts.map((part, index) =>
+            index > 0
+              ? part
+              : {
+                  ...part,
+                  evaluate: function* (given?: Context): Steps {
+                    const result = yield* part.evaluate(given);
+                    yield Promise.resolve();
+                    return result;
+                  },
+                },
+          );
+          const results = yield* all(slow, { failFast: true, concurrency: 2 });
+          return ok(results.map((result) => (result.ok ? result.value : result.error.code)));
+        },
+      },
+    };
+    expect(await agreeRun(waiting, doc, ctx, { strict: true, perform: host, definitions: slower, tiers: ["reference"] })).toMatchObject({
+      ok: false,
+      tier: "reference",
+      plan: ok(["A", "C"]),
+      other: ok(["A", "C"]),
+      reason: "The wait 2 settles no item in the plan, and the item 0 of all0 in the tier.",
+    });
+    // A replay with failFast gives the recorded result in each tier: the failure of the second item stops the first.
+    const failing = { type: "both", value: [{ type: "seq", value: [{ type: "log", value: ["a"] }, { type: "log", value: ["c"] }] }, { type: "log", value: ["b"] }, { type: "log", value: ["d"] }] };
+    const refuse: Perform = (effect) => (effect.payload === "b" ? Promise.reject(new Failure({ code: "#MOCK", reason: "No b." })) : host(effect));
+    expect(await agreeRun(waiting, failing, ctx, { strict: true, perform: refuse })).toMatchObject({ ok: true, result: ok(["#ABORT", "#MOCK", "#ABORT"]) });
   });
 });
 
@@ -1017,7 +1170,56 @@ describe("the reference interpreter", () => {
     expect(reference(STD_MACHINE, doc, context({ caps: ["log"] }), { effects })).toMatchObject({ ok: false, error: { code: "#CAP!", place: [1, 0] } });
     expect(effects.map((effect) => [effect.kind, effect.payload, effect.place])).toEqual([["log", "a", [0]]]);
   });
+
+  it("[REF.RUN] the reference runs a document by the rules: the host does each effect of a runner, a step waits, all follows the journal, and a signal aborts", async () => {
+    const ctx = context({ caps: ["log", "write"] });
+    const later: Perform = (effect) => Promise.resolve(effect.kind === "write" ? "stored" : [effect.payload]);
+    // A step waits for the host, and the next step gets the result as last (RUN.SEQ).
+    const seq = { type: "seq", value: [{ type: "write", value: { key: "k", value: { type: "number", value: 2 } } }, { type: "log", value: [{ type: "ref", value: ["names", "last"] }] }] };
+    const effects: Effect[] = [];
+    const ran = await referenceRun(STD_MACHINE, seq, ctx, { perform: later, effects });
+    expect(ran).toEqual(await prepare(STD_MACHINE, seq).run(ctx, { perform: later }));
+    expect(ran).toEqual(ok(["stored"]));
+    expect(effects.map((effect) => [effect.address, effect.outcome])).toEqual([
+      ["0#0", ok("stored")],
+      ["1#0", ok(["stored"])],
+    ]);
+    // The journal of the host chooses the order of the waits of all: here the item with the highest index first.
+    const orders: number[][] = [[], []];
+    const chooser = (order: number[]): Perform =>
+      Object.assign((effect: Effect) => Promise.resolve(effect.payload), {
+        [JOURNAL]: {
+          next: (_all: string, waits: readonly number[]) => Math.max(...waits),
+          settled: (_all: string, item: number) => {
+            order.push(item);
+          },
+        },
+      });
+    const three = { type: "both", value: [{ type: "log", value: ["a"] }, { type: "log", value: ["b"] }, { type: "log", value: ["c"] }] };
+    expect(await referenceRun(waiting, three, ctx, { perform: chooser(orders[0] as number[]) })).toEqual(await prepare(waiting, three).run(ctx, { perform: chooser(orders[1] as number[]) }));
+    expect(orders).toEqual([
+      [1, 2, 0],
+      [1, 2, 0],
+    ]);
+    // A replay of a run of the plan gives its result in the reference, and the reference does no host effect.
+    const recording = recorder(later);
+    const recorded = await prepare(waiting, three).run(ctx, { perform: recording.perform });
+    expect(await referenceRun(waiting, three, ctx, { perform: replayer(recording.log()) })).toEqual(recorded);
+    // An effect of an evaluator gives #CALC! in a run (RUN.NEEDS-RUNNER), and a runner that waits under an evaluator too (RUN.WAIT).
+    const shout = { type: "shout", value: ["a"] };
+    expect(await referenceRun(widening, shout, ctx, { definitions: WIDENING_DEFINITIONS })).toEqual(await prepare(widening, shout).run(ctx));
+    expect(await referenceRun(widening, shout, ctx, { definitions: WIDENING_DEFINITIONS })).toMatchObject({ ok: false, error: { code: "#CALC!", place: [] } });
+    const nested = { type: "add", value: [1, { type: "wait", value: null }] };
+    expect(await referenceRun(waiting, nested, ctx)).toEqual(await prepare(waiting, nested).run(ctx));
+    // A signal that aborts stops the run with #ABORT, also before the first step (RUN.ABORT).
+    const stop = new AbortController();
+    const waits = referenceRun(STD_MACHINE, seq, ctx, { perform: () => new Promise(() => undefined), signal: stop.signal });
+    stop.abort("enough");
+    expect(await waits).toMatchObject({ ok: false, error: { code: "#ABORT", reason: "The host stopped the run: enough" } });
+    expect(await referenceRun(STD_MACHINE, seq, ctx, { perform: later, signal: stop.signal })).toEqual(await prepare(STD_MACHINE, seq).run(ctx, { perform: later, signal: stop.signal }));
+  });
 });
+
 
 describe("agree", () => {
   it("[AGREE.VALUES] values compare by structure, each leaf with Object.is, closures by parameters, and other objects by the rule of the caller", () => {

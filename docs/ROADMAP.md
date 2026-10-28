@@ -76,7 +76,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K3 | A check of a whole document before it runs, from the contracts | done (2026-10-21, `check`) | K2 |
 | K4 | References: paths from five roots, the verb `deref`, collapse, computed steps, and types as paths (D10) | done (2026-10-20) | |
 | K5 | The result model: a value, or an error value with a code, a reason and a place | done (2026-10-21: the place and the cause) | K1 |
-| K6 | The explain trace of a question and of an evaluation | in progress (the trace is an optional pass over a plan, the explorer draws it) | K5 |
+| K6 | The explain trace of a question and of an evaluation | done (2026-10-28, the trace of an evaluation and of a question exist, the explorer steps through them) | K5 |
 | K7 | Sealed parts: the kernel gives an evaluator handles without the value of a part | done (2026-10-20) | |
 | K8 | check narrows the capabilities as the kinds do (a bug from the study R2) | done (2026-10-24) | K3 |
 | K9 | A harness for one meaning: a reference interpreter that compiles nothing, documents that a generator makes from the kind contracts, and an exported `agree` (R1 P1, D15) | done (2026-10-24, version 0.4.2 with the corrections of four bugs that the harness found) | K2, K3 |
@@ -116,7 +116,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K43 | The `deref` code of a kind and the `deref` of a walker can give a field that holds `undefined`. Today they use `undefined` for a missing field. From K39. | later | K39 |
 | K44 | A replay log is JSON, so a test can keep it as a golden file. Today the causes of errors and the host values are not JSON. From K11. | later | K11 |
 | K45 | A replayer serves more than one run, and a recorder keeps the order of the waits of an inner replayer. From K11. | later | K11 |
-| K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | later | K11 |
+| K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | done (2026-10-28, D55, released in the next batch) | K11 |
 | K47 | The address of an effect stays the same after an edit of the document, as the open question 5 of R2 asks. From K11. | later | K11 |
 | K53 | The kind `pure` refuses a list with more than one part (CAP.PURE-ONE). Before, it ignored each part after the first. Found by S1a. | done (2026-10-24, released in the next batch) | none |
 | K54 | Declared reads for walkers and extensions: a walker or an extension declares what it reads, so it can count as pure in the facts. From S1a. | later | S1a |
@@ -141,6 +141,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K152 | A widened context narrows effects like the reference. Found by K100. Parts and effects narrow a context that compiled code widened by a filter against the grant (H-GRANT). That filter is coarser than the intersection of K100: with the grant `["log.a"]` under code that sets `["log"]`, an effect `log.a` gets `#CAP!` in the plan, but the reference permits it. A walker of a step document also gets the widened context (D52, Limits). Test: an `agree` case for each. Since D53, the meet narrows each part, effect and resolution. Test: CAP.MEET. | done (2026-10-28, D53, released in the next batch) | K100 |
 | K153 | An equal host list keeps the epoch (K120, D54, Limits). The epoch of a grant is the host list object of the root. A host that gives a new but equal list for each evaluation gets `#CAP!` for a context that code kept from an earlier evaluation, but the reference permits the effect. The refusal fails safe, but it differs from the reference. Compare equal lists only when the objects differ, or intern the root list. Test: an `agree` case with two evaluations. | later | K120 |
 | K154 | The grant epoch of K120 costs 3% to 4% for each evaluation. The bench of PR #111 gives FORMULA.SPEED +3.1% (160.4 to 165.7 ns) and PLAN.FOLD +4.4% (26.2 to 27.3 ns), with an A/A noise of 0.3% or less. Find the part of the change that costs most with a bench comparison for each part (as for K151). Remove that cost without a gap in CAP.NARROW-KEPT. | later | K120 |
+| K155 | The reference run keeps the reads of a run, and `agreeRun` compares them with the plan. Today the reference has no hook for the reads of a closure of `fn`, and a tree equation evaluates in a nested reference (D55, Limits). From K46. | later | K46 |
 | K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
 | K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | done (2026-10-28, D48, released in the next batch) | K23 |
