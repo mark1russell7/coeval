@@ -99,6 +99,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | DEREF.COLLAPSE | A path follows a reference that a step reaches. |
 | DEREF.CYCLE | A cycle of references gives `#CYCLE!`. |
 | DEREF.COLLAPSE-LIMIT | One resolution follows at most 64 references, also through the paths of the references that it follows. A long chain without a cycle also gives `#CYCLE!`. |
+| DEREF.CHAIN-REASON | The reason of `#CYCLE!` tells a cycle from a long chain. A reference that comes again in the evaluation of its own path gives the reason "The references form a cycle.". A resolution that follows more than 64 references without such a cycle gives a reason that names the bound. A lookup gives the reason `cycle` when it reaches a path again, and the reason `too-long` after 32 aliases without a cycle. |
 | DEREF.READER | A reference in the data resolves in the context of its reader, not in the context of its writer. |
 | DEREF.HOST | A host thing answers its own steps. |
 | DEREF.PATH | A host thing can answer all the keys of a path in one call. |

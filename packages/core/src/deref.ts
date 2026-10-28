@@ -363,6 +363,8 @@ export function context(parts: Partial<Context> = {}): Context {
 }
 
 const MAX_COLLAPSE = 64;
+/** The reason of a resolution that reaches the bound of collapses without a cycle that it found (DEREF.CHAIN-REASON). */
+const CHAIN_REASON = `The path follows more than ${MAX_COLLAPSE} references. One resolution follows at most ${MAX_COLLAPSE}.`;
 const NO_HOPS: readonly Hop[] = /* @__PURE__ */ Object.freeze([]);
 
 /** A value that can be a reference document: a record with the type `ref`. The full check comes after. */
@@ -560,7 +562,8 @@ function walkersOf(nav: Navigator, path: readonly unknown[]): KnownWalkers | und
  * - `#NAME?`: the root `names` has no such name.
  * - `#N/A`: a step reaches nothing.
  * - `#STEP?`: a step is not a key and not a step document.
- * - `#CYCLE!`: the references form a cycle.
+ * - `#CYCLE!`: the references form a cycle, or the resolution follows more than 64 references. The reason tells
+ *   which (DEREF.CHAIN-REASON).
  *
  * @param nav - The world and the code of the evaluators.
  * @param ctx - The context.
@@ -590,15 +593,21 @@ function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], ho
   const done = hops ?? NO_HOPS;
   const failed = (code: ResolveCode | ErrorCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;
+  // The references whose paths are in evaluation. A reference that is in this list again closes a cycle.
+  let open: object[] | undefined;
   const adopt = nav.adopt ?? ((value: unknown): Thing => value);
 
   const collapse = (thing: Thing): Resolution => {
     let here = thing;
     if (nav.plain === true) return { ok: true, thing: here, hops: done };
     while (isRef(here)) {
+      if (open?.includes(here) === true) return failed("#CYCLE!", "The references form a cycle.");
       collapses += 1;
-      if (collapses > MAX_COLLAPSE) return failed("#CYCLE!", "The references form a cycle.");
+      if (collapses > MAX_COLLAPSE) return failed("#CYCLE!", CHAIN_REASON);
+      open ??= [];
+      open.push(here);
       const inner = walk(here.value, undefined);
+      open.pop();
       if (!inner.ok) return inner;
       here = adopt(inner.thing);
       hops?.push({ step: "collapse", thing: here, by: "collapse" });
