@@ -1143,3 +1143,28 @@ Attribute grammars give equations on the kinds and a ladder of defaults. L2b tak
 **Why.** The equality stays at one place, the merge, with one rule (D17). The kit only stops making new code for a profile that it already served. The bound keeps the memory small, and the identity keys keep the merge sound.
 
 **Limits.** Two profiles in two objects with equal fields share a kit only while the first kit is one of the 16 most recent kits. Else their machines conflict, as before. A host that keeps one profile object, or one machine of the kit, always gets one kit. Two records of operations with the same functions are two different profiles. A caller that compared the evaluators of two calls by identity sees a change: they are the same objects after this decision.
+
+## D47 (2026-10-28): a profile names its pure extensions in the new field `pureExt`
+
+**Context.** K13 (D43) folds a closed pure part. A standard extension, for example `ext.number`, folds. An extension of a formula profile does not fold at any time, because the facts of the kit mark it not pure. The profile names its pure operations in `pure`, but it cannot name a pure extension. The design calls are the place of the mark, its shape, and the trust in it.
+
+**Decision.**
+
+- A formula profile gets the optional field `pureExt`: a list of names of its extensions. The default is an empty list.
+- The hook `facts` of the kit marks an extension of the profile pure when `pureExt` names it (FACTS.PROFILE). Else the extension stays not pure, as before.
+- A standard extension stays pure without a name. A name in `pureExt` that the profile does not have in `ext` has no effect.
+- Thus a closed part with a marked extension folds (PLAN.FOLD). The rules of D43 do not change. A plan with a trace, the option `fold: false` and the reference do not fold. The probe still refuses a direct read of `self`, `event` and `names`.
+- `pureExt` is one of the fields of the canonical form of D46, thus 14 fields. Two profiles that differ only in `pureExt` get two kits.
+- This changes the bullet of D43 that says that a profile `ext` does not fold. A profile `ext` without the mark still does not fold.
+
+**Rejected.**
+
+- Names of extensions in the existing field `pure`. An operation and an extension can have the same name, for example `ops.date` and `ext.date`. One name then marks both.
+- Qualified names, for example `ext.date`, in `pure`. The name of an operation can have dots, thus `ops.ext.date` has the name `ext.date` too.
+- The mark `pure: true` for the extensions too. Then the facts of a profile with `pure: true` change. A part with an extension of it that reads the context folds to a wrong value. This is a break of the existing profiles.
+- The value `true` for `pureExt`. An extension gets the context, unlike an operation. Thus each pure extension must be a separate promise of the author. A blanket mark makes a later extension pure without a review.
+- No mark at all. Then an extension of a language does not fold at any time, also when it only decodes its data, as `ext.number` does.
+
+**Why.** An operation gets only the values of its arguments, but an extension gets the context. The mark is a promise of the author that the extension keeps C4, as the mark `pure` of a kind is. A separate field keeps the two namespaces apart, and the default keeps each existing profile as it was.
+
+**Limits.** The kit trusts the mark. The probe of the fold catches a direct read of a field of `self`, `event` or `names`. But a copy of the names reads no field of the trap. Thus a marked extension that counts the names folds to a wrong value. Such an extension breaks C4, and the facts of D24 are then not sound for it too.
