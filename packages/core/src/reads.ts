@@ -1,7 +1,7 @@
 import { docEquals } from "./doc.ts";
-import { type Result, ok } from "./errors.ts";
+import { type Result, fail, ok } from "./errors.ts";
 import type { Context, Hop } from "./deref.ts";
-import { type Machine, type Plan, type Read, readAgain, rootContext } from "./evaluate.ts";
+import { type Machine, type Plan, type Read, keptAgain, readAgain, rootContext } from "./evaluate.ts";
 import { Held } from "./formula.ts";
 import { sameResult } from "./same.ts";
 
@@ -95,6 +95,13 @@ export function verifyReads(target: Machine | Plan, reads: readonly Read[], cont
     if (!read.free) continue;
     const stop = heldStop(root, read.path);
     if (stop !== undefined) return { same: false, index, read, now: stop };
+    if (read.kept === true) {
+      // A kept read does not step into a host thing with `deref`. A host thing with `known` answers its step (SCHED.CLOSURE).
+      const now = keptAgain(machine, root, read.path);
+      if (now === undefined) return { same: false, index, read, now: fail("#N/A", "The host does not know the value of the kept read yet.") };
+      if (!sameResult(read.reached, now, equal)) return { same: false, index, read, now };
+      continue;
+    }
     const asked = read.hops !== undefined;
     const now = readAgain(machine, root, read.path, asked);
     if (!sameResult(read.reached, now.reached, equal) || (read.hops !== undefined && !sameHops(read.hops, now.hops, equal))) {

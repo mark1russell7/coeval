@@ -48,6 +48,15 @@ export interface HostThing {
    * @returns What the keys reach, or `undefined` when they reach nothing. `{ thing: undefined }` tells that the keys reach a field that holds `undefined`.
    */
   resolve?(keys: readonly Key[]): { readonly thing: Thing } | undefined;
+  /**
+   * This optional function answers one step only when the host has its value without new work (SCHED.CLOSURE). A
+   * kept read of a closure uses it, because the evaluation did not ask for that read. A schedule gives the value of
+   * a node that has its result in the data epoch. A throw gives the error of the step.
+   *
+   * @param key - The key of the step.
+   * @returns What the step reaches, or `undefined` when the host does not know it yet. Then the kept read ends at the thing.
+   */
+  known?(key: Key): { readonly thing: Thing } | undefined;
 }
 
 /** Something that a path can reach: any value of the host, or a host thing. */

@@ -904,28 +904,93 @@ interface Reading {
   paths?: Set<string>;
 }
 
+/** The walk of a kept path: the path, and what it reached when a host thing answered a step with `known`. */
+interface KeptWalk {
+  readonly path: readonly unknown[];
+  /** What the path reached. Without it, the read resolves its path with `readAgain`. */
+  readonly reached?: Result;
+}
+
 /**
  * This function gives the path of a kept read (READS.CLOSURE). The evaluation did not ask for the read. Thus the read
- * does not step into a host thing, and the path ends at the first host thing. The host gives a new thing for a new state.
+ * does not step into a host thing with `deref`. A host thing with `known` answers a step without new work
+ * (SCHED.CLOSURE). Each other host thing ends the path, and a host thing that does not know the step ends it too.
  * A reference in the data reads the context of its reader, thus the function then gives `undefined`.
  *
  * @param nav - The world and the code of the evaluators.
  * @param root - The context at the root of the evaluation.
  * @param path - The root and the keys of the static read.
- * @returns The path of the kept read, or `undefined` for a reference on the way.
+ * @returns The path of the kept read with what it reached after a step of `known`, or `undefined` for a reference on the way.
  */
-function keptPath(nav: Navigator, root: Context, path: readonly unknown[]): readonly unknown[] | undefined {
+function keptPath(nav: Navigator, root: Context, path: readonly unknown[]): KeptWalk | undefined {
   const adopt = nav.adopt ?? ((value: unknown): Thing => value);
   let here = adopt(root[path[0] as Root]);
+  // This mark is `true` after a step of `known`. Then the walk gives what the path reached, and no resolution follows.
+  let known = false;
+  const end = (index: number): KeptWalk => {
+    const kept = index >= path.length ? path : path.slice(0, index);
+    return known ? { path: kept, reached: ok(here) } : { path: kept };
+  };
   for (let index = 1; ; index += 1) {
-    if (isHostThing(here)) return index === path.length ? path : path.slice(0, index);
+    if (isHostThing(here)) {
+      if (index >= path.length || here.known === undefined) return end(index);
+      let step: { readonly thing: Thing } | undefined;
+      try {
+        step = here.known(path[index] as Key);
+      } catch (error) {
+        // A failed value gives its error to the read, as an exception in `readAgain` does.
+        return { path: path.slice(0, index + 1), reached: thrown(error, READ_FAILED) };
+      }
+      if (step === undefined) return end(index);
+      known = true;
+      here = adopt(step.thing);
+      continue;
+    }
     if (nav.plain !== true && isRef(here)) return undefined;
-    if (index >= path.length) return path;
+    if (index >= path.length) return end(index);
     const reached = derefStep(nav, here, path[index] as Key);
     // A step that reaches nothing fails, and the resolution of the path fails at the same step.
-    if (reached === undefined) return path;
+    if (reached === undefined) return known ? end(index) : { path };
     here = adopt(reached.thing);
   }
+}
+
+/**
+ * This function resolves the path of a kept read again, for `verifyReads` (SCHED.CLOSURE). It walks the path as
+ * `keptPath` did. A host thing with `known` answers its step. A path without such a step resolves with `readAgain`.
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param ctx - The new context.
+ * @param path - The path of the kept read.
+ * @returns What the path reaches, or `undefined` when a host does not know a step yet. Then the read changed.
+ */
+export function keptAgain(nav: Navigator, ctx: Context, path: readonly unknown[]): Result | undefined {
+  const adopt = nav.adopt ?? ((value: unknown): Thing => value);
+  let here = adopt(ctx[path[0] as Root]);
+  let known = false;
+  // Before a step of `known`, each other answer of the walk is the answer of `readAgain`, as before SCHED.CLOSURE.
+  const other = (): Result | undefined => (known ? undefined : readAgain(nav, ctx, path, false).reached);
+  for (let index = 1; index < path.length; index += 1) {
+    if (isHostThing(here)) {
+      if (here.known === undefined) return other();
+      let step: { readonly thing: Thing } | undefined;
+      try {
+        step = here.known(path[index] as Key);
+      } catch (error) {
+        return thrown(error, READ_FAILED);
+      }
+      if (step === undefined) return undefined;
+      known = true;
+      here = adopt(step.thing);
+      continue;
+    }
+    if (nav.plain !== true && isRef(here)) return other();
+    const reached = derefStep(nav, here, path[index] as Key);
+    if (reached === undefined) return other();
+    here = adopt(reached.thing);
+  }
+  if (!known) return other();
+  return nav.plain !== true && isRef(here) ? undefined : ok(here);
 }
 
 /** This function makes the record of the reads of an evaluation, when the host gives a list. */
@@ -1055,14 +1120,15 @@ class Session implements Runtime {
     // A read of the whole root self already holds each path of self.
     if (root === "self" && reading.self) return true;
     // A step document can walk outside the keys of its path, thus such a read keeps the whole root.
-    const path = keptPath(this.machine, reading.root, read.exact ? exact : [root]);
-    if (path === undefined) return false;
+    const walk = keptPath(this.machine, reading.root, read.exact ? exact : [root]);
+    if (walk === undefined) return false;
+    const path = walk.path;
     const paths = (reading.paths ??= new Set());
     const text = JSON.stringify(path);
     if (paths.has(text) || paths.has(JSON.stringify([root]))) return true;
     paths.add(text);
     if (path.length === 1 && root === "self") reading.self = true;
-    reading.list.push({ path, reached: readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+    reading.list.push({ path, reached: walk.reached ?? readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
     return true;
   }
 
