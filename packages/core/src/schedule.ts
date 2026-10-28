@@ -354,10 +354,12 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
 
   /**
    * This function gives the state of the current data epoch. Each data epoch has a new host thing at the root
-   * `world`. Thus a read that reaches the whole root changes at each change of data (READS.KEPT).
+   * `world`. Thus a read that reaches the whole root changes at each change of data (READS.KEPT). A kept read of a
+   * closure reads a node through `known`, without a demand (SCHED.CLOSURE).
    */
   const current = (): Epoch => {
     if (now !== undefined) return now;
+    const values = new Map<string, Result>();
     const nodesThing: HostThing = {
       [THING]: true,
       label: "nodes",
@@ -371,10 +373,18 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       },
       has: (key) => docs.has(String(key)),
       toJson: record,
+      // A demand from a kept read can reach the node in evaluation, and that cycle is false (SCHED.ONE-MEANING).
+      // Thus only a node with its result in this epoch gives a value. Each such value is final (D31).
+      known(key) {
+        const result = values.get(String(key));
+        if (result === undefined) return undefined;
+        if (!result.ok) throw new Failure(result.error);
+        return { thing: result.value };
+      },
     };
     // The context has a world, thus `rootContext` only gives it its grant (CAP.NARROW-CODE). Each evaluation of the
     // epoch then uses this object with no copy.
-    now = { context: rootContext(machine, { ...base, world: nodesThing }), values: new Map() };
+    now = { context: rootContext(machine, { ...base, world: nodesThing }), values };
     return now;
   };
 

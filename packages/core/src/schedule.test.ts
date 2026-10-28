@@ -313,6 +313,51 @@ describe("the interface of a schedule", () => {
     expect(s.counts.evaluations - counts.evaluations).toBe(3);
   });
 
+  it("[SCHED.CLOSURE] a closure keeps a read of the node that it reads, thus a change of another node keeps its result, with no demand and no #CYCLE!", () => {
+    const s = schedule(strictMachine, { ...LIT, context: context({ names: { x: 1, y: 1 } }) });
+    s.set("a", ref("names", "x"));
+    s.set("b", ref("names", "y"));
+    s.set("f", { type: "fn", value: { params: ["v"], body: op("add", ref("names", "v"), ref("world", "a")) } });
+    s.set("g", op("apply", ref("world", "f"), 10));
+    // The node a has its result before the closure of f, thus the kept read of f names the node a.
+    expect(s.read("a")).toEqual(ok(1));
+    const first = s.read("f");
+    expect(first.ok && isClosure(first.value)).toBe(true);
+    expect(s.read("g")).toEqual(ok(11));
+    // A change of another node keeps the old closure. The node f verifies its kept read of a, and it does not evaluate.
+    let counts = s.counts;
+    s.changeData(context({ names: { x: 1, y: 2 } }));
+    expect(s.read("b")).toEqual(ok(2));
+    expect(s.read("a")).toEqual(ok(1));
+    expect(s.read("f")).toBe(first);
+    expect(s.read("g")).toEqual(ok(11));
+    expect(s.counts.evaluations - counts.evaluations).toBe(1);
+    // An edit of another node keeps the old closure too.
+    s.set("b", 3);
+    expect(s.read("a")).toEqual(ok(1));
+    expect(s.read("f")).toBe(first);
+    // A change of the node that the closure reads discards the old closure, and its reader gets the new value.
+    s.changeData(context({ names: { x: 2, y: 2 } }));
+    expect(s.read("a")).toEqual(ok(2));
+    const second = s.read("f");
+    expect(second).not.toBe(first);
+    expect(s.read("g")).toEqual(ok(12));
+    // A node without its result in the epoch gives no value to a kept read: the read has no demand. Thus the closure
+    // evaluates again, and its new kept read reads the whole root world.
+    counts = s.counts;
+    s.changeData();
+    expect(s.read("f")).not.toBe(second);
+    expect(s.counts.evaluations - counts.evaluations).toBe(1);
+    expect(s.counts.verifications - counts.verifications).toBe(1);
+    // A closure that reads its own node gives no #CYCLE!, because the kept read does not demand the node.
+    s.set("h", { type: "fn", value: { params: ["v"], body: ref("world", "h") } });
+    s.set("k", op("apply", ref("world", "h"), 0));
+    const own = s.read("h");
+    expect(own.ok && isClosure(own.value)).toBe(true);
+    const called = s.read("k");
+    expect(called.ok && isClosure(called.value)).toBe(true);
+  });
+
   it("[SCHED.CYCLE] each node of a cycle gives #CYCLE! with its name and no place, in each order of demands, and a reader gets the error at its reference", () => {
     const docs: Readonly<Record<string, Json>> = {
       a: op("add", ref("world", "b"), 1),

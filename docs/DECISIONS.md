@@ -1419,7 +1419,45 @@ The change is visible: an evaluation with a pure closure gives another list of r
 
 **Limits.**
 
-- A closure in a schedule that reads a node keeps the whole root `world`, because that root is a host thing. Thus each change of data still discards its result.
+- A closure in a schedule that reads a node keeps the whole root `world`, because that root is a host thing. Thus each change of data still discards its result. D57 changes this for a node with its result in the data epoch.
 - A reference in the data on a path of a closure keeps each whole root, as before K60.
 - A closure that gets a call after the end of its evaluation adds the reads of its body to the old list. A new closure from that call adds its kept reads there too. A schedule keeps a copy of the list (PLAN.LEAN), thus it does not see them.
 - The harness of READS.SOUND compares two closures by their parameters. Thus it does not find a stale closure in a result. The test READS.CLOSURE compares the values of an old closure and a new one.
+
+## D57 (2026-10-28): a kept read of a closure reads a node of a schedule through `known`, without a demand
+
+**Context.** K156, from the limits of D56. A kept read of a closure ends at the first host thing. In a schedule, the root `world` is a host thing. Thus a closure that reads a node kept the whole root, and each change of data discarded its result.
+
+The full path through `world` demands the node. That demand starts from inside the evaluation of the reader, also when the closure does not get a call. SCHED.ONE-MEANING found a false `#CYCLE!` with it (D56, Rejected).
+
+The design calls are the step into a host thing, the record and the verification of the read, and the case without a value.
+
+**Decision.**
+
+- `HostThing` gets the optional function `known(key)`. It gives what a step reaches only when the host has the value without new work. A throw gives the error of the step.
+- The root `world` of a schedule gives `known` for each node with its result in the data epoch. Each such result is final (D31). A node in evaluation and a node without a demand give `undefined`.
+- `keptPath` steps into a host thing only through `known`. After such a step, the walk gives what the path reached, and no resolution follows. A host thing without `known` ends the path, as in D56.
+- A step that `known` does not answer ends the path at the host thing. Thus the read keeps the whole thing, as in D56.
+- `verifyReads` walks a kept read with `keptAgain`, in the same way. A step that `known` does not answer is a changed read. A path without a step of `known` resolves with `readAgain`, as before.
+- The schedule does not demand a node for a kept read, also not ahead of a demand. SCHED.DEMAND and SCHED.LONG-CHAIN stay as they are (SCHED.CLOSURE).
+- The reference does not change, because it records no reads. `Runtime` does not change.
+
+**Rejected.**
+
+- A demand of the node at the record of the kept read. The demand starts from inside the evaluation of the reader, and it gives a false `#CYCLE!` (D56).
+- A demand at the verification. `durable` verifies the reads of a node while the node is in evaluation. Thus such a demand gives the same false cycle.
+- A demand of the read nodes ahead of the demand of the host. A node behind a lazy edge then evaluates, against SCHED.DEMAND and SCHED.LONG-CHAIN. Also a cycle through the closure still has no known value.
+- A stamp of each node that changes with its value. The new stamp of a node needs the new value, thus a demand too.
+
+**Why.** The schedule knows each node that has a final result in the data epoch. A kept read of such a node compares its value, as a direct read does, and it needs no demand. Thus no kept read adds a demand, and no false cycle can occur.
+
+An old closure that keeps its result reads the nodes live, because its root `world` demands each node in the current epoch. Its kept reads of the other roots compare the paths of its body (D56). Thus the old closure and a new one give the same values.
+
+The change is visible: a closure in a schedule gives another list of reads, and it keeps more old results. The answer depends on the order of the demands, but each value stays the same.
+
+**Limits.**
+
+- A kept read keeps its result only when the read node has its result in the epoch before the verification. A host that reads the closure first gets a new closure.
+- A closure on a cycle of reads with its node, for example a closure that reads its own node, keeps the whole root `world`.
+- A closure in a chain of closures keeps its result only when each closure of the chain has its result first.
+- A missing node has no known value. Thus a closure that reads a missing node keeps the whole root `world`.
