@@ -4,7 +4,7 @@ import { type CompiledPath, type Context, type Resolution, compilePath, valueOfT
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
-import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, stepType, typeText } from "./types.ts";
+import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeText } from "./types.ts";
 import type { TypeInput, TypeRule } from "./typing.ts";
 import { decodeDomain, domainTypeOf } from "./codec.ts";
 
@@ -69,8 +69,8 @@ export interface FormulaProfile {
 }
 
 /**
- * The signature of an operation: the value types of its parameters and of its result (TYPE.SIGNATURE). A parameter of
- * the type `unknown` at the end of `params` is optional. A later version can add a key, for example the type that a
+ * The signature of an operation: the value types of its parameters and of its result (TYPE.SIGNATURE). A parameter at
+ * the end of `params` is optional when `undefined` is a member of its type, for example `unknown`. A later version can add a key, for example the type that a
  * true result proves.
  */
 export interface Signature {
@@ -212,9 +212,13 @@ export function formulaKinds(): Readonly<Record<string, WorldEntry>> {
   return kinds as Readonly<Record<string, WorldEntry>>;
 }
 
-/** This function gives the type of a value of a profile: the value itself as `one`. `undefined` and a function give `unknown`. */
+/**
+ * This function gives the type of a value of a profile: the value itself as `one`. `undefined` gives the base type
+ * `undefined`, because JSON and thus `one` cannot hold it (D48). A function gives `unknown`.
+ */
 function valueType(value: unknown): ValueType {
-  return value === undefined || typeof value === "function" ? "unknown" : { one: [value as Json] };
+  if (value === undefined) return "undefined";
+  return typeof value === "function" ? "unknown" : { one: [value as Json] };
 }
 
 /** This function tells if a value has the form of a signature: a record with `params` as a list, and `to`. */
@@ -239,14 +243,14 @@ function listText(names: readonly string[]): string {
 }
 
 /**
- * This function tells if a signature takes a count of arguments. A parameter of the type `unknown` at the end is
- * optional, because a missing argument is `undefined`.
+ * This function tells if a signature takes a count of arguments. A parameter at the end is optional when its type
+ * holds `undefined`, because a missing argument is `undefined`. `unknown` and the base type `undefined` hold it.
  *
  * @returns `undefined` when the number is correct, or else the text of the numbers that the signature takes.
  */
 function arityOf(sig: Signature, count: number, domains: Machine["domains"]): string | undefined {
   let least = sig.params.length;
-  while (least > 0 && isUnknown(sig.params[least - 1], domains)) least -= 1;
+  while (least > 0 && member(undefined, sig.params[least - 1] as ValueType, domains)) least -= 1;
   const most = sig.rest === undefined ? sig.params.length : Number.POSITIVE_INFINITY;
   if (count >= least && count <= most) return undefined;
   if (most === Number.POSITIVE_INFINITY) return `at least ${argumentsText(least)}`;
@@ -490,6 +494,8 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
         const name = nameOf(input);
         const own = profile.ext !== undefined && Object.hasOwn(profile.ext, name);
         if (own) return "unknown";
+        // The standard extensions give the values that JSON cannot write, thus each has a base type (D48).
+        if (name === "undefined") return "undefined";
         if (name === "number") return "number";
         return name === "domain" ? domainTypeOf(input.doc.value, input.machine.domains) : "unknown";
       },
