@@ -902,6 +902,79 @@
   font-size: 0.8rem;
 }
 
+/* The text pane of the playground (C17). The color of a problem is the stop color, with the label Problem. */
+.cv-syntax {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.cv-syntax p {
+  margin: 0;
+}
+
+.cv-syntax-text {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: var(--space-2);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.cv-syntax-text[aria-invalid="true"] {
+  border-color: var(--ce-stop);
+}
+
+.cv-syntax-status {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.cv-syntax-label {
+  margin-right: 0.3rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--ce-stop);
+  border-radius: var(--radius-small);
+  font-weight: 700;
+}
+
+.cv-syntax-echo {
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cv-syntax-mark {
+  background: var(--ce-stop-wash);
+  color: inherit;
+  text-decoration: underline wavy var(--ce-stop);
+  text-underline-offset: 0.2em;
+}
+
+/* An issue between two characters has no text. A bar marks its place. */
+.cv-syntax-mark[data-empty="true"] {
+  display: inline-block;
+  width: 0;
+  height: 1.1em;
+  vertical-align: text-bottom;
+  border-left: 2px solid var(--ce-stop);
+}
+
 .cv-stepping {
   padding: 0 var(--space-4);
 }
