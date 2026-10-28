@@ -240,6 +240,7 @@ export {
   type SyntaxCalls,
   type SyntaxFixity,
   type SyntaxForm,
+  type SyntaxHeader,
   type SyntaxIssue,
   type SyntaxLiterals,
   type SyntaxOperator,

@@ -87,6 +87,18 @@ const ALGEBRA: SyntaxProfile = {
   calls: { ops: ["min", "max", "floor"] },
 };
 
+/** The standard profile with two call forms under a path (K161): `math.product` with a list and `geo.point` with fields. */
+const PATHS: SyntaxProfile = {
+  ...STD_SYNTAX,
+  calls: {
+    forms: [
+      ...(STD_SYNTAX.calls?.forms ?? []),
+      { name: "math.product", kind: "math.product" },
+      { name: "geo.point", kind: "geo.point", fields: ["x", "y"], min: 1 },
+    ],
+  },
+};
+
 const NUMBERS: Readonly<Record<string, Json>> = {
   nan: { type: ["ext", "number"], value: "NaN" },
   inf: { type: ["ext", "number"], value: "Infinity" },
@@ -175,6 +187,64 @@ describe("the syntax kit", () => {
     expect(() => parse({ operators: [{ symbol: "a+", fixity: "infix", prec: 1, kind: "a" }] }, "1")).toThrow(TypeError);
   });
 
+  it("[SYNTAX.HEADER] a profile with a bind symbol writes and reads the header name of a document", () => {
+    const named = (value: Json, name: string): Json => ({ ...(value as Record<string, Json>), name });
+    expect(doc(STD_SYNTAX, "total = 2 + 3")).toEqual(named(op("add", 2, 3), "total"));
+    expect(doc(STD_SYNTAX, "list(a = x, b = 1, `a b` = -0)")).toEqual({
+      type: "list",
+      value: [named(x, "a"), { type: "lit", value: 1, name: "b" }, named(NUMBERS["nzero"] as Json, "a b")],
+    });
+    expect(doc(STD_SYNTAX, "(a = x) * 2")).toEqual(op("mul", named(x, "a"), 2));
+    // A longer operator wins over the bind symbol, thus the texts of before read as before.
+    expect(doc(STD_SYNTAX, "x == 1")).toEqual(op("eq", x, 1));
+    expect(doc(SHEET, "rate = 1")).toEqual(op("eq", ref("names", "rate"), 1));
+    // The printer writes the name before the document, with parentheses in the term of an operator.
+    expect(text(STD_SYNTAX, named(op("add", 2, 3), "total"))).toBe("total = 2 + 3");
+    expect(text(STD_SYNTAX, op("mul", named(op("add", x, 1), "a"), 2))).toBe("(a = x + 1) * 2");
+    expect(text(STD_SYNTAX, op("neg", named(x, "if")))).toBe("-(if = x)");
+    expect(text(STD_SYNTAX, { type: "list", value: [{ type: "lit", value: "s", name: "a b" }] })).toBe('list(`a b` = "s")');
+    for (const source of ["total = 2 + 3", "(a = x + 1) * 2", "-(if = x)", 'list(`a b` = "s", not = not y)', "if(c = x > 1, a = 1)"]) {
+      expect(text(STD_SYNTAX, doc(STD_SYNTAX, source))).toBe(source);
+    }
+    // A document has one name.
+    expect(issue(STD_SYNTAX, "a = (b = 1)")).toEqual({ offset: 4, length: 7, message: "The document already has the name b." });
+    expect(issue(STD_SYNTAX, "a = b = 1")).toMatchObject({ offset: 6, message: "The text continues after the expression." });
+    // Without a bind symbol, a name has no text. The own entries have no text in each profile.
+    expect(print(SHEET, named(op("add", 1, 2), "a"))).toMatchObject({ ok: false, error: { code: "#VALUE!", reason: "This syntax has no text for the name of a document." } });
+    expect(print(STD_SYNTAX, op("add", 1, { type: "lit", value: 2, own: { format: "mine" } }))).toMatchObject({
+      ok: false,
+      error: { code: "#VALUE!", reason: "This syntax has no text for the own entries of a document.", place: [1] },
+    });
+    expect(issue({ ...STD_SYNTAX, header: {} }, "a = 1")).toMatchObject({ offset: 2, message: "The text continues after the expression." });
+    // A bind symbol that an operator can read throws.
+    expect(() => parse({ ...SHEET, header: { bind: "=" } }, "1")).toThrow(TypeError);
+    expect(() => parse({ ...SHEET, header: { bind: ":=" } }, "1")).toThrow(TypeError);
+    expect(() => parse({ ...SHEET, header: { bind: "<-" } }, "1")).toThrow(TypeError);
+    expect(() => parse({ ...STD_SYNTAX, header: { bind: "as" } }, "1")).toThrow(TypeError);
+    expect(doc({ ...SHEET, header: { bind: "~" } }, "rate ~ A1 <= 2")).toEqual(named(op("le", ref("world", "A1"), 2), "rate"));
+    // The verb format writes the name, and a step with a name evaluates.
+    const machine = mergeMachines(formulaMachine({ ops: { add: (a: number, b: number) => a + b } }), syntaxFormat(STD_SYNTAX));
+    expect(prepare(machine, named(op("add", 1, x), "y"), { declaredType: "lit", verb: "format" }).evaluate()).toEqual(ok("y = 1 + x"));
+    expect(prepare(machine, doc(STD_SYNTAX, "y = 1 + 2"), { declaredType: "lit" }).evaluate()).toEqual(ok(3));
+  });
+
+  it("[SYNTAX.FORM-PATH] a call form under a path reads and writes its full name, and a reference with dots stays a reference", () => {
+    expect(doc(PATHS, "math.product(6, 7)")).toEqual({ type: ["math", "product"], value: [6, 7] });
+    expect(doc(PATHS, "geo . point(1, x)")).toEqual({ type: ["geo", "point"], value: { x: 1, y: x } });
+    expect(doc(PATHS, "math.max(1)")).toEqual(op("math.max", 1));
+    expect(doc(PATHS, "math.product + geo")).toEqual(op("add", ref("names", "math", "product"), ref("names", "geo")));
+    expect(text(PATHS, { type: ["math", "product"], value: [6, op("add", 1, 2)] })).toBe("math.product(6, 1 + 2)");
+    expect(text(PATHS, { type: ["geo", "point"], value: { x: 1 } })).toBe("geo.point(1)");
+    // The form hides the operation of the same name, thus that operation has no text.
+    expect(print(PATHS, op("math.product", 1))).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
+    expect(issue(PATHS, "math.`p q`(1)")).toEqual({ offset: 0, length: 10, message: "Each key of the name of a call is a plain name." });
+    expect(issue(PATHS, "geo.point(1, 2, 3)")).toMatchObject({ offset: 0, message: "The form geo.point takes 1 to 2 arguments." });
+    // A name that the parser cannot read as a path throws.
+    const withForm = (profile: SyntaxProfile, name: string): SyntaxProfile => ({ ...profile, calls: { forms: [{ name, kind: "k" }] } });
+    for (const name of ["math.0", "a..b", "a.", "not.x", "a b"]) expect(() => parse(withForm(STD_SYNTAX, name), "1"), name).toThrow(TypeError);
+    expect(() => parse(withForm(ALGEBRA, "math.product"), "1")).toThrow(TypeError);
+  });
+
   it("[SYNTAX.ROUNDTRIP] parse(print(doc)) gives each generated document of a profile again", () => {
     const bad: string[] = [];
     for (const [name, gen] of Object.entries(GENERATORS)) {
@@ -198,6 +268,8 @@ interface Generator {
   readonly profile: SyntaxProfile;
   readonly leaves: readonly Json[];
   readonly calls: readonly string[];
+  /** The header names that the generator gives some documents. Without them, no document has a name. */
+  readonly names?: readonly string[];
 }
 
 const GENERATORS: Readonly<Record<string, Generator>> = {
@@ -210,6 +282,12 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     profile: SHEET,
     leaves: [1, 0.5, -2, 'a"b', "", true, false, ref("world", "A1"), ref("world", "$B$12"), ref("names", "rate"), ref("names", "A1")],
     calls: ["SUM", "AVERAGE", "concat"],
+  },
+  paths: {
+    profile: PATHS,
+    leaves: [0, -3, 1e21, true, null, "a\"b", NUMBERS["nan"] as Json, NUMBERS["nzero"] as Json, x, ref("names", "math", "product"), ref("self", "price")],
+    calls: ["f", "math.max", "geo"],
+    names: ["a", "total", "if", "not", "a b", "", "`"],
   },
   algebra: {
     profile: ALGEBRA,
@@ -227,8 +305,16 @@ function pick<T>(rng: Random, items: readonly T[]): T {
   return items[rng.int(items.length)] as T;
 }
 
-/** This function builds a random document that the profile writes: operators, call forms, calls and leaves. */
+/** This function builds a random document that the profile writes. Some documents get a header name. */
 function generateDoc(gen: Generator, rng: Random, depth: number): Json {
+  const made = generateBare(gen, rng, depth);
+  if (gen.names === undefined || rng.int(4) !== 0) return made;
+  const name = pick(rng, gen.names);
+  return typeof made === "object" && made !== null && !Array.isArray(made) ? { ...made, name } : { type: "lit", value: made, name };
+}
+
+/** This function builds a random document without a name: operators, call forms, calls and leaves. */
+function generateBare(gen: Generator, rng: Random, depth: number): Json {
   const choice = depth > 3 ? 0 : rng.int(5);
   const terms = (count: number): Json[] => Array.from({ length: count }, () => generateDoc(gen, rng, depth + 1));
   if (choice <= 1) return pick(rng, gen.leaves);

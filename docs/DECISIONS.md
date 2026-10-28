@@ -1606,3 +1606,38 @@ The risk of R1 is a stale plan: an old value without an error. The design calls 
 - K160: the syntax kit has no form for a record kind, for example `panel` and `box`, thus A tree has no text.
 - K161: a call form has a plain name, thus a kind under a path, for example `math.product`, has no form. A type as a path has no text.
 - K162: the kernel has no syntax profile for `STD_WORLD`, thus each host writes one, and it repeats the names of the kinds.
+
+## D62 (2026-10-28): a profile names a bind symbol for the header name, and a call form can have a name with dots
+
+**Context.** K157 and K161, from C17. `print` refused each document with a header `name`. Thus the programs Names and Effects of the playground had no text. A call form had a plain name, thus the alias `math.product` of A type as a path had no form. A spreadsheet profile reads `=` as equality, thus one fixed text for a name does not fit each profile.
+
+**Decision.**
+
+- A profile gives the text of a header in the new field `header`. Its field `bind` is the symbol between a name and its document. With `bind: "="`, the text `total = 2 + 3` gives the sum the header name `total` (SYNTAX.HEADER).
+- A binding starts an expression: the whole text, an argument of a call, or a group in parentheses. Thus `seq(a = 1 + 2, b = a * 10, log(b))` names two steps.
+- A name is a plain name or a name in backticks. A reserved word is a good name, for example `if = 1`, because the binding comes before the term.
+- A bare literal gets the kind `lit`, because only an envelope has a header. Thus `b = 1` gives `{ type: "lit", value: 1, name: "b" }`.
+- `print` writes the name before the document. A named term of an operator gets parentheses, for example `(a = x + 1) * 2`.
+- A document has one name. The text `a = (b = 1)` gives an issue.
+- The bind symbol is a group of symbols. An infix or a postfix operator that is the symbol, or the start of it, throws a `TypeError`. A longer operator that starts with the symbol wins, thus `x == 1` reads as before.
+- `STD_SYNTAX` and `SITE_SYNTAX` take `=`. Each text that parsed before gives the same document. A text with `=` after a name gave an issue before.
+- A call form can have plain names with dots between them, for example `math.product`. The parser already read the name of a call as a path, and the lookup of a form matches the full name (SYNTAX.FORM-PATH).
+- A name with dots and no `(` stays a reference. A form name with dots needs the field steps, and its first key is not a word operator. If not, the profile throws a `TypeError`.
+- `SITE_SYNTAX` gets the form `math.product`. Six programs of eight round-trip, and a test pins the text of each.
+
+**Rejected.**
+
+- A fixed `=` in the kernel. A spreadsheet profile reads `=` as equality.
+- A word as the bind symbol, for example `let a be 1`. A word operator and a plain name then have two readings.
+- A binding only in the steps of `seq`. The kernel lets each envelope have a name, and the printer does not know the kinds of a world.
+- A text for the own entries `own`. An own entry names an evaluator of the host, and no program of the site uses it. The printer refuses it with its own reason.
+- A form `product` without the path. D61 rejects a short name that hides the path of the type.
+
+**Why.** A profile field keeps the text of each language its own choice. A symbol that no operator reads gives a binding that no earlier text had. The parser read a dotted call name already, thus K161 is the check of the form name and the lookup.
+
+**Limits.**
+
+- The own entries have no text in each profile.
+- The reason for a name without a bind symbol is new: "This syntax has no text for the name of a document." Before, a name and an own entry gave the same reason.
+- A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check.
+- A choice has no text, because K158 has no text for a data envelope. A tree has no text, because K160 has no form for a record kind.

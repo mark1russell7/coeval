@@ -442,6 +442,8 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | SYNTAX.PRINT | `print(profile, doc)` writes the fewest parentheses that keep the tree. A document without a text form gives `#VALUE!` at its place. `syntaxFormat` adds the printer as the default of the verb `format`, and an own entry of a part still wins. |
 | SYNTAX.ROUNDTRIP | `parse(profile, print(profile, doc))` gives `doc` again for each document that the profile writes. A property test examines generated documents of three profiles. |
 | SYNTAX.PROFILE | A profile describes the syntax of another language, for example a spreadsheet with `A1`, `&`, `^` and `<>`, or an algebra with named knobs and only `min`, `max` and `floor`. A profile with two readings of one symbol throws a `TypeError`. |
+| SYNTAX.HEADER | A profile with the bind symbol `header.bind` reads `name = expr` as `expr` with the header `name` (D62). A bare literal goes into `lit`. `print` writes the name and puts parentheses around a named term of an operator. A longer operator that starts with the symbol wins. A symbol that an infix or a postfix operator reads throws a `TypeError`. Without the symbol, a name has no text. The own entries have no text in each profile. |
+| SYNTAX.FORM-PATH | A call form can have plain names with dots between them, for example `math.product` (D62). The parser matches the full name of a call against the forms, and `print` writes it. A name with dots and no `(` stays a reference. |
 
 ## Conformance
 
