@@ -55,6 +55,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D45 | `checkWorld(machine, verbs)` checks a world before a document exists. It gives one `#NOEVAL` for each kind and verb with no entry and no default. The language gives the list of verbs. |
 | D46 | Equal profiles give the same evaluators and hooks of the formula kit. Thus two languages that each build the kit with one profile merge. A cache keys each kit by its profile object and by the fields that the kit reads. |
 | D47 | A formula profile names its pure extensions in the new field `pureExt`. A closed part with such an extension then folds. The mark `pure` still covers only the operations. |
+| D48 | The kernel gets the base type `undefined`, and `ext.undefined` gives it. The type only names the value: a document still holds it as `ext.undefined`, because JSON has no `undefined`. |
 
 ## Open
 
