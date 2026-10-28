@@ -435,15 +435,19 @@ H-CONTEXT  [CAP.NARROW, CAP.MEET, CAP.CONTRACT, CAP.ONLY, CAP.MONOTONE]
                    = Γ with caps = Γ.caps ⊓ L1 ⊓ …   for each rule only Li that covers ℓ
                    = Γ                               else
 
-H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT, CAP.MEET]
+H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT, CAP.MEET, CAP.NARROW-KEPT]
     in the plan, a context Γ can carry a grant g(Γ): the capabilities that the kernel gave its document
-    a spread of Γ keeps g(Γ), and a context that the code makes without a spread has no grant
+    a grant has an epoch e(Γ): the list of capabilities that the host gave the root of its evaluation
+    a spread of Γ keeps g(Γ) and e(Γ), and a context that the code makes without a spread has no grant
     at the start of each document, and at each effect of compiled code, the kernel takes grant(Γ):
         grant(Γ) = Γ                                    when g(Γ) is the same list as Γ.caps
                  = Γ with caps = [] and g = []          when Γ has no grant
                  = Γ with caps = C and g = C            else, with C = Γ.caps ⊓ g(Γ)
-    the root gets g = the capabilities of the host, and a part of a function evaluator gets g = the caps of narrow
-    a resolution of each root that compiled code asks for resolves in grant(Γ):
+    the root gets g = e = the capabilities of the host
+    a part of a function evaluator gets g = the caps of narrow, and e = the epoch of its document
+    an evaluation with the epoch E reads a context with e(Γ) ≠ E as a context without a grant:
+        at each effect, the kernel takes grant(Γ) when e(Γ) = E, and else Γ with caps = [] and g = []
+    a resolution of each root that compiled code asks for resolves in grant(Γ), with the same rule of the epoch:
         thus the root caps and each walker of a step document get the capabilities of grant(Γ)
     the rules of the contract apply after this step, as in H-CONTEXT
 
@@ -710,7 +714,7 @@ The soundness claims hold for a machine whose host code keeps these obligations.
 
 | ID | Obligation | Who keeps it today | The claims that need it |
 | --- | --- | --- | --- |
-| C1 | Each context that an evaluator gives a part has only capabilities that the context of its document permits. | The kernel: H-CONTEXT for function code, and H-GRANT for compiled code since K91 (D32). A context that compiled code keeps from an earlier call escapes H-GRANT (K120). | CAP.NARROW, CAP.NARROW-CODE, CAP.EFFECTS-SOUND, PLAN.AGREES |
+| C1 | Each context that an evaluator gives a part has only capabilities that the context of its document permits. | The kernel: H-CONTEXT for function code, and H-GRANT for compiled code since K91 (D32). Since K120 (D54), a context of another epoch has no grant. A context that the code keeps inside one epoch still escapes the meet with its document. | CAP.NARROW, CAP.NARROW-CODE, CAP.EFFECTS-SOUND, PLAN.AGREES |
 | C2 | The code causes only the effects that its contract declares. | The author. An own entry for another evaluator has no contract (K64). | CAP.EFFECTS-SOUND, STATIC.AGREES |
 | C3 | Each part that no lazy rule covers evaluates in each evaluation that gives a value. | The author | FACTS.LAZY |
 | C4 | A kind with the mark `pure` reads the context only through `resolve`, and it causes no effect. | The author. The probe of a fold refuses a direct read of `self`, `event` and `names` (D43). The tree node keeps C4 since K149 (D44). | FACTS.SOUND, READS.SOUND, PLAN.FOLD |

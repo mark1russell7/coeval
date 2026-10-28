@@ -142,14 +142,14 @@ export function partCaps(rules: readonly CapsRule[] | undefined, path: readonly 
 const GRANT = /* @__PURE__ */ Symbol("coeval.grant");
 
 /**
- * The key of the epoch of a grant (CAP.NARROW-KEPT): the list of capabilities that the host gave the root of the
- * evaluation in which the kernel wrote the grant. A spread of a context keeps its epoch, as it keeps its grant. An
+ * The key of the epoch of a grant (CAP.NARROW-KEPT). The epoch is the list of capabilities that the host gave the root
+ * of the evaluation of the grant. A spread of a context keeps its epoch, as it keeps its grant. An
  * effect and a resolution read a context of another epoch as a context without a grant.
  */
 const EPOCH = /* @__PURE__ */ Symbol("coeval.epoch");
 
 /** A context with the grant of the kernel and the epoch of that grant. */
-type Granted = Context & { readonly [GRANT]?: readonly Cap[]; readonly [EPOCH]?: readonly Cap[] };
+type Granted = Context & { readonly [GRANT]?: readonly Cap[]; readonly [EPOCH]?: readonly Cap[] | undefined };
 
 /**
  * This function gives the capabilities that a context and its grant both permit, the meet `intersectCaps` (CAP.MEET).
