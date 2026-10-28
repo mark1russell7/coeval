@@ -68,9 +68,9 @@ export function permits(caps: readonly Cap[], kind: Cap): boolean {
 }
 
 /**
- * This function narrows a context for a part: the part keeps the capabilities that both its context and the context
- * of its parent permit, the meet `intersectCaps` (CAP.MEET). Thus an evaluator cannot give a part more effects than
- * it has. A context whose list the parent permits stays the same object.
+ * This function narrows a context for a part. The part keeps the meet `intersectCaps` of its list and the list of its
+ * parent (CAP.MEET). Thus an evaluator cannot give a part more effects than it has. A context whose list the parent
+ * permits stays the same object.
  *
  * @param parent - The context of the parent.
  * @param next - The context that the evaluator gives the part.
@@ -169,7 +169,7 @@ function granted(ctx: Context): Context {
 /**
  * This function gives the context in which the runtime resolves a path of compiled code (CAP.CAPS-GRANT, CAP.MEET).
  * The context has the meet of its list and its grant, and a context without a grant has none. Thus a read of the root
- * `caps` and a walker of a step document get the capabilities of the document from a context that the code widened.
+ * `caps` and a walker of a step document get the capabilities of the document from a widened context.
  * A context that the code narrowed keeps its own list. A context whose list does not change stays the same object.
  */
 function readable(ctx: Context): Context {
