@@ -4,6 +4,7 @@ import { answerOf, ask, type Answer } from "./ladder.ts";
 import type { CapsRule, Kind, KindFacts, Side } from "./world.ts";
 import type { Domain } from "./types.ts";
 import type { TypeRule } from "./typing.ts";
+import type { StaticRead } from "./facts.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
@@ -17,6 +18,7 @@ import {
   type Thing,
   ROOTS,
   context as makeRootContext,
+  derefStep,
   isHostThing,
   isRef,
   resolve,
@@ -269,8 +271,8 @@ export interface Read {
    */
   readonly free: boolean;
   /**
-   * `true` when the kernel adds the read, because a value keeps a root of the context for later (READS.KEPT). Such a
-   * read has the whole root as its path.
+   * `true` when the kernel adds the read, because a value keeps the context for later (READS.KEPT). Such a read has
+   * a whole root as its path, or a path that a closure can read (READS.CLOSURE).
    */
   readonly kept?: true;
   /** The hops of the resolution, only when the code asked for them. `verifyReads` then compares each hop too. */
@@ -459,9 +461,13 @@ export interface Runtime {
   /**
    * This optional function tells the runtime that a value keeps the context for later, for example a closure of
    * `fn`. A later use of the value reads that context, and no evaluation records these reads. Thus the list of reads
-   * gets a read of each root of the context (READS.KEPT).
+   * gets a kept read of each path that the value can read (READS.CLOSURE). Without the static reads, the list gets a
+   * read of each root of the context (READS.KEPT).
+   *
+   * @param context - The context that the value keeps.
+   * @param reads - This function gives the static reads of the value, or `undefined` when they are not known.
    */
-  keepsContext?(): void;
+  keepsContext?(context?: Context, reads?: () => readonly StaticRead[] | undefined): void;
 }
 
 /**
@@ -894,6 +900,32 @@ interface Reading {
   kept: boolean;
   /** `true` after the kernel added the read of the root `self`. */
   self: boolean;
+  /** The paths of the kept reads of closures, as JSON texts (READS.CLOSURE). The set is made at the first such read. */
+  paths?: Set<string>;
+}
+
+/**
+ * This function gives the path of a kept read (READS.CLOSURE). The evaluation did not ask for the read. Thus the read
+ * does not step into a host thing, and the path ends at the first host thing. The host gives a new thing for a new state.
+ * A reference in the data reads the context of its reader, thus the function then gives `undefined`.
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param root - The context at the root of the evaluation.
+ * @param path - The root and the keys of the static read.
+ * @returns The path of the kept read, or `undefined` for a reference on the way.
+ */
+function keptPath(nav: Navigator, root: Context, path: readonly unknown[]): readonly unknown[] | undefined {
+  const adopt = nav.adopt ?? ((value: unknown): Thing => value);
+  let here = adopt(root[path[0] as Root]);
+  for (let index = 1; ; index += 1) {
+    if (isHostThing(here)) return index === path.length ? path : path.slice(0, index);
+    if (nav.plain !== true && isRef(here)) return undefined;
+    if (index >= path.length) return path;
+    const reached = derefStep(nav, here, path[index] as Key);
+    // A step that reaches nothing fails, and the resolution of the path fails at the same step.
+    if (reached === undefined) return path;
+    here = adopt(reached.thing);
+  }
 }
 
 /** This function makes the record of the reads of an evaluation, when the host gives a list. */
@@ -995,11 +1027,43 @@ class Session implements Runtime {
     return resolve(this.machine, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
   }
 
-  keepsContext(): void {
+  keepsContext(ctx?: Context, reads?: () => readonly StaticRead[] | undefined): void {
     const reading = this.reading;
     if (reading === undefined || reading.kept) return;
+    const known = ctx === undefined ? undefined : reads?.();
+    // A value without its static reads can read each root later (READS.KEPT).
+    if (ctx !== undefined && known !== undefined && known.every((read) => this.keepRead(reading, ctx, read))) return;
     reading.kept = true;
     this.keep(reading, reading.self ? ROOTS.filter((root) => root !== "self") : ROOTS);
+  }
+
+  /**
+   * This function adds the kept read of one static read of a closure (READS.CLOSURE). The read resolves from the
+   * context at the root, one time in an evaluation. A name that a kind binds in the kept context gives no read,
+   * because the reads of its binding are already in the list.
+   *
+   * @returns `false` when the path meets a reference in the data. Then the closure keeps each whole root.
+   */
+  private keepRead(reading: Reading, ctx: Context, read: StaticRead): boolean {
+    const root = read.root;
+    const exact: readonly unknown[] = [root, ...read.keys];
+    if (!isFree(reading.root, ctx, exact)) {
+      // A kind that sets another self can give the old self on, as for a direct read (READS.KEPT).
+      if (root === "self" && !reading.self) this.keep(reading, ["self"]);
+      return true;
+    }
+    // A read of the whole root self already holds each path of self.
+    if (root === "self" && reading.self) return true;
+    // A step document can walk outside the keys of its path, thus such a read keeps the whole root.
+    const path = keptPath(this.machine, reading.root, read.exact ? exact : [root]);
+    if (path === undefined) return false;
+    const paths = (reading.paths ??= new Set());
+    const text = JSON.stringify(path);
+    if (paths.has(text) || paths.has(JSON.stringify([root]))) return true;
+    paths.add(text);
+    if (path.length === 1 && root === "self") reading.self = true;
+    reading.list.push({ path, reached: readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+    return true;
   }
 
   /**

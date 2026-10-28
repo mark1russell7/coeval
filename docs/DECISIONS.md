@@ -1381,3 +1381,45 @@ The design calls are the reading of a run in the reference, the host of each tie
 **Why.** The replay fixes the order of the waits from the plan. A tier that settles a wait in another order gets `#REPLAY!` or a different list of settled waits. `agreeRun` names the first such wait. A mutant definition of `all` that waits one more time gives that finding, also when its result and its effects agree.
 
 **Limits.** `agreeRun` does not compare the reads of a run. A payload with a closure gives a false `#REPLAY!`, because the replayer compares payloads by identity. The second tier of a language (`other`) is not in the runs.
+
+## D56 (2026-10-28): a closure keeps a read of each path that its body can read, and a closure without static reads keeps each whole root
+
+**Context.** K60, from S1b (D26). A closure of `fn` keeps its context for later calls. The list of reads got a read of each whole root, one time in an evaluation. Thus each change of the context changed a kept read, and a schedule evaluated the document again.
+
+The calls of a closure in its evaluation already record the reads of its body, for example in `map`. But a closure can leave the evaluation, also inside a host object. A later call then reads the old context, and no list records that read.
+
+The design calls are the paths that a closure keeps, the cases without known paths and the work that a kept read itself causes.
+
+**Decision.**
+
+- A closure of `fn` with a pure document keeps the static reads of `fn` (READS.CLOSURE). `factsOf` gives them at the first closure of an evaluation with a list of reads. A parameter of `fn` and a name of a `let` in the body are not static reads.
+- `Runtime.keepsContext` takes two optional arguments: the context of the closure, and a function that gives the static reads. Without them, the runtime keeps each whole root, as before.
+- Each static read gives one kept read with its root and its keys, one time in an evaluation. The read resolves from the context at the root of the evaluation.
+- A name that a kind binds around the closure gives no kept read, because the list already has the reads of its binding. A `self` that a kind sets keeps the root `self`, as for a direct read (READS.KEPT).
+- A read after a step document keeps its whole root, because a walker can step outside the keys of the path.
+- The path of a kept read ends at the first host thing. The evaluation did not ask for the read, thus the read does not step into a host thing.
+- A reference in the data on the path reads the context of its reader. Then the closure keeps each whole root.
+- A closure whose document is not pure keeps each whole root, as before (READS.KEPT). An extension or an effect can read the context outside the runtime.
+- The reference does not change, because it records no reads. The probe runtime of `conforms` and the runtime of a fold do not change.
+
+**Rejected.**
+
+- The reads of the calls alone. A closure in the result or in a box can get a call after the evaluation. Its reads then go to no new list, and a stale result stays.
+- A kept read only for a closure that leaves the evaluation. A walk of the result does not find a closure inside a host object (D26).
+- A prefix of the path that stops before a reference in the data. The reference reads another path, thus the prefix stays the same while the target changes.
+- The full path through a host thing. A step into the root `world` of a schedule demands a node, also the node that evaluates at this time. SCHED.ONE-MEANING found such a cycle in the first draft of this work.
+- `factsOf` at the compilation of each `fn`. A plan without a list of reads then pays for facts that it does not use.
+- The static reads of the body alone. A parameter of `fn` then gives a kept read of a name of the context.
+
+**Why.** A pure document reads its context only through the runtime (FACTS.PURE), and each such resolution has a static read (FACTS.SOUND). Thus the static reads of `fn` cover each read of a later call of its closure. A host thing is the same only as itself, and the host gives a new thing for a new state (READS.VERIFY).
+
+The change keeps more old results. A change of a name that no closure reads keeps the result, and a change of a name that a closure reads still discards it. The test of generated documents finds fewer changed reads than before, and no stale result.
+
+The change is visible: an evaluation with a pure closure gives another list of reads. A host that examines the paths of the list sees the new kept reads.
+
+**Limits.**
+
+- A closure in a schedule that reads a node keeps the whole root `world`, because that root is a host thing. Thus each change of data still discards its result.
+- A reference in the data on a path of a closure keeps each whole root, as before K60.
+- A closure that gets a call after the end of its evaluation adds the reads of its body to the old list. A new closure from that call adds its kept reads there too. A schedule keeps a copy of the list (PLAN.LEAN), thus it does not see them.
+- The harness of READS.SOUND compares two closures by their parameters. Thus it does not find a stale closure in a result. The test READS.CLOSURE compares the values of an old closure and a new one.
