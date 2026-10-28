@@ -310,9 +310,9 @@ function settlesDiffer(a: readonly ReplaySettle[], b: readonly ReplaySettle[]): 
 }
 
 /**
- * This function runs a document with a plan and with other tiers, and compares the runs (RUN.AGREES). First the plan
- * runs with a recorder around the host. Then each tier replays the log of that run: the reference run, the traced
- * run, a second run of the plan and the plan with the other choice of folds.
+ * This function compares the run of a document in a plan with its run in other tiers (RUN.AGREES). First the plan
+ * starts the run with a recorder around the host. Then each tier replays the log of that run. These tiers are the
+ * reference run, the traced run, a second run of the plan and the plan with the other choice of folds.
  *
  * The rules of `agree` compare the results and the effects, with their addresses and outcomes. A tier must also
  * settle the waits of each `all` in the order of the plan, thus a replay keeps the order of the waits.

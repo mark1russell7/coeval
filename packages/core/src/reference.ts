@@ -235,7 +235,7 @@ function cause(env: Env, ctx: Context, kind: Cap, payload: unknown, place: reado
 
 /**
  * This function causes the effect of an evaluator. In a run, the host does each effect, thus only a runner can cause
- * one, and the effect gives `#CALC!` before the test of its capability (RUN.NEEDS-RUNNER).
+ * one. The effect then gives `#CALC!` before the test of its capability (RUN.NEEDS-RUNNER).
  */
 function causeFromEvaluator(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
   const text = typeof kind === "string" ? kind : kind.join(".");
@@ -552,7 +552,7 @@ export function reference(machine: Machine, doc: unknown, context: Context = mak
 }
 
 /**
- * This function runs a document by the rules, without a compilation (REF.RUN). The host does each effect of a runner,
+ * This function starts a run of a document by the rules, without a compilation (REF.RUN). The host does each effect of a runner,
  * and a step waits when the host waits (RUN.SEQ). `all` settles the waits in the order of the host, or in the order
  * of the journal of a replay (RUN.REPLAY). An effect of an evaluator gives `#CALC!` (RUN.NEEDS-RUNNER). A signal that
  * aborts stops the run with `#ABORT` (RUN.ABORT).
@@ -572,7 +572,7 @@ export function referenceRun(machine: Machine, doc: unknown, context: Context = 
   return driveRun(env, steps, options.signal).catch((error: unknown) => placed(thrown(error, "the reference"), []));
 }
 
-/** This function makes the state of one evaluation or run of the reference. */
+/** This function makes the state of the reference for one evaluation or one run. */
 function envOf(machine: Machine, options: ReferenceOptions, running: boolean): Env {
   const perform = options.perform;
   return {
@@ -596,7 +596,7 @@ function rootAt(machine: Machine, doc: unknown, context: Context, options: Refer
 
 /**
  * This function does one synchronous step of an evaluation or a run. A node of a tree reads the definitions of the
- * evaluation for its equations (TREE.LADDER), thus the state of the evaluation is the innermost one in the step.
+ * evaluation for its equations (TREE.LADDER). Thus the state of the evaluation is the innermost one in the step.
  */
 function within<T>(env: Env, step: () => T): T {
   activeEnvs.push(env);

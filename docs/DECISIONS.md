@@ -149,7 +149,7 @@ No question waits on the owner.
 - Two results agree when their values are the same by `sameValue`, or when their errors have the same code and place. The effects must be the same, in the same order.
 - Identity is not part of the meaning. An overflow of the stack of the host is the one permitted difference, because the tiers use different numbers of frames.
 - `generate` builds random documents from the kind contracts. A property test examines a few thousand documents at each push, and more each night.
-- The reference covers evaluations, not runs. A run with a host that waits comes later.
+- The reference covers evaluations, not runs. A run with a host that waits comes later. D55 adds it.
 
 **Why.** Two independent readings of the rules find a bug in either one. At its start, the harness found four bugs of the kernel and one bug of the reference itself (K9).
 
@@ -1354,3 +1354,30 @@ A context of the current epoch costs one comparison at each effect and each reso
 The change is a correction. Code that keeps a context from an evaluation with another list gets `#CAP!` for an effect that started before the change. Thus a result changes, also when the later list permits the effect. `agree` then finds a difference from the definition of the code, as for a context without a spread.
 
 **Limits.** A context that compiled code keeps inside one epoch keeps its grant. It can come from another document of the same epoch, thus it can still give a part more capabilities than its document has. `conforms` finds such code (C1). A direct read of the field `caps` of a kept context gives its old list.
+
+## D55 (2026-10-28): the reference reads the rules of a run, and `agreeRun` replays the log of the plan in each tier
+
+**Context.** K46, from K11 (D19). The reference covered only evaluations (D15). Thus only the plan had a test for the journal of the waits of `all`. A tier that settled the waits of a replay in another order gave no finding.
+
+The design calls are the reading of a run in the reference, the host of each tier and what a comparison of runs examines.
+
+**Decision.**
+
+- `referenceRun` reads the rules of a run directly (REF.RUN). It takes the options `perform` and `signal` of `plan.run`, and it reuses the evaluation of `reference`.
+- In a run, the host does each effect of a runner, and a step waits for the host. An effect of an evaluator gives `#CALC!` (RUN.NEEDS-RUNNER), and a signal that aborts gives `#ABORT` (RUN.ABORT).
+- One function, `together`, reads `all` for evaluations and for runs. In a run, it asks the journal of the host for the next wait and tells the journal each settled wait (RUN.REPLAY).
+- `agreeRun` records a run of the plan with `recorder` (RUN.AGREES). Then four tiers each replay that log with a new `replayer`. These are the reference run, the traced run, a second run and the plan with the other choice of folds. Thus the host does each effect one time.
+- Each tier must give the same result and the same effects, and it must settle the waits of each `all` in the recorded order. An overflow of the stack of the host is permitted, as in `agree`.
+- The harness of `agree` compares the runs of each configuration, and of a world with the kind `par` and a host that waits. The comparison found no disagreement, and the plan did not change.
+
+**Rejected.**
+
+- Reads in the reference run. The reference has no hook that keeps the reads of a closure of `fn`, and a tree equation evaluates in a nested reference. Also the order of the reads under `all` depends on the host. K155 keeps the work.
+- A signal in `agreeRun`. A signal that aborts the plan also aborts each later tier at its start, and that gives a false disagreement.
+- One replayer for all tiers. A replayer serves one run (K45), thus each tier gets its own.
+- The real host in each tier. The host then does each effect again, and a host that waits can settle the waits in another order in each tier.
+- An option of `agree` that gives a promise. A synchronous evaluation then has two return types, and each caller needs a test.
+
+**Why.** The replay fixes the order of the waits from the plan. A tier that settles a wait in another order gets `#REPLAY!` or a different list of settled waits. `agreeRun` names the first such wait. A mutant definition of `all` that waits one more time gives that finding, also when its result and its effects agree.
+
+**Limits.** `agreeRun` does not compare the reads of a run. A payload with a closure gives a false `#REPLAY!`, because the replayer compares payloads by identity. The second tier of a language (`other`) is not in the runs.
