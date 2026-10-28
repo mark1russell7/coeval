@@ -146,9 +146,11 @@ export function generate(world: World, options: GenerateOptions): unknown {
   const keys = options.keys ?? KEYS;
   const steps = options.steps ?? 2;
   const roots: readonly Root[] = options.roots ?? ROOTS;
+  // A kind with the verb step walks a step document. With a default of step, each other kind walks one too (GEN.STEPS).
+  const defaultStep = Object.hasOwn(world.defaults, "step");
   const stepTypes = types.filter((type) => {
     const found = lookupKind(world, type);
-    return found.ok && Object.hasOwn(found.kind.verbs, "step");
+    return found.ok && (defaultStep || Object.hasOwn(found.kind.verbs, "step"));
   });
   // A name under each namespace with a fallback that no evaluator knows, for example ["ops", "nope"].
   const unknownNames: readonly (readonly Key[])[] = Object.keys(world.kinds)
@@ -205,7 +207,10 @@ export function generate(world: World, options: GenerateOptions): unknown {
     return out;
   };
 
-  /** A path from a root (D10). It uses the names in scope, and sometimes a step document. */
+  /**
+   * A path from a root (D10). It uses the names in scope, and sometimes a step document. The kind of a step document
+   * has the verb `step`, or the default of the world for `step` serves it.
+   */
   const pathFor = (pos: Position, refKind: Kind | undefined): Json => {
     if (rng.chance(malformed)) return rng.pick<Json>(["names", [], { names: "a" }, ["nowhere", "a"]]);
     const others = roots.filter((name) => name !== "names");

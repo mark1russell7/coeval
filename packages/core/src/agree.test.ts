@@ -32,6 +32,7 @@ import {
   formulaEvaluators,
   formulaMachine,
   generate,
+  isEnvelope,
   isRef,
   isStackOverflow,
   jsTruthy,
@@ -397,6 +398,9 @@ const language: Machine = formulaMachine(PROFILES["loose"], {
 
 const LANGUAGE_TYPES: readonly (readonly Key[])[] = [...typesOf(language.world), ["moves", "up"], ["moves", "at"], ...OP_TYPES.slice(0, 4), ["ext", "here"]];
 
+/* The language with a default of step: the walker walk.at walks a step document of each kind without the verb step (VERB.LADDER). */
+const defaulted: Machine = mergeMachines(language, { world: { defaults: { step: "walk.at" } } });
+
 /** The rule of the tests for a value that is not JSON: two boxes are the same when their contents are the same. */
 function boxes(a: unknown, b: unknown): boolean | undefined {
   return a instanceof Box && b instanceof Box ? sameValue(a.v, b.v, boxes) : undefined;
@@ -505,6 +509,12 @@ const CONFIGS: readonly Config[] = [
     name: "language",
     machine: language,
     options: { ...formulaOptions(language), types: LANGUAGE_TYPES },
+    agree: { strict: true, definitions: formulaDefinitions(LOOSE), declaredType: "lit", observe: () => calls.splice(0) },
+  },
+  {
+    name: "language, a default of step",
+    machine: defaulted,
+    options: { ...formulaOptions(defaulted), types: LANGUAGE_TYPES },
     agree: { strict: true, definitions: formulaDefinitions(LOOSE), declaredType: "lit", observe: () => calls.splice(0) },
   },
 ];
@@ -991,6 +1001,33 @@ describe("the generator", () => {
     expect(Math.max(...lengths)).toBe(4);
     const short = generate(STD_MACHINE.world, { ...STD_OPTIONS, seed: 1 });
     expect(docEquals(short, generate(STD_MACHINE.world, { ...STD_OPTIONS, seed: 1, roots: ["self", "names", "world", "event", "caps"], steps: 2 }))).toBe(true);
+  });
+
+  it("[GEN.STEPS] with a default of step, a path gets step documents of kinds without the verb step, and a seed gives the same document", () => {
+    /** This function gives the kinds of the step documents of generated paths, and if each kind has the verb step. */
+    const stepKinds = (machine: Machine): Map<string, boolean> => {
+      const options = { ...formulaOptions(machine), types: LANGUAGE_TYPES, malformed: 0 };
+      const kinds = new Map<string, boolean>();
+      for (let seed = 0; seed < 1000; seed += 1) {
+        const doc = generate(machine.world, { ...options, seed });
+        expect(docEquals(doc, generate(machine.world, { ...options, seed }))).toBe(true);
+        walk(machine.world, doc, (visit) => {
+          const path = visit.doc.value;
+          if (!isRef(visit.doc) || !Array.isArray(path)) return undefined;
+          for (const step of path.slice(1)) {
+            const found = isEnvelope(step) ? lookupKind(machine.world, step.type) : undefined;
+            if (found?.ok === true) kinds.set(found.path.join("."), Object.hasOwn(found.kind.verbs, "step"));
+          }
+          return undefined;
+        }, { declaredType: "lit" });
+      }
+      return kinds;
+    };
+    // Without a default of step, only the kinds with the verb step walk.
+    expect([...stepKinds(language).values()]).toEqual(expect.arrayContaining([true]));
+    expect([...stepKinds(language).values()]).not.toContain(false);
+    // With a default of step, the default serves the step documents of the other kinds.
+    expect([...stepKinds(defaulted).values()].filter((walks) => !walks).length).toBeGreaterThan(3);
   });
 
   it("[GEN.CONTRACTS] without malformed choices, each document follows the contracts of its kinds: check finds no problem", () => {
