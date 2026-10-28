@@ -42,6 +42,8 @@ export type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<str
  *   evaluates, and one failed part gives its own error. Without it, the first error stops the evaluation.
  * - `pure`: the pure operations, for `factsOf` (D24). `true` names each operation that is not volatile. The default
  *   names no operation.
+ * - `pureExt`: the pure extensions of `ext`, by their name, for `factsOf` and the folds of a plan (PLAN.FOLD, D47).
+ *   The default names no extension. A standard extension is pure without a name here.
  * - `volatile`: the operations whose results can change while their arguments stay the same, for example a clock.
  * - `sigs`: the signatures of the operations, by their name, for a check of types (TYPE.SIGNATURE). A list gives
  *   overloads. An operation without a signature takes and gives `unknown` (TYPE.GRADUAL).
@@ -61,6 +63,7 @@ export interface FormulaProfile {
   readonly check?: (value: unknown, op: string) => Result | undefined;
   readonly combine?: (errors: readonly EvalError[]) => EvalError;
   readonly pure?: true | readonly string[];
+  readonly pureExt?: readonly string[];
   readonly volatile?: readonly string[];
   readonly sigs?: Readonly<Record<string, Signature | readonly Signature[]>> | ((name: string) => Signature | readonly Signature[] | undefined);
 }
@@ -534,6 +537,7 @@ const PROFILE_KEYS = /* @__PURE__ */ Object.freeze([
   "check",
   "combine",
   "pure",
+  "pureExt",
   "volatile",
   "sigs",
 ] as const satisfies readonly (keyof FormulaProfile)[]);
@@ -979,10 +983,13 @@ function makeKnown(profile: FormulaProfile): (path: readonly Key[], evaluator: s
   };
 }
 
-/** The facts of an extension of the profile. It gets the context, thus it can read outside `resolve`. */
+/**
+ * The facts of an extension of the profile that `pureExt` does not name. It gets the context, thus it can read outside
+ * `resolve`.
+ */
 const NOT_PURE: KindFacts = /* @__PURE__ */ Object.freeze({ pure: false });
 
-/** The facts of a standard extension. */
+/** The facts of a standard extension, and of an extension that `pureExt` names. */
 const PURE: KindFacts = /* @__PURE__ */ Object.freeze({ pure: true });
 
 /** The lazy rule of a lazy operation: it covers each argument. */
@@ -994,7 +1001,8 @@ const EACH_PART: readonly LazyRule[] = /* @__PURE__ */ Object.freeze([/* @__PURE
  *
  * - An operation of `lazy` has a lazy rule for each argument.
  * - An operation is pure when the profile names it in `pure`, or when `pure` is `true`. A volatile operation is not pure.
- * - A standard extension is pure. An extension of the profile gets the context, thus it is not pure.
+ * - A standard extension is pure. An extension of the profile is pure only when the profile names it in `pureExt` (D47).
+ *   Such an extension keeps C4: it reads the context only through `resolve`.
  *
  * Equal profiles give the same hook (D46).
  *
@@ -1009,10 +1017,14 @@ export function formulaFacts(profile: FormulaProfile = {}): (path: readonly Key[
 function makeFacts(profile: FormulaProfile, known: (path: readonly Key[], evaluator: string) => true | string): (path: readonly Key[], code: string) => KindFacts | undefined {
   const volatile = new Set(profile.volatile ?? []);
   const pure = profile.pure === true ? undefined : new Set(profile.pure ?? []);
+  const pureExt = new Set(profile.pureExt ?? []);
   return (path, code) => {
     if (code !== "formula.op" && code !== "formula.ext") return undefined;
     const name = path.slice(1).join(".");
-    if (code === "formula.ext") return profile.ext !== undefined && Object.hasOwn(profile.ext, name) ? NOT_PURE : Object.hasOwn(STD_EXT, name) ? PURE : undefined;
+    if (code === "formula.ext") {
+      if (profile.ext !== undefined && Object.hasOwn(profile.ext, name)) return pureExt.has(name) ? PURE : NOT_PURE;
+      return Object.hasOwn(STD_EXT, name) ? PURE : undefined;
+    }
     // An operation that the language does not have gives #NAME?. The kit gives it no facts.
     if (known(path, code) !== true) return undefined;
     const isVolatile = volatile.has(name);

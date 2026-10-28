@@ -677,6 +677,9 @@ describe("factsOf", () => {
     expect(facts(["ops", "nothing"], "formula.op")).toBeUndefined();
     expect(facts(["ext", "number"], "formula.ext")).toEqual({ pure: true });
     expect(facts(["ext", "here"], "formula.ext")).toEqual({ pure: false });
+    // A profile names its pure extensions in pureExt (D47). The mark pure: true covers only the operations.
+    const named = formulaFacts({ ...STRICT, pureExt: ["count", "nothing"] });
+    expect([named(["ext", "count"], "formula.ext"), named(["ext", "here"], "formula.ext"), named(["ext", "nothing"], "formula.ext")]).toEqual([{ pure: true }, { pure: false }, undefined]);
     expect(facts(["if"], "formula.if")).toBeUndefined();
     expect(formulaFacts({ ops: OPS, pure: ["neg"] })(["ops", "add"], "formula.op")).toEqual({ pure: false, volatile: false });
     expect(formulaFacts({})(["ops", "add"], "formula.op")).toBeUndefined();
