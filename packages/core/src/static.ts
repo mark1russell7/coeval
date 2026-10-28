@@ -364,9 +364,11 @@ export interface CheckOptions {
   readonly caps?: readonly Cap[];
   /**
    * The verb that goes up the ladder at each document, as in `prepare`. The default is `eval`. `#NOEVAL` and the hook
-   * `known` follow this verb. The check tests the effects that the contract declares for this verb (VERB.EFFECTS). A
-   * kind without a declaration for the verb gives no effect issue. The contract declares the value types of `eval`
-   * only, thus only `eval` checks them (VERB.CHECK). The type rule of an evaluator serves each verb.
+   * `known` follow this verb. The type rule of an evaluator serves each verb.
+   *
+   * The check tests the effects that the contract declares for this verb (VERB.EFFECTS). A kind without a declaration
+   * for the verb gives no effect issue. The contract declares the value types of `eval` only, thus only `eval` checks
+   * them (VERB.CHECK).
    */
   readonly verb?: string;
   /**

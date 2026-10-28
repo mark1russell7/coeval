@@ -223,6 +223,12 @@ describe("the obligations of host code", () => {
     expect(conforms(machineWith({ ping: { verbs: { eval: "ping" }, effects: "type" } }, { ping }), "ping")).toEqual([]);
     const pong: EvalFn = ({ effect }) => effect("pong", 1);
     expect(obligations(conforms(machineWith({ ping: { verbs: { eval: "pong" }, effects: "type" } }, { pong }), "pong"))).toEqual(["C2"]);
+    // For another verb, the entry of the verb in verbEffects is the declaration (VERB.EFFECTS).
+    const saying = (says: readonly string[]): Kind => ({ verbs: { say: "noisy" }, parts: { shape: "list" }, verbEffects: { say: says } });
+    expect(obligations(conforms(machineWith({ noisy: saying([]) }, { noisy }), "noisy", { verb: "say" }))).toEqual(["C2"]);
+    expect(conforms(machineWith({ noisy: saying(["log"]) }, { noisy }), "noisy", { verb: "say" })).toEqual([]);
+    // Without an entry for the verb, the contract does not declare its effects, thus C2 does not apply.
+    expect(conforms(machineWith({ noisy: { verbs: { say: "noisy" }, parts: { shape: "list" } } }, { noisy }), "noisy", { verb: "say" })).toEqual([]);
   });
 
   it("[CONFORM.LAZY] code that skips an eager part, or that evaluates a lazy part whose result does not count, breaks C3", () => {

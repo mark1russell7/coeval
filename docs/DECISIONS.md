@@ -1194,3 +1194,31 @@ Attribute grammars give equations on the kinds and a ladder of defaults. L2b tak
 **Why.** The name of the type is the name of its one value, as for `null`, and the name of the extension `ext.undefined`. `typeText` then gives `number | undefined`, as TypeScript writes it. A domain in `STD_DOMAINS` is the existing way to add a base type. Thus the merge, the restriction and `fits` serve it with no new rule.
 
 **Limits.** After this change, a language with its own domain `undefined` and another test gets a merge conflict with the kit. It must name `["domains", "undefined"]` in `replaces`. A check with types gives a new `#TYPE!` where a document gives `ext.undefined` to a position of another type. Before, `unknown` hid it. A step into a member of `undefined` gives `unknown`, as a step into `null` does, although the run fails there.
+
+## D49 (2026-10-28): a contract declares the effects of the other verbs in the new field `verbEffects`, and `check` tests them
+
+**Context.** K56, from K33 (D23). The field `effects` of a contract tells what the verb `eval` causes. Thus `check` tested the declared effects only for `eval` (VERB.CHECK). For another verb, `check` gave no `#CAP!` and no `#CALC!` for an effect. Such an effect met its test only in a run (RUN.CAP).
+
+D23 put off a contract that declares the effects of each verb. The design calls are the place of the declaration, the treatment of a verb without a declaration, and the rule of a run.
+
+**Decision.**
+
+- A kind gets the optional field `verbEffects`: the effects of each verb other than `eval`, by verb. Each entry has the form of `effects`: a list of the kinds of the effects, or the text `"type"`. For example, `verbEffects: { view: [], say: ["log"] }` declares no effect for `view` and the effect `log` for `say` (VERB.EFFECTS).
+- The field `effects` stays the one declaration of `eval`. The type `VerbEffects` has no entry `eval`, thus TypeScript refuses a second declaration of `eval`.
+- The function `effectsOfVerb(kind, verb)` gives the declaration of a verb. It gives `undefined` for a verb other than `eval` without an entry. `check` and `conforms` read the declarations with it.
+- `check` with a verb tests each effect that the contract declares for that verb, with the same rules and the same issues as for `eval`. An effect that the capabilities of its document do not permit gives `#CAP!`. A kind around the document narrows the capabilities, and the reason names that kind. With the option `run`, an evaluator that declares an effect for the verb gives `#CALC!`. A runner waits only for an effect that can reach the host (RUN.CAN-WAIT).
+- A verb without an entry has no declaration. `check` then gives no effect issue for it, as before this decision. With the option `run`, a runner of such a verb can still wait, as before.
+- `conforms` checks C2 for each verb that the contract declares effects for. For a verb other than `eval`, the entry of the verb is the declaration. C3 and C4 still apply only to `eval`, because `pure` and `lazy` describe `eval`.
+- A run does not read the declarations, for `eval` or for another verb. A run refuses an effect only when the capabilities of its context do not permit it (RUN.CAP). The reference interpreter follows the same rule from the spec, thus `agree` does not change.
+- `checkWorld` (D45) does not read the declarations. `factsOf` and `effectsOf` still read only `effects`. Facts for each verb are K55.
+
+**Rejected.**
+
+- A record form of the field `effects`, for example `effects: { eval: ["write"], view: [] }`. The type of a public field then changes, and each reader of `effects` breaks. `factsOf`, `effectsOf`, `checkLatent` and a host read the field as a list.
+- An entry `eval` in `verbEffects`. Two declarations of one verb can differ, and one of them then has no reader.
+- No effect for a verb without an entry. A verb `say` of the tests causes an effect at each document. With that default, `check` passes a document whose run fails with `#CAP!`. The absence of a declaration says nothing, as it does in a run.
+- A refusal in a run of an effect that the contract does not declare. The kernel does not do this for `eval`, and a run of each verb keeps one rule. `conforms` finds code that breaks its declaration (C2).
+
+**Why.** A new optional field keeps each existing contract, each reader of `effects` and each result of `check`. One function gives the declaration of each verb, thus `check` and `conforms` agree. The same issues for each verb let a host read the result of `check` with one rule.
+
+**Limits.** A verb without an entry still meets the test of its effects only in a run. `effectsOf` gives the effects of `eval` only, thus a host cannot yet ask for the least authority of another verb. A merge of two worlds replaces a whole kind, thus a language cannot add an entry of `verbEffects` to a foreign kind before K35.
