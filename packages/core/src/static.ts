@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type Namespace, type World, type WorldEntry, equationType, isKind, isNamespace } from "./world.ts";
+import { type Kind, type Namespace, type World, type WorldEntry, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
@@ -364,8 +364,11 @@ export interface CheckOptions {
   readonly caps?: readonly Cap[];
   /**
    * The verb that goes up the ladder at each document, as in `prepare`. The default is `eval`. `#NOEVAL` and the hook
-   * `known` follow this verb. The contract declares the effects and the value types of `eval` only, thus only `eval`
-   * checks them (VERB.CHECK). The type rule of an evaluator serves each verb.
+   * `known` follow this verb. The type rule of an evaluator serves each verb.
+   *
+   * The check tests the effects that the contract declares for this verb (VERB.EFFECTS). A kind without a declaration
+   * for the verb gives no effect issue. The contract declares the value types of `eval` only, thus only `eval` checks
+   * them (VERB.CHECK).
    */
   readonly verb?: string;
   /**
@@ -408,16 +411,28 @@ const EACH: readonly Cap[] = /* @__PURE__ */ Object.freeze([[]]);
 const NO_EFFECTS: readonly (readonly Key[])[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
- * This function gives the effects that the contract of the kind of a visit declares, as keys (FACTS.EFFECTS). The
- * text `"type"` gives the type of the document after each alias. A visit without a kind declares no effect. `check`,
- * `factsOf` and `effectsOf` read the declarations with this one function (D27).
+ * This function gives the effects that the contract of the kind of a visit declares for a verb, as keys
+ * (FACTS.EFFECTS, VERB.EFFECTS). The text `"type"` gives the type of the document after each alias. A visit without a
+ * kind declares no effect. `check`, `factsOf` and `effectsOf` read the declarations with this one function (D27).
  *
  * @param v - The visit.
+ * @param verb - The verb. The default is `eval`. A kind without a declaration for the verb gives no effect.
  * @returns The keys of each declared effect, in the order of the contract.
  */
-export function declaredEffects(v: DocVisit): readonly (readonly Key[])[] {
-  const effects = v.kind?.effects;
-  if (effects === undefined || effects.length === 0) return NO_EFFECTS;
+export function declaredEffects(v: DocVisit, verb = "eval"): readonly (readonly Key[])[] {
+  return verbDeclared(v, verb) ?? NO_EFFECTS;
+}
+
+/**
+ * This function gives the effects that the contract of the kind of a visit declares for a verb, as keys. The result
+ * is `undefined` when the contract has no declaration for the verb (D49). A visit without a kind declares no effect
+ * for `eval` and no declaration for another verb.
+ */
+function verbDeclared(v: DocVisit, verb: string): readonly (readonly Key[])[] | undefined {
+  if (v.kind === undefined) return verb === "eval" ? NO_EFFECTS : undefined;
+  const effects = effectsOfVerb(v.kind, verb);
+  if (effects === undefined) return undefined;
+  if (effects.length === 0) return NO_EFFECTS;
   return effects === "type" ? [v.typePath ?? []] : effects.map((kind) => kind.split("."));
 }
 
@@ -472,7 +487,9 @@ function capReason(v: DocVisit, kind: readonly Key[], allowed: (caps: readonly C
  *   A run does not always fail there, thus a type issue is a static finding, not an error of a run.
  *
  * The check asks the ladder for the verb of the options, `eval` by default (VERB.CHECK). The shapes, the paths and the
- * names follow the contracts, thus they are the same for each verb. Only `eval` checks the declared effects.
+ * names follow the contracts, thus they are the same for each verb. The check tests the effects that each contract
+ * declares for the verb: `effects` for `eval`, and the entry of `verbEffects` for another verb (VERB.EFFECTS). A kind
+ * without a declaration for the verb gives no `#CAP!` and no `#CALC!` for an effect.
  *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
@@ -651,9 +668,8 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
     issues.push(issue);
     if (current !== undefined) current.marked = true;
   };
-  // The effects of a contract are the effects of eval (VERB.CONTRACT). An effect of another verb meets its test when
-  // it happens (RUN.CAP).
-  const effects = verb === "eval";
+  // The field effects declares eval, and verbEffects declares the other verbs (VERB.EFFECTS). An effect of a verb
+  // without a declaration meets its test when it happens (RUN.CAP).
   const allowed = options.caps === undefined ? undefined : permitsOf(machine);
   // In a run, a part that can wait needs a parent that can wait (RUN.CAN-WAIT). The map tells for each document with
   // code if its code passes a wait on: false for an evaluator, true for a runner whose waits reach the driver of the
@@ -704,7 +720,8 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
         if (known !== true) push({ code: "#NAME?", place: v.place, reason: known, at: v.at });
       }
       const caps = v.caps;
-      const declared = effects ? declaredEffects(v) : NO_EFFECTS;
+      const stated = verbDeclared(v, verb);
+      const declared = stated ?? NO_EFFECTS;
       if (allowed !== undefined && caps !== undefined) {
         for (const kind of declared) {
           if (!allowed(caps, kind)) push({ code: "#CAP!", place: v.place, reason: capReason(v, kind, allowed), at: v.at });
@@ -718,16 +735,17 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
           // The run drives a runner under an evaluator, and only a real wait fails (RUN.DRIVE-NESTED). Its issue goes in
           // here, in the order of the document, when an effect of its runners can wait.
           const issue: Issue = { code: "#CALC!", place: v.place, reason: waitedReason(typeName(v.doc.type)), at: v.at };
-          chain = { issue, index: issues.length, node: current, wait: !effects };
+          chain = { issue, index: issues.length, node: current, wait: false };
           drives.push(chain);
         } else if (runner) {
           chain = up ?? true;
         }
         waits.set(v, chain);
-        // A runner waits only for an effect that reaches the host (C6). A refused effect gives #CAP! without a wait.
+        // A runner waits only for an effect that reaches the host (C6). A refused effect gives #CAP! without a wait. A
+        // runner without a declaration for the verb can cause each effect, thus it can wait.
         if (typeof chain === "object" && !chain.wait) {
           const rule = allowed ?? permits;
-          chain.wait = declared.some((kind) => caps === undefined || rule(caps, kind));
+          chain.wait = stated === undefined || declared.some((kind) => caps === undefined || rule(caps, kind));
         }
         // In a run, the host does each effect, thus an evaluator cannot cause one.
         const first = declared[0];

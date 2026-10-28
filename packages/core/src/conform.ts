@@ -32,7 +32,7 @@ import { type Definitions, STD_DEFINITIONS } from "./reference.ts";
 import { STD_EVALUATORS } from "./stdlib.ts";
 import { sameValue } from "./agree.ts";
 import { type Random, random } from "./generate.ts";
-import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, isKind, isNamespace, lookupKind } from "./world.ts";
+import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effectsOfVerb, isKind, isNamespace, lookupKind } from "./world.ts";
 
 /*
  * The conformance tests of one evaluator (K92, R7 P3, D36). `conforms` calls the code of one evaluator or runner
@@ -85,8 +85,9 @@ export interface Finding {
 /** The options of `conforms`. */
 export interface ConformOptions {
   /**
-   * The verb that the evaluator serves. The default is `eval`. The facts of a contract (`effects`, `pure` and `lazy`)
-   * describe only `eval`, thus `conforms` checks C2, C3 and C4 only for `eval` (D23).
+   * The verb that the evaluator serves. The default is `eval`. The facts `pure` and `lazy` of a contract describe only
+   * `eval`, thus `conforms` checks C3 and C4 only for `eval` (D23). `conforms` checks C2 for each verb that the
+   * contract declares effects for: `eval`, and each verb with an entry in `verbEffects` (D49).
    */
   readonly verb?: string;
   /**
@@ -276,6 +277,8 @@ interface Contract {
   readonly lazy: readonly LazyRule[] | undefined;
   /** `true` when the facts describe the verb: they describe only `eval`. */
   readonly describes: boolean;
+  /** `true` when the contract declares the effects of the verb: for `eval`, and for a verb in `verbEffects`. */
+  readonly declares: boolean;
   readonly caps: readonly Cap[];
 }
 
@@ -487,13 +490,16 @@ function typesNaming(world: World, name: string, verb: string): readonly TypeRef
 /** This function gives the facts of the kind of a type. The hook `facts` of the machine wins over the contract. */
 function contractOf(env: Env, kind: Kind, typePath: readonly Key[], caps: readonly Cap[] | undefined): Contract {
   const facts = env.machine.facts?.(typePath, env.name);
-  const effects = kind.effects;
+  // A verb without a declaration keeps the effects of eval for the capabilities of the probes, as before D49.
+  const own = effectsOfVerb(kind, env.verb);
+  const effects = own ?? kind.effects;
   const declared: readonly Cap[] = effects === undefined ? [] : effects === "type" ? [typePath] : effects;
   return {
     declared,
     pure: (facts?.pure ?? kind.pure) === true,
     lazy: facts?.lazy ?? kind.lazy,
     describes: env.verb === "eval",
+    declares: own !== undefined,
     caps: caps ?? [...declared, "probe"],
   };
 }
@@ -872,13 +878,15 @@ function checkShot(env: Env, sample: Sample, contract: Contract, scenario: Scena
       report(env, "C1", `The code gives its effect ${effect.kind} ${capsText(effect.context.caps)}, and its document has ${capsText(docCaps)}.`, probe);
     }
   }
-  if (contract.describes) {
-    // C2: only the declared effects.
+  if (contract.declares) {
+    // C2: only the declared effects of the verb (VERB.EFFECTS).
     for (const effect of shot.caused) {
       if (!permits(contract.declared, effect.kind)) {
-        report(env, "C2", `The code causes the effect ${effect.kind}, and the contract of ${sample.type} declares ${contract.declared.length === 0 ? "no effects" : capsText(contract.declared)}.`, probe);
+        report(env, "C2", `The code causes the effect ${effect.kind}, and the contract of ${sample.type} declares ${contract.declared.length === 0 ? "no effects" : capsText(contract.declared)}${env.verb === "eval" ? "" : ` for the verb ${env.verb}`}.`, probe);
       }
     }
+  }
+  if (contract.describes) {
     // C4: a pure kind causes no effect.
     const first = shot.caused[0];
     if (contract.pure && first !== undefined) report(env, "C4", `The kind ${sample.type} is pure, and the code causes the effect ${first.kind}.`, probe);

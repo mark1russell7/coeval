@@ -172,8 +172,9 @@ A verb is one question to each document, for example `eval` or `format`. Each ve
 | VERB.PREPARE | `prepare`, `evaluate` and `run` take a verb. At each document, the ladder answers for that verb, and each part evaluates with the same verb. A plan of another verb evaluates, runs and traces as a plan of `eval` does. |
 | VERB.DEFAULT | The default verb is `eval`. Without a verb, `prepare`, `evaluate`, `run`, `check`, `reference` and `agree` give the results that they gave before. |
 | VERB.LADDER | Each verb visits the same rungs: the own entry, then the kind, then the default of the world. `deref` and `step` visit them too. A kind that the world does not have stops the question. When no rung of `deref` answers, a step goes into the value. |
-| VERB.CHECK | `check` takes a verb. `#NOEVAL` and the hook `known` follow the evaluator of that verb. The shapes, the paths and the names follow the contracts, thus they are the same for each verb. Only `eval` checks the declared effects. |
+| VERB.CHECK | `check` takes a verb. `#NOEVAL` and the hook `known` follow the evaluator of that verb. The shapes, the paths and the names follow the contracts, thus they are the same for each verb. The effects that `effects` declares count only for `eval`. |
 | VERB.CONTRACT | The contract of a kind serves each verb. For each verb, the kernel splits the parts and narrows their capabilities by it. `side` and `effects` tell what `eval` does. An effect of another verb passes the test of its capabilities when it happens (RUN.CAP). |
+| VERB.EFFECTS | A contract declares the effects of a verb other than `eval` in its field `verbEffects`, by verb, in the form of `effects`. `check` with that verb tests each declared effect against the capabilities of its document, as for `eval`: `#CAP!`, and `#CALC!` with the option `run`. A verb without an entry has no declaration, thus `check` gives no effect issue for it. `conforms` checks C2 for a verb with an entry. A run does not read the declarations of any verb (RUN.CAP). |
 | VERB.FORMAT | A language adds a verb with a merge, without a change to the kernel. The verb `format` of the tests gives the text of a document. Its default writes `kind(part, part)`, and three kinds of the formula kit have their own entries. |
 | VERB.AGREE | The reference reads each verb by the same rules. `agree` with a verb compares the plan of that verb with the reference, the traced plan and a second evaluation. The second tier of a language gets the verb. Generated documents agree for `format`. |
 
@@ -435,7 +436,7 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | --- | --- |
 | CONFORM.STD | Each evaluator and each runner of `STD_MACHINE`, and each evaluator of the formula kit with three profiles, conforms. `conforms` throws for a name without code, and for code that no kind names. |
 | CONFORM.NARROW | Code that gives a part or an effect more capabilities than its document has breaks C1. A spread, a context from an earlier call and a function evaluator are found. |
-| CONFORM.EFFECTS | Code that causes an effect that its contract does not declare breaks C2. The effects `type` declare the type of the document. |
+| CONFORM.EFFECTS | Code that causes an effect that its contract does not declare breaks C2. The effects `type` declare the type of the document. For a verb other than `eval`, the entry of the verb in `verbEffects` is the declaration (VERB.EFFECTS). |
 | CONFORM.LAZY | Code that skips an eager part, or that evaluates a lazy part whose result does not change the result, breaks C3. The check applies only to the verb `eval`. |
 | CONFORM.PURE | The code of a pure kind that causes an effect breaks C4. Code that reads a root of the context outside `resolve` breaks C4 too. |
 | CONFORM.SEALED | Code whose result changes with the JSON of its parts, when the results of the parts stay the same, breaks C5. The names of the parts are permitted. |

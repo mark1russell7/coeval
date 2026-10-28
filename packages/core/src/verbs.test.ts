@@ -17,7 +17,10 @@ import {
   STD_MACHINE,
   agree,
   check,
+  checkWorld,
+  conforms,
   context,
+  effectsOfVerb,
   evaluate,
   formulaDefinitions,
   formulaMachine,
@@ -256,7 +259,7 @@ describe("verbs", () => {
     expect(check(plain, at(pick), { names: ["list"] }).map((issue) => issue.code)).toEqual(["#STEP?"]);
   });
 
-  it("[VERB.CHECK] check asks the ladder of its verb, and only eval checks the declared effects", () => {
+  it("[VERB.CHECK] check asks the ladder of its verb, and the effects of eval do not count for another verb", () => {
     expect(check(machine, program, { ...lit, verb: "format" })).toEqual([]);
     // Without a default, the kind if has no evaluator for format. The check and the plan give the same code and place.
     const issues = check(noDefault, program, { ...lit, verb: "format" });
@@ -270,7 +273,7 @@ describe("verbs", () => {
     const unknown = { type: ["ops", "nope"], value: [1] };
     expect(check(machine, unknown, lit).map((issue) => issue.code)).toEqual(["#NAME?"]);
     expect(check(machine, unknown, { ...lit, verb: "format" })).toEqual([]);
-    // The effects of a contract are the effects of eval. A text form of an effect causes no effect.
+    // The field effects declares only eval. A text form of an effect causes no effect.
     const logging = mergeMachines(STD_MACHINE, { world: { defaults: { format: "format.default" } }, evaluators: { "format.default": FORMAT_CODE["format.default"] as EvalFn } });
     const log = { type: "log", value: ["hi"] };
     expect(check(logging, log, { caps: [] }).map((issue) => issue.code)).toEqual(["#CAP!"]);
@@ -281,6 +284,59 @@ describe("verbs", () => {
     // The shapes and the names follow the contracts, thus they are the same for each verb.
     const unbound = { type: "ref", value: ["names", "y"] };
     expect(check(machine, unbound, { verb: "format" }).map((issue) => issue.code)).toEqual(check(machine, unbound).map((issue) => issue.code));
+  });
+
+  it("[VERB.EFFECTS] a contract declares the effects of another verb in verbEffects, and check tests them", () => {
+    // A verb say that causes one effect log at each document, with the text of its kind.
+    const say: EvalFn = ({ kind, parts, effect }) => {
+      for (const part of parts) {
+        const result = part.evaluate();
+        if (!result.ok) return result;
+      }
+      return effect("log", kind);
+    };
+    const shoutKind: Kind = { verbs: { eval: "list.all", say: "say.log" }, parts: { shape: "list" }, verbEffects: { say: ["log"] } };
+    const quietKind: Kind = { verbs: { eval: "effect.write", say: "say.log" }, parts: { shape: "record", fields: ["value"] }, effects: ["write"], verbEffects: { say: [] } };
+    const plainKind: Kind = { verbs: { eval: "list.all", say: "say.log" }, parts: { shape: "list" } };
+    const kinds = { shout: shoutKind, quiet: quietKind, plain: plainKind };
+    const saying = mergeMachines(STD_MACHINE, { world: { kinds, defaults: { say: "say.log" } }, evaluators: { "say.log": say } });
+    const shout = { type: "shout", value: [] };
+    // The declared effect of say meets the test of the capabilities, as an effect of eval does.
+    const refused = check(saying, shout, { verb: "say", caps: [] });
+    expect(refused).toEqual([{ code: "#CAP!", place: [], reason: "The capabilities do not permit the effect log.", at: [] }]);
+    expect(check(saying, shout, { verb: "say", caps: ["log"] })).toEqual([]);
+    // A kind around the document narrows the capabilities for each verb, and the reason names it.
+    const masked = check(saying, { type: "pure", value: [shout] }, { verb: "say", caps: ["log"] });
+    expect(masked.map((issue) => [issue.code, issue.place, issue.reason])).toEqual([["#CAP!", [0], "The capabilities do not permit the effect log here. The kind pure around it narrows them for its parts."]]);
+    // The effects of eval do not count for say, and the entry of say does not count for eval.
+    const quiet = { type: "quiet", value: { key: "k", value: { type: "number", value: 1 } } };
+    expect(check(saying, quiet, { verb: "say", caps: [] })).toEqual([]);
+    expect(check(saying, quiet, { caps: [] }).map((issue) => issue.code)).toEqual(["#CAP!"]);
+    expect(check(saying, shout, { caps: [] })).toEqual([]);
+    // A kind without an entry for the verb has no declaration: check gives no effect issue, as before D49.
+    expect(check(saying, { type: "plain", value: [] }, { verb: "say", caps: [] })).toEqual([]);
+    expect(effectsOfVerb(plainKind, "say")).toBeUndefined();
+    expect(effectsOfVerb(quietKind, "eval")).toEqual(["write"]);
+    expect(effectsOfVerb(shoutKind, "eval")).toEqual([]);
+    // The field effects declares eval, thus verbEffects has no entry eval.
+    // @ts-expect-error: the type VerbEffects has no entry eval.
+    const twice: Kind = { verbs: { eval: "list.all" }, verbEffects: { eval: ["log"] } };
+    expect(twice.verbs).toEqual({ eval: "list.all" });
+    // With the option run, an evaluator that declares an effect for the verb needs a runner (RUN.CAN-WAIT).
+    expect(check(saying, shout, { verb: "say", run: true }).map((issue) => [issue.code, issue.reason])).toEqual([["#CALC!", "The effect log needs a runner: in a run, the host does each effect."]]);
+    expect(check(saying, { type: "plain", value: [] }, { verb: "say", run: true })).toEqual([]);
+    // A run refuses an effect only without its capability, for each verb (RUN.CAP). It does not read the declaration.
+    const effects: Effect[] = [];
+    expect(prepare(saying, quiet, { verb: "say" }).evaluate(context({ caps: ["log"] }), { effects })).toMatchObject({ ok: true });
+    expect(effects.map((effect) => effect.payload)).toEqual(["number", "quiet"]);
+    // conforms finds the code of say that causes an effect that the entry of say does not declare (C2).
+    const found = conforms(saying, "say.log", { verb: "say", types: [["quiet"], ["shout"]] });
+    expect(found.map((finding) => [finding.obligation, finding.probe.type])).toEqual([["C2", "quiet"]]);
+    expect(found[0]?.reason).toBe("The code causes the effect log, and the contract of quiet declares no effects for the verb say.");
+    // A kind without an entry for the verb gets no check of C2, as before D49.
+    expect(conforms(saying, "say.log", { verb: "say", types: [["plain"]] })).toEqual([]);
+    // The coverage of the verbs does not read the declarations.
+    expect(checkWorld(saying, ["say"])).toEqual([]);
   });
 
   it("[VERB.CONTRACT] the kernel narrows the capabilities of each part by the contract, for each verb", () => {

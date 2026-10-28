@@ -172,7 +172,8 @@ export function equationType(kind: Kind): string | undefined {
 /**
  * A kind gives the name of an evaluator for each verb, and the contract of its value. The contract serves each verb.
  * For each verb, the kernel splits the parts and narrows their capabilities by it, and `check` reads its scope rules.
- * `side` and `effects` tell what the verb `eval` does (VERB.CONTRACT).
+ * `side` and `effects` tell what the verb `eval` does (VERB.CONTRACT). `verbEffects` tells the effects of the other
+ * verbs (VERB.EFFECTS).
  */
 export interface Kind extends KindFacts {
   /**
@@ -201,6 +202,13 @@ export interface Kind extends KindFacts {
    */
   readonly effects?: "type" | readonly string[];
   /**
+   * The effects that the other verbs of a document of this kind can cause, by verb, in the form of `effects`
+   * (VERB.EFFECTS, D49). An entry `view: []` declares no effect for `view`. A verb without an entry has no
+   * declaration, thus `check` does not test its effects. The field `effects` declares `eval`, thus this field has no
+   * entry `eval`.
+   */
+  readonly verbEffects?: VerbEffects;
+  /**
    * The value type of the result of the verb `eval`, when it is fixed (TYPE.SYNTH). A check of types gives it to each
    * document of the kind, in the place of the type that the rule of the evaluator synthesizes.
    */
@@ -212,6 +220,28 @@ export interface Kind extends KindFacts {
   readonly tree?: TreeContract;
   /** One sentence that tells what the kind is. */
   readonly summary?: string;
+}
+
+/**
+ * The effects that a contract declares for the verbs other than `eval`, by verb (D49). Each entry has the form of the
+ * field `effects` of a kind. The type has no entry `eval`, because the field `effects` declares `eval`.
+ */
+export type VerbEffects = Readonly<Record<string, "type" | readonly string[]>> & { readonly eval?: never };
+
+/**
+ * This function gives the effects that the contract of a kind declares for a verb (VERB.EFFECTS, D49). For `eval`,
+ * the field `effects` declares them, and a kind without the field declares no effect. For another verb, the entry of
+ * `verbEffects` declares them. `check` and `conforms` read the declarations with this one function.
+ *
+ * @param kind - The kind.
+ * @param verb - The verb.
+ * @returns The declaration in the form of `effects`, or `undefined` when the contract does not declare the effects of
+ *   the verb.
+ */
+export function effectsOfVerb(kind: Kind, verb: string): "type" | readonly string[] | undefined {
+  if (verb === "eval") return kind.effects ?? [];
+  const table = kind.verbEffects as Readonly<Record<string, "type" | readonly string[]>> | undefined;
+  return table !== undefined && Object.hasOwn(table, verb) ? table[verb] : undefined;
 }
 
 /** A namespace: a group of entries under one key of the world. `fallback` is the kind of each other key in it. */
