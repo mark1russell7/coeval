@@ -1,7 +1,7 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
 import type { Context } from "./deref.ts";
 import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
-import { type Effect, type Journal, type Machine, type Perform, JOURNAL, evaluate, makeContext, prepare, run } from "./evaluate.ts";
+import { type Effect, type Journal, type Machine, type Perform, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
 import { Held, isClosure } from "./formula.ts";
 import { type Definitions, reference, referenceRun } from "./reference.ts";
 import { type ReplaySettle, recorder, replayer } from "./replay.ts";
@@ -14,9 +14,11 @@ import { type ReplaySettle, recorder, replayer } from "./replay.ts";
  * - `again`: a second evaluation of the same plan.
  * - `folds`: a second plan with the other choice of folds (PLAN.FOLD). It has no folds when the plan has them, and
  *   it has folds when the option `observe` stops the folds of the plan.
+ * - `fixed`: a plan that declares each name of plain data fixed (PLAN.FIXED). It evaluates with a frozen copy of
+ *   each such name, and then with the context of `agree`. `agreeRun` does not have this tier.
  * - `other`: the second tier of a language, from the option `other`.
  */
-export type Tier = "reference" | "traced" | "again" | "folds" | "other";
+export type Tier = "reference" | "traced" | "again" | "folds" | "fixed" | "other";
 
 /** What a second tier gives: its result, and its effects when it records them. */
 export interface TierResult {
@@ -45,8 +47,8 @@ export interface AgreeOptions {
   /** The definitional code of the compiled evaluators of the machine, for the reference. */
   readonly definitions?: Definitions;
   /**
-   * The tiers to compare with the plan. The default is the reference, the traced evaluation, a second evaluation and
-   * the plan with the other choice of folds.
+   * The tiers to compare with the plan. The default is the reference, the traced evaluation, a second evaluation, the
+   * plan with the other choice of folds and the plan with fixed names.
    */
   readonly tiers?: readonly Exclude<Tier, "other">[];
   /**
@@ -85,7 +87,7 @@ export interface AgreeOptions {
 }
 
 /** The tiers that `agree` compares when its options name none. */
-const DEFAULT_TIERS: readonly Exclude<Tier, "other">[] = /* @__PURE__ */ Object.freeze(["reference", "traced", "again", "folds"]);
+const DEFAULT_TIERS: readonly Exclude<Tier, "other">[] = /* @__PURE__ */ Object.freeze(["reference", "traced", "again", "folds", "fixed"]);
 
 /** The outcome of `agree`: the result of the plan, or the first tier that disagrees with it. */
 export type Agreement =
@@ -186,6 +188,57 @@ function effectsDiffer(a: readonly Effect[], b: readonly Effect[], options: Agre
 }
 
 /**
+ * This function compares the plan with the tier `fixed` (PLAN.FIXED). The tier declares each name of plain data fixed,
+ * with a frozen copy of its value. It evaluates with these copies, thus the folds with fixed names give the result.
+ * Then it evaluates with the context of `agree`, thus the code without the fold gives the result. A fold moves the
+ * calls of the host to the compilation, thus only the result and the effects compare.
+ */
+function fixedDiffers(
+  machine: Machine,
+  doc: unknown,
+  context: Context,
+  result: Result,
+  effects: readonly Effect[],
+  given: { readonly declaredType?: string; readonly verb?: string; readonly perform?: Perform },
+  options: AgreeOptions,
+): { readonly other: Result; readonly reason: string } | undefined {
+  const { perform, ...declared } = given;
+  const held = fixedContext(context);
+  const plan = prepare(machine, doc, { ...declared, fixed: { names: held.fixed } });
+  for (const each of [held.context, context]) {
+    const tierEffects: Effect[] = [];
+    const other = plan.evaluate(each, { effects: tierEffects, ...(perform === undefined ? {} : { perform }) });
+    options.observe?.();
+    if (overflowed(result) || overflowed(other)) continue;
+    const reason = resultDiffers(result, other, options) ?? effectsDiffer(effects, tierEffects, options);
+    if (reason !== undefined) return { other, reason };
+  }
+  return undefined;
+}
+
+/**
+ * This function gives the context of the tier `fixed`. Each name of plain data gets a deeply frozen copy of its value,
+ * and the record of the fixed names holds the same copy. Each other name keeps its value.
+ */
+function fixedContext(context: Context): { readonly context: Context; readonly fixed: Readonly<Record<string, unknown>> } {
+  const given = context.names;
+  const names = Object.create(Object.getPrototypeOf(given) as object | null) as Record<string, unknown>;
+  const fixed = Object.create(null) as Record<string, unknown>;
+  for (const key of Reflect.ownKeys(given)) {
+    let field = Object.getOwnPropertyDescriptor(given, key) as PropertyDescriptor;
+    if (typeof key === "string" && "value" in field) {
+      const copy = sharedCopy(field.value);
+      if (copy !== undefined || field.value === undefined) {
+        Object.defineProperty(fixed, key, { value: copy, enumerable: true });
+        field = { ...field, value: copy };
+      }
+    }
+    Object.defineProperty(names, key, field);
+  }
+  return { context: { ...context, names }, fixed };
+}
+
+/**
  * This function evaluates a document with a plan and with other tiers, and compares the results (PLAN.AGREES). Two
  * results agree when they have the same value by `sameValue`, or errors with the same code, and the same place when
  * both have one. The effects must have the same kinds, places and payloads, in the same order. A language gives its
@@ -229,6 +282,10 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
       const traced = evaluate(machine, doc, context, { ...declared, ...mock });
       other = traced.result;
       otherEffects = [...traced.effects];
+    } else if (tier === "fixed") {
+      const why = fixedDiffers(machine, doc, context, result, effects, { ...declared, ...mock }, options);
+      if (why !== undefined) return { ok: false, tier, plan: result, other: why.other, reason: why.reason };
+      continue;
     } else if (tier === "folds") {
       other = prepare(machine, doc, { ...declared, fold: !folds }).evaluate(context, { effects: otherEffects, ...mock });
       if (observe !== undefined) {
@@ -341,6 +398,8 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
   const log = recording.log();
 
   for (const tier of options.tiers ?? DEFAULT_TIERS) {
+    // A run has no tier with fixed names (PLAN.FIXED).
+    if (tier === "fixed") continue;
     const replay = watched(replayer(log));
     const host = { perform: replay.perform };
     let other: Result;

@@ -55,6 +55,9 @@ function store(k: Kernel): unknown {
 
 const ROW = { cells: [{ value: 0 }, { value: 1 }, { value: 2 }] };
 
+/** A deeply frozen configuration, as a host declares it fixed (PLAN.FIXED). */
+const CONFIG = Object.freeze({ scale: 2, rows: Object.freeze([Object.freeze({ value: 10 }), Object.freeze({ value: 20 })]) });
+
 export const CASES: readonly Case[] = [
   {
     // The formula of FORMULA.SPEED: two references, two operations and a literal.
@@ -149,6 +152,35 @@ export const CASES: readonly Case[] = [
       for (let index = 0; index < 20; index += 1) fields[`f${index}`] = index % 2 === 0 ? index : `text ${index}`;
       const plan = k.prepare(k.formulaMachine({ ops: OPS }), { type: "record", value: fields }, { fold: false });
       const ctx = k.context();
+      return () => plan.evaluate(ctx);
+    },
+  },
+  {
+    // A path of four steps from a name that the host declares fixed (K14). The plan folds it, and each evaluation
+    // compares the value of the name one time (PLAN.FIXED). A kernel without the option ignores it.
+    name: "PLAN.FIXED a path of four steps from a fixed name",
+    make: (k) => {
+      const plan = k.prepare(k.formulaMachine({ ops: OPS }), ref("names", "config", "rows", 1, "value"), { fixed: { names: { config: CONFIG } } });
+      const ctx = k.context({ names: { config: CONFIG, x: 1 } });
+      return () => plan.evaluate(ctx);
+    },
+  },
+  {
+    // The same path without the declaration: the compiled path walks the four steps at each evaluation (PLAN.PATH).
+    name: "PLAN.PATH the same path, without the declaration",
+    make: (k) => {
+      const plan = k.prepare(k.formulaMachine({ ops: OPS }), ref("names", "config", "rows", 1, "value"));
+      const ctx = k.context({ names: { config: CONFIG, x: 1 } });
+      return () => plan.evaluate(ctx);
+    },
+  },
+  {
+    // A formula that reads a fixed name and a name that changes. Only the part with the fixed name folds.
+    name: "PLAN.FIXED a formula with a fixed name and a free name",
+    make: (k) => {
+      const doc = op("add", ref("names", "config", "scale"), ref("names", "x"));
+      const plan = k.prepare(k.formulaMachine({ ops: OPS, pure: ["add"] }), doc, { fixed: { names: { config: CONFIG } } });
+      const ctx = k.context({ names: { config: CONFIG, x: 1 } });
       return () => plan.evaluate(ctx);
     },
   },
