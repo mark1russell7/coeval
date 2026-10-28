@@ -10,6 +10,7 @@ import {
   type Effect,
   type EvalFn,
   type EvalInput,
+  type Journal,
   type Machine,
   type Part,
   type Perform,
@@ -17,6 +18,8 @@ import {
   type RunInput,
   type RunPart,
   type Steps,
+  type StopSignal,
+  JOURNAL,
   makeContext,
   permits,
   placeText,
@@ -56,6 +59,17 @@ export interface ReferenceOptions {
   readonly verb?: string;
 }
 
+/** The options of a run of the reference: the options of an evaluation, with the host and a signal (REF.RUN). */
+export interface ReferenceRunOptions extends ReferenceOptions {
+  /**
+   * The host code that does each effect of a runner. A promise from it makes the run wait. Without it, an effect gives
+   * its payload. A journal on the function sets the order of the waits of each `all` (RUN.REPLAY).
+   */
+  readonly perform?: Perform;
+  /** A signal of the host. When it aborts, the run stops with `#ABORT` (RUN.ABORT). */
+  readonly signal?: StopSignal;
+}
+
 /** The scope of the addresses of effects (RUN.ADDRESS): the root of the evaluation, or one item of `all`. */
 interface Scope {
   /** The text before each address of the scope. */
@@ -73,6 +87,10 @@ interface Env {
   readonly effects: Effect[];
   readonly maxDepth: number;
   readonly perform: Perform | undefined;
+  /** The journal on the function `perform`, when it has one. It gets and gives the order of the waits of `all`. */
+  readonly journal: Journal | undefined;
+  /** `true` in a run: the host does each effect of a runner, and an effect of an evaluator gives `#CALC!`. */
+  readonly running: boolean;
   /** The verb that goes up the ladder at each document. Each part evaluates with the same verb. */
   readonly verb: string;
   /** The scope of the code that evaluates at this time. `all` changes it for each item. */
@@ -209,6 +227,49 @@ function resolveFully(machine: Machine, ctx: Context, path: readonly unknown[], 
  * mock, the effect gives its payload (RUN.EVAL).
  */
 function cause(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
+  const effect = recordEffect(env, ctx, kind, payload, place);
+  if ("ok" in effect) return effect;
+  effect.outcome = answer(env.perform, effect, place);
+  return effect.outcome;
+}
+
+/**
+ * This function causes the effect of an evaluator. In a run, the host does each effect, thus only a runner can cause
+ * one, and the effect gives `#CALC!` before the test of its capability (RUN.NEEDS-RUNNER).
+ */
+function causeFromEvaluator(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
+  const text = typeof kind === "string" ? kind : kind.join(".");
+  if (env.running) return fail("#CALC!", `The effect ${text} needs a runner: in a run, the host does each effect.`, { place });
+  return cause(env, ctx, kind, payload, place);
+}
+
+/**
+ * This function causes the effect of a runner. In an evaluation, the mock answers it at once. In a run, the host does
+ * it, and a promise from the host makes the steps wait (RUN.SEQ). An effect whose wait a stop ends keeps no outcome
+ * (RUN.OUTCOME).
+ */
+function* causeAndWait(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps {
+  if (!env.running) return cause(env, ctx, kind, payload, place);
+  const effect = recordEffect(env, ctx, kind, payload, place);
+  if ("ok" in effect) return effect;
+  const perform = env.perform;
+  if (perform === undefined) return (effect.outcome = ok(payload));
+  let given: unknown;
+  try {
+    given = perform(effect);
+  } catch (error) {
+    return (effect.outcome = hostError(effect, place, error));
+  }
+  if (!(given instanceof Promise)) return (effect.outcome = ok(given));
+  const outcome = (yield given.then(
+    (value: unknown) => ok(value),
+    (error: unknown) => hostError(effect, place, error),
+  )) as Result;
+  return (effect.outcome = outcome);
+}
+
+/** This function checks the capability of an effect, and records the effect with its address (RUN.CAP, RUN.ADDRESS). */
+function recordEffect(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Failed | { -readonly [K in keyof Effect]: Effect[K] } {
   const keys = typeof kind === "string" ? kind.split(".") : kind;
   const text = keys.join(".");
   const machine = env.machine;
@@ -229,8 +290,13 @@ function cause(env: Env, ctx: Context, kind: Cap, payload: unknown, place: reado
     address: `${env.scope.prefix}${at}#${count}`,
   };
   env.effects.push(effect);
-  effect.outcome = answer(env.perform, effect, place);
-  return effect.outcome;
+  return effect;
+}
+
+/** This function gives the outcome of an effect that the host failed. A `Failure` gives its own error value (RUN.CAUSE). */
+function hostError(effect: Effect, place: readonly Key[], error: unknown): Result {
+  if (error instanceof Failure) return placed({ ok: false, error: error.error }, place);
+  return fail("#CALC!", `The host failed the effect ${effect.kind}: ${describe(error)}`, { place, cause: error });
 }
 
 /**
@@ -243,8 +309,7 @@ function answer(perform: Perform | undefined, effect: Effect, place: readonly Ke
   try {
     given = perform(effect);
   } catch (error) {
-    if (error instanceof Failure) return placed({ ok: false, error: error.error }, place);
-    return fail("#CALC!", `The host failed the effect ${effect.kind}: ${describe(error)}`, { place, cause: error });
+    return hostError(effect, place, error);
   }
   if (!(given instanceof Promise)) return ok(given);
   void given.catch(() => undefined);
@@ -321,7 +386,7 @@ function evalInput(env: Env, seen: Seen, at: At): EvalInput {
     machine: env.machine,
     ...(at.address ? { address: true } : {}),
     resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
-    effect: (kind, payload) => cause(env, at.ctx, kind, payload, at.place),
+    effect: (kind, payload) => causeFromEvaluator(env, at.ctx, kind, payload, at.place),
     fill,
   };
 }
@@ -349,67 +414,124 @@ function runInput(env: Env, seen: Seen, at: At): RunInput {
     place: at.place,
     machine: env.machine,
     resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
-    effect: function* (kind, payload) {
-      return cause(env, at.ctx, kind, payload, at.place);
-    },
+    effect: (kind, payload) => causeAndWait(env, at.ctx, kind, payload, at.place),
     all: (list, options) => together(env, list, options),
     fill,
   };
 }
 
+/** A part of `all` that waits, and the promise that gives its next input. */
+interface Waiter {
+  readonly index: number;
+  readonly steps: Steps;
+  next: Promise<Resumed>;
+}
+
+/** The input of a part after its wait: the value of the promise, or its rejection. */
+interface Resumed {
+  readonly waiter: Waiter;
+  readonly value?: unknown;
+  readonly error?: unknown;
+  readonly threw: boolean;
+}
+
 /**
  * This function evaluates parts for `all` (RUN.ALL). The parts start in their order, up to the limit, and each part
- * goes on until it ends or waits. In an evaluation, a part that waits does not end, thus it keeps its place in the
- * limit. With `failFast`, the first failure stops the parts that wait, and the later parts do not start
- * (RUN.FAIL-FAST). When no part failed and a part waits, the steps wait, and the drive gives `#CALC!`.
+ * goes on until it ends or waits. A part that waits keeps its place in the limit. With `failFast`, the first failure
+ * stops the parts that wait, and the later parts do not start (RUN.FAIL-FAST).
+ *
+ * When a part waits, the steps wait for the next part that settles. The journal of the host can choose that part
+ * (RUN.REPLAY), and it gets each part that settled (RUN.RECORD). In an evaluation, the drive stops at the first wait
+ * and gives `#CALC!`. In a run, the host settles the wait, and the part goes on in its own scope.
  *
  * Each part has its own scope of addresses. Its prefix names the use of `all` in the scope around it, and the part
  * (RUN.ADDRESS).
  */
 function* together(env: Env, list: readonly RunPart[], options: AllOptions = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
   const limit = Math.max(1, options.concurrency ?? list.length);
+  const failFast = options.failFast === true;
   const results: (Result | undefined)[] = list.map(() => undefined);
-  const waiting: { readonly steps: Steps; readonly promise: Promise<unknown> }[] = [];
+  const scopes: Scope[] = [];
+  const waiting: Waiter[] = [];
   const outer = env.scope;
   const address = `${outer.prefix}all${outer.alls}`;
   outer.alls += 1;
   let failed = false;
-  for (let index = 0; index < list.length && !failed && waiting.length < limit; index += 1) {
-    let result: Result | undefined;
-    env.scope = { prefix: `${address}.${index}/`, counts: new Map(), alls: 0 };
-    try {
-      const steps = (list[index] as RunPart).evaluate();
-      const step = steps.next();
-      if (step.done === true) result = step.value;
-      else waiting.push({ steps, promise: step.value });
-    } catch (error) {
-      result = thrown(error, "a part");
-    } finally {
-      env.scope = outer;
-    }
+  let started = 0;
+  const end = (index: number, result: Result): void => {
     results[index] = result;
-    if (result !== undefined && options.failFast === true && !result.ok) failed = true;
-  }
-  if (failed) {
-    const stopped = fail("#ABORT", "The part stopped: a part before it failed, and the parts run with failFast.");
-    for (const item of waiting) {
-      try {
-        item.steps.return(stopped);
-      } catch {
-        // The finally code of a part threw. The part stops with the abort.
-      }
+    if (failFast && !result.ok) failed = true;
+  };
+  /** This function gives a part its input in its own scope, and keeps it in the list when it waits again. */
+  const goOn = (index: number, steps: Steps, input: Omit<Resumed, "waiter">): void => {
+    const around = env.scope;
+    env.scope = scopes[index] as Scope;
+    let step: IteratorResult<Promise<unknown>, Result>;
+    try {
+      step = input.threw ? steps.throw(input.error) : steps.next(input.value);
+    } catch (error) {
+      end(index, thrown(error, "a part"));
+      return;
+    } finally {
+      env.scope = around;
     }
-    return results.map((result) => result ?? stopped);
+    if (step.done === true) {
+      end(index, step.value);
+      return;
+    }
+    const waiter: Waiter = { index, steps, next: Promise.resolve() as unknown as Promise<Resumed> };
+    waiter.next = step.value.then(
+      (value: unknown): Resumed => ({ waiter, value, threw: false }),
+      (error: unknown): Resumed => ({ waiter, error, threw: true }),
+    );
+    waiting.push(waiter);
+  };
+  /** This function starts the next parts in their order, while the limit permits it and no part failed. */
+  const startMore = (): void => {
+    while (!failed && waiting.length < limit && started < list.length) {
+      const index = started;
+      started += 1;
+      scopes[index] = { prefix: `${address}.${index}/`, counts: new Map(), alls: 0 };
+      const around = env.scope;
+      env.scope = scopes[index];
+      let steps: Steps;
+      try {
+        steps = (list[index] as RunPart).evaluate();
+      } catch (error) {
+        end(index, thrown(error, "a part"));
+        continue;
+      } finally {
+        env.scope = around;
+      }
+      goOn(index, steps, { threw: false });
+    }
+  };
+  startMore();
+  while (waiting.length > 0 && !failed) {
+    const chosen = env.journal?.next?.(address, waiting.map((waiter) => waiter.index));
+    const pick = chosen === undefined ? undefined : waiting.find((waiter) => waiter.index === chosen);
+    const resumed = (yield pick === undefined ? Promise.race(waiting.map((waiter) => waiter.next)) : pick.next) as Resumed;
+    env.journal?.settled?.(address, resumed.waiter.index);
+    waiting.splice(waiting.indexOf(resumed.waiter), 1);
+    goOn(resumed.waiter.index, resumed.waiter.steps, resumed);
+    startMore();
   }
-  if (waiting.length > 0) yield Promise.race(waiting.map((item) => item.promise));
-  // An evaluation stops at the first wait, thus only parts that ended reach this line.
-  return results as readonly Result[];
+  if (!failed) return results as readonly Result[];
+  const stopped = fail("#ABORT", "The part stopped: a part before it failed, and the parts run with failFast.");
+  for (const waiter of waiting) {
+    try {
+      waiter.steps.return(stopped);
+    } catch {
+      // The finally code of a part threw. The part stops with the abort.
+    }
+  }
+  return results.map((result) => result ?? stopped);
 }
 
 /**
  * This function evaluates a document by the rules, without a compilation. It is the reference of the plans: a plan,
- * a traced plan and the second tier of a language must give its results. It covers evaluations, not runs: an effect
- * gives the answer of the mock or its payload, and a part that waits gives `#CALC!`.
+ * a traced plan and the second tier of a language must give its results. In an evaluation, an effect gives the answer
+ * of the mock or its payload, and a part that waits gives `#CALC!`. `referenceRun` reads the rules of a run.
  *
  * The verb of the options goes up the ladder at each document, as in `prepare`. Each verb has the same rules: the
  * ladder, the contract of the kind and the sealed parts (VERB.AGREE).
@@ -421,25 +543,108 @@ function* together(env: Env, list: readonly RunPart[], options: AllOptions = {})
  * @returns The result.
  */
 export function reference(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceOptions = {}): Result {
-  const env: Env = {
+  const env = envOf(machine, options, false);
+  try {
+    return within(env, () => evaluateAt(env, rootAt(machine, doc, context, options)));
+  } catch (error) {
+    return placed(thrown(error, "the reference"), []);
+  }
+}
+
+/**
+ * This function runs a document by the rules, without a compilation (REF.RUN). The host does each effect of a runner,
+ * and a step waits when the host waits (RUN.SEQ). `all` settles the waits in the order of the host, or in the order
+ * of the journal of a replay (RUN.REPLAY). An effect of an evaluator gives `#CALC!` (RUN.NEEDS-RUNNER). A signal that
+ * aborts stops the run with `#ABORT` (RUN.ABORT).
+ *
+ * The part of the run before the first wait happens at once, in the call (RUN.EAGER). `agreeRun` compares the run of
+ * a plan with this run.
+ *
+ * @param machine - The world, the evaluators and the runners.
+ * @param doc - The document.
+ * @param context - The names and the capabilities at the root.
+ * @param options - The options of `reference`, the host and a signal.
+ * @returns The result, when the run ends.
+ */
+export function referenceRun(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceRunOptions = {}): Promise<Result> {
+  const env = envOf(machine, options, true);
+  const steps = stepsAt(env, rootAt(machine, doc, context, options));
+  return driveRun(env, steps, options.signal).catch((error: unknown) => placed(thrown(error, "the reference"), []));
+}
+
+/** This function makes the state of one evaluation or run of the reference. */
+function envOf(machine: Machine, options: ReferenceOptions, running: boolean): Env {
+  const perform = options.perform;
+  return {
     machine,
     definitions: options.definitions ?? {},
     effects: options.effects ?? [],
     maxDepth: machine.maxDepth ?? 1000,
-    perform: options.perform,
+    perform,
+    journal: perform === undefined ? undefined : (perform as { readonly [JOURNAL]?: Journal })[JOURNAL],
+    running,
     verb: options.verb ?? "eval",
     scope: { prefix: "", counts: new Map(), alls: 0 },
   };
+}
+
+/** This function gives the root position of a document. A context without a world gets the world of the machine. */
+function rootAt(machine: Machine, doc: unknown, context: Context, options: ReferenceOptions): At {
   const ctx = context.world === null ? { ...context, world: worldThing(machine.world) } : context;
-  // A node of a tree reads the definitions of this evaluation for its equations (TREE.LADDER).
+  return { value: doc, place: [], declared: options.declaredType, depth: 0, address: false, ctx };
+}
+
+/**
+ * This function does one synchronous step of an evaluation or a run. A node of a tree reads the definitions of the
+ * evaluation for its equations (TREE.LADDER), thus the state of the evaluation is the innermost one in the step.
+ */
+function within<T>(env: Env, step: () => T): T {
   activeEnvs.push(env);
   try {
-    return evaluateAt(env, { value: doc, place: [], declared: options.declaredType, depth: 0, address: false, ctx });
-  } catch (error) {
-    return placed(thrown(error, "the reference"), []);
+    return step();
   } finally {
     activeEnvs.pop();
   }
+}
+
+/** The mark of a signal that aborted. */
+const STOPPED: unique symbol = /* @__PURE__ */ Symbol("stopped");
+
+/**
+ * This function drives the steps of a run. Each step waits for its promise. A rejection goes into the steps as an
+ * exception. A signal that aborts stops the steps with `#ABORT`, also before the first step (RUN.ABORT).
+ */
+async function driveRun(env: Env, steps: Steps, signal: StopSignal | undefined): Promise<Result> {
+  const stop = (): Result => {
+    const why = signal?.reason ?? "no reason";
+    const aborted = fail("#ABORT", `The host stopped the run: ${describe(why)}`, { cause: signal?.reason });
+    try {
+      within(env, () => steps.return(aborted));
+    } catch {
+      // The finally code of a runner threw. The run stops with the abort.
+    }
+    return aborted;
+  };
+  if (signal?.aborted === true) return stop();
+  const stopping =
+    signal === undefined
+      ? undefined
+      : new Promise<typeof STOPPED>((resolve) => {
+          signal.addEventListener("abort", () => resolve(STOPPED), { once: true });
+        });
+  let step = within(env, () => steps.next());
+  while (step.done !== true) {
+    let input: unknown;
+    try {
+      input = await (stopping === undefined ? step.value : Promise.race([step.value, stopping]));
+    } catch (error) {
+      step = within(env, () => steps.throw(error));
+      continue;
+    }
+    if (input === STOPPED) return stop();
+    step = within(env, () => steps.next(input));
+  }
+  return step.value;
 }
 
 /** The evaluations of the reference that run at this time, the innermost last. */
