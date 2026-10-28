@@ -560,6 +560,18 @@ export function attributeTrace(node: Thing, attribute: string): AttributeTrace |
   return stateOf(node)?.trace(attribute);
 }
 
+/**
+ * This function gives the place of a node of the decorated tree: the keys from the root document to the document of
+ * the node (HOP.PLACE). A view puts each hop of a resolution on its node with it. The node keeps its place already,
+ * thus the function adds no record.
+ *
+ * @param thing - A thing, for example the thing of a hop.
+ * @returns The keys of the place, or `undefined` for a thing that is not a node of the decorated tree.
+ */
+export function placeOf(thing: Thing): readonly Key[] | undefined {
+  return stateOf(thing)?.place;
+}
+
 /** The path of the root `self`. A node of the tree resolves it, thus the list of reads holds the read (C4). */
 const SELF_PATH: readonly Json[] = /* @__PURE__ */ Object.freeze(["self"]);
 
@@ -597,6 +609,11 @@ export interface NearestOptions {
   readonly matches?: (node: Thing, wanted: Json | undefined) => boolean;
   /** The most hops of one walk. The default is 256. */
   readonly maxHops?: number;
+  /**
+   * `true`: the walk records one hop for each node on the way before the node that it reaches (HOP.EACH-STEP). Each
+   * such hop has the followed key as its step. The default is `false`: one hop for the whole walk.
+   */
+  readonly eachStep?: boolean;
 }
 
 function hostType(node: Thing, wanted: Json | undefined): boolean {
@@ -606,23 +623,28 @@ function hostType(node: Thing, wanted: Json | undefined): boolean {
 /**
  * This function makes a walker `nearest`. The walker follows a key (the default is `parent`) until the node that it
  * reaches has the wanted type. With `self: true`, the node where the walk starts is the first candidate. A node
- * without that key ends the walk with an error.
+ * without that key ends the walk with an error. With `eachStep`, a resolution with hops gets a hop for each node on the way.
  *
- * @param options - The test of a type and the most hops.
+ * @param options - The test of a type, the most hops and the record of each step.
  * @returns The walker.
  */
 export function nearestWalker(options: NearestOptions = {}): Walker {
   const matches = options.matches ?? hostType;
   const maxHops = options.maxHops ?? 256;
-  return ({ data, here, deref }) => {
+  const eachStep = options.eachStep === true;
+  return ({ data, here, deref, visit }) => {
     const follow = isRecord(data) && typeof field(data, "follow") === "string" ? String(field(data, "follow")) : "parent";
     const wanted = isRecord(data) ? field(data, "type") : undefined;
     const fromSelf = isRecord(data) && field(data, "self") === true;
+    const record = eachStep ? visit : undefined;
     let at: Thing | undefined = here;
     for (let hops = 0; hops < maxHops; hops += 1) {
-      if (hops > 0 || !fromSelf) at = at === undefined || at === null ? undefined : deref(at, follow);
+      const stepped = hops > 0 || !fromSelf;
+      if (stepped) at = at === undefined || at === null ? undefined : deref(at, follow);
       if (at === undefined || at === null) return { ok: false, reason: `No node of the type ${String(wanted)} is on the way.` };
       if (matches(at, wanted)) return { ok: true, thing: at };
+      // The hop of the whole walk records the node that the walk reaches. Each node before it gets its own hop.
+      if (stepped) record?.(follow, at);
     }
     return { ok: false, reason: "The walk is too long." };
   };

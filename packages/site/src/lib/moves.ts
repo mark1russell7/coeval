@@ -3,9 +3,9 @@ import {
   STD_MACHINE,
   evaluate,
   fromJson,
-  isHostThing,
   isKey,
   makeContext,
+  placeOf,
   typeName,
   type EvalFn,
   type Evaluator,
@@ -14,7 +14,6 @@ import {
   type Key,
   type Machine,
   type Resolution,
-  type Thing,
 } from "@mark1russell7/coeval";
 import { getAt } from "./edit.ts";
 
@@ -45,10 +44,6 @@ function text(place: readonly Key[]): readonly string[] {
   return place.map(String);
 }
 
-function startsWith(path: readonly string[], prefix: readonly string[]): boolean {
-  return prefix.length <= path.length && prefix.every((key, index) => path[index] === key);
-}
-
 /**
  * This function gives the text of one step of a path. A key gives itself. A step document gives its kind, and the
  * type that it asks for when it has one.
@@ -63,12 +58,6 @@ export function stepText(step: Json): string {
   return typeof wanted === "string" ? `${typeName(envelope.type)} ${wanted}` : typeName(envelope.type);
 }
 
-/** The facts that one evaluation records: each resolution of a reference, and the place of each node of a tree. */
-interface Recorded {
-  readonly seen: readonly Seen[];
-  readonly nodes: ReadonlyMap<Thing, readonly string[]>;
-}
-
 /** This function wraps one evaluator of a machine. A compiled evaluator is not a function, thus it stays as it is. */
 function wrap(machine: Machine, name: string, around: (base: EvalFn) => EvalFn): Readonly<Record<string, Evaluator>> {
   const base = machine.evaluators[name];
@@ -76,57 +65,32 @@ function wrap(machine: Machine, name: string, around: (base: EvalFn) => EvalFn):
   return { ...machine.evaluators, [name]: around(base) };
 }
 
-/**
- * This function evaluates a document, and records two facts of the model. The first is each node of a tree with its
- * place. The second is each resolution of a reference, with its hops.
- */
-function record(machine: Machine, doc: Json, names: Readonly<Record<string, Json>>): Recorded {
+/** This function evaluates a document, and records each resolution of a reference, with its hops. */
+function record(machine: Machine, doc: Json, names: Readonly<Record<string, Json>>): readonly Seen[] {
   const seen: Seen[] = [];
-  const nodes = new Map<Thing, readonly string[]>();
-  const treePlaces: (readonly string[])[] = [];
-  const holders: { readonly thing: Thing; readonly place: readonly string[] }[] = [];
-  let evaluators = wrap(machine, "tree.node", (base) => (input) => {
-    treePlaces.push(text(input.place));
-    // The self of the context of a node is its parent node, or the node that holds the tree.
-    if (isHostThing(input.context.self)) holders.push({ thing: input.context.self, place: text(input.place) });
-    const result = base(input);
-    // A node inside an open tree gives its host thing. The root gives the JSON of the tree, and its children find its thing.
-    if (result.ok && isHostThing(result.value)) nodes.set(result.value, text(input.place));
-    return result;
-  });
-  evaluators = wrap({ ...machine, evaluators }, "ref.resolve", (base) => (input) => {
+  const evaluators = wrap(machine, "ref.resolve", (base) => (input) => {
     if (Array.isArray(input.data)) {
       const path: readonly Json[] = input.data;
-      if (isHostThing(input.context.self)) holders.push({ thing: input.context.self, place: text(input.place) });
       seen.push({ place: text(input.place), path, resolution: input.resolve(path, { hops: true }) });
     }
     return base(input);
   });
   evaluate({ ...machine, evaluators }, doc, makeContext(names, STD_CAPS));
-  // A node that no evaluator gave as a value is the root of a tree. The places that it holds find its place.
-  for (const holder of holders) {
-    if (nodes.has(holder.thing)) continue;
-    const place = enclosingNode(treePlaces, holder.place);
-    if (place !== undefined) nodes.set(holder.thing, place);
-  }
-  return { seen, nodes };
+  return seen;
 }
 
-/** This function gives the longest place of a node evaluation that holds a place, but is not the place itself. */
-function enclosingNode(treePlaces: readonly (readonly string[])[], place: readonly string[]): readonly string[] | undefined {
-  let best: readonly string[] | undefined;
-  for (const candidate of treePlaces) {
-    if (candidate.length < place.length && startsWith(place, candidate) && (best === undefined || candidate.length > best.length)) best = candidate;
-  }
-  return best;
+/** This function gives the place of a node of a tree as text, or `undefined` for another thing (HOP.PLACE). */
+function nodePlace(hop: Hop): readonly string[] | undefined {
+  const place = placeOf(hop.thing);
+  return place === undefined ? undefined : text(place);
 }
 
 /**
  * This function finds the place of the document that one hop reached. A node of a tree has its own place. A key from
  * a known place goes to the part with that key, when the document has it. Else the place is unknown.
  */
-function placeOfHop(doc: Json, hop: Hop, before: readonly string[] | undefined, nodes: ReadonlyMap<Thing, readonly string[]>): readonly string[] | undefined {
-  const node = nodes.get(hop.thing);
+function placeOfHop(doc: Json, hop: Hop, before: readonly string[] | undefined): readonly string[] | undefined {
+  const node = nodePlace(hop);
   if (node !== undefined) return node;
   if (before === undefined || hop.by === "root" || hop.by === "collapse" || hop.by === "step") return undefined;
   const keys = Array.isArray(hop.step) ? hop.step : [hop.step];
@@ -162,7 +126,7 @@ export interface RefTrace {
  * @returns One trace for each reference, in the order of the evaluation.
  */
 export function refTraces(doc: Json, names: Readonly<Record<string, Json>> = NO_NAMES, machine: Machine = STD_MACHINE): readonly RefTrace[] {
-  const { seen, nodes: nodePlaces } = record(machine, doc, names);
+  const seen = record(machine, doc, names);
   const out: RefTrace[] = [];
   const done = new Set<string>();
   for (const item of seen) {
@@ -177,7 +141,7 @@ export function refTraces(doc: Json, names: Readonly<Record<string, Json>> = NO_
     let before: readonly string[] | undefined;
     let placed = true;
     for (const hop of item.resolution.hops) {
-      const to = hop.by === "root" ? nodePlaces.get(hop.thing) : placeOfHop(doc, hop, before, nodePlaces);
+      const to = hop.by === "root" ? nodePlace(hop) : placeOfHop(doc, hop, before);
       if (to === undefined) {
         placed = false;
         break;

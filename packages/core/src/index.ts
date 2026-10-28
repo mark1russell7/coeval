@@ -176,6 +176,7 @@ export {
   STD_WORLD,
   attributeTrace,
   nearestWalker,
+  placeOf,
 } from "./stdlib.ts";
 export {
   type Edge,
