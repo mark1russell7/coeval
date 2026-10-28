@@ -1535,3 +1535,41 @@ The design calls are the record of the place, the cost without hops, the option 
 - `placeOf` knows only the nodes of the decorated tree. A host thing of a host needs its own record of its place.
 - The place of a node that an equation of a kind makes is a place in that equation, not in the document.
 - Only the walker `nearest` has the option. Another walker records each step only when it uses `visit`.
+
+## D60 (2026-10-28): the host declares fixed names, and a pure part that reads only fixed names folds
+
+**Context.** K14, from R1 P4. A host often evaluates one plan with the same configuration or registry each time. A path from such a name resolves again at each evaluation, but the value does not change. R1 proposes an option of `prepare` that names these roots. Then the path resolves at compile time.
+
+The risk of R1 is a stale plan: an old value without an error. The design calls are the form of the option, what compiles, and what happens when an evaluation gets another value.
+
+**Decision.**
+
+- `PrepareOptions` gets the option `fixed: { names }` (PLAN.FIXED). The record `names` gives the value of each fixed name at compile time.
+- A name fixes only when its value is deeply frozen plain data. Plain data is the data that a fold copies (PLAN.SHARED). Each other value does not fix its name, and the plan reads it at each evaluation.
+- The fold of D43 does the work. A pure part folds when it reads only fixed names and the names that it binds. The probe resolves each fixed name to its declared value.
+- A path from a fixed name is such a part, thus it resolves one time, in `prepare`. A parent that reads only fixed names folds too, thus a formula over a configuration becomes one value.
+- The code of a folded part compares the value of each of its names in the context, with one own-key test and `Object.is`. The same values give the folded value.
+- Another value, a missing name, a list of reads and another runtime get the code without the fold. This code is the code of the plan without the declaration. Thus the result is not stale at any time.
+- A `let` that binds a fixed name again gives a different value to its scope. The comparison finds it, thus the scope rules need no new analysis.
+- A plan with a trace and a plan with `fold: false` ignore the option. The default, without the option, keeps the plan as it was.
+- `agree` gets the tier `fixed`, also in its default tiers (PLAN.AGREES). It declares each name of plain data fixed, with a frozen copy. It evaluates with the copies and then with the context of `agree`. `agreeRun` does not have the tier.
+- The reference does not change. No expected value of an earlier test changed.
+
+**Rejected.**
+
+- An error when an evaluation gets another value. A `let` can bind a fixed name again, and a host can give a new configuration to an old plan. The code without the fold gives the right result for a cost of one comparison.
+- One comparison at the root of the plan. A part in the scope of a `let` sees another value of the name, thus the comparison belongs to the part.
+- A deep comparison of the value at each evaluation. It costs as much as the walk of the path, thus the fold gains nothing.
+- A freeze of the value of the host in place. The kernel does not change an object of the host (D43). A host freezes its own value, and a value that is not frozen does not fix.
+- A list of fixed names without values, with the values of the first evaluation. Then `prepare` cannot fold, and the first evaluation compiles again.
+- Fixed roots other than `names`. The fold of D43 knows only names. The roots `self`, `event` and `world` stay open.
+
+**Why.** The comparison by identity is sound only for a value that cannot change in place, thus the option needs a deeply frozen value. Then the same object gives the same result, and one comparison replaces the walk of the path and the code of each part. The fold already has the probe, the frozen copy and the rules of the reads, thus the declaration adds no second compiler.
+
+**Limits.**
+
+- Only the root `names` can be fixed. A registry in the root `world` resolves at each evaluation.
+- A value with a host thing, a function or an instance of a class does not fix. A path into such a value resolves at each evaluation.
+- The fold evaluates each part with fixed names in `prepare`, also a branch that no evaluation takes. This is the limit of D43.
+- `agreeRun` has no tier with fixed names.
+- A part that reads a fixed name and a free name does not fold. Only its parts that read only fixed names fold.

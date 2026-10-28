@@ -84,7 +84,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K11 | Effect outcomes with stable addresses, and the helpers `recorder` and `replayer` for record and replay (R2 P2) | done (2026-10-24, released in 0.6.3, D19: `Effect.address`, `Effect.outcome`, `#REPLAY!` and the journal of the waits of `all`) | L1 |
 | K12 | Compiled paths: `compilePath` resolves one static path, and `derefStep` keeps a memo of `lookupKind` (R1 P2) | done (2026-10-24, D29, released in the next batch) | K4, K9 |
 | K13 | Folds of closed pure subtrees: a static subtree evaluates one time at compile time, from a `pure` mark in the kind contract (R1 P3) | done (2026-10-26, D43) | K9 |
-| K14 | Binding times that the host declares: a path from a root that does not change resolves at compile time (R1 P4) | later | K9, S1 |
+| K14 | Binding times that the host declares: a path from a root that does not change resolves at compile time (R1 P4) | done (2026-10-28, D60, released in the next batch) | K9, S1 |
 | K15 | A tier of generated JavaScript for hot pure regions (R1 P5) | later (only behind a CI benchmark) | K9, K13 |
 | K16 | Nodes that specialize themselves: a compiled node keeps a small state, and this state gives profile data to K15 (R1 P6) | later | K9 |
 | K17 | One plan at many positions with `plan.evaluateEach(contexts)` (R1 P7) | later (only after a language asks for it) | K9 |
