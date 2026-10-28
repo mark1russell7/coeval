@@ -68,8 +68,9 @@ export function permits(caps: readonly Cap[], kind: Cap): boolean {
 }
 
 /**
- * This function narrows a context for a part: the part keeps only the capabilities that the context of its parent
- * permits. Thus an evaluator cannot give a part more effects than it has.
+ * This function narrows a context for a part: the part keeps the capabilities that both its context and the context
+ * of its parent permit, the meet `intersectCaps` (CAP.MEET). Thus an evaluator cannot give a part more effects than
+ * it has. A context whose list the parent permits stays the same object.
  *
  * @param parent - The context of the parent.
  * @param next - The context that the evaluator gives the part.
@@ -77,8 +78,8 @@ export function permits(caps: readonly Cap[], kind: Cap): boolean {
  */
 export function narrow(parent: Context, next: Context): Context {
   if (next === parent || next.caps === parent.caps) return next;
-  const caps = next.caps.filter((cap) => permits(parent.caps, cap));
-  return caps.length === next.caps.length ? next : { ...next, caps };
+  const caps = intersectCaps(next.caps, parent.caps);
+  return caps === next.caps ? next : { ...next, caps };
 }
 
 /** No capabilities. One list serves each masked part. */
@@ -144,30 +145,36 @@ const GRANT = /* @__PURE__ */ Symbol("coeval.grant");
 type Granted = Context & { readonly [GRANT]?: readonly Cap[] };
 
 /**
- * This function gives a context whose capabilities its grant permits (CAP.NARROW-CODE). A context whose grant is its
- * own list of capabilities stays the same object. Each other context keeps only the capabilities that its grant
- * permits, and a context without a grant keeps none. The result has the grant of its capabilities.
+ * This function gives the capabilities that a context and its grant both permit, the meet `intersectCaps` (CAP.MEET).
+ * A context whose grant is its own list gives that list after one comparison. A context without a grant gives none.
+ */
+function grantedCaps(ctx: Context): readonly Cap[] {
+  const grant = (ctx as Granted)[GRANT];
+  if (grant === ctx.caps) return grant;
+  return grant === undefined ? NO_CAPS : intersectCaps(ctx.caps, grant);
+}
+
+/**
+ * This function gives a context whose capabilities its grant permits (CAP.NARROW-CODE, CAP.MEET). A context whose grant
+ * is its own list of capabilities stays the same object. Each other context keeps the meet of its list and its grant,
+ * and a context without a grant keeps none. The result has the grant of its capabilities.
  */
 function granted(ctx: Context): Context {
-  const grant = (ctx as Granted)[GRANT];
-  if (grant === ctx.caps) return ctx;
-  const caps = grant === undefined ? NO_CAPS : ctx.caps.every((cap) => permits(grant, cap)) ? ctx.caps : ctx.caps.filter((cap) => permits(grant, cap));
+  if ((ctx as Granted)[GRANT] === ctx.caps) return ctx;
+  const caps = grantedCaps(ctx);
   const out: Granted = { ...ctx, caps, [GRANT]: caps };
   return out;
 }
 
 /**
- * This function gives the context in which the runtime resolves a path of compiled code (CAP.CAPS-GRANT). A path from
- * the root `caps` reads the capabilities that both the context and its grant permit, and a context without a grant
- * reads none. Thus a context that compiled code widened gives the capabilities of its document, and a context that it
- * narrowed keeps its own list. Each other path, and each context whose grant is its own list, keeps the same context.
+ * This function gives the context in which the runtime resolves a path of compiled code (CAP.CAPS-GRANT, CAP.MEET).
+ * The context has the meet of its list and its grant, and a context without a grant has none. Thus a read of the root
+ * `caps` and a walker of a step document get the capabilities of the document from a context that the code widened.
+ * A context that the code narrowed keeps its own list. A context whose list does not change stays the same object.
  */
-function readable(ctx: Context, path: readonly unknown[]): Context {
-  if (path[0] !== "caps") return ctx;
-  const grant = (ctx as Granted)[GRANT];
-  if (grant === ctx.caps) return ctx;
-  const caps = grant === undefined ? NO_CAPS : intersectCaps(ctx.caps, grant);
-  if (caps === ctx.caps) return ctx;
+function readable(ctx: Context): Context {
+  const caps = grantedCaps(ctx);
+  if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
   const out: Granted = { ...ctx, caps, [GRANT]: caps };
   return out;
 }
@@ -912,18 +919,21 @@ class Session implements Runtime {
     return this.reading !== undefined;
   }
 
-  /** This function resolves a path. A path from the root `caps` reads the capabilities through the grant (CAP.CAPS-GRANT). */
+  /**
+   * This function resolves a path in the context that the grant permits (CAP.CAPS-GRANT, CAP.MEET). Thus the root
+   * `caps` and a walker of a step document get the capabilities of the document.
+   */
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
-    return this.read(readable(ctx, path), path, undefined, options);
+    return this.read(readable(ctx), path, undefined, options);
   }
 
   /**
    * This function resolves a compiled path (PLAN.PATH). Without a list of reads and without a trace, the compiled
-   * path answers at once. Each other resolution records its read, as `resolve` does. A path from the root `caps` reads
-   * the capabilities through the grant (CAP.CAPS-GRANT).
+   * path answers at once. Each other resolution records its read, as `resolve` does. The path resolves in the context
+   * that the grant permits (CAP.CAPS-GRANT, CAP.MEET).
    */
   resolvePath(given: Context, compiled: CompiledPath): Resolution {
-    const ctx = readable(given, compiled.path);
+    const ctx = readable(given);
     if (this.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
     return this.read(ctx, compiled.path, compiled, undefined);
   }

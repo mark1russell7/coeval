@@ -171,11 +171,13 @@ function capsOfPart(rules: readonly CapsRule[] | undefined, path: readonly Key[]
 }
 
 /**
- * This function gives the context of a part. A context that the evaluator gives keeps only the capabilities of the
- * parent (CAP.NARROW). Then the rules of the kind narrow it (CAP.CONTRACT).
+ * This function gives the context of a part. A context that the evaluator gives keeps the effects that both it and
+ * the parent permit (CAP.NARROW, CAP.MEET). A list that the parent permits stays as it is. Then the rules of the kind
+ * narrow it (CAP.CONTRACT).
  */
 function contextOfPart(seen: Seen, slot: PartSlot, parent: Context, given: Context | undefined): Context {
-  const base = given === undefined || given === parent ? parent : { ...given, caps: given.caps.filter((cap) => permits(parent.caps, cap)) };
+  const base =
+    given === undefined || given === parent ? parent : given.caps.every((cap) => permits(parent.caps, cap)) ? given : { ...given, caps: bothPermit(parent.caps, given.caps) };
   const caps = capsOfPart(seen.kind?.caps, slot.path, base.caps);
   return caps === base.caps ? base : { ...base, caps };
 }

@@ -15,6 +15,7 @@ import {
   type Machine,
   type MachinePart,
   type Result,
+  type Runtime,
   type Steps,
   type TierInput,
   type TierResult,
@@ -799,8 +800,76 @@ describe("the disagreements that the harness found", () => {
     expect(prepare(machine, { type: "narrowPeek", value: null }).evaluate(all)).toEqual(ok([]));
     expect(prepare(machine, peek).evaluate(context({ caps: ["log", "write", "more", "net"] }))).toEqual(ok(WIDE));
     expect(prepare(machine, { type: "freshPeek", value: null }).evaluate(all)).toEqual(ok([]));
-    // A part of a kind that widens gets the items of the wider list that its document permits (CAP.NARROW-CODE), here "log".
-    expect(agree(machine, { type: "widen", value: [peek] }, context({ caps: [["log"]] }), { strict: true, definitions })).toMatchObject({ ok: true, result: ok([["log"]]) });
+    // A part of a kind that widens gets the meet with its document (CAP.MEET), here the list of the document.
+    // Before K152, the part got the items of the wider list that its document permits, and the read gave ["log"].
+    expect(agree(machine, { type: "widen", value: [peek] }, context({ caps: [["log"]] }), { strict: true, definitions })).toMatchObject({ ok: true, result: ok([[["log"]]]) });
+  });
+
+  it("[CAP.MEET] code that widens a context to a coarser capability keeps the meet with its document for each part, effect and walker, as the reference does", () => {
+    // Each kind gives the coarser list ["log"]. Under the document ["log.a"], the meet is ["log.a"].
+    const coarse = (ctx: Context): Context => ({ ...ctx, caps: ["log"] });
+    const STEP: Json = { type: "capsStep", value: null };
+    const path: readonly unknown[] = ["names", STEP];
+    const found = (resolution: ReturnType<Runtime["resolve"]>): Result => (resolution.ok ? ok(resolution.thing) : fail(resolution.code, resolution.reason));
+    const machine: Machine = {
+      ...widening,
+      world: {
+        ...widening.world,
+        kinds: {
+          ...widening.world.kinds,
+          logA: { verbs: { eval: "test.log-a" }, effects: ["log.a"] },
+          coarse: { verbs: { eval: "test.coarse" }, parts: { shape: "list" } },
+          coarseFn: { verbs: { eval: "test.coarse-fn" }, parts: { shape: "list" } },
+          shoutA: { verbs: { eval: "test.shout-a" }, effects: ["log.a"] },
+          walkCoarse: { verbs: { eval: "test.walk-coarse" } },
+          capsStep: { verbs: { step: "test.caps-step" } },
+        },
+      },
+      evaluators: {
+        ...widening.evaluators,
+        "test.log-a": ({ effect }) => effect("log.a", "a"),
+        "test.coarse": { compile: ({ parts }) => (ctx, rt) => valuesOf(parts.map((part) => part.code(coarse(ctx), rt))) },
+        "test.coarse-fn": ({ parts, context: ctx }) => valuesOf(parts.map((part) => part.evaluate(coarse(ctx)))),
+        "test.shout-a": { compile: () => (ctx, rt) => rt.effect(coarse(ctx), "log.a", "a", []) },
+        "test.walk-coarse": { compile: () => (ctx, rt) => found(rt.resolve(coarse(ctx), path)) },
+      },
+      walkers: { ...widening.walkers, "test.caps-step": ({ context: ctx }) => ({ ok: true, thing: ctx.caps }) },
+    };
+    const definitions: Definitions = {
+      ...WIDENING_DEFINITIONS,
+      evaluators: {
+        ...WIDENING_DEFINITIONS.evaluators,
+        "test.coarse": ({ parts, context: ctx }) => valuesOf(parts.map((part) => part.evaluate(coarse(ctx)))),
+        "test.shout-a": ({ effect }) => effect("log.a", "a"),
+        "test.walk-coarse": ({ resolve }) => found(resolve(path)),
+      },
+    };
+    const logA: Json = { type: "logA", value: null };
+    const cases: readonly (readonly [Json, readonly string[], Result])[] = [
+      // Before K152, the part, the own effect and the part of function code gave #CAP!, and the walker read ["log"].
+      [{ type: "coarse", value: [logA] }, ["log.a"], ok(["a"])],
+      [{ type: "coarseFn", value: [logA] }, ["log.a"], ok(["a"])],
+      [{ type: "shoutA", value: null }, ["log.a"], ok("a")],
+      [{ type: "walkCoarse", value: null }, ["log.a"], ok(["log.a"])],
+      // The meet keeps the results of a document that permits the coarser list, and of a document without capabilities.
+      [{ type: "coarse", value: [logA] }, ["log"], ok(["a"])],
+      [{ type: "walkCoarse", value: null }, ["log"], ok(["log"])],
+      [{ type: "coarse", value: [logA] }, [], fail("#CAP!", "The context has no capability for the effect log.a.", { place: [0] })],
+      [{ type: "shoutA", value: null }, ["log.b"], fail("#CAP!", "The context has no capability for the effect log.a.", { place: [] })],
+      [{ type: "walkCoarse", value: null }, [], ok([])],
+    ];
+    for (const [doc, caps, want] of cases) {
+      const ctx = context({ caps });
+      const outcome = agree(machine, doc, ctx, { strict: true, definitions });
+      expect(outcome, `${show(doc)} under ${show(caps)}`).toMatchObject({ ok: true, result: want });
+      expect(prepare(machine, doc).evaluate(ctx), `${show(doc)} under ${show(caps)}`).toMatchObject(want);
+      if (!outcome.ok) continue;
+      for (const effect of outcome.effects) expect(permits(caps, effect.path), show(doc)).toBe(true);
+    }
+    // A walker under code that narrows keeps the narrowed list, and code cannot widen a part beyond the meet.
+    const narrowed: Machine = { ...machine, evaluators: { ...machine.evaluators, "test.walk-coarse": { compile: () => (ctx, rt) => found(rt.resolve({ ...ctx, caps: [] }, path)) } } };
+    expect(prepare(narrowed, { type: "walkCoarse", value: null }).evaluate(context({ caps: ["log"] }))).toEqual(ok([]));
+    expect(prepare(machine, { type: "coarse", value: [{ type: "write", value: { key: "k", value: { type: "number", value: 1 } } }] }).evaluate(context({ caps: ["log.a", "write"] }))).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
   });
 
   it("[RUN.WAIT] a runner that waits under a parent that cannot wait gives #CALC! with its own place", () => {
