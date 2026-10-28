@@ -63,7 +63,10 @@ export interface SyntaxRefs {
 
 /** A call form: a name with arguments in parentheses that makes a construct, for example `if(test, then, else)`. */
 export interface SyntaxForm {
-  /** The name in the text. */
+  /**
+   * The name in the text: a plain name, or plain names with dots between them, for example `math.product` (K161). A
+   * name with dots needs the field steps of `refs.fields`, and its first key is not a word operator.
+   */
   readonly name: string;
   /** The type of the document, with dots between the keys. */
   readonly kind: string;
@@ -83,6 +86,16 @@ export interface SyntaxCalls {
   readonly separator?: string;
 }
 
+/** The text of the header of a document (K157, D62). */
+export interface SyntaxHeader {
+  /**
+   * The symbol between a name and its document, for example `=` in `total = 2 + 3`. The text gives the document the
+   * header `name`. Without the symbol, a document with a name has no text. The symbol is a group of symbols, and no
+   * infix or postfix operator is the symbol or the start of it.
+   */
+  readonly bind?: string;
+}
+
 /**
  * The text syntax of a language (D41): an operator table, literal rules, reference syntax and call syntax. `parse`
  * reads a text into a document, and `print` writes a document as text. The profile is data, thus a site, an editor
@@ -97,6 +110,8 @@ export interface SyntaxProfile {
   readonly refs?: SyntaxRefs;
   /** The call syntax. */
   readonly calls?: SyntaxCalls;
+  /** The text of the header of a document. */
+  readonly header?: SyntaxHeader;
   /** The deepest nesting that `parse` accepts. The default is `256`. */
   readonly maxDepth?: number;
 }
@@ -117,7 +132,8 @@ export type ParseResult = { readonly ok: true; readonly doc: Json } | { readonly
 /**
  * The standard syntax of the formula kit. It gives the site and the playground a text form. The operators are
  * `or`, `and`, `not`, the comparisons, `+ - * / %`, a minus sign and `^`, from the loosest to the tightest. A call
- * `name(args)` applies the operation `ops.name`. `if(test, then, else)` and `list(items)` make the constructs.
+ * `name(args)` applies the operation `ops.name`. `if(test, then, else)` and `list(items)` make the constructs. The
+ * text `total = 2 + 3` gives the document the header name `total` (D62).
  */
 export const STD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
   operators: [
@@ -145,6 +161,7 @@ export const STD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "list", kind: "list" },
     ],
   },
+  header: { bind: "=" },
 } satisfies SyntaxProfile);
 
 // === The compiled profile ===
@@ -192,6 +209,7 @@ interface Compiled {
   readonly forms: ReadonlyMap<string, Form>;
   readonly formsByKind: ReadonlyMap<string, readonly Form[]>;
   readonly separator: string;
+  readonly bind: string | undefined;
   readonly reserved: ReadonlySet<string>;
   readonly opWords: ReadonlySet<string>;
   readonly maxDepth: number;
@@ -249,6 +267,16 @@ function compileOps(profile: SyntaxProfile, separator: string): Pick<Compiled, "
   return { prefix, binary, prefixSymbols: longestFirst(prefix), binarySymbols: longestFirst(binary), byKind, opWords };
 }
 
+/** This function examines the bind symbol of a header. A text with the symbol after a name was not valid before. */
+function compileBind(bind: string | undefined, separator: string, binary: ReadonlyMap<string, Op>): string | undefined {
+  if (bind === undefined) return undefined;
+  if (!SYMBOL.test(bind) || bind.includes(separator)) throw new TypeError(`The bind symbol "${bind}" is not a group of symbols.`);
+  for (const symbol of binary.keys()) {
+    if (bind.startsWith(symbol)) throw new TypeError(`The bind symbol "${bind}" starts with the operator "${symbol}".`);
+  }
+  return bind;
+}
+
 function compileProfile(profile: SyntaxProfile): Compiled {
   const cached = compiledProfiles.get(profile);
   if (cached !== undefined) return cached;
@@ -263,7 +291,10 @@ function compileProfile(profile: SyntaxProfile): Compiled {
   const forms = new Map<string, Form>();
   const formsByKind = new Map<string, Form[]>();
   for (const given of calls.forms ?? []) {
-    if (!NAME.test(given.name)) throw new TypeError(`The call form "${given.name}" is not a plain name.`);
+    const keys = given.name.split(".");
+    if (!keys.every((key) => NAME.test(key))) throw new TypeError(`The call form "${given.name}" is not a plain name or a path of plain names.`);
+    if (keys.length > 1 && refs.fields === false) throw new TypeError(`The call form "${given.name}" has dots, but the syntax has no field steps.`);
+    if (keys.length > 1 && ops.opWords.has(keys[0] as string)) throw new TypeError(`The call form "${given.name}" starts with the word operator "${keys[0] as string}".`);
     const { type, key } = typeOfKind(given.kind);
     const form: Form = { name: given.name, type, fields: given.fields, min: given.min ?? given.fields?.length ?? 0 };
     forms.set(form.name, form);
@@ -287,6 +318,7 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     forms,
     formsByKind,
     separator,
+    bind: compileBind(profile.header?.bind, separator, ops.binary),
     reserved: new Set([...words.keys(), ...ops.opWords, ...roots]),
     maxDepth: profile.maxDepth ?? 256,
   };
@@ -323,7 +355,7 @@ class Parser {
   parse(): Json {
     this.skip();
     if (this.pos >= this.text.length) this.stop("The text is empty.", 0, 0);
-    const doc = this.expr(0);
+    const doc = this.bound();
     this.skip();
     if (this.pos < this.text.length) this.stop("The text continues after the expression.", this.pos, this.tokenLength());
     return doc;
@@ -348,6 +380,52 @@ class Parser {
 
   private tokenLength(): number {
     return (this.at(NAME_AT) ?? this.at(DIGITS_AT) ?? "x").length;
+  }
+
+  /**
+   * This method reads an expression that can have a header name: `name = expr` (D62). The bind symbol of the profile
+   * follows the name. A longer operator that starts with the symbol wins, for example `==` over `=`.
+   */
+  private bound(): Json {
+    const name = this.bindingName();
+    if (name === undefined) return this.expr(0);
+    this.skip();
+    const start = this.pos;
+    const doc = this.expr(0);
+    if (isEnvelope(doc)) {
+      if (doc.name !== undefined) this.stop(`The document already has the name ${doc.name}.`, start, this.pos - start);
+      return { ...doc, name };
+    }
+    return { type: "lit", value: doc, name };
+  }
+
+  /** This method reads a name and the bind symbol after it. Without them, it gives `undefined` and keeps the position. */
+  private bindingName(): string | undefined {
+    const bind = this.syn.bind;
+    if (bind === undefined) return undefined;
+    this.skip();
+    const back = this.pos;
+    let name: string | undefined;
+    if (this.text[this.pos] === "`") {
+      try {
+        name = this.quoted();
+      } catch (error) {
+        if (!(error instanceof Stop)) throw error;
+      }
+    } else {
+      name = this.at(NAME_AT);
+      if (name !== undefined) this.pos += name.length;
+    }
+    if (name !== undefined) {
+      this.skip();
+      const longer = this.syn.binarySymbols.some((symbol) => symbol.length > bind.length && symbol.startsWith(bind) && this.text.startsWith(symbol, this.pos));
+      if (this.text.startsWith(bind, this.pos) && !longer) {
+        this.pos += bind.length;
+        return name;
+      }
+    }
+    this.pos = back;
+    return undefined;
   }
 
   /** This method reads an expression by precedence climbing. It stops at an operator below `min`. */
@@ -486,7 +564,7 @@ class Parser {
   private group(): Json {
     const open = this.pos;
     this.pos += 1;
-    const inner = this.expr(0);
+    const inner = this.bound();
     this.skip();
     if (this.text[this.pos] !== ")") {
       if (this.pos >= this.text.length) this.stop("A closing parenthesis is missing.", open, 1);
@@ -553,7 +631,7 @@ class Parser {
     const back = this.pos;
     this.skip();
     if (this.text[this.pos] === "(") {
-      if (!allPlain) this.stop("The name of a call is a plain name.", start, back - start);
+      if (!allPlain) this.stop("Each key of the name of a call is a plain name.", start, back - start);
       return this.call(path.join("."), start, back - start);
     }
     this.pos = back;
@@ -570,7 +648,7 @@ class Parser {
     if (this.text[this.pos] === ")") this.pos += 1;
     else {
       for (;;) {
-        args.push(this.expr(0));
+        args.push(this.bound());
         this.skip();
         if (this.text.startsWith(this.syn.separator, this.pos)) {
           this.pos += this.syn.separator.length;
@@ -632,6 +710,7 @@ type Shape =
   | { readonly tag: "text"; readonly text: string }
   | { readonly tag: "op"; readonly op: Op; readonly terms: readonly unknown[] }
   | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown])[] }
+  | { readonly tag: "bind"; readonly name: string; readonly doc: unknown }
   | { readonly tag: "none"; readonly reason: string };
 
 function none(reason: string): Shape {
@@ -729,7 +808,12 @@ function opShape(syn: Compiled, key: string, terms: readonly unknown[]): Shape |
 /** This function gives the shape of a document: a literal or a reference, an operator, a call, or no text. */
 function shapeOf(syn: Compiled, doc: unknown): Shape {
   if (!isEnvelope(doc)) return Array.isArray(doc) || isRecord(doc) ? none("This syntax has no text for a list or a record literal.") : literalShape(syn, doc);
-  if (doc.name !== undefined || doc.own !== undefined) return none("This syntax has no text for the header of a document.");
+  if (doc.own !== undefined) return none("This syntax has no text for the own entries of a document.");
+  if (doc.name !== undefined) {
+    if (syn.bind === undefined) return none("This syntax has no text for the name of a document.");
+    const { name, ...rest } = doc;
+    return { tag: "bind", name, doc: rest };
+  }
   const path = typePath(doc.type);
   if (path === undefined) return none("This syntax has no text for a computed type.");
   const value: unknown = doc.value;
@@ -755,7 +839,8 @@ function shapeOf(syn: Compiled, doc: unknown): Shape {
 
 function levelOf(syn: Compiled, doc: unknown): number {
   const shape = shapeOf(syn, doc);
-  return shape.tag === "op" ? shape.op.prec : Number.POSITIVE_INFINITY;
+  // A document with a name binds more loosely than each operator, thus it needs parentheses as a term.
+  return shape.tag === "op" ? shape.op.prec : shape.tag === "bind" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
 }
 
 /** This function tells if a term needs parentheses in its position, so that `parse` reads the same tree. */
@@ -789,6 +874,10 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
   if (shape.tag === "text") return ok(shape.text);
   if (shape.tag === "none") return fail("#VALUE!", shape.reason);
   if (shape.tag === "op") return opText(syn, shape.op, shape.terms, sub);
+  if (shape.tag === "bind") {
+    const inner = printNode(syn, shape.doc, sub);
+    return inner.ok ? ok(`${NAME.test(shape.name) ? shape.name : quoteName(shape.name)} ${syn.bind as string} ${inner.value}`) : inner;
+  }
   const texts: string[] = [];
   for (const [key, arg] of shape.args) {
     const result = sub(arg, [key]);

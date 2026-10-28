@@ -7,14 +7,22 @@ const MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS, runners
 
 /**
  * The programs that the profile of the site cannot write, with the reason and the place. Each one is a gap of the
- * printer of the kernel (D61). A fix of the kernel changes this list.
+ * printer of the kernel (D61, D62). A fix of the kernel changes this list. K158 holds the data envelope of `choice`,
+ * and K160 holds the record kind of `tree`.
  */
 const NO_TEXT: Readonly<Record<string, { readonly reason: string; readonly place: readonly string[] }>> = {
-  names: { reason: "This syntax has no text for the header of a document.", place: ["0"] },
   choice: { reason: "This syntax has no text for the kind text.", place: ["then"] },
-  effects: { reason: "This syntax has no text for the header of a document.", place: ["1"] },
   tree: { reason: "This syntax has no text for the kind panel.", place: [] },
-  alias: { reason: "This syntax has no text for the kind math.product.", place: [] },
+};
+
+/** The text of each program that prints (D62). The test reads each text back to the same document. */
+const TEXT: Readonly<Record<string, string>> = {
+  add: "2 + 3 * 4",
+  names: "seq(a = 1 + 2, b = a * 10, log(b))",
+  effects: 'seq(log("start"), total = write("total", 2 + 3), log(total))',
+  pure: 'pure(log("hello"))',
+  missing: "price + 2",
+  alias: "math.product(6, 7)",
 };
 
 describe("the text of the playground (C17)", () => {
@@ -24,6 +32,7 @@ describe("the text of the playground (C17)", () => {
       it(`reads the text of ${program.id} back to the same document`, () => {
         const text = docText(program.doc);
         if (!text.ok) throw new Error(`The program ${program.id} has no text: ${text.reason}`);
+        expect(text.text).toBe(TEXT[program.id]);
         const back = readText(text.text);
         expect(back).toEqual({ ok: true, doc: program.doc });
       });
@@ -34,9 +43,19 @@ describe("the text of the playground (C17)", () => {
     }
   }
 
-  it("names each program of the gap list", () => {
+  it("names each program of the gap list and of the text list", () => {
     const ids = PROGRAMS.map((program) => program.id);
     for (const id of Object.keys(NO_TEXT)) expect(ids).toContain(id);
+    expect([...Object.keys(NO_TEXT), ...Object.keys(TEXT)].sort()).toEqual([...ids].sort());
+  });
+
+  it("evaluates the steps with names of a text, and the alias of a type as a path (D62)", () => {
+    const names = readText("seq(a = 1 + 2, b = a * 10, b)");
+    if (!names.ok) throw new Error(names.issues[0]?.message);
+    expect(evaluate(MACHINE, names.doc as Json, makeContext({}, STD_CAPS)).result).toEqual({ ok: true, value: 30 });
+    const alias = readText("math.product(6, 7)");
+    if (!alias.ok) throw new Error(alias.issues[0]?.message);
+    expect(evaluate(MACHINE, alias.doc as Json, makeContext({}, STD_CAPS)).result).toEqual({ ok: true, value: 42 });
   });
 
   it("gives an issue with a span for a bad text, and no document", () => {
