@@ -139,7 +139,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K150 | An extension of a formula profile folds when the profile names it in the new field `pureExt`. Before, only a standard extension folded. Found by K13. | done (2026-10-28, D47, released in the next batch) | K13 |
 | K80 | A planner keeps `-0` and `0` apart (PLAN.CACHE-ZERO). Before, the bare document `-0` got the plan of `0` and evaluated to `0`. Found by S1c. | done (2026-10-25, released in the next batch) | none |
 | K48 | `fits` finds more true cases. Today it is sound but misses some, for example `bool` against `{ one: [true, false] }`. From K23. | later | K23 |
-| K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | later | K23 |
+| K49 | A kernel base type for `undefined`, because the standard extension `ext.undefined` gives it. From K23. | done (2026-10-28, D48, released in the next batch) | K23 |
 | K50 | A profile with its own `truthy` declares the type of a truth, thus `check` tests the test of `if` and the terms of `and` and `or`. Today such a profile accepts each type there. From K24. | later | K24 |
 | K51 | Signatures of extensions in the profile. Today each `ext.*` has the type `unknown`, except the standard `ext.number`. From K24. | later | K24 |
 | K52 | A check of each value type of a machine before a document exists: each `result`, each `expect` and each signature. Today `check` reports a bad type at its first use. From K24. | later | K24, K36 |

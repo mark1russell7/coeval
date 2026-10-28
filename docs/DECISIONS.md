@@ -1168,3 +1168,29 @@ Attribute grammars give equations on the kinds and a ladder of defaults. L2b tak
 **Why.** An operation gets only the values of its arguments, but an extension gets the context. The mark is a promise of the author that the extension keeps C4, as the mark `pure` of a kind is. A separate field keeps the two namespaces apart, and the default keeps each existing profile as it was.
 
 **Limits.** The kit trusts the mark. The probe of the fold catches a direct read of a field of `self`, `event` or `names`. But a copy of the names reads no field of the trap. Thus a marked extension that counts the names folds to a wrong value. Such an extension breaks C4, and the facts of D24 are then not sound for it too.
+
+## D48 (2026-10-28): the kernel gets the base type `undefined`, and `ext.undefined` gives it
+
+**Context.** K49, from K23 (D22). The standard extension `ext.undefined` gives the value `undefined`, but the kernel had no base type for it. Thus `typeCheck` gave `ext.undefined` the type `unknown`, and a check let it go to each position. An `otherwise` of `undefined` also gave `unknown`. A contract with the text `undefined` got the issue that the machine has no domain `undefined`. The design calls are the name of the type, its place among the types, and its relation to JSON.
+
+**Decision.**
+
+- `STD_DOMAINS` gets the domain `undefined`. Its test accepts only `undefined`. It has no parents, no steps and no codec. Thus the kernel has seven base types, and five of them are domains (TYPE.BASE).
+- The type rule of `ext.undefined` gives `undefined`. An extension `undefined` in the own `ext` of a profile still gives `unknown`, as each own extension does.
+- A value `undefined` of a profile gives `undefined`. Thus an `if` without `else` and with an `otherwise` of `undefined` gives the join of its branch and `undefined`.
+- `typeFromSamples` gives `undefined` for a sample `undefined`, also for a field and for a hole of a list (TYPE.SAMPLES).
+- A parameter at the end of a signature is optional when `undefined` is a member of its type. This rule holds the old rule for `unknown`, and it adds `undefined` and each union with it (TYPE.SIGNATURE).
+- `fits`, `join`, `member` and `typeText` need no new rule. `undefined` fits itself, each parent and each union with it. No other base type fits it, and it fits no other base type. A language can put a domain under `undefined`.
+- The type only names the value. The value stays outside JSON. The codec writes `undefined` as `ext.undefined` before it tries a domain codec, as before (D40). The envelope, the durable records and the fold of D43 keep their treatment of `undefined`, because the type changes no evaluation.
+
+**Rejected.**
+
+- The name `void`. In TypeScript, `void` is a result that the caller ignores, and a function type with `void` accepts other results. The kernel type holds exactly one value, as `null` does.
+- The names `missing` and `absent`. The kernel keeps a field that holds `undefined` apart from a missing field (D21). The optional fields of a record tell the absence, and the type names the value.
+- `undefined` as a value of `one`. A value type is a JSON term, and `one` compares JSON values. JSON cannot write `undefined`.
+- One type `nullish` for `null` and `undefined`. The two values have different documents, and `{ "union": ["null", "undefined"] }` already holds both.
+- An optional field that also holds `undefined`, as TypeScript reads it without `exactOptionalPropertyTypes`. Then `{ "a": undefined }` and `{}` are members of the same field types, against D21. A record type can give the field the type `undefined` or a union with it.
+
+**Why.** The name of the type is the name of its one value, as for `null`, and the name of the extension `ext.undefined`. `typeText` then gives `number | undefined`, as TypeScript writes it. A domain in `STD_DOMAINS` is the existing way to add a base type. Thus the merge, the restriction and `fits` serve it with no new rule.
+
+**Limits.** After this change, a language with its own domain `undefined` and another test gets a merge conflict with the kit. It must name `["domains", "undefined"]` in `replaces`. A check with types gives a new `#TYPE!` where a document gives `ext.undefined` to a position of another type. Before, `unknown` hid it. A step into a member of `undefined` gives `unknown`, as a step into `null` does, although the run fails there.

@@ -30,7 +30,7 @@ const DOMAINS: Readonly<Record<string, Domain>> = {
   color: { is: isColor, under: ["text"], summary: "A color, for example #00ff00." },
 };
 
-const BASES = ["null", "bool", "number", "text", "finite", "whole", "length", "px", "color"] as const;
+const BASES = ["null", "undefined", "bool", "number", "text", "finite", "whole", "length", "px", "color"] as const;
 
 /** The JSON values that the generator puts in `one`, and that the samples of `unknown` use. */
 const VALUES: readonly Json[] = [null, true, false, 0, -0, 1, 1.5, -2, "", "a", "#00ff00", [], [1], [1, "a"], [[2]], {}, { a: 1 }, { a: "x" }, { a: 1, b: true }, { c: null }];
@@ -38,6 +38,7 @@ const VALUES: readonly Json[] = [null, true, false, 0, -0, 1, 1.5, -2, "", "a", 
 /** The samples of each base type. Each sample is a member of its base type. */
 const BASE_SAMPLES: Readonly<Record<string, readonly unknown[]>> = {
   null: [null],
+  undefined: [undefined],
   bool: [true, false],
   number: [0, -0, 1.5, -3, Number.NaN, Number.POSITIVE_INFINITY],
   text: ["", "a", "#00ff00"],
@@ -108,6 +109,13 @@ function sampleOf(rng: Random, type: ValueType): unknown {
   return type.one.length === 0 ? NONE : rng.pick(type.one);
 }
 
+/** This function tells if a sample is `undefined` or holds `undefined` at some depth. */
+function holdsUndefined(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (Array.isArray(value)) return value.some(holdsUndefined);
+  return typeof value === "object" && value !== null && Object.values(value).some(holdsUndefined);
+}
+
 /** This function makes a list of random types, and adds a list, a union and a `one` of each, so that many pairs fit. */
 function poolOf(seed: number, count: number, withUnknown: boolean): readonly ValueType[] {
   const rng = random(seed);
@@ -118,7 +126,8 @@ function poolOf(seed: number, count: number, withUnknown: boolean): readonly Val
     if (index % 4 === 0) out.push({ list: type }, { union: [type, rng.pick(BASES)] });
     if (index % 4 === 1) {
       const value = sampleOf(rng, type);
-      if (value !== NONE && typeof value !== "function") out.push({ one: [value as Json] });
+      // JSON has no undefined, thus `one` cannot hold a sample with it.
+      if (value !== NONE && typeof value !== "function" && !holdsUndefined(value)) out.push({ one: [value as Json] });
     }
   }
   return out;
@@ -136,10 +145,18 @@ function conflictsOf(merge: () => unknown): readonly MergeConflict[] {
 }
 
 describe("value types and value domains", () => {
-  it("[TYPE.BASE] the kernel has unknown, never, null, bool, number and text, and each text names a base type", () => {
-    expect(Object.keys(STD_DOMAINS).sort()).toEqual(["bool", "null", "number", "text"]);
+  it("[TYPE.BASE] the kernel has unknown, never, null, undefined, bool, number and text, and each text names a base type", () => {
+    expect(Object.keys(STD_DOMAINS).sort()).toEqual(["bool", "null", "number", "text", "undefined"]);
     expect(member(null, "null")).toBe(true);
     expect(member(undefined, "null")).toBe(false);
+    // The base type undefined holds only undefined (D48). JSON has no such value, thus no `one` holds it.
+    expect(member(undefined, "undefined")).toBe(true);
+    for (const value of [null, 0, false, "", Number.NaN, [], {}, () => undefined]) expect(member(value, "undefined"), String(value)).toBe(false);
+    expect(member(new Array(2), { list: "undefined" })).toBe(true);
+    expect(member({ a: undefined }, { record: { a: "undefined" }, closed: true })).toBe(true);
+    expect(member({}, { record: { a: "undefined" } })).toBe(false);
+    expect(member(undefined, { union: ["null", "undefined"] })).toBe(true);
+    expect(typeIssues("undefined")).toEqual([]);
     expect(member(false, "bool")).toBe(true);
     expect(member(0, "bool")).toBe(false);
     for (const value of [0, -0, 1.5, Number.NaN, Number.NEGATIVE_INFINITY]) expect(member(value, "number")).toBe(true);
@@ -259,6 +276,28 @@ describe("value types and value domains", () => {
     expect(fits({ one: [] }, "never")).toBe(true);
     expect(fits({ union: ["never", { one: [] }] }, "never")).toBe(true);
     for (const type of ["null", "number", { list: "never" }, { one: [null] }, { record: {} }] as const) expect(fits(type, "never")).toBe(false);
+  });
+
+  it("[TYPE.FITS] the base type undefined fits only itself, unions with it and unknown, and no other base type fits it", () => {
+    for (const other of ["null", "bool", "number", "text", { one: [null] }, { list: "unknown" }, { record: {} }] as const) {
+      expect(fits("undefined", other), JSON.stringify(other)).toBe(false);
+      expect(fits(other, "undefined"), JSON.stringify(other)).toBe(false);
+    }
+    expect(fits("undefined", "undefined")).toBe(true);
+    expect(fits("undefined", { union: ["number", "undefined"] })).toBe(true);
+    expect(fits("undefined", "unknown")).toBe(true);
+    expect(fits("never", "undefined")).toBe(true);
+    expect(fits({ one: [] }, "undefined")).toBe(true);
+    // A domain of a language with the parent undefined fits it, and its test adds the test of undefined.
+    const absent: Domain = { is: () => true, under: ["undefined"], summary: "A value that the host left out." };
+    expect(fits("absent", "undefined", { absent })).toBe(true);
+    expect(member(null, "absent", { absent })).toBe(false);
+    // The join of undefined and another type is a union, and the union holds both.
+    expect(join("undefined", "number")).toEqual({ union: ["undefined", "number"] });
+    expect(join({ one: [1] }, "undefined")).toEqual({ union: [{ one: [1] }, "undefined"] });
+    expect(join("undefined", "undefined")).toBe("undefined");
+    expect(join("undefined", "unknown")).toBe("unknown");
+    expect(typeText({ union: ["number", "undefined"] })).toBe("number | undefined");
   });
 
   it("[TYPE.FITS] fits is reflexive, and transitive for generated types without unknown", () => {
@@ -412,7 +451,7 @@ describe("value types and value domains", () => {
     // Two languages on the kit share the kernel domains, and their own domains join.
     const kit = formulaMachine({}, { domains: { color } });
     const both = mergeMachines({ domains: STD_DOMAINS }, { domains: STD_MACHINE.domains ?? {} }, { domains: kit.domains ?? {} });
-    expect(Object.keys(both.domains ?? {}).sort()).toEqual(["bool", "color", "null", "number", "text"]);
+    expect(Object.keys(both.domains ?? {}).sort()).toEqual(["bool", "color", "null", "number", "text", "undefined"]);
     // A restriction removes a domain by its path.
     const without = restrictMachine(both, [["domains", "color"]]);
     expect(Object.keys(without.domains ?? {})).not.toContain("color");

@@ -9,8 +9,8 @@ import { type Json, type Key, docEquals, isEnvelope, isRecord } from "./doc.ts";
 /**
  * A value type: a set of values that a result can have, as a JSON term.
  *
- * - A text names a base type: `unknown`, `never`, a domain of the kernel (`null`, `bool`, `number`, `text`), or a
- *   domain of a language.
+ * - A text names a base type: `unknown`, `never`, a domain of the kernel (`null`, `undefined`, `bool`, `number`,
+ *   `text`), or a domain of a language.
  * - `list`: a list whose items have the type.
  * - `record`: a plain record with the named fields. `optional` names the fields that can be absent. A `closed`
  *   record has no other fields. The other fields of an open record can hold each value.
@@ -95,6 +95,8 @@ export interface TypeIssue {
  */
 export const STD_DOMAINS: Readonly<Record<string, Domain>> = {
   null: { is: (value) => value === null, summary: "The value null." },
+  // JSON has no undefined, thus a document holds it as ext.undefined (D48). The domain has no codec: the codec of values writes undefined first.
+  undefined: { is: (value) => value === undefined, summary: "The value undefined. A document holds it as the extension ext.undefined." },
   bool: { is: (value) => typeof value === "boolean", summary: "A truth value: true or false." },
   number: { is: (value) => typeof value === "number", summary: "A number of the host, also NaN, an infinity and -0." },
   text: { is: (value) => typeof value === "string", summary: "A text." },

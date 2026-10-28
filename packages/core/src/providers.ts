@@ -235,6 +235,7 @@ function samplesAt(values: readonly unknown[], closed: boolean, depth: number): 
   let lists = false;
   for (const value of values) {
     if (value === null) bases.add("null");
+    else if (value === undefined) bases.add("undefined");
     else if (typeof value === "boolean") bases.add("bool");
     else if (typeof value === "number") bases.add("number");
     else if (typeof value === "string") bases.add("text");
@@ -243,10 +244,10 @@ function samplesAt(values: readonly unknown[], closed: boolean, depth: number): 
       // A hole of a list holds undefined, thus a loop by index reads it too.
       for (let index = 0; index < value.length; index += 1) items.push(value[index]);
     } else if (isRecord(value)) records.push(value);
-    // A value without a type of the kernel, for example a function or undefined, has each type.
+    // A value without a type of the kernel, for example a function, has each type.
     else return "unknown";
   }
-  for (const base of ["null", "bool", "number", "text"]) if (bases.has(base)) types.push(base);
+  for (const base of ["null", "undefined", "bool", "number", "text"]) if (bases.has(base)) types.push(base);
   if (lists) types.push({ list: samplesAt(items, closed, depth + 1) });
   if (records.length > 0) {
     // All records join into one record. A field that a record does not have is optional.
@@ -268,7 +269,7 @@ function samplesAt(values: readonly unknown[], closed: boolean, depth: number): 
  * This function infers a value type from sample values (TYPE.SAMPLES), as a type provider of F# does. A host uses it
  * for the type of a root, for example from some events.
  *
- * - `null`, a truth value, a number and a text give their base types, not their values.
+ * - `null`, `undefined`, a truth value, a number and a text give their base types, not their values.
  * - The items of each list join into one type of items.
  * - All records join into one record with each key of the samples. A key that a record does not have is optional.
  * - Values of different forms give a union, as `join` gives. No samples give `never`.

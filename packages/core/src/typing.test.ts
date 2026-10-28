@@ -136,6 +136,12 @@ describe("signatures and the check of types", () => {
     expect(typeIssuesOf(typed, op("concat")).map((issue) => issue.reason)).toEqual(["The operation ops.concat takes at least 1 argument. It gets 0."]);
     expect(typeIssuesOf(typed, op("round", 1.5))).toEqual([]);
     expect(typeIssuesOf(typed, op("round", 1.5, "any"))).toEqual([]);
+    // A parameter at the end is optional when its type holds undefined, because a missing argument is undefined (D48).
+    const pad = formulaMachine({ ops: { pad: (text: unknown, fill: unknown) => `${String(text)}${fill === undefined ? " " : String(fill)}` }, sigs: { pad: { params: ["text", { union: ["text", "undefined"] }], to: "text" } } });
+    expect(typeIssuesOf(pad, op("pad", "a"))).toEqual([]);
+    expect(typeIssuesOf(pad, op("pad", "a", { type: ["ext", "undefined"], value: null }))).toEqual([]);
+    expect(typeIssuesOf(pad, op("pad", "a", 1)).map((issue) => issue.reason)).toEqual(["The argument 2 of ops.pad has the type 1. It must have the type text | undefined."]);
+    expect(typeIssuesOf(pad, op("pad")).map((issue) => issue.reason)).toEqual(["The operation ops.pad takes 1 to 2 arguments. It gets 0."]);
     // A list of signatures gives overloads. The first signature that fits gives the type.
     expect(typeCheck(typed, op("len", "abc"), LIT).type).toBe("number");
     expect(typeCheck(typed, op("len", { type: "list", value: [1] }), LIT).type).toBe("number");
@@ -189,7 +195,8 @@ describe("signatures and the check of types", () => {
       [{ type: "and", value: [true, op("gt", 1, 2)] }, "bool"],
       [{ type: "or", value: [] }, "bool"],
       [{ type: ["ext", "number"], value: "NaN" }, "number"],
-      [{ type: ["ext", "undefined"], value: null }, "unknown"],
+      [{ type: ["ext", "undefined"], value: null }, "undefined"],
+      [when(op("gt", 1, 2), 1, { type: ["ext", "undefined"], value: null }), { union: [{ one: [1] }, "undefined"] }],
     ];
     for (const [doc, type] of cases) {
       const typing = typeCheck(typed, doc, LIT);
@@ -219,8 +226,8 @@ describe("signatures and the check of types", () => {
     expect(typeCheck(loose, { type: "or", value: [] }, LIT).type).toEqual({ one: [false] });
     expect(typeCheck(loose, when(1, "a"), LIT)).toMatchObject({ type: { one: ["a", "none"] }, issues: [] });
     expect(typeCheck(loose, { type: "record", value: { a: 1 } }, LIT).type).toEqual({ record: { a: { one: [1] } }, optional: ["a"], closed: true });
-    // An otherwise of undefined has no type: the kernel has no base type for it yet (K49).
-    expect(typeCheck(formulaMachine({ otherwise: undefined }), when(true, 1), LIT).type).toBe("unknown");
+    // An otherwise of undefined has the base type undefined (D48).
+    expect(typeCheck(formulaMachine({ otherwise: undefined }), when(true, 1), LIT).type).toEqual({ union: [{ one: [1] }, "undefined"] });
   });
 
   it("[TYPE.SYNTH] the result of a kind gives the type of its documents, and the check examines it one time", () => {
@@ -749,7 +756,8 @@ describe("the types of the roots, of the names and of the paths", () => {
     expect(typeFromSamples([{ a: 1 }, null, { b: "x" }])).toEqual({ union: ["null", { record: { a: "number", b: "text" }, optional: ["a", "b"] }] });
     expect(typeFromSamples([])).toBe("never");
     expect(typeFromSamples([1, () => 1])).toBe("unknown");
-    expect(typeFromSamples([{ a: undefined }])).toEqual({ record: { a: "unknown" } });
+    expect(typeFromSamples([{ a: undefined }])).toEqual({ record: { a: "undefined" } });
+    expect(typeFromSamples([1, undefined, null])).toEqual({ union: ["null", "undefined", "number"] });
     // An open record gives unknown for a field that no sample has. A closed record gives an issue.
     const events = [{ target: "a", at: 1 }, { target: "b" }];
     expect(typeIssuesOf(rooted, ref("event", "targt"), { ...LIT, rootTypes: { event: typeFromSamples(events) } })).toEqual([]);
