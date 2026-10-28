@@ -70,11 +70,26 @@ export interface SyntaxForm {
   readonly name: string;
   /** The type of the document, with dots between the keys. */
   readonly kind: string;
-  /** The fields of the value, in the order of the arguments. Without them, the value is the list of the arguments. */
+  /**
+   * The fields of the value, in the order of the arguments. Without them, the value is the list of the arguments. A
+   * form `named` permits only these keys, and without them it permits each key.
+   */
   readonly fields?: readonly string[];
-  /** The smallest number of arguments. The default is the number of the fields, or `0`. */
+  /** The smallest number of arguments. The default is the number of the fields, or `0`. Only `list` and `fields` read it. */
   readonly min?: number;
+  /**
+   * The way that the arguments make the value (D63). The default is `fields` with fields, or `list`.
+   *
+   * - `list`: the value is the list of the arguments, for example `list(1, 2)`.
+   * - `fields`: the arguments go into the fields, in order, for example `if(test, then, else)`.
+   * - `named`: each argument is a key and a document, and the value is a record, for example `panel(width: 300)`.
+   * - `literal`: the one argument is a literal, and the value is its data, for example `text("big")`.
+   */
+  readonly args?: SyntaxFormArgs;
 }
+
+/** The way that the arguments of a call form make the value of its document (D63). */
+export type SyntaxFormArgs = "list" | "fields" | "named" | "literal";
 
 /** The call syntax of a syntax profile. */
 export interface SyntaxCalls {
@@ -179,6 +194,7 @@ interface Op {
 interface Form {
   readonly name: string;
   readonly type: Json;
+  readonly args: SyntaxFormArgs;
   readonly fields: readonly string[] | undefined;
   readonly min: number;
 }
@@ -222,6 +238,7 @@ const NUMBER_AT = /(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
 const SYMBOL = /^[^\sA-Za-z0-9_"'`()$.]+$/;
 const DEFAULT_WORDS: Readonly<Record<string, unknown>> = { true: true, false: false, null: null };
 const DEFAULT_ROOTS: readonly string[] = ["self", "world", "event", "caps"];
+const FORM_ARGS: readonly SyntaxFormArgs[] = ["list", "fields", "named", "literal"];
 
 const compiledProfiles = new WeakMap<SyntaxProfile, Compiled>();
 
@@ -296,7 +313,11 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     if (keys.length > 1 && refs.fields === false) throw new TypeError(`The call form "${given.name}" has dots, but the syntax has no field steps.`);
     if (keys.length > 1 && ops.opWords.has(keys[0] as string)) throw new TypeError(`The call form "${given.name}" starts with the word operator "${keys[0] as string}".`);
     const { type, key } = typeOfKind(given.kind);
-    const form: Form = { name: given.name, type, fields: given.fields, min: given.min ?? given.fields?.length ?? 0 };
+    const args = given.args ?? (given.fields === undefined ? "list" : "fields");
+    if (!FORM_ARGS.includes(args)) throw new TypeError(`The call form "${given.name}" has the unknown arguments ${String(args)}.`);
+    if ((args === "fields") !== (given.fields !== undefined) && args !== "named") throw new TypeError(`The call form "${given.name}" with the arguments ${args} ${args === "fields" ? "needs" : "takes no"} fields.`);
+    if (given.min !== undefined && (args === "named" || args === "literal")) throw new TypeError(`The call form "${given.name}" with the arguments ${args} takes no min.`);
+    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0 };
     forms.set(form.name, form);
     addTo(formsByKind, key, form);
   }
@@ -339,6 +360,16 @@ function literalDoc(value: unknown): Json {
 
 function opDoc(op: Op | Form, value: Json): Json {
   return { type: op.type, value };
+}
+
+/** This function tells if a value is a literal that JSON writes exactly: a text, a finite number, a truth value or `null`. */
+function isScalar(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0));
+}
+
+function setOwn(target: Record<string, Json>, key: string, value: Json): void {
+  if (key === "__proto__") Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  else target[key] = value;
 }
 
 const ESCAPES: Readonly<Record<string, string>> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
@@ -605,7 +636,7 @@ class Parser {
       if (prefix !== undefined && prefix.word) return opDoc(prefix, [this.expr(prefix.prec + 1)]);
       if (this.syn.binary.get(first)?.word === true) this.stop(`A term is missing before ${first}.`, start, first.length);
     }
-    const path: Key[] = [first];
+    const path: Json[] = [first];
     let allPlain = plain;
     for (;;) {
       const back = this.pos;
@@ -616,6 +647,12 @@ class Parser {
       }
       this.pos += 1;
       this.skip();
+      // A step in parentheses is a document, for example `self.parent.(nearest(type: "panel"))` (SYNTAX.STEP).
+      if (this.text[this.pos] === "(") {
+        path.push(this.group());
+        allPlain = false;
+        continue;
+      }
       if (this.text[this.pos] === "`") {
         path.push(this.quoted());
         allPlain = false;
@@ -640,29 +677,66 @@ class Parser {
     return { type: "ref", value: full };
   }
 
-  private call(name: string, start: number, nameLength: number): Json {
+  /** This method reads the arguments of a call in parentheses. `item` reads one argument. */
+  private argumentsOf<T>(item: () => T): T[] {
     const open = this.pos;
-    const args: Json[] = [];
+    const args: T[] = [];
     this.pos += 1;
     this.skip();
-    if (this.text[this.pos] === ")") this.pos += 1;
-    else {
-      for (;;) {
-        args.push(this.bound());
-        this.skip();
-        if (this.text.startsWith(this.syn.separator, this.pos)) {
-          this.pos += this.syn.separator.length;
-          continue;
-        }
-        if (this.text[this.pos] === ")") {
-          this.pos += 1;
-          break;
-        }
-        if (this.pos >= this.text.length) this.stop("A closing parenthesis is missing.", open, 1);
-        this.stop(`A "${this.syn.separator}" or a closing parenthesis is missing.`, this.pos, this.tokenLength());
-      }
+    if (this.text[this.pos] === ")") {
+      this.pos += 1;
+      return args;
     }
+    for (;;) {
+      args.push(item());
+      this.skip();
+      if (this.text.startsWith(this.syn.separator, this.pos)) {
+        this.pos += this.syn.separator.length;
+        continue;
+      }
+      if (this.text[this.pos] === ")") {
+        this.pos += 1;
+        return args;
+      }
+      if (this.pos >= this.text.length) this.stop("A closing parenthesis is missing.", open, 1);
+      this.stop(`A "${this.syn.separator}" or a closing parenthesis is missing.`, this.pos, this.tokenLength());
+    }
+  }
+
+  /** This method reads the arguments `key: expr` of a form `named` into a record (SYNTAX.RECORD). */
+  private namedArguments(form: Form): Json {
+    const value: Record<string, Json> = {};
+    this.argumentsOf(() => {
+      this.skip();
+      const at = this.pos;
+      let key: string | undefined;
+      if (this.text[at] === "`") key = this.quoted();
+      else {
+        key = this.at(NAME_AT);
+        if (key !== undefined) this.pos += key.length;
+      }
+      const end = this.pos;
+      this.skip();
+      if (key === undefined || this.text[this.pos] !== ":") {
+        this.stop(`Each argument of the form ${form.name} is a key, a ":" and a document.`, at, Math.max(end - at, this.tokenLength()));
+      }
+      if (form.fields !== undefined && !form.fields.includes(key)) this.stop(`The form ${form.name} has no field ${key}.`, at, end - at);
+      if (Object.hasOwn(value, key)) this.stop(`The form ${form.name} has the field ${key} two times.`, at, end - at);
+      this.pos += 1;
+      setOwn(value, key, this.bound());
+    });
+    return opDoc(form, value);
+  }
+
+  private call(name: string, start: number, nameLength: number): Json {
     const form = this.syn.forms.get(name);
+    if (form?.args === "named") return this.namedArguments(form);
+    const args = this.argumentsOf(() => this.bound());
+    if (form?.args === "literal") {
+      const [only] = args;
+      if (args.length !== 1 || !isScalar(only)) this.stop(`The form ${name} takes one literal that JSON writes.`, start, this.pos - start);
+      return opDoc(form, only);
+    }
     if (form !== undefined) {
       const most = form.fields?.length ?? Number.POSITIVE_INFINITY;
       if (args.length < form.min || args.length > most) {
@@ -709,7 +783,8 @@ type SubText = (child: unknown, path: readonly Key[]) => Result<string>;
 type Shape =
   | { readonly tag: "text"; readonly text: string }
   | { readonly tag: "op"; readonly op: Op; readonly terms: readonly unknown[] }
-  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown])[] }
+  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown])[]; readonly named?: boolean }
+  | { readonly tag: "path"; readonly segments: readonly (string | readonly [Key, unknown])[] }
   | { readonly tag: "bind"; readonly name: string; readonly doc: unknown }
   | { readonly tag: "none"; readonly reason: string };
 
@@ -751,8 +826,10 @@ function plainSegment(syn: Compiled, name: string): boolean {
   return NAME.test(name) && !syn.reserved.has(name) && !syn.patterns.some((p) => p.whole.test(name));
 }
 
-function laterSegment(step: unknown): string | undefined {
+/** This function gives the text of a later step of a path, or the step and its index when the step is a document. */
+function laterSegment(step: unknown, index: number): string | readonly [Key, unknown] | undefined {
   if (typeof step === "string") return NAME.test(step) ? step : quoteName(step);
+  if (isEnvelope(step)) return [index, step];
   return typeof step === "number" && Number.isSafeInteger(step) && step >= 0 ? String(step) : undefined;
 }
 
@@ -765,16 +842,18 @@ function refShape(syn: Compiled, value: unknown): Shape {
   const [root, ...rest] = value as readonly unknown[];
   const many = rest.length > 1 || (root !== syn.bare && rest.length > 0);
   if (many && !syn.fields) return none("This syntax has no field steps.");
-  const later = rest.slice(1).map(laterSegment);
   let first: string | undefined;
-  let tail = later;
-  if (root === syn.bare && typeof rest[0] === "string") first = plainSegment(syn, rest[0]) ? rest[0] : quoteName(rest[0]);
-  else if (typeof root === "string" && syn.roots.has(root) && !syn.patterns.some((p) => p.whole.test(root))) {
+  let tail: (string | readonly [Key, unknown] | undefined)[] = [];
+  if (root === syn.bare && typeof rest[0] === "string") {
+    first = plainSegment(syn, rest[0]) ? rest[0] : quoteName(rest[0]);
+    tail = rest.slice(1).map((step, index) => laterSegment(step, index + 2));
+  } else if (typeof root === "string" && syn.roots.has(root) && !syn.patterns.some((p) => p.whole.test(root))) {
     first = root;
-    tail = rest.map(laterSegment);
+    tail = rest.map((step, index) => laterSegment(step, index + 1));
   }
   if (first === undefined || tail.includes(undefined)) return none("This syntax has no text for the path of the reference.");
-  return { tag: "text", text: [first, ...tail].join(".") };
+  const segments = [first, ...(tail as (string | readonly [Key, unknown])[])];
+  return segments.every((segment) => typeof segment === "string") ? { tag: "text", text: segments.join(".") } : { tag: "path", segments };
 }
 
 function callName(syn: Compiled, keys: readonly Key[]): string | undefined {
@@ -784,7 +863,18 @@ function callName(syn: Compiled, keys: readonly Key[]): string | undefined {
   return syn.ops === true || syn.ops.has(name) ? name : undefined;
 }
 
-function formShape(form: Form, value: unknown): Shape | undefined {
+function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined {
+  if (form.args === "literal") {
+    if (!isScalar(value)) return undefined;
+    const literal = literalShape(syn, value);
+    return literal.tag === "text" ? { tag: "text", text: `${form.name}(${literal.text})` } : undefined;
+  }
+  if (form.args === "named") {
+    if (!isRecord(value)) return undefined;
+    const keys = Object.keys(value);
+    if (form.fields !== undefined && !keys.every((key) => form.fields?.includes(key) === true)) return undefined;
+    return { tag: "call", name: form.name, args: keys.map((key) => [key, value[key]] as const), named: true };
+  }
   if (form.fields === undefined) {
     if (!Array.isArray(value) || value.length < form.min) return undefined;
     return { tag: "call", name: form.name, args: value.map((item, index) => [index, item] as const) };
@@ -829,7 +919,7 @@ function shapeOf(syn: Compiled, doc: unknown): Shape {
   const op = Array.isArray(value) ? opShape(syn, key, value) : undefined;
   if (op !== undefined) return op;
   for (const form of syn.formsByKind.get(key) ?? []) {
-    const shape = formShape(form, value);
+    const shape = formShape(syn, form, value);
     if (shape !== undefined) return shape;
   }
   const called = path[0] === "ops" && Array.isArray(value) ? callName(syn, path.slice(1)) : undefined;
@@ -878,11 +968,24 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
     const inner = printNode(syn, shape.doc, sub);
     return inner.ok ? ok(`${NAME.test(shape.name) ? shape.name : quoteName(shape.name)} ${syn.bind as string} ${inner.value}`) : inner;
   }
+  if (shape.tag === "path") {
+    const texts: string[] = [];
+    for (const segment of shape.segments) {
+      if (typeof segment === "string") {
+        texts.push(segment);
+        continue;
+      }
+      const result = sub(segment[1], [segment[0]]);
+      if (!result.ok) return result;
+      texts.push(`(${result.value})`);
+    }
+    return ok(texts.join("."));
+  }
   const texts: string[] = [];
   for (const [key, arg] of shape.args) {
     const result = sub(arg, [key]);
     if (!result.ok) return result;
-    texts.push(result.value);
+    texts.push(shape.named === true ? `${NAME.test(String(key)) ? String(key) : quoteName(String(key))}: ${result.value}` : result.value);
   }
   return ok(`${shape.name}(${texts.join(`${syn.separator} `)})`);
 }

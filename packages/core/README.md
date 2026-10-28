@@ -80,6 +80,8 @@ const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); /
 - A larger `prec` binds more tightly. `assoc` is `left` (the default), `right`, `none` or `flat`. A `flat` chain gives one document with each term.
 - `kind` is the type of the document, with dots between the keys. A call `name(args)` applies `ops.name`, and a call form in `calls.forms` makes a construct.
 - `header.bind` is the symbol of a header name, for example `=` in `total = 2 + 3`. A form name can have dots, for example `math.product`.
+- `args` of a form tells how its arguments make the value. `named` reads `panel(width: 300)` as a record, and `literal` reads `text("big")` as data.
+- A step in parentheses after a dot is a document, for example `self.parent.(nearest(type: "panel")).width`.
 - A bare name is a path from `refs.bare`. A name in `refs.roots` starts a path. `refs.patterns` add other references, for example `A1`, with `read` and `write`.
 - An issue of `parse` has `offset`, `length` and `message`. Show it at its span in an editor.
 - Test your profile with a round trip: `parse(print(doc))` gives `doc` again. `STD_SYNTAX` is the standard profile of the formula kit.

@@ -4,7 +4,8 @@ import { parse, print, type Json, type ParseResult, type SyntaxIssue, type Synta
  * The text syntax of the world of the site (C17, D61). The syntax kit (C15, D41) reads it. `STD_SYNTAX` writes the
  * kinds of the formula kit, but the playground evaluates the kinds of the standard world. Thus this profile names
  * those kinds: `+` is `add`, `*` is `multiply` and `>` is `greater`. The call forms make the other constructs. The
- * form `math.product` writes the alias of `multiply`, and `a = 1 + 2` gives a step the name `a` (D62).
+ * form `math.product` writes the alias of `multiply`, and `a = 1 + 2` gives a step the name `a` (D62). The text
+ * `text("big")` is a data envelope, and `panel(width: 300)` is a node of a tree with its fields (D63).
  */
 export const SITE_SYNTAX: SyntaxProfile = Object.freeze({
   operators: [
@@ -22,6 +23,12 @@ export const SITE_SYNTAX: SyntaxProfile = Object.freeze({
       { name: "log", kind: "log", min: 1 },
       { name: "write", kind: "write", fields: ["key", "value"] },
       { name: "math.product", kind: "math.product" },
+      { name: "number", kind: "number", args: "literal" },
+      { name: "text", kind: "text", args: "literal" },
+      { name: "bool", kind: "bool", args: "literal" },
+      { name: "panel", kind: "panel", args: "named", fields: ["width", "height", "children"] },
+      { name: "box", kind: "box", args: "named", fields: ["width", "height", "children"] },
+      { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
     ],
   },
   header: { bind: "=" },
