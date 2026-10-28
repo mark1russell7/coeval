@@ -180,6 +180,44 @@ describe("plans", () => {
   });
 });
 
+describe("code that cannot fail", () => {
+  const ops = {
+    add: (a: number, b: number) => a + b,
+    boom: () => {
+      throw new Error("The operation boom throws.");
+    },
+  };
+  // The kind spy gives its parts no context. Only code without the wrapper of a place does not read it (PLAN.TOTAL).
+  const spy: CompiledEvaluator = { compile: ({ parts }) => (_ctx, rt) => ok(parts.map((part) => part.code(undefined as never, rt).ok)) };
+  const machine = formulaMachine({ ops }, { world: { kinds: { spy: { verbs: { eval: "test.spy" }, parts: { shape: "list", of: "lit" } }, step: { verbs: { eval: "formula.step" } } } }, evaluators: { "test.spy": spy } });
+
+  it("[PLAN.TOTAL] the code of a literal and of a step document without parts has no wrapper, and gives the same result", () => {
+    const doc = { type: "spy", value: [5, "text", { type: "lit", value: [1, 2] }, { type: "step", value: 3 }, { type: ["ops", "add"], value: [1, 2] }] };
+    // The literals and the step document do not read the context. The operation has the wrapper, and it reads the context.
+    expect(prepare(machine, doc, { fold: false }).evaluate()).toEqual(ok([true, true, true, true, false]));
+    expect(prepare(machine, { type: "step", value: 3 }).evaluate()).toEqual(ok({ type: "step", value: 3 }));
+    for (const fold of [true, false]) {
+      expect(prepare(machine, { type: "list", value: [5, "text", { type: "lit", value: { a: 1 } }] }, { fold }).evaluate()).toEqual(ok([5, "text", { a: 1 }]));
+    }
+  });
+
+  it("[PLAN.TOTAL] a failing sibling of a literal keeps its error and its place", () => {
+    const docs = [
+      { type: "list", value: [1, { type: "ref", value: ["names", "nope"] }, "a"] },
+      { type: "list", value: ["a", { type: "list", value: [2, { type: ["ops", "boom"], value: [] }] }] },
+      { type: "record", value: { a: 1, b: { type: ["ops", "nope"], value: [1] } } },
+    ];
+    const places = [[1], [1, 1], ["b"]];
+    docs.forEach((doc, index) => {
+      const traced = evaluate(machine, doc, makeContext(), { declaredType: "lit" }).result;
+      expect(traced.ok).toBe(false);
+      if (traced.ok) return;
+      expect(traced.error.place).toEqual(places[index]);
+      for (const fold of [true, false]) expect(prepare(machine, doc, { fold, declaredType: "lit" }).evaluate()).toEqual(traced);
+    });
+  });
+});
+
 describe("capabilities", () => {
   it("[CAP.KEYS] a capability permits the kinds under it, key by key", () => {
     expect(permits(["store"], "store.update")).toBe(true);

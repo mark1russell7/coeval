@@ -138,6 +138,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | --- | --- |
 | PLAN.ONCE | A plan compiles a document one time. It evaluates many times with the same result as `evaluate`. |
 | PLAN.FAIL-LATE | A document that does not compile gives a plan that fails when that document evaluates. A compiler that throws fails only its own document. The error has its place. |
+| PLAN.TOTAL | The kits of the kernel mark compiled code that cannot fail (D50). Such code gives a value and throws nothing, and it does not read its context. The plan does not wrap it in the code that places errors. The formula kit marks `lit` and a step document without parts. Each result, each error and each place stay the same. A host cannot mark code. |
 | PLAN.TRACE | A traced evaluation records each document. An evaluation of a plan without a trace records nothing. |
 | PLAN.CACHE | A planner compiles one document object one time. |
 | PLAN.CACHE-ZERO | A planner keeps the bare values `-0` and `0` apart, thus `-0` evaluates to `-0`. |

@@ -1222,3 +1222,24 @@ D23 put off a contract that declares the effects of each verb. The design calls 
 **Why.** A new optional field keeps each existing contract, each reader of `effects` and each result of `check`. One function gives the declaration of each verb, thus `check` and `conforms` agree. The same issues for each verb let a host read the result of `check` with one rule.
 
 **Limits.** A verb without an entry still meets the test of its effects only in a run. `effectsOf` gives the effects of `eval` only, thus a host cannot yet ask for the least authority of another verb. A merge of two worlds replaces a whole kind, thus a language cannot add an entry of `verbEffects` to a foreign kind before K35.
+
+## D50 (2026-10-28): the kits of the kernel mark compiled code that cannot fail, and a plan does not wrap that code
+
+**Context.** K76, from K12 (R1 P2). `compileNode` wraps the code of each evaluator in `placedCode`. The wrapper narrows the context to its grant (CAP.NARROW-CODE), catches an exception and gives an error its place. The code of a literal gives one fixed value, thus the wrapper does no work for it, and a literal costs two calls. The design calls are the form of the mark, who can set it and which code gets it.
+
+**Decision.**
+
+- The kernel keeps a private set of the compiled code that cannot fail. The internal function `totalCode` adds code to the set and gives the same code (PLAN.TOTAL).
+- Marked code gives a value and throws nothing. It does not read its context or its runtime.
+- `compileNode` does not wrap marked code in `placedCode`. A trace still wraps the code, and a fold still replaces it.
+- The formula kit marks the code of `lit` and of a step document without parts (`formula.step`). Each one gives a value that it made in `prepare`.
+- The package does not export `totalCode`, and a contract or a compiled evaluator has no field for the mark.
+
+**Rejected.**
+
+- A field `total` on `CompiledEvaluator`. A host could then mark code that reads its context, and that code gets a context without the grant of the kernel. Thus compiled code could widen the capabilities of a part again (D32). A mark of an evaluator also covers all of its code. A compiler can give code that fails for one document, and code that cannot fail for another.
+- A mark on more code of the kit, for example a reference or a record of literals. A reference can fail. A record of parts calls code that can fail, and a fold already gives one value for a closed pure record (PLAN.FOLD).
+
+**Why.** A private set keeps the public API and each guarantee of the grant. The plan reads the set one time in `prepare`, thus an evaluation pays nothing for the test. A test gives a failing sibling of a literal and finds the same error and place.
+
+**Limits.** A host compiler that gives a constant still gets the wrapper. A plan with folds already gives one value for a closed literal. Thus the gain shows in a plan without folds, in a trace and in a fold at compile time.
