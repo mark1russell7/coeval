@@ -141,8 +141,15 @@ export function partCaps(rules: readonly CapsRule[] | undefined, path: readonly 
  */
 const GRANT = /* @__PURE__ */ Symbol("coeval.grant");
 
-/** A context with the grant of the kernel. */
-type Granted = Context & { readonly [GRANT]?: readonly Cap[] };
+/**
+ * The key of the epoch of a grant (CAP.NARROW-KEPT). The epoch is the list of capabilities that the host gave the root
+ * of the evaluation of the grant. A spread of a context keeps its epoch, as it keeps its grant. An
+ * effect and a resolution read a context of another epoch as a context without a grant.
+ */
+const EPOCH = /* @__PURE__ */ Symbol("coeval.epoch");
+
+/** A context with the grant of the kernel and the epoch of that grant. */
+type Granted = Context & { readonly [GRANT]?: readonly Cap[]; readonly [EPOCH]?: readonly Cap[] | undefined };
 
 /**
  * This function gives the capabilities that a context and its grant both permit, the meet `intersectCaps` (CAP.MEET).
@@ -167,12 +174,24 @@ function granted(ctx: Context): Context {
 }
 
 /**
+ * This function gives a context of another epoch the epoch of the evaluation, without capabilities (CAP.NARROW-KEPT).
+ * Thus the context reads as a context without a grant. The kernel cannot know the document of the context in this
+ * evaluation.
+ */
+function ungranted(ctx: Context, epoch: readonly Cap[]): Context {
+  const out: Granted = { ...ctx, caps: NO_CAPS, [GRANT]: NO_CAPS, [EPOCH]: epoch };
+  return out;
+}
+
+/**
  * This function gives the context in which the runtime resolves a path of compiled code (CAP.CAPS-GRANT, CAP.MEET).
  * The context has the meet of its list and its grant, and a context without a grant has none. Thus a read of the root
  * `caps` and a walker of a step document get the capabilities of the document from a widened context.
  * A context that the code narrowed keeps its own list. A context whose list does not change stays the same object.
+ * A context of another epoch has no capabilities (CAP.NARROW-KEPT).
  */
-function readable(ctx: Context): Context {
+function readable(ctx: Context, epoch: readonly Cap[]): Context {
+  if ((ctx as Granted)[EPOCH] !== epoch) return ctx.caps.length === 0 ? ctx : ungranted(ctx, epoch);
   const caps = grantedCaps(ctx);
   if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
   const out: Granted = { ...ctx, caps, [GRANT]: caps };
@@ -181,12 +200,14 @@ function readable(ctx: Context): Context {
 
 /**
  * This function gives the context of a part of a function evaluator. It is the context that the evaluator gives,
- * narrowed by the context of the document (CAP.NARROW), with the grant of its capabilities.
+ * narrowed by the context of the document (CAP.NARROW), with the grant of its capabilities. The grant has the epoch
+ * of the document, because the document permits each of its capabilities (CAP.NARROW-KEPT).
  */
 function handed(parent: Context, next: Context): Context {
   const ctx = narrow(parent, next);
-  if ((ctx as Granted)[GRANT] === ctx.caps) return ctx;
-  const out: Granted = { ...ctx, [GRANT]: ctx.caps };
+  const epoch = (parent as Granted)[EPOCH];
+  if ((ctx as Granted)[GRANT] === ctx.caps && (ctx as Granted)[EPOCH] === epoch) return ctx;
+  const out: Granted = { ...ctx, [GRANT]: ctx.caps, [EPOCH]: epoch };
   return out;
 }
 
@@ -896,6 +917,11 @@ class Session implements Runtime {
 
   constructor(
     readonly machine: Machine,
+    /**
+     * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
+     * keeps its grant only in an evaluation of the same epoch.
+     */
+    readonly epoch: readonly Cap[],
     readonly running: boolean,
     readonly traced: boolean,
     readonly perform: Perform | undefined,
@@ -924,7 +950,7 @@ class Session implements Runtime {
    * `caps` and a walker of a step document get the capabilities of the document.
    */
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
-    return this.read(readable(ctx), path, undefined, options);
+    return this.read(readable(ctx, this.epoch), path, undefined, options);
   }
 
   /**
@@ -933,7 +959,7 @@ class Session implements Runtime {
    * that the grant permits (CAP.CAPS-GRANT, CAP.MEET).
    */
   resolvePath(given: Context, compiled: CompiledPath): Resolution {
-    const ctx = readable(given);
+    const ctx = readable(given, this.epoch);
     if (this.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
     return this.read(ctx, compiled.path, compiled, undefined);
   }
@@ -995,10 +1021,11 @@ class Session implements Runtime {
   /**
    * This function checks the capability of an effect, and records the effect with its address (RUN.ADDRESS). The
    * context keeps only the capabilities of its grant, thus compiled code cannot widen the context of its own effect
-   * (CAP.NARROW-CODE).
+   * (CAP.NARROW-CODE). A context of another epoch has no capabilities, thus code cannot keep a context for a later
+   * evaluation with fewer capabilities (CAP.NARROW-KEPT).
    */
   private record(given: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result | Recorded {
-    const ctx = granted(given);
+    const ctx = (given as Granted)[EPOCH] === this.epoch ? granted(given) : ungranted(given, this.epoch);
     const keys = typeof kind === "string" ? kind.split(".") : kind;
     const text = keys.join(".");
     if (!this.permitted(ctx, keys)) return fail("#CAP!", `The context has no capability for the effect ${text}.`, { place });
@@ -1921,15 +1948,16 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
 /**
  * This function gives the context at the root of an evaluation. It is the context of the host, with the world of
  * the machine when the context has none. The host gives the capabilities, thus the root has the grant of each one
- * (CAP.NARROW-CODE). An evaluation and `verifyReads` share it.
+ * (CAP.NARROW-CODE). The list of the host is also the epoch of the grant (CAP.NARROW-KEPT). An evaluation and
+ * `verifyReads` share it.
  *
  * @param machine - The machine.
  * @param ctx - The context of the host.
  * @returns The context at the root.
  */
 export function rootContext(machine: Machine, ctx: Context): Context {
-  if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps) return ctx;
-  const root: Granted = { ...ctx, world: ctx.world === null ? worldThing(machine.world) : ctx.world, [GRANT]: ctx.caps };
+  if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps && (ctx as Granted)[EPOCH] === ctx.caps) return ctx;
+  const root: Granted = { ...ctx, world: ctx.world === null ? worldThing(machine.world) : ctx.world, [GRANT]: ctx.caps, [EPOCH]: ctx.caps };
   return root;
 }
 
@@ -2000,14 +2028,14 @@ class CompiledPlan implements Plan {
   evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
-    const s = new Session(machine, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
+    const s = new Session(machine, ctx.caps, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
     return this.code(ctx, s);
   }
 
   run(context: Context = makeContext(), runOptions: PlanRunOptions = {}): Promise<Result> {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
-    const s = new Session(machine, true, this.traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
+    const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
     return driveWaiting(this.runCode()(ctx, s), runOptions.signal);
   }
 }
@@ -2075,7 +2103,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
     ...(given.verb === undefined ? {} : { verb: given.verb }),
   });
   const ctx = rootContext(machine, context);
-  const s = new Session(machine, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
+  const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
   const result = (plan as CompiledPlan).code(ctx, s);
   return record(s, result);
 }
@@ -2098,7 +2126,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
     ...(options.verb === undefined ? {} : { verb: options.verb }),
   });
   const ctx = rootContext(machine, context);
-  const s = new Session(machine, true, true, options.perform, options.signal, undefined, readingOf(options.reads, ctx));
+  const s = new Session(machine, ctx.caps, true, true, options.perform, options.signal, undefined, readingOf(options.reads, ctx));
   const result = await driveWaiting((plan as CompiledPlan).runCode()(ctx, s), options.signal);
   return record(s, result);
 }

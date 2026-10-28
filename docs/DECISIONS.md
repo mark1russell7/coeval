@@ -1322,3 +1322,35 @@ The design calls are the rule that narrows, the code that gets it and the cost f
 The cost stays one comparison for a context whose grant is its own list, without a new object. A context that the code changed costs one meet, and a new object only when the meet differs from its list. The change is a correction, but a result changes for code that widens to a coarser capability. An effect that gave `#CAP!` starts after the change, and a part or a walker reads another list.
 
 **Limits.** A context that compiled code keeps from an earlier evaluation still escapes the grant (K120).
+
+## D54 (2026-10-28): a grant has the epoch of its evaluation, and a context of another epoch has no grant
+
+**Context.** K120, from K92 (D36). A context carries the grant of the kernel (D32). Compiled code can keep a context from one evaluation and give it to a part or an effect in a later evaluation. The kept context carried its own grant, thus the later evaluation caused the effects of the earlier one, also with fewer capabilities.
+
+The reference has no such context, because its definitions cause each effect in the context of the document. `conforms` found such code (C1), but a plan did not refuse it.
+
+The design calls are the mark of an evaluation, the rule for a context of another evaluation and the cost for each part.
+
+**Decision.**
+
+- Each grant has an epoch: the list of capabilities that the host gave the root of its evaluation (CAP.NARROW-KEPT). The epoch is a field with a private symbol as its key, next to the grant. A spread of a context keeps it.
+- `rootContext` gives the root the epoch of the list of the host. A root of that list stays the same object. Thus a schedule makes no copy for a demand.
+- An effect and a resolution through the runtime compare the epoch of the context with the epoch of the evaluation. A context of another epoch reads as a context without a grant: it has no capabilities (D32). Thus its effect gives `#CAP!`, and its read of the root `caps` gives `[]`.
+- A part of a function evaluator gets the epoch of its document, because `narrow` keeps only what the document permits. Thus function code narrows a kept context to its document, as the reference does.
+- The reference does not change. A closure keeps the runtime of its maker, thus it keeps its grant (CAP.LATENT).
+- `conforms` keeps C1 as a report. The kernel refuses a context of another epoch. But a context that the code keeps inside one epoch still escapes the meet with its document.
+
+**Rejected.**
+
+- The meet of a kept context with the list of the current root. A kept context can come from another document, for example from outside a rule `mask`. The meet with the root then gives a part more capabilities than its document has.
+- The session as the epoch. Each evaluation then needs a new root object, also for a schedule that gives one context to each demand.
+- A check at the start of each document. Only the session knows its epoch, and a runtime that wraps the session (D29) does not give it. A part with a kept context reaches the session at each effect and each resolution.
+- An epoch from a counter for each evaluation. The tiers of `agree` then lose the grant of a kept context, and so does a host that gives one list to each evaluation. This gives nothing, because the list of the host permits each capability of the grant.
+
+**Why.** The grant of a kept context is a part of the list of its root. In an evaluation with the same list, the grant permits nothing that the root does not permit. In an evaluation with another list, the kernel cannot know the document of the context. Thus the context gets no capabilities, as a context without a spread (D32).
+
+A context of the current epoch costs one comparison at each effect and each resolution, without a new object. The start of a document pays nothing. A context of another epoch costs one new object.
+
+The change is a correction. Code that keeps a context from an evaluation with another list gets `#CAP!` for an effect that started before the change. Thus a result changes, also when the later list permits the effect. `agree` then finds a difference from the definition of the code, as for a context without a spread.
+
+**Limits.** A context that compiled code keeps inside one epoch keeps its grant. It can come from another document of the same epoch, thus it can still give a part more capabilities than its document has. `conforms` finds such code (C1). A direct read of the field `caps` of a kept context gives its old list.

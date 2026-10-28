@@ -61,6 +61,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D51 | `#CYCLE!` keeps its code. Its reason tells a real cycle of references from a resolution that follows more than 64 references. A lookup gives `too-long` after 32 aliases without a cycle. |
 | D52 | Compiled code reads the root `caps` through the grant: the capabilities that both its context and the grant permit. A widened context reads the list of its document, as in the reference. |
 | D53 | The meet of two lists narrows each part, each effect and each resolution, for function code and for compiled code. A coarser list from code gives what the document permits. |
+| D54 | Each grant has an epoch: the list of capabilities of the host. An effect or a resolution reads a context of another epoch as a context without a grant. |
 
 ## Open
 

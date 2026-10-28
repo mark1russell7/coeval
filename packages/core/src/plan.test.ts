@@ -3,8 +3,10 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   type CompiledEvaluator,
+  type Context,
   type CompiledRunner,
   type Effect,
+  type EvalFn,
   type Machine,
   type Plan,
   type Result,
@@ -233,6 +235,78 @@ describe("capabilities", () => {
     expect(narrow(parent, { ...parent, caps: ["log.debug"] }).caps).toEqual(["log.debug"]);
     // A coarser capability keeps the meet with the parent (CAP.MEET), not nothing.
     expect(narrow(makeContext({}, ["log.a"]), { ...parent, caps: ["log"] }).caps).toEqual(["log.a"]);
+  });
+
+  it("[CAP.NARROW-KEPT] a context that compiled code keeps from an earlier evaluation has no grant in a later one, and function code narrows it to its document", () => {
+    // Each kind keeps the context of the first evaluation of its plan. The function evaluator keeps one for the test.
+    const keep: CompiledEvaluator = {
+      compile: ({ parts }) => {
+        let first: Context | undefined;
+        return (ctx, rt) => {
+          first ??= ctx;
+          const values: unknown[] = [];
+          for (const part of parts) {
+            const result = part.code(first, rt);
+            if (!result.ok) return result;
+            values.push(result.value);
+          }
+          return ok(values);
+        };
+      },
+    };
+    const peek: CompiledEvaluator = {
+      compile: () => {
+        let first: Context | undefined;
+        return (ctx, rt) => {
+          first ??= ctx;
+          const found = rt.resolve(first, ["caps"]);
+          return found.ok ? ok(found.thing) : fail(found.code, found.reason);
+        };
+      },
+    };
+    let held: Context | undefined;
+    const keepFn: EvalFn = ({ parts, context: ctx }) => {
+      held ??= ctx;
+      return (parts[0] as (typeof parts)[number]).evaluate(held);
+    };
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: {
+        ...STD_MACHINE.world,
+        kinds: {
+          ...STD_MACHINE.world.kinds,
+          keep: { verbs: { eval: "test.keep" }, parts: { shape: "list" } },
+          peek: { verbs: { eval: "test.peek" } },
+          keepFn: { verbs: { eval: "test.keep-fn" }, parts: { shape: "list" } },
+        },
+      },
+      evaluators: { ...STD_MACHINE.evaluators, "test.keep": keep, "test.peek": peek, "test.keep-fn": keepFn },
+    };
+    const log = { type: "log", value: ["a"] };
+    const refused = { ok: false, error: { code: "#CAP!", place: [0] } };
+    const logs = ["log"] as const;
+    const first = makeContext({}, logs);
+    const plan = prepare(machine, { type: "keep", value: [log] });
+    const effects: Effect[] = [];
+    expect(plan.evaluate(first, { effects })).toMatchObject({ ok: true });
+    expect(effects.map((effect) => effect.kind)).toEqual(["log"]);
+    // Before K120, each later evaluation caused the effect log with the kept context.
+    for (const later of [makeContext(), makeContext({}, ["write"]), makeContext({}, ["log"])]) {
+      const again: Effect[] = [];
+      expect(plan.evaluate(later, { effects: again }), String(later.caps)).toMatchObject(refused);
+      expect(again).toEqual([]);
+    }
+    // The epoch is the list of the host, thus a later evaluation with the same list keeps the grant.
+    expect(plan.evaluate(makeContext({ other: 1 }, logs))).toMatchObject({ ok: true });
+    // A read of the root caps through a kept context of another epoch gives no capabilities. Before K120, it gave ["log"].
+    const caps = prepare(machine, { type: "peek", value: null });
+    expect(caps.evaluate(first)).toEqual(ok(["log"]));
+    expect(caps.evaluate(makeContext({}, ["log", "write"]))).toEqual(ok([]));
+    // Function code narrows a kept context to its document, thus it keeps the result of the reference.
+    const fn = prepare(machine, { type: "keepFn", value: [log] });
+    expect(fn.evaluate(makeContext({}, ["log", "write"]))).toMatchObject({ ok: true });
+    expect(fn.evaluate(makeContext({}, ["log"]))).toMatchObject({ ok: true });
+    expect(fn.evaluate(makeContext())).toMatchObject(refused);
   });
 
   it("[CAP.CONTRACT] the kernel narrows the context of each part by the capability rules of its kind", async () => {
