@@ -1,32 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
-  type Context,
+  type AgreeScheduleOptions,
   type Effect,
   type FormulaProfile,
-  type GenerateOptions,
-  type HostThing,
   type Json,
   type Key,
-  type Machine,
   type Random,
   type Result,
-  Failure,
+  type Schedule,
+  type ScheduleAgreement,
+  type ScheduleEngineFactory,
+  type ScheduleOptions,
   Held,
   STD_MACHINE,
-  THING,
+  agreeSchedule,
   context,
   cycles,
   edgesOf,
   factsOf,
   fail,
   formulaMachine,
-  generate,
   isClosure,
   isHostThing,
   jsTruthy,
   ok,
-  prepare,
-  random,
   sameResult,
   schedule,
   typesOf,
@@ -453,354 +450,233 @@ describe("the interface of a schedule", () => {
   });
 });
 
-/* The harness for one meaning across schedules (R4 P4): an evaluation of the whole graph from scratch, and the demand schedule. */
+/* The harness for one meaning across schedules (R4 P4): `agreeSchedule` compares an engine with an evaluation from scratch. */
 
 const NODES: readonly string[] = ["p", "q", "r", "s", "t"];
-const HOST: readonly string[] = ["a", "b", "x", "n"];
-
-/** The values of the names of the host. Some are equal by structure, and some are host values. */
-const VALUES: readonly unknown[] = [0, 1, 2, -0, Number.NaN, "two", null, undefined, [1, 2], { a: 1 }, { a: 2 }, ref("names", "a"), new Held({ code: "#HELD", reason: "The binding failed." })];
-
-const BASES: readonly Context[] = [
-  context({ names: { a: 1, b: [1, "two"], x: { a: 1 }, n: 2 }, caps: ["log"] }),
-  context({ names: { a: "two", b: 0, x: null }, self: { a: 1 }, event: { a: 2 } }),
-];
-
-/** This function gives new names of the host, with one or two changes. */
-function change(base: Context, rng: Random): Readonly<Record<string, unknown>> {
-  const names: Record<string, unknown> = { ...base.names };
-  for (let step = 1 + rng.int(2); step > 0; step -= 1) {
-    const name = rng.pick(HOST);
-    if (rng.chance(0.15)) delete names[name];
-    else names[name] = rng.pick(VALUES);
-  }
-  return names;
-}
-
-/** This function puts a field on a record, also the field `__proto__`. */
-function put(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-}
-
-/** This function changes each path from `names` to a node into a path from `world`. Some paths read the whole root. */
-function linked(value: unknown, rng: Random): unknown {
-  if (Array.isArray(value)) {
-    const items = value.map((item) => linked(item, rng));
-    if (items[0] === "names" && typeof items[1] === "string" && NODES.includes(items[1])) return rng.chance(0.03) ? ["world"] : ["world", ...items.slice(1)];
-    return items;
-  }
-  if (typeof value !== "object" || value === null) return value;
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) put(out, key, linked((value as Record<string, unknown>)[key], rng));
-  return out;
-}
-
 const MORE_REFS: readonly (readonly Key[])[] = Array.from({ length: 8 }, () => ["ref"]);
 const OP_TYPES: readonly (readonly Key[])[] = [...Object.keys(OPS).map((name) => ["ops", name]), ["ops", "ifError"], ["ops", "ifError"], ["ops", "second"]];
 
 interface Config {
   readonly name: string;
-  readonly machines: readonly Machine[];
-  readonly declaredType?: string;
-  readonly options: Omit<GenerateOptions, "seed" | "names">;
+  /** The options of `agreeSchedule`. The configuration `standard` uses the defaults. */
+  readonly options: AgreeScheduleOptions;
   /** `true`: some nodes are on the run side. */
   readonly runs: boolean;
-  /** This function gives a small value document. */
-  readonly value: (rng: Random) => unknown;
-  /** This function gives a document that reads other nodes, some after a failed read. Such nodes make dense cycles. */
-  readonly wire: (rng: Random) => unknown;
-  /** The share of the nodes that `wire` gives. */
-  readonly wired: number;
   /** `true`: a literal can hold a reference to a node (S1d). Then the static edges do not show each read of a node. */
   readonly inData: boolean;
 }
 
-const node = (rng: Random): Json => ref("world", rng.pick(NODES));
-
 /** This function gives a formula that reads one or two nodes. Some formulas read a node after a failed read. */
-function wireFormula(rng: Random): Json {
+function wireFormula(rng: Random, node: () => Json): Json {
   const roll = rng.int(6);
-  if (roll === 0) return op("pair", op("ifError", node(rng), 0), op("ifError", node(rng), 1));
-  if (roll === 1) return op("ifError", node(rng), node(rng));
-  if (roll === 2) return op("ifError", node(rng), rng.int(9));
-  if (roll === 3) return op("pair", node(rng), node(rng));
-  return roll === 4 ? op("add", node(rng), 1) : node(rng);
+  if (roll === 0) return op("pair", op("ifError", node(), 0), op("ifError", node(), 1));
+  if (roll === 1) return op("ifError", node(), node());
+  if (roll === 2) return op("ifError", node(), rng.int(9));
+  if (roll === 3) return op("pair", node(), node());
+  return roll === 4 ? op("add", node(), 1) : node();
 }
 
 const CONFIGS: readonly Config[] = [
   {
     name: "formula",
-    machines: [strictMachine, looseMachine],
-    declaredType: "lit",
     options: {
+      machines: [strictMachine, looseMachine],
       declaredType: "lit",
-      maxSize: 16,
-      types: [...typesOf(strictMachine.world), ...OP_TYPES, ["ext", "count"], ["ext", "here"], ...MORE_REFS, ["if"], ["and"], ["fn"], ["let"]],
-      hints: (type, path) => (type[0] === "call" && path[0] === "fn" ? [["fn"], ["ref"]] : type[0] === "ops" && (type[1] === "map" || type[1] === "apply") ? [["fn"]] : undefined),
-      // A literal that holds a reference to a node: a read of the literal follows it (DEREF.COLLAPSE, S1d).
-      data: (type, rng) => (type.join(".") === "lit" && rng.chance(0.1) ? ref("names", rng.pick(NODES)) : undefined),
+      generate: {
+        declaredType: "lit",
+        maxSize: 16,
+        types: [...typesOf(strictMachine.world), ...OP_TYPES, ["ext", "count"], ["ext", "here"], ...MORE_REFS, ["if"], ["and"], ["fn"], ["let"]],
+        hints: (type, path) => (type[0] === "call" && path[0] === "fn" ? [["fn"], ["ref"]] : type[0] === "ops" && (type[1] === "map" || type[1] === "apply") ? [["fn"]] : undefined),
+        // A literal that holds a reference to a node: a read of the literal follows it (DEREF.COLLAPSE, S1d).
+        data: (type, rng) => (type.join(".") === "lit" && rng.chance(0.1) ? ref("names", rng.pick(NODES)) : undefined),
+      },
+      runs: false,
+      value: (rng) => rng.pick<unknown>([0, 1, "two", [1, 2], { a: 1 }, null]),
+      wire: wireFormula,
+      wired: 0.2,
     },
     runs: false,
-    value: (rng) => rng.pick<unknown>([0, 1, "two", [1, 2], { a: 1 }, null]),
-    wire: wireFormula,
-    wired: 0.2,
     inData: true,
   },
-  {
-    name: "standard",
-    machines: [STD_MACHINE, { ...STD_MACHINE }],
-    options: {
-      maxSize: 16,
-      types: [...typesOf(STD_MACHINE.world).filter((type) => type[0] !== "log" && type[0] !== "write"), ...MORE_REFS, ["if"], ["add"]],
-      data: (type, rng) => {
-        const name = type.join(".");
-        if (name === "number") return rng.chance(0.9) ? rng.pick([0, 1, 2, 3.5, -1]) : "1";
-        if (name === "text") return rng.chance(0.9) ? rng.pick(["", "a", "b"]) : 1;
-        if (name === "bool") return rng.chance(0.9) ? rng.chance(0.5) : 0;
-        if (name === "nearest") return rng.pick<Json>([{ type: "panel" }, "panel"]);
-        return undefined;
-      },
-    },
-    runs: true,
-    value: (rng) => ({ type: "number", value: rng.pick([0, 1, 2]) }),
-    // A list evaluates each part, also after a failed part.
-    wire: (rng) => (rng.chance(0.5) ? { type: "list", value: [node(rng), node(rng)] } : rng.chance(0.5) ? { type: "add", value: [node(rng), 1] } : node(rng)),
-    wired: 0.2,
-    inData: false,
-  },
+  // The defaults of `agreeSchedule` fit the standard machine: a copy of the machine, and some nodes on the run side.
+  { name: "standard", options: {}, runs: true, inData: false },
   {
     // A dense graph: most nodes read two nodes and catch a failed read. It makes many cycles that share nodes.
     name: "wired",
-    machines: [strictMachine, looseMachine],
-    declaredType: "lit",
-    options: { declaredType: "lit", maxSize: 8, types: [...OP_TYPES, ["ref"], ["lit"]] },
+    options: {
+      machines: [strictMachine, looseMachine],
+      declaredType: "lit",
+      generate: { declaredType: "lit", maxSize: 8, types: [...OP_TYPES, ["ref"], ["lit"]] },
+      runs: false,
+      value: (rng) => rng.pick<unknown>([0, 1, 2]),
+      wire: wireFormula,
+      wired: 0.85,
+    },
     runs: false,
-    value: (rng) => rng.pick<unknown>([0, 1, 2]),
-    wire: wireFormula,
-    wired: 0.85,
     inData: false,
   },
 ];
 
-/**
- * This function evaluates each node of a graph from scratch, with the meaning of D31: a new plan for each node, one
- * value for each node, and the algorithm of Tarjan over the demands for the cycles. It keeps nothing between calls.
- */
-function fromScratch(config: Config, machine: Machine, docs: ReadonlyMap<string, unknown>, base: Context): ReadonlyMap<string, Result> {
-  const declared = config.declaredType === undefined ? {} : { declaredType: config.declaredType };
-  const values = new Map<string, Result>();
-  const index = new Map<string, number>();
-  const lowest = new Map<string, number>();
-  const component: string[] = [];
-  const evaluating: string[] = [];
-  const selfReads = new Set<string>();
-  const visit = (id: string): Result => {
-    const reader = evaluating[evaluating.length - 1];
-    const link = (to: number): void => {
-      if (reader !== undefined) lowest.set(reader, Math.min(lowest.get(reader) as number, to));
-    };
-    const done = values.get(id);
-    if (done !== undefined) {
-      if (component.includes(id)) link(index.get(id) as number);
-      return done;
-    }
-    if (evaluating.includes(id)) {
-      link(index.get(id) as number);
-      if (reader === id) selfReads.add(id);
-      return cycle(id);
-    }
-    if (factsOf(machine, docs.get(id), declared).side === "run") {
-      values.set(id, refused(id));
-      return refused(id);
-    }
-    index.set(id, index.size);
-    lowest.set(id, index.get(id) as number);
-    component.push(id);
-    evaluating.push(id);
-    let result = prepare(machine, docs.get(id), declared).evaluate(ctx);
-    evaluating.pop();
-    if ((lowest.get(id) as number) < (index.get(id) as number)) result = cycle(id);
-    else if (component.splice(component.indexOf(id)).length > 1 || selfReads.has(id)) result = cycle(id);
-    values.set(id, result);
-    link(lowest.get(id) as number);
-    return result;
-  };
-  const world: HostThing = {
-    [THING]: true,
-    label: "nodes",
-    deref: (key) => {
-      if (!docs.has(String(key))) return undefined;
-      const result = visit(String(key));
-      if (!result.ok) throw new Failure(result.error);
-      return result.value;
-    },
-    has: (key) => docs.has(String(key)),
-    toJson: () => {
-      const out: Record<string, unknown> = {};
-      for (const id of [...docs.keys()].sort()) {
-        if (factsOf(machine, docs.get(id), declared).side === "run") continue;
-        const result = visit(id);
-        if (!result.ok) throw new Failure(result.error);
-        put(out, id, result.value);
-      }
-      return out;
-    },
-  };
-  const ctx: Context = { ...base, world };
-  for (const id of [...docs.keys()].sort()) visit(id);
-  return values;
-}
-
-function shuffle<T>(items: readonly T[], rng: Random): T[] {
-  const out = [...items];
-  for (let index = out.length - 1; index > 0; index -= 1) {
-    const other = rng.int(index + 1);
-    [out[index], out[other]] = [out[other] as T, out[index] as T];
-  }
-  return out;
-}
-
-interface Outcome {
-  /** The reads whose result is not the same as the result from scratch. */
-  readonly stale: readonly string[];
-  /** The nodes that give `#CYCLE!` from scratch, and that no static cycle of `cycles` has (GRAPH.CYCLE). */
-  readonly missed: readonly string[];
-  readonly counts: Readonly<Record<string, number>>;
+/** What a watched schedule saw: the nodes with `#CYCLE!` and no static cycle, the certain cycles, and the work. */
+interface Watch {
+  readonly missed: string[];
+  readonly schedules: Schedule[];
+  certain: number;
 }
 
 /**
- * This function runs random commands against a demand schedule, and it compares each read with an evaluation of the
- * whole graph from scratch. A demand of the host first demands the nodes that the eager edges reach (S2a). Each node
- * that gives `#CYCLE!` from scratch is on a static cycle, unless a literal holds a reference to a node (S1d). A
- * mutant host changes its names in place, and it does not tell the schedule.
+ * This function makes demand schedules for `agreeSchedule`, and it watches each answer. Each node that gives `#CYCLE!`
+ * is on a static cycle of `cycles`, unless a literal holds a reference to a node (S1d). The schedule agrees with the
+ * evaluation from scratch, thus its answer is also the answer from scratch.
  */
-function harness(config: Config, mutant = false, total: number = COUNT): Outcome {
-  const stale: string[] = [];
-  const missed: string[] = [];
-  const counts: Record<string, number> = {};
-  const add = (name: string, by = 1): void => {
-    counts[name] = (counts[name] ?? 0) + by;
-  };
-  for (let run = 0; run < total; run += 1) {
-    const seed = 9_000_011 + run;
-    const rng = random(seed);
-    let at = 0;
-    let machine = config.machines[0] as Machine;
-    let made = 0;
-    const make = (): unknown => {
-      if (rng.chance(config.wired)) return config.wire(rng);
-      const roll = rng.int(10);
-      if (roll === 0) return config.value(rng);
-      // Some nodes read only the data of the host, thus the graph is not always one component.
-      const names = roll < 5 ? HOST : [...HOST, ...NODES, ...NODES, ...NODES];
-      const doc = linked(generate(machine.world, { ...config.options, names, seed: seed * 31 + made++ }), rng);
-      return config.runs && roll === 9 ? { type: "log", value: [doc] } : doc;
-    };
-    const docs = new Map<string, unknown>(NODES.map((id) => [id, make()]));
-    let base: Context = { ...(BASES[run % BASES.length] as Context) };
-    base = { ...base, names: { ...base.names } };
-    const s = schedule(machine, { ...(config.declaredType === undefined ? {} : { declaredType: config.declaredType }), context: base });
-    for (const [id, doc] of docs) s.set(id, doc);
-    for (let step = 0; step < STEPS; step += 1) {
-      const what = rng.int(12);
-      if (what < 4) {
-        const fresh = fromScratch(config, machine, docs, base);
-        const again = fromScratch(config, machine, docs, base);
-        const ids = shuffle([...docs.keys()], rng);
-        // The static cycles of the graph: the possible cycles and the certain cycles.
-        const found = cycles(s.graph());
-        const onCycle = new Set(found.flatMap((each) => each.nodes));
-        const certain = new Set(found.filter((each) => each.certain).flatMap((each) => each.nodes));
-        // Half of the reads demand each node in a random order, and the other half demand one node.
-        for (const id of rng.chance(0.5) ? ids : ids.slice(0, 1)) {
-          const got = s.read(id);
-          const want = fresh.get(id) as Result;
-          add("reads");
-          // A result that is new at each evaluation has no one result to compare.
-          if (!sameResult(want, again.get(id) as Result, equal)) {
-            add("unrepeatable");
-            continue;
+function watched(config: Config, watch: Watch, order: ScheduleOptions = {}): ScheduleEngineFactory {
+  return (machine, start) => {
+    const s = schedule(machine, { ...start, ...order });
+    watch.schedules.push(s);
+    return {
+      set: (id, doc) => s.set(id, doc),
+      remove: (id) => s.remove(id),
+      changeData: (next) => s.changeData(next),
+      changeMachine: (next) => s.changeMachine(next),
+      read(id) {
+        const got = s.read(id);
+        if (sameResult(got, cycle(id))) {
+          const found = cycles(s.graph());
+          if (found.some((each) => each.certain && each.nodes.includes(id))) watch.certain += 1;
+          if (!config.inData && !found.some((each) => each.nodes.includes(id))) {
+            watch.missed.push(`${config.name} node ${id}: no static cycle\n  docs ${show([...s.graph()].map(([key, info]) => [key, info.doc]))}`);
           }
-          add("compared");
-          if (sameResult(want, cycle(id))) {
-            add("cycles");
-            if (certain.has(id)) add("certain");
-            if (!config.inData && !onCycle.has(id)) missed.push(`${config.name} seed ${seed} step ${step} node ${id}: no static cycle\n  docs ${show([...docs])}`);
-          } else if (sameResult(want, refused(id))) add("runs");
-          else if (want.ok) add("values");
-          if (!sameResult(got, want, equal)) stale.push(`${config.name} seed ${seed} step ${step} node ${id}: ${show(got)} and from scratch ${show(want)}\n  docs ${show([...docs])}`);
         }
-      } else if (what < 6) {
-        const names = change(base, rng);
-        if (mutant) {
-          // The mutant host breaks the promise of DURABLE.REUSE: a value of its context changes in place.
-          for (const key of Object.keys(base.names)) delete (base.names as Record<string, unknown>)[key];
-          Object.assign(base.names, names);
-        } else {
-          base = { ...base, names };
-          s.changeData(base);
-        }
-        add("data");
-      } else if (what === 6) {
-        // A change of data that changes no value: each node verifies.
-        s.changeData();
-        add("empty");
-      } else if (what < 9) {
-        const id = rng.pick(NODES);
-        const doc = make();
-        docs.set(id, doc);
-        s.set(id, doc);
-        add("edits");
-      } else if (what === 9) {
-        const absent = NODES.filter((id) => !docs.has(id));
-        if (absent.length > 0 && (docs.size <= 2 || rng.chance(0.65))) {
-          const id = rng.pick(absent);
-          const doc = make();
-          docs.set(id, doc);
-          s.set(id, doc);
-          add("additions");
-        } else {
-          const id = rng.pick([...docs.keys()]);
-          docs.delete(id);
-          s.remove(id);
-          add("removes");
-        }
-      } else if (what === 10) {
-        // The same document object again: a change of the structure without an edit.
-        const id = rng.pick([...docs.keys()]);
-        s.set(id, docs.get(id));
-        add("same");
-      } else {
-        at = (at + 1) % config.machines.length;
-        machine = config.machines[at] as Machine;
-        s.changeMachine(machine);
-        add("machines");
-      }
-    }
-    const work = s.counts;
-    add("evaluations", work.evaluations);
-    add("verifications", work.verifications);
-    add("reuses", work.reuses);
-    add("ahead", work.ahead);
-  }
-  return { stale, missed, counts };
+        return got;
+      },
+    };
+  };
 }
+
+/** This function gives a short text of a disagreement for the message of a failed test. */
+function told(outcome: ScheduleAgreement): readonly string[] {
+  if (outcome.ok) return [];
+  return [`seed ${outcome.seed} step ${outcome.step} node ${outcome.node}: ${show(outcome.engine)} and from scratch ${show(outcome.scratch)}\n  docs ${show([...outcome.docs])}`];
+}
+
+/** This function gives the sum of the work of the watched schedules. */
+function work(watch: Watch): Readonly<Record<string, number>> {
+  const sum = { evaluations: 0, verifications: 0, reuses: 0, ahead: 0, certain: watch.certain };
+  for (const s of watch.schedules) {
+    const counts = s.counts;
+    sum.evaluations += counts.evaluations;
+    sum.verifications += counts.verifications;
+    sum.reuses += counts.reuses;
+    sum.ahead += counts.ahead;
+  }
+  return sum;
+}
+
+const newWatch = (): Watch => ({ missed: [], schedules: [], certain: 0 });
+
+/**
+ * This function makes a mutant host for `agreeSchedule`. The host breaks the promise of DURABLE.REUSE: it changes the
+ * names of its first context in place, and it does not tell the schedule.
+ */
+const inPlace: ScheduleEngineFactory = (machine, start) => {
+  const s = schedule(machine, start);
+  const names = start.context.names as Record<string, unknown>;
+  return {
+    set: (id, doc) => s.set(id, doc),
+    remove: (id) => s.remove(id),
+    changeData(next) {
+      for (const key of Object.keys(names)) delete names[key];
+      Object.assign(names, next.names);
+    },
+    changeMachine: (next) => s.changeMachine(next),
+    read: (id) => s.read(id),
+  };
+};
 
 describe("one meaning across schedules", () => {
   it("[SCHED.ONE-MEANING] after random changes the demand schedule gives each node the result of an evaluation from scratch, also for each cycle and in each order", () => {
     for (const config of CONFIGS) {
-      const outcome = harness(config);
-      expect(outcome.stale.slice(0, 3), `${config.name}: ${show(outcome.counts)}`).toEqual([]);
-      expect(outcome.missed.slice(0, 3), config.name).toEqual([]);
+      const watch = newWatch();
+      const outcome = agreeSchedule(watched(config, watch), { ...config.options, count: COUNT, steps: STEPS, equal });
+      expect(told(outcome), config.name).toEqual([]);
+      expect(watch.missed.slice(0, 3), config.name).toEqual([]);
+      const counts: Readonly<Record<string, number>> = { ...(outcome.counts as unknown as Record<string, number>), ...work(watch) };
       // The harness reaches each command and each answer of the schedule, and the demands ahead of a node (S2a).
       for (const name of ["data", "empty", "edits", "removes", "additions", "same", "machines", "verifications", "reuses", "cycles", "ahead"]) {
-        expect(outcome.counts[name] ?? 0, `${config.name}: ${name} in ${show(outcome.counts)}`).toBeGreaterThan(COUNT / 4);
+        expect(counts[name] ?? 0, `${config.name}: ${name} in ${show(counts)}`).toBeGreaterThan(COUNT / 4);
       }
-      expect(outcome.counts["compared"] ?? 0, config.name).toBeGreaterThan(COUNT * 10);
-      expect(outcome.counts["values"] ?? 0, config.name).toBeGreaterThan(COUNT * 3);
-      if (config.runs) expect(outcome.counts["runs"] ?? 0, config.name).toBeGreaterThan(COUNT / 2);
+      expect(counts["compared"] ?? 0, config.name).toBeGreaterThan(COUNT * 10);
+      expect(counts["values"] ?? 0, config.name).toBeGreaterThan(COUNT * 3);
+      if (config.runs) expect(counts["runs"] ?? 0, config.name).toBeGreaterThan(COUNT / 2);
     }
     // A host that changes its data in place gets stale values, and the harness finds them.
-    expect(harness(CONFIGS[0] as Config, true, COUNT / 2).stale.length).toBeGreaterThan(0);
+    const first = CONFIGS[0] as Config;
+    expect(agreeSchedule(inPlace, { ...first.options, count: COUNT / 2, equal }).ok).toBe(false);
+  }, 120_000);
+
+  it("[SCHED.AGREES] agreeSchedule examines each schedule order of the kernel against an evaluation from scratch, and it finds a wrong engine", () => {
+    // The demand schedule with verifying traces: the function schedule itself is a factory of engines.
+    // The demand schedule with a memo only: each read is volatile, thus a node with a read does not verify (DURABLE.DATA).
+    const orders: readonly (readonly [string, ScheduleOptions])[] = [
+      ["verifying traces", {}],
+      ["a memo only", { volatile: () => true }],
+    ];
+    for (const config of CONFIGS) {
+      const reuses: number[] = [];
+      for (const [name, order] of orders) {
+        const watch = newWatch();
+        const outcome = agreeSchedule(watched(config, watch, order), { ...config.options, count: COUNT / 4, equal });
+        expect(told(outcome), `${name}, ${config.name}`).toEqual([]);
+        expect(outcome.counts.compared, `${name}, ${config.name}`).toBeGreaterThan(COUNT * 2);
+        reuses.push(work(watch)["reuses"] ?? 0);
+      }
+      // The same seed gives each order the same commands. The order with verifying traces keeps more old results.
+      expect(reuses[0] ?? 0, config.name).toBeGreaterThan(reuses[1] ?? 0);
+    }
+    expect(agreeSchedule(schedule, { count: 10 })).toMatchObject({ ok: true });
+
+    // A wrong engine that keeps the first answer of each node gets a stale answer, and the harness names it.
+    const keeps: ScheduleEngineFactory = (machine, start) => {
+      const s = schedule(machine, start);
+      const answers = new Map<string, Result>();
+      return {
+        set: (id, doc) => s.set(id, doc),
+        remove: (id) => s.remove(id),
+        changeData: (next) => s.changeData(next),
+        read(id) {
+          const known = answers.get(id) ?? s.read(id);
+          answers.set(id, known);
+          return known;
+        },
+      };
+    };
+    const stale = agreeSchedule(keeps, { count: 20 });
+    if (stale.ok) throw new Error("The harness did not find the stale engine.");
+    expect(sameResult(stale.engine, stale.scratch)).toBe(false);
+    expect(stale.docs.has(stale.node)).toBe(true);
+    expect(stale.step).toBeLessThan(STEPS);
+    expect(stale.reason).toContain(`the node ${stale.node}`);
+    // The same seed gives the same commands, thus the disagreement occurs again.
+    expect(agreeSchedule(keeps, { count: 20 })).toMatchObject({ ok: false, seed: stale.seed, step: stale.step, node: stale.node });
+
+    // A wrong engine that keeps the first document of each node misses an edit.
+    const noEdits: ScheduleEngineFactory = (machine, start) => {
+      const s = schedule(machine, start);
+      return {
+        set: (id, doc) => (s.graph().has(id) ? undefined : s.set(id, doc)),
+        remove: (id) => s.remove(id),
+        changeData: (next) => s.changeData(next),
+        read: (id) => s.read(id),
+      };
+    };
+    expect(agreeSchedule(noEdits, { count: 20 }).ok).toBe(false);
+
+    // An engine without changeMachine gets no new machine, and it still agrees.
+    const one: ScheduleEngineFactory = (machine, start) => {
+      const s = schedule(machine, start);
+      return { set: (id, doc) => s.set(id, doc), remove: (id) => s.remove(id), changeData: (next) => s.changeData(next), read: (id) => s.read(id) };
+    };
+    const outcome = agreeSchedule(one, { count: 10 });
+    expect(outcome).toMatchObject({ ok: true, counts: { machines: 0 } });
   }, 120_000);
 });

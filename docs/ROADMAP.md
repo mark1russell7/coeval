@@ -218,10 +218,12 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | S2b | A long chain through lazy reads, or through an edge without a target, on demand. Such a chain still uses the stack of the host for each node, because a demand ahead follows only the eager edges. From S2a. | later | S2a |
 | S2c | A certain cycle with more nodes than the stack of the host holds. Its demand still uses the stack for each node of the cycle, and it gives `#DEPTH!`. From S2a. | later | S2a |
 | S2d | A host reports the certain cycles of a schedule before a run, for example as issues of `check` with the code `#CYCLE!`. Today a host gives `schedule.graph()` to `cycles`. From S2. | later | S2 |
-| S3 | Adapters to the reactive engines of the hosts | later (S3a and S3b first, from R4) | S1 |
-| S3a | A harness for one meaning across schedules: a model-based test, and `agreeSchedule(engine)` for the engine of each host (R4 P4) | later (S1 has the core: SCHED.ONE-MEANING compares the demand schedule with an evaluation from scratch. S3a adds push-pull, push by height, verifying traces and the export for the engines of the hosts) | K9, K22, S1b, S1 |
+| S3 | Adapters to the reactive engines of the hosts | later (S3b first, from R4. S3a is done) | S1 |
+| S3a | A harness for one meaning across schedules: a model-based test, and `agreeSchedule(engine)` for the engine of each host (R4 P4) | done (2026-10-28, D58, released in the next batch: `agreeSchedule` and its types. The kernel has two orders, demand with verifying traces and demand with a memo only, and both agree. Push-pull and push by height are not in the kernel: S3d and S3e) | K9, K22, S1b, S1 |
 | S3b | A reference adapter for signals in the tests, with `sameResult` as its `equals` (R4 P6) | later | K22 |
 | S3c | Derivatives of aggregates: an operation of a profile gives a derivative, thus an aggregate updates in a time that the size of the change sets (R4 P8) | later (only after a language over positions asks for it) | S3, L4 |
+| S3d | A push-pull schedule: a change pushes dirty marks to the readers, and a demand pulls only the dirty nodes. `agreeSchedule` examines it. S3b gives a first push-pull engine in the tests. From S3a. | later | S3a, S1 |
+| S3e | A push schedule by height: after a change, the changed nodes evaluate in the order of `heights`, with an early cutoff by `sameResult`. `agreeSchedule` examines it. From S3a. | later | S3a, S2, K22 |
 | S4 | Equations for effect kinds: a contract declares which operations commute, so that a schedule can change the order of their steps (R2 P6) | later | S1 |
 
 ## The migration of the languages
@@ -258,7 +260,7 @@ Each study answers one research question and ranks its proposals. The folder `do
 | R1 | [Staging and partial evaluation](research/r1-staging.md) | done (2026-10-24) | K9, K12 to K17. K12 adds K75 to K77. |
 | R2 | [Algebraic effects, handlers and the run side](research/r2-effects.md) | done (2026-10-24) | K10, K11, K18, K19, L1a, L1b, S4. K18 and K19 add K64 and K65. |
 | R3 | [Attribute grammars and the tree kit](research/r3-attribute-grammars.md) | done (2026-10-24) | L2a to L2i |
-| R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1, S1a to S1c, S2, S3a to S3c, C10. S1c adds K80. S1 answers the open questions 3, 4 and 5 (D31), and it adds S1f and S2a. S2 adds S2b to S2d and K105 (D33). R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
+| R4 | [Incremental computation and schedules](research/r4-incremental.md) | done (2026-10-24) | K21, K22, S1, S1a to S1c, S2, S3a to S3c, C10. S1c adds K80. S1 answers the open questions 3, 4 and 5 (D31), and it adds S1f and S2a. S2 adds S2b to S2d and K105 (D33). S3a adds S3d and S3e (D58). R4 does not propose P9, a memo for each node of a plan: it breaks PLAN.LEAN, and D3 puts that work in the schedule. |
 | R5 | [Types and abstract interpretation for `check`](research/r5-types.md) | done (2026-10-24) | K20, K23 to K31 |
 | R6 | [Language workbenches and extensibility](research/r6-workbenches.md) | done (2026-10-24) | K32 to K38, C11. K34 adds K40 and K41. |
 | R7 | [A formal semantics of the kernel](research/r7-semantics.md) | done (2026-10-24) | K90 to K97. K91 adds K100. |
