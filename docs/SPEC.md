@@ -202,6 +202,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | GEN.MALFORMED | Malformed choices give unknown kinds, unknown names under a namespace with a fallback, values without their shape, bare values without a type, bad paths and names that nothing binds. |
 | GEN.REACH | The documents of the property test reach each kind of their world, and they give values and errors. |
 | GEN.PATHS | The option `roots` gives the roots of the paths, and the option `steps` gives their most steps. The defaults are each root and two steps. |
+| GEN.STEPS | A step document of a path has a kind with the verb `step`. When the world has a default for `step`, a step document can also have each other kind, and the default walks it. A world without that default gives the same documents as before. |
 
 ## The run side and capabilities
 
