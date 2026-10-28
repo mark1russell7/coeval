@@ -785,17 +785,13 @@ export interface StopSignal {
   addEventListener(type: "abort", listener: () => void, options?: { readonly once?: boolean }): void;
 }
 
-/** The options of a run. */
-export interface RunOptions {
+/**
+ * The options of `plan.run`. A plan keeps the verb and the declared type of its `prepare`, thus these options do not
+ * have them (PLAN.RUN-OPTIONS).
+ */
+export interface PlanRunOptions {
   /** The host code that does each effect. Without it, an effect gives its payload, as in an evaluation. */
   readonly perform?: Perform;
-  /** The type of a bare root value. */
-  readonly declaredType?: string;
-  /**
-   * The verb of `run`, for example `format`. The default is `eval` (VERB.PREPARE). A plan keeps the verb of its
-   * `prepare`, thus `plan.run` does not read this option.
-   */
-  readonly verb?: string;
   /** A signal of the host. When it aborts, the run stops with `#ABORT`. */
   readonly signal?: StopSignal;
   /**
@@ -803,6 +799,14 @@ export interface RunOptions {
    * decides the order of the reads of the items.
    */
   readonly reads?: Read[];
+}
+
+/** The options of `run`: the options of `plan.run`, and the type of a bare root value and the verb for `prepare`. */
+export interface RunOptions extends PlanRunOptions {
+  /** The type of a bare root value. */
+  readonly declaredType?: string;
+  /** The verb of `run`, for example `format`. The default is `eval` (VERB.PREPARE). */
+  readonly verb?: string;
 }
 
 /** The options of an evaluation of a plan. */
@@ -1303,7 +1307,7 @@ export interface Plan {
    * @param options - The host code that does the effects, a signal to stop the run and a list that gets the reads.
    * @returns The result, when the run ends.
    */
-  run(context?: Context, options?: RunOptions): Promise<Result>;
+  run(context?: Context, options?: PlanRunOptions): Promise<Result>;
 }
 
 interface Compiler {
@@ -1952,7 +1956,7 @@ class CompiledPlan implements Plan {
     return this.code(ctx, s);
   }
 
-  run(context: Context = makeContext(), runOptions: RunOptions = {}): Promise<Result> {
+  run(context: Context = makeContext(), runOptions: PlanRunOptions = {}): Promise<Result> {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
     const s = new Session(machine, true, this.traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
