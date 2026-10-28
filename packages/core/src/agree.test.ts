@@ -872,6 +872,62 @@ describe("the disagreements that the harness found", () => {
     expect(prepare(machine, { type: "coarse", value: [{ type: "write", value: { key: "k", value: { type: "number", value: 1 } } }] }).evaluate(context({ caps: ["log.a", "write"] }))).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
   });
 
+  it("[CAP.NARROW-KEPT] compiled code that keeps a context from an evaluation with more capabilities causes no effect in a later evaluation, as the reference refuses it", async () => {
+    // The kind keeps the context of its first evaluation, also for a later plan, and gives it to its parts and its own effect.
+    let kept: Context | undefined;
+    const keep: CompiledEvaluator = {
+      compile: ({ parts, place }) => (ctx, rt) => {
+        kept ??= ctx;
+        const values = valuesOf(parts.map((part) => part.code(kept as Context, rt)));
+        return values.ok ? rt.effect(kept as Context, "log", values.value, place) : values;
+      },
+    };
+    const machine: Machine = {
+      ...widening,
+      world: { ...widening.world, kinds: { ...widening.world.kinds, keep: { verbs: { eval: "test.keep" }, parts: { shape: "list" }, effects: ["log"] } } },
+      evaluators: { ...widening.evaluators, "test.keep": keep },
+    };
+    // The definition causes its effects in the context of the document.
+    const definitions: Definitions = {
+      ...WIDENING_DEFINITIONS,
+      evaluators: {
+        ...WIDENING_DEFINITIONS.evaluators,
+        "test.keep": ({ parts, effect }) => {
+          const values = valuesOf(parts.map((part) => part.evaluate()));
+          return values.ok ? effect("log", values.value) : values;
+        },
+      },
+    };
+    const options: AgreeOptions = { strict: true, definitions };
+    const log: Json = { type: "log", value: ["a"] };
+    const write: Json = { type: "write", value: { key: "k", value: { type: "number", value: 1 } } };
+    // Each tier of the first evaluation gets the same list of the host, thus the kept context keeps its grant.
+    const wide = context({ caps: ["log", "write"] });
+    expect(agree(machine, { type: "keep", value: [log, write] }, wide, options)).toMatchObject({ ok: true, result: { ok: true } });
+    expect(kept?.caps).toEqual(["log", "write"]);
+    // Before K120, the plan caused each effect of the earlier evaluation, and the reference gave #CAP!.
+    const cases: readonly (readonly [Json, Context, readonly Key[]])[] = [
+      [{ type: "keep", value: [log] }, context(), [0]],
+      [{ type: "keep", value: [write] }, context({ caps: ["log"] }), [0]],
+      [{ type: "keep", value: [] }, context(), []],
+    ];
+    for (const [doc, ctx, place] of cases) {
+      const outcome = agree(machine, doc, ctx, options);
+      expect(outcome, `${show(doc)} under ${show(ctx.caps)}`).toMatchObject({ ok: true, result: { ok: false, error: { code: "#CAP!", place } } });
+      if (outcome.ok) expect(outcome.effects).toEqual([]);
+    }
+    // A run refuses the effect too, and the host sees no effect.
+    const performed: Effect[] = [];
+    const done = await run(machine, { type: "keep", value: [log] }, context(), {
+      perform: (effect) => {
+        performed.push(effect);
+        return null;
+      },
+    });
+    expect(done.result).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
+    expect(performed).toEqual([]);
+  });
+
   it("[RUN.WAIT] a runner that waits under a parent that cannot wait gives #CALC! with its own place", () => {
     const doc = { type: "add", value: [1, { type: "wait", value: null }] };
     expect(agree(waiting, doc, context(), { strict: true })).toMatchObject({ ok: true, result: { ok: false, error: { code: "#CALC!", place: [1] } } });
