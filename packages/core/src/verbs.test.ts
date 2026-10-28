@@ -12,6 +12,8 @@ import {
   type Namespace,
   type Navigator,
   type Part,
+  type PlanRunOptions,
+  type RunOptions,
   type Walker,
   type WorldEntry,
   STD_MACHINE,
@@ -171,6 +173,18 @@ describe("verbs", () => {
     const plans = planner(machine, { ...lit, verb: "format" });
     expect(plans(program)).toBe(plans(program));
     expect(plans(program).evaluate()).toEqual(ok(TEXT));
+  });
+
+  it("[PLAN.RUN-OPTIONS] plan.run takes no verb and no declared type, because the plan keeps the verb of its prepare", async () => {
+    const plan = prepare(machine, program, { ...lit, verb: "format" });
+    // @ts-expect-error The options of plan.run do not have the verb.
+    expect(await plan.run(context(), { verb: "eval" })).toEqual(ok(TEXT));
+    // @ts-expect-error The options of plan.run do not have the declared type.
+    expect(await plan.run(context(), { declaredType: "number" })).toEqual(ok(TEXT));
+    // The options of run are a superset, thus a host can give them to plan.run too.
+    const options: RunOptions = { verb: "eval", reads: [] };
+    const given: PlanRunOptions = options;
+    expect(await plan.run(context(), given)).toEqual(ok(TEXT));
   });
 
   it("[VERB.DEFAULT] without a verb, each function asks for eval and gives the result that it gave before", () => {

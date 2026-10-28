@@ -134,6 +134,7 @@ export {
   type Part,
   type Perform,
   type Plan,
+  type PlanRunOptions,
   type PrepareOptions,
   type Read,
   type Run,

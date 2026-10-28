@@ -123,7 +123,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K55 | Facts for each verb: the side and the effects of a verb other than eval come from its own contract, not from the eval contract. From S1a. | later | S1a, K56 |
 | K56 | Effects declared for each verb: a contract declares the effects of each verb, so check also tests the verbs other than eval. From K33. | done (2026-10-28, D49, released in the next batch) | K33 |
 | K57 | The document generator also picks step kinds from defaults.step, so the agreement runs test that case. From K33. | done (2026-10-28, released in the next batch) | K33 |
-| K58 | plan.run gets its own options type, because a plan keeps the verb and the declared type from prepare. From K33. | later | K33 |
+| K58 | plan.run gets its own options type, because a plan keeps the verb and the declared type from prepare. From K33. | done (2026-10-28, released in the next batch) | K33 |
 | K60 | A closure records only its own reads. Today a closure counts a read of each whole root, so each change of the context discards its old result. From S1b. | later | S1b |
 | K61 | A check that host values do not change in place. verifyReads compares host values by identity, so a change in place stays hidden. From S1b. | later | S1b |
 | K140 | A codec for values that are not JSON: an ext.domain extension with encode and decode from the domains of a machine, next to ext.number. Then each language writes NaN, -0 and domain values as the same documents (D12). From a review of duplicate code. | done (2026-10-25, D40, released in the next batch) | none |
