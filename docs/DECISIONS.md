@@ -1244,6 +1244,10 @@ D23 put off a contract that declares the effects of each verb. The design calls 
 
 **Limits.** A host compiler that gives a constant still gets the wrapper. A plan with folds already gives one value for a closed literal. Thus the gain shows in a plan without folds, in a trace and in a fold at compile time.
 
+**Measured (K151).** The bench case of a record of 20 literals without folds is 9% to 13% faster. The same record with folds is approximately 6% slower (15.7 to 16.9 ns, A/A noise below 1%). Four comparisons in the bench of CI found the cause in the mark of the literal code in `formula.ts`.
+
+The folded code of each evaluation is the same `() => value`, thus the cost comes from the feedback of the JIT in the process. A plan with folds pays approximately 1.5 ns for each evaluation. A plan that evaluates a literal saves approximately 6 ns for each literal. The kernel keeps the mark.
+
 ## D51 (2026-10-28): `#CYCLE!` keeps its code, and its reason tells a cycle from a chain that is longer than the bound
 
 **Context.** K112, from K90 (D34). One resolution follows at most 64 references (DEREF.COLLAPSE-LIMIT), and one lookup follows at most 32 aliases (WORLD.ALIAS-LIMIT). At the bound, a resolution gave `#CYCLE!` with the reason "The references form a cycle.", and a lookup gave the reason `cycle`. A long chain without a cycle got the same reason. The design calls are the code of the error, the test for a real cycle and the reason of the lookup.
