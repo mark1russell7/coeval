@@ -1118,3 +1118,28 @@ Attribute grammars give equations on the kinds and a ladder of defaults. L2b tak
 **Why.** The static answers to the expression problem prove coverage with types. This check gives one world the same proof, with only the data of the world.
 
 **Limits.** An entry that names an evaluator without code passes `checkWorld`, and `check` finds it at a document. A kind that an alias names is checked only at its own place.
+
+## D46 (2026-10-27): equal profiles give the same evaluators and hooks of the formula kit, through a cache of the canonical form
+
+**Context.** K41 comes from K34 (COMPOSE.UNIFY). Two languages that each call `formulaMachine` with one profile did not merge. Each call made new evaluator functions, and the merge compares code by identity (D17). Thus each of the 13 evaluator names of the kit was a conflict. The design calls are where the merge finds the equality, what makes two profiles equal, and how much memory the answer keeps.
+
+**Decision.**
+
+- The kit shares its code. The merge does not change: a function is still equal only to itself. `formulaEvaluators`, `formulaKnown`, `formulaFacts` and `formulaMachine` give the same evaluator objects and the same hooks for equal profiles.
+- The canonical form of a profile is a frozen record of the 13 fields that the kit reads. A field with the value `undefined` is absent. The field `otherwise` is present when the profile has it as an own key, because the kit reads it so. A list is a frozen copy. Each other value stays the same object.
+- Two canonical forms are equal when they have the same keys and each value is the same by `Object.is`. Two lists are equal by their items. A function, a record of operations and a host value are equal only to themselves. Thus two profiles that differ in their behavior do not share a kit.
+- The kit makes its code from the canonical form, not from the profile object. A later change of a field of the profile object gives a new kit at the next call. A machine made before keeps its kit.
+- A `WeakMap` keeps the kit of each profile object. A kit goes when its profile object goes. A list of the 16 most recent kits serves a profile in a new object with equal fields.
+- Each evaluator object of the kit is frozen, because many machines share it. `formulaEvaluators` gives a new record on each call.
+
+**Rejected.**
+
+- A merge that compares two evaluators by their source text or by a mark of the kit. Two closures with the same text can hold different profiles, and the merge then joins code that differs.
+- A deep comparison of the records of a profile, for example `ops`. A record can change in place after the call, and the code reads it at each call. The identity of the record is the safe key.
+- A key that is a JSON text of the profile. A function and a host value have no JSON form, and two different functions then give one key.
+- A cache without a bound. A long session that makes a new profile for each document then keeps each kit.
+- A language format that composes profiles. It needs the format of K37, and the same identity question stays for its result.
+
+**Why.** The equality stays at one place, the merge, with one rule (D17). The kit only stops making new code for a profile that it already served. The bound keeps the memory small, and the identity keys keep the merge sound.
+
+**Limits.** Two profiles in two objects with equal fields share a kit only while the first kit is one of the 16 most recent kits. Else their machines conflict, as before. A host that keeps one profile object, or one machine of the kit, always gets one kit. Two records of operations with the same functions are two different profiles. A caller that compared the evaluators of two calls by identity sees a change: they are the same objects after this decision.
