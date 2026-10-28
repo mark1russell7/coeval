@@ -166,12 +166,12 @@ const NO_KEYS: readonly Key[] = /* @__PURE__ */ Object.freeze([]);
 const NO_EDGES: readonly NodeEdge[] = /* @__PURE__ */ Object.freeze([]);
 
 /** This function gives the error of a node on a cycle. It names only the node, thus each order of demands gives the same error. */
-function cycleOf(id: string): Failed {
+export function cycleOf(id: string): Failed {
   return fail("#CYCLE!", `The node ${id} is on a cycle of reads.`);
 }
 
 /** This function gives the error of a read of a node on the run side. */
-function runSide(id: string): Failed {
+export function runSide(id: string): Failed {
   return fail("#REF!", `The node ${id} is on the run side, thus it has no value for a reader.`);
 }
 

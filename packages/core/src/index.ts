@@ -266,6 +266,15 @@ export {
   edgesOf,
   schedule,
 } from "./schedule.ts";
+export {
+  type AgreeScheduleOptions,
+  type ScheduleAgreement,
+  type ScheduleAgreementCounts,
+  type ScheduleEngine,
+  type ScheduleEngineFactory,
+  type ScheduleEngineStart,
+  agreeSchedule,
+} from "./meaning.ts";
 export { type GraphCycle, type GraphEdge, type GraphNode, type GraphOptions, type NodeGraph, components, cycles, heights, necessary, nodeLayers } from "./graph.ts";
 export { type Recorder, type ReplayEntry, type ReplayLog, type ReplayOptions, type ReplaySettle, recorder, replayer } from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";

@@ -1461,3 +1461,42 @@ The change is visible: a closure in a schedule gives another list of reads, and 
 - A closure on a cycle of reads with its node, for example a closure that reads its own node, keeps the whole root `world`.
 - A closure in a chain of closures keeps its result only when each closure of the chain has its result first.
 - A missing node has no known value. Thus a closure that reads a missing node keeps the whole root `world`.
+
+## D58 (2026-10-28): `agreeSchedule` examines the engine of a host against an evaluation from scratch
+
+**Context.** S3a, from R4 P4. SCHED.ONE-MEANING compared the demand schedule with an evaluation from scratch (D31). The generator, the commands and the model were in a test file. Thus the engine of a host could not use them.
+
+R4 names four orders of a schedule: demand with a memo, push-pull with dirty marks, push by height with a cutoff, and verifying traces. The design calls are the interface of an engine, the outcome of a comparison and the orders that the kernel has.
+
+**Decision.**
+
+- The kernel exports `agreeSchedule(engine, options)` from `meaning.ts` (SCHED.AGREES). The generator, the commands and the evaluation from scratch move there from the test.
+- The test of SCHED.ONE-MEANING uses `agreeSchedule`, thus the rules have one copy. The same seeds give the same commands as before.
+- An engine has four functions: `set`, `remove`, `changeData` and `read`. The function `changeMachine` is optional, and an engine without it gets no new machine.
+- The argument `engine` makes a new engine for each run from a machine and a context. The function `schedule` has this form, thus `agreeSchedule(schedule)` operates.
+- The outcome is the first read with a different answer. It gives the seed, the step, the node, the two answers, the documents, the context, the machine and one reason.
+- Without a disagreement, the outcome gives the counts of what the harness reached. A weak generator gives false confidence, thus a test examines the counts (R4).
+- Two answers agree by `sameResult`. Two closures of `fn` agree when they have the same parameters, and the option `equal` answers first.
+- The defaults fit `STD_MACHINE`. A host with another machine gives the generator, a small value document and a document that reads nodes.
+- The kernel has two orders, and the test covers both. `schedule` is the demand schedule with verifying traces. `schedule` with each read volatile is the demand schedule with a memo only (DURABLE.DATA).
+- The kernel has no push-pull schedule and no push by height. This item does not build them. S3d and S3e are their rows.
+- The harness found no disagreement in the two orders. The kernel did not change its results.
+
+**Rejected.**
+
+- A second copy of the generator and the model in the source. Two copies drift, and a correction of one copy leaves the other wrong.
+- An engine that gives its graph or its counts. The engine of a host can have no graph, and the counts are a measure, not a rule (R4). The test of SCHED.ONE-MEANING examines the graph of the schedule through its own engine.
+- Each disagreement in the outcome. The first disagreement with its seed occurs again, and the later ones often have the same cause.
+- The package fast-check, as R4 proposes. The kernel has no package dependencies, and the seed of `random` repeats a run.
+- One engine for all runs, with a reset. A new engine for each run keeps no state of an earlier run.
+- A comparison of errors by code only. Then a `#CYCLE!` that names another node agrees.
+
+**Why.** One generator and one model give each order of the kernel and each engine of a host the same test. A host examines its own engine in its own repository (R4 P4). Two wrong engines of the test show what the harness finds: an engine that keeps a stale answer, and an engine that misses an edit.
+
+**Limits.**
+
+- The kernel has no push-pull schedule (S3d) and no push by height (S3e). S3b gives a push-pull engine in the tests.
+- The harness does not examine glitches or the count of runs (SCHED.GLITCH and SCHED.RUN-ONCE of R4). It reads the answers after each command, not during a change.
+- An engine gives the reasons of D31 for `#CYCLE!` and `#REF!`, because two errors agree only with the same reason.
+- No step makes a disagreement smaller. The outcome gives the whole graph of the read.
+- The harness starts no run of a node on the run side (SCHED.RUN).

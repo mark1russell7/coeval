@@ -132,7 +132,8 @@ function sameInTiers(x: unknown, y: unknown): boolean | undefined {
 
 const CLOSURE = /* @__PURE__ */ Symbol.for("coeval.closure");
 
-function closureParams(fn: object): unknown {
+/** This function gives the parameters of a closure of `fn`, or `undefined` for another function. */
+export function closureParams(fn: object): unknown {
   return (fn as { readonly [CLOSURE]?: { readonly params: readonly string[] } })[CLOSURE]?.params;
 }
 
