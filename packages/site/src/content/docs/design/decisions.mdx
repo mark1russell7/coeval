@@ -63,6 +63,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D53 | The meet of two lists narrows each part, each effect and each resolution, for function code and for compiled code. A coarser list from code gives what the document permits. |
 | D54 | Each grant has an epoch: the list of capabilities of the host. An effect or a resolution reads a context of another epoch as a context without a grant. |
 | D55 | The reference reads the rules of a run. `agreeRun` records a run of the plan, and each other tier replays its log with the same result, effects and order of waits. |
+| D56 | A closure of `fn` keeps a read of each path that its body can read, from `factsOf`. A change of a name that no closure reads keeps the old result. A closure without static reads keeps each whole root. |
 
 ## Open
 

@@ -389,6 +389,8 @@ function harness(config: Config, keep: (read: Read) => boolean = () => true, tot
         const named = kept.filter((read) => read.free && read.kept !== true && read.path[0] === "names" && typeof read.path[1] === "string");
         // A list with a free read keeps its result, also when the new context has a new value for a name that it reads.
         if (kept.some((read) => read.free && read.kept !== true)) add("reuse");
+        // A closure keeps only the paths that it can read, thus a change of another name keeps its result (READS.CLOSURE).
+        if (kept.some((read) => read.kept === true && read.path.length > 1)) add("closure");
         if (named.some((read) => !Object.is(next.names[read.path[1] as string], ctx.names[read.path[1] as string]))) add("touched");
         if (!sameResult(before, after, equal)) stale.push(`seed ${seed}: ${show(before)} and then ${show(after)}\n  doc ${show(doc)}`);
         continue;
@@ -422,7 +424,9 @@ describe("the reads of generated documents", () => {
     // The harness reaches each answer: an old result that stays, and a changed read.
     const total = (name: string): number => CONFIGS.reduce((sum, config) => sum + (outcomeOf(config).counts[name] ?? 0), 0);
     expect(total("same")).toBeGreaterThan(COUNT);
-    expect(total("changed")).toBeGreaterThan(COUNT);
+    // A closure reads only its own paths (READS.CLOSURE), thus fewer verifications find a changed read than before K60.
+    expect(total("changed")).toBeGreaterThan(COUNT / 4);
+    expect(total("closure")).toBeGreaterThan(0);
     expect(total("reuse")).toBeGreaterThan(COUNT / 2);
     expect(total("touched")).toBeGreaterThan(0);
     expect(total("kept")).toBeGreaterThan(0);
@@ -566,7 +570,7 @@ describe("the reads of an evaluation", () => {
     ]);
   });
 
-  it("[READS.KEPT] a closure of fn adds a read of each root, and a read of a self that a kind sets adds a read of the root self", () => {
+  it("[READS.KEPT] a value without static reads adds a read of each root, and a read of a self that a kind sets adds a read of the root self", () => {
     // A kind that sets another self can give the old self on. The first read of the new self adds a kept read of the root self.
     // The kind reads its self directly to give it on, thus it does not declare pure (C4).
     const within: EvalFn = ({ parts, context: ctx }) => parts[0]?.evaluate({ ...ctx, self: { inner: ctx.self } }) ?? ok(null);
@@ -592,11 +596,13 @@ describe("the reads of an evaluation", () => {
     ]);
     expect(verifyReads(plan, tree, context({ self: { w: 5 } }))).toEqual({ same: true });
     expect(verifyReads(plan, tree, context({ self: { w: 7 } }))).toMatchObject({ same: false, index: 0, now: { ok: true, value: { w: 7 } } });
-    // A closure keeps the context for a later use: each root is a kept read, one time in an evaluation.
+    // A closure whose body is not pure keeps the context for a later use: each root is a kept read, one time in an evaluation.
+    // The extension count reads the names directly, thus no static read covers it (FACTS.PROFILE).
     const reads: Read[] = [];
-    const lambda = { type: "fn", value: { params: ["v"], body: { type: ["ops", "add"], value: [ref("names", "v"), ref("names", "y")] } } };
+    const lambda = { type: "fn", value: { params: ["v"], body: { type: ["ops", "add"], value: [ref("names", "v"), { type: ["ext", "count"], value: null }] } } };
     const pair = { type: "list", value: [lambda, lambda] };
     const result = prepare(machine, pair).evaluate(names({ y: 1 }), { reads });
+    expect(factsOf(machine, lambda).pure).toBe(false);
     expect(reads.map((read) => [read.path, read.kept])).toEqual([
       [["self"], true],
       [["names"], true],
@@ -609,7 +615,63 @@ describe("the reads of an evaluation", () => {
     // Without the kept reads, the list is empty, and the old closures read the old context.
     expect(verifyReads(machine, reads.filter((read) => read.kept !== true), names({ y: 2 }))).toEqual({ same: true });
     const [first] = (result as { readonly value: readonly ((v: number) => number)[] }).value;
-    expect(first?.(1)).toBe(2);
+    // The scope of the body has the names y and v.
+    expect(first?.(1)).toBe(3);
+  });
+
+  it("[READS.CLOSURE] a closure adds a kept read of each path that its body can read, thus a change of another name keeps the old result", () => {
+    // A closure in the result keeps its context. The kept reads are the static reads of fn, without its parameters.
+    const lambda = { type: "fn", value: { params: ["v"], body: { type: ["ops", "add"], value: [ref("names", "v"), ref("names", "x", "a")] } } };
+    const pair = { type: "list", value: [lambda, lambda] };
+    const plan = prepare(machine, pair);
+    const reads: Read[] = [];
+    const ctx = names({ x: { a: 1 }, y: 5 });
+    const result = plan.evaluate(ctx, { reads });
+    expect(reads.map((read) => [read.path, read.reached, read.free, read.kept])).toEqual([[["names", "x", "a"], { ok: true, value: 1 }, true, true]]);
+    // A change of a name or a path that the closure does not read keeps the old result.
+    expect(verifyReads(plan, reads, names({ x: { a: 1, b: 2 }, y: 6 }))).toEqual({ same: true });
+    // A change of a path that the closure reads discards it. The old closure reads the old context, and a new one the new context.
+    expect(verifyReads(plan, reads, names({ x: { a: 2 }, y: 5 }))).toMatchObject({ same: false, index: 0, now: { ok: true, value: 2 } });
+    const [old] = (result as { readonly value: readonly ((v: number) => number)[] }).value;
+    const [fresh] = (plan.evaluate(names({ x: { a: 2 }, y: 5 })) as { readonly value: readonly ((v: number) => number)[] }).value;
+    expect([old?.(1), fresh?.(1)]).toEqual([2, 3]);
+    // Inside map, the calls record the reads of the body too. The list has the kept read and each read of a call.
+    const mapped = { type: ["ops", "map"], value: [{ type: "fn", value: { params: ["v"], body: { type: ["ops", "add"], value: [ref("names", "v"), ref("names", "a")] } } }, ref("names", "list")] };
+    const inMap = prepare(machine, mapped);
+    const viaMap: Read[] = [];
+    expect(inMap.evaluate(names({ a: 1, b: 7, list: [1, 2] }), { reads: viaMap })).toEqual({ ok: true, value: [2, 3] });
+    expect(viaMap.map((read) => [read.path, read.free, read.kept === true])).toEqual([
+      [["names", "a"], true, true],
+      [["names", "list"], true, false],
+      [["names", "v"], false, false],
+      [["names", "a"], true, false],
+      [["names", "v"], false, false],
+      [["names", "a"], true, false],
+    ]);
+    expect(verifyReads(inMap, viaMap, names({ a: 1, b: 8, list: [1, 2] }))).toEqual({ same: true });
+    expect(verifyReads(inMap, viaMap, names({ a: 2, b: 7, list: [1, 2] }))).toMatchObject({ same: false, index: 0, now: { ok: true, value: 2 } });
+    // A name that a kind around the closure binds gives no kept read: the list already has the reads of its binding.
+    const bound = { type: "let", value: { bind: { k: ref("names", "a") }, body: { type: "fn", value: { params: [], body: { type: ["ops", "pair"], value: [ref("names", "k"), ref("self", "w")] } } } } };
+    const viaLet: Read[] = [];
+    prepare(machine, bound).evaluate(context({ names: { a: 1 }, self: { w: 3 } }), { reads: viaLet });
+    expect(viaLet.map((read) => [read.path, read.free, read.kept === true])).toEqual([
+      [["names", "a"], true, false],
+      [["self", "w"], true, true],
+    ]);
+    // A step document after the keys can walk outside them, thus such a read keeps its whole root.
+    const walked: Read[] = [];
+    const steps = { type: "fn", value: { params: [], body: ref("names", "x", { type: ["moves", "at"], value: ["a"] }) } };
+    prepare(language, steps).evaluate(names({ x: { a: 1 } }), { reads: walked });
+    expect(walked.map((read) => [read.path, read.kept])).toEqual([[["names"], true]]);
+    // The evaluation did not ask for a kept read, thus the read does not step into a host thing. Its path ends there.
+    const host = thing("host", { a: 4 }, true);
+    const viaHost: Read[] = [];
+    prepare(machine, { type: "fn", value: { params: [], body: ref("names", "h", "a") } }).evaluate(names({ h: host }), { reads: viaHost });
+    expect(viaHost.map((read) => [read.path, read.reached])).toEqual([[["names", "h"], { ok: true, value: host }]]);
+    // A reference in the data reads the context of its reader, thus a path through one keeps each whole root.
+    const viaData: Read[] = [];
+    prepare(machine, { type: "fn", value: { params: [], body: ref("names", "x", "a") } }).evaluate(names({ x: { a: ref("names", "b") }, b: 1 }), { reads: viaData });
+    expect(viaData.map((read) => read.path)).toEqual([["self"], ["names"], ["world"], ["event"], ["caps"]]);
   });
 
   it("[READS.VERIFY] verifyReads resolves each free read again and compares it with sameResult; the same things keep the old result", () => {

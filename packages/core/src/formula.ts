@@ -7,6 +7,7 @@ import { type MachinePart, mergeMachines } from "./merge.ts";
 import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeText } from "./types.ts";
 import type { TypeInput, TypeRule } from "./typing.ts";
 import { decodeDomain, domainTypeOf } from "./codec.ts";
+import { type StaticRead, factsOf } from "./facts.ts";
 
 /** An operation of a formula language: a function of the values of its arguments. */
 export type OpFn = (...args: never[]) => unknown;
@@ -777,7 +778,7 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       };
     }),
 
-    "formula.fn": compiled(({ value, data }) => {
+    "formula.fn": compiled(({ value, data, doc, machine }) => {
       const params = isRecord(data) ? data["params"] : undefined;
       if (!Array.isArray(params) || !params.every((param) => typeof param === "string") || new Set(params).size !== params.length) {
         const bad = fail("#VALUE!", "The params of fn are a list of different texts.");
@@ -785,9 +786,22 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
       }
       const names = params as readonly string[];
       const body = partsOf(value)["body"] as CompiledPart;
+      // The static reads of the function come at the first closure of an evaluation with a list of reads.
+      let known: readonly StaticRead[] | undefined | null = null;
+      const reads = (): readonly StaticRead[] | undefined => {
+        if (known !== null) return known;
+        // Only a pure document reads its context through the runtime alone (FACTS.PURE). Each other closure keeps each root.
+        try {
+          const facts = factsOf(machine, doc);
+          known = facts.pure ? facts.reads : undefined;
+        } catch {
+          known = undefined;
+        }
+        return known;
+      };
       return (ctx, rt) => {
-        // A closure keeps the context for each later use, thus the list of reads gets each root (READS.KEPT).
-        rt.keepsContext?.();
+        // A closure keeps the context for each later use, thus the list of reads gets each path that it can read (READS.CLOSURE).
+        rt.keepsContext?.(ctx, reads);
         const closure = (...args: readonly unknown[]): unknown => {
           const scope: Record<string, unknown> = { ...ctx.names };
           names.forEach((name, index) => setOwn(scope, name, args[index]));
