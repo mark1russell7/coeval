@@ -1573,3 +1573,36 @@ The risk of R1 is a stale plan: an old value without an error. The design calls 
 - The fold evaluates each part with fixed names in `prepare`, also a branch that no evaluation takes. This is the limit of D43.
 - `agreeRun` has no tier with fixed names.
 - A part that reads a fixed name and a free name does not fold. Only its parts that read only fixed names fold.
+
+## D61 (2026-10-28): the playground reads and writes its text with a profile of the site world, and C17 splits
+
+**Context.** C17 asks for the text of `STD_SYNTAX` next to the tree of the playground and of the structured editor (C11). C11 is not built. `STD_SYNTAX` writes the kinds of the formula kit, for example `ops.add`. The playground evaluates the kinds of the standard world, for example `add`. No program of the playground prints with `STD_SYNTAX`. Its documents of operators give `#KIND?` in the playground.
+
+**Decision.**
+
+- C17 splits. C17 is the text pane of the playground, and it is done. The new row C17b is the text of the structured editor. It waits on C11.
+- The site gets the profile `SITE_SYNTAX`, data for the syntax kit (C15, D41). The operators `+`, `*` and `>` make `add`, `multiply` and `greater`. The forms `if`, `list`, `seq`, `pure`, `log` and `write` make those kinds.
+- The pane shows the text that `print` gives for the current document.
+- At each edit, after a wait of 300 ms, the pane reads the text with `parse`. A good text replaces the document. The cards, the result and the JSON change with it.
+- A bad text keeps the last good document. The pane shows the message and marks the span of the issue in a copy of the text. A button selects the span in the text box. A live region announces the problem.
+- A document that does not print keeps the cards. The pane tells that the text form is not available, and it gives the reason and the place from `print`.
+- A change of the cards, of the JSON or of the program writes the text again. Thus the tree and the text show the same document at each time.
+- A test reads each printed program back to the same document. A pinned list gives each program that does not print, with its reason, thus a fix of the kernel changes a test.
+
+**Rejected.**
+
+- The text of `STD_SYNTAX` in the playground. No program prints, and a text of an operator does not evaluate.
+- A change of `STD_SYNTAX` or `STD_WORLD` in the kernel. It has release effects, and a kernel profile has the same gaps of the printer.
+- A machine of the playground that adds the formula kit. The kinds `list`, `ref` and `if` of the two worlds clash, and the cards have no view for `ops.*`.
+- Short forms `sum` and `product` for the alias `math.product`. A form name is a plain name, and a short name hides the path of the type.
+
+**Why.** A site profile is the smallest change, and it has no release effect. The five programs without a text fail on gaps of the syntax kit of the kernel. A kernel profile has the same gaps.
+
+**Limits.** Three programs of eight round-trip: Arithmetic, No capability and A missing name. Each gap is a row of the roadmap.
+
+- K157: `print` has no text for the header `name`, thus Names and Effects have no text.
+- K158: `print` and `parse` have no text for a data envelope, for example `{ type: "text" }`, thus A choice has no text.
+- K159: a bare literal in a part without a declared type gives `#PART?`, for example `list(1, 2)` and the branches of `if`.
+- K160: the syntax kit has no form for a record kind, for example `panel` and `box`, thus A tree has no text.
+- K161: a call form has a plain name, thus a kind under a path, for example `math.product`, has no form. A type as a path has no text.
+- K162: the kernel has no syntax profile for `STD_WORLD`, thus each host writes one, and it repeats the names of the kinds.
