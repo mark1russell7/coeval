@@ -6,7 +6,7 @@ This page tells how two languages compose in coeval. The modes come from [Erdweg
 | --- | --- | --- |
 | Extension | COMPOSE.EXTEND | It works. |
 | Restriction | COMPOSE.RESTRICT | It works, with `restrictMachine` (version 0.6.1). |
-| Unification | COMPOSE.UNIFY | It works for languages that do not build the formula kit each. Two machines from `formulaMachine` conflict (K41). |
+| Unification | COMPOSE.UNIFY | It works. Two machines from `formulaMachine` with equal profiles merge (K41, D46). |
 | Self-extension | COMPOSE.SELF-EXTEND | A host merges kinds that a document gives as data. An evaluator that is a document waits for K40. |
 | Extension unification | COMPOSE.EXTEND-UNIFY | It works. |
 | Incremental extension | COMPOSE.INCREMENTAL | It works. |
@@ -60,7 +60,16 @@ Two independent languages merge. Their equal kinds and their shared code give on
 
 This document gives `"n=4"`. The kinds `concat` and `str` come from one language. The kinds `sum` and `num` come from the other language. Both languages give the kind `show` with the same contract and the same code. The glue gives the alias `plus` and the kind `len`.
 
-Two machines that each call `formulaMachine` do not merge today. Each call makes new evaluators, and a function is equal only to itself (D17). Thus build the kit one time, and add each language as a part. K41 proposes a correction.
+Two languages can each build the formula kit. Equal profiles give the same evaluators and the same hooks of the kit (D46). Thus the two machines merge, in each order, and the result is the machine of the kit with both languages.
+
+```ts
+const unified = mergeMachines(formulaMachine(profile, STATS), formulaMachine(profile, TEXT));
+// The same machine as mergeMachines(formulaMachine(profile), STATS, TEXT)
+```
+
+Two profiles are equal when they have the same fields that the kit reads. A function, a record and a host value are equal only to themselves, and two lists are equal by their items. Thus a profile in a new object with the same fields gives the same kit. Two profiles that differ, for example in `otherwise` or in a function `truthy`, give a conflict at each evaluator name of the kit. The kit of one language then replaces the kit of the other language with `replaces`.
+
+You can also build the kit one time, and add each language as a part. This gives the same machine.
 
 ## Self-extension
 

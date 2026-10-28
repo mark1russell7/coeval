@@ -22,6 +22,7 @@ import {
   docEquals,
   fail,
   formulaDefinitions,
+  formulaEvaluators,
   formulaKinds,
   formulaMachine,
   generate,
@@ -277,19 +278,65 @@ describe("the composition checklist", () => {
     agreesOn(unified, [MIXED, doc("show", doc("sum", [1, 2])), doc("concat", ["a", doc("show", "b")]), doc("show", doc("concat", []))], plain);
     const data = (type: readonly Key[], rng: { pick<T>(items: readonly T[]): T }): Json | undefined => (type[0] === "num" ? rng.pick([0, 1, 7]) : type[0] === "str" ? rng.pick(["", "a", "bc"]) : undefined);
     expect(agreesOnGenerated(unified, { data }, plain)).toBeGreaterThan(20);
-    // Two languages that each build the formula kit do not merge today: each formulaMachine call makes new
-    // evaluators, thus each evaluator name of the kit is a conflict, also with one profile and equal kinds.
-    const conflicts = conflictsOf(() => mergeMachines(formulaMachine(PROFILE, STATS), formulaMachine(PROFILE, TEXT)));
-    expect(conflicts.map((item) => item.path[0])).toEqual(new Array(13).fill("evaluators"));
-    expect(conflicts.map((item) => item.path[1])).toContain("formula.op");
   });
 
-  // Target, skipped: K41. Two languages that each build the kit with one profile merge into one machine. Today each
-  // formulaMachine call makes new evaluator functions, and a function is equal only to itself (D17).
-  it.skip("[COMPOSE.UNIFY] target (K41): two languages that each build the formula kit with one profile merge", () => {
+  // K41 (D46): equal profiles give the same evaluators and hooks of the kit. A function is equal only to itself (D17).
+  it("[COMPOSE.UNIFY] two languages that each build the formula kit with one profile merge", () => {
     const unified = mergeMachines(formulaMachine(PROFILE, STATS), formulaMachine(PROFILE, TEXT));
     expect(sameMachine(unified, mergeMachines(BASE, STATS, TEXT))).toBe(true);
+    expect(sameMachine(mergeMachines(formulaMachine(PROFILE, TEXT), formulaMachine(PROFILE, STATS)), unified)).toBe(true);
     agreesOn(unified, [op("join", doc("upper", "ab"), op("twice", 3))]);
+    expect(prepare(unified, op("join", doc("upper", "ab"), op("twice", doc("mean", [1, 5])))).evaluate()).toEqual(ok("AB6"));
+    // The kit gives one hook known. Thus the merged machine names an unknown operation one time.
+    expect(unified.known).toBe(BASE.known);
+    expect(unified.facts).toBe(BASE.facts);
+    expect(check(unified, op("nope", 1), { declaredType: "lit" }).map((issue) => issue.reason)).toEqual(["The language has no operation nope."]);
+    // A profile in a new object with the same fields gives the same kit, also with a key that the kit does not read.
+    const copy = { ...PROFILE, note: "a key of the host" } as typeof PROFILE;
+    expect(sameMachine(mergeMachines(formulaMachine(copy, STATS), formulaMachine(PROFILE, TEXT)), unified)).toBe(true);
+    expect(formulaEvaluators(PROFILE)["formula.op"]).toBe(BASE.evaluators["formula.op"]);
+    expect(formulaEvaluators(PROFILE)).not.toBe(formulaEvaluators(PROFILE));
+    expect(Object.isFrozen(BASE.evaluators["formula.op"])).toBe(true);
+  });
+
+  it("[COMPOSE.UNIFY] two profiles with different fields give different kits, and their machines conflict", () => {
+    const kitNames = Object.keys(formulaEvaluators(PROFILE)).sort();
+    const conflictNames = (other: Parameters<typeof formulaMachine>[0]): string[] =>
+      conflictsOf(() => mergeMachines(formulaMachine(PROFILE, STATS), formulaMachine(other, TEXT)))
+        .map((item) => (item.path[0] === "evaluators" ? String(item.path[1]) : JSON.stringify(item.path)))
+        .sort();
+    // A rule of the language differs.
+    expect(conflictNames({ ...PROFILE, logic: "value" })).toEqual(kitNames);
+    // A function is equal only to itself: an equal truth function and a record with the same operations differ.
+    expect(conflictNames({ ...PROFILE, truthy: (value) => value === true })).toEqual(kitNames);
+    expect(conflictNames({ ops: { ...PROFILE.ops } })).toEqual(kitNames);
+    // An own otherwise with the value undefined differs from no otherwise.
+    expect(conflictNames({ ...PROFILE, otherwise: undefined })).toEqual(kitNames);
+    // Two lists are equal by their items.
+    expect(conflictNames({ ...PROFILE, pure: ["add"] })).toEqual(kitNames);
+    expect(conflictsOf(() => mergeMachines(formulaMachine({ ...PROFILE, pure: ["add"] }), formulaMachine({ ...PROFILE, pure: ["add"] })))).toEqual([]);
+    // The replacement of the kit of one language still resolves each conflict.
+    const other = formulaMachine({ ...PROFILE, otherwise: "none" }, TEXT);
+    const replaced = mergeMachines(formulaMachine(PROFILE, STATS), { ...other, replaces: kitNames.map((key) => ["evaluators", key]) });
+    expect(prepare(replaced, { type: "if", value: { test: false, then: 1 } }).evaluate()).toEqual(ok("none"));
+  });
+
+  it("[COMPOSE.UNIFY] a change of a field of a profile object gives a new kit, and an old machine keeps its kit", () => {
+    const profile: { ops: typeof PROFILE.ops; otherwise?: unknown; pure: string[] } = { ops: PROFILE.ops, pure: ["add"] };
+    const before = formulaMachine(profile);
+    expect(formulaMachine(profile).evaluators["formula.if"]).toBe(before.evaluators["formula.if"]);
+    profile.otherwise = "none";
+    const after = formulaMachine(profile);
+    expect(after.evaluators["formula.if"]).not.toBe(before.evaluators["formula.if"]);
+    const open = { type: "if", value: { test: false, then: 1 } };
+    expect(prepare(before, open).evaluate()).toEqual(ok(null));
+    expect(prepare(after, open).evaluate()).toEqual(ok("none"));
+    // A list is a copy in the canonical form, thus a change in place gives a new kit too.
+    profile.pure.push("mul");
+    expect(formulaMachine(profile).facts).not.toBe(after.facts);
+    // A profile object keeps its kit while it lives, also after many other profiles.
+    for (let index = 0; index < 40; index += 1) formulaMachine({ ...PROFILE, otherwise: index });
+    expect(formulaMachine(PROFILE).evaluators["formula.op"]).toBe(BASE.evaluators["formula.op"]);
   });
 
   it("[COMPOSE.SELF-EXTEND] a host adds kinds that a document gives as data, and a document alone cannot bring code", () => {

@@ -53,6 +53,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D43 | A plan can give one result object to many evaluations. A closed pure part of a plan evaluates one time at compile time, and its result is one deeply frozen value. A host must not change a result in place. |
 | D44 | The tree node reads `self` through `resolve`, and not directly. A kind declares the roots that its code resolves as a whole in `reads`, and the static facts hold them. |
 | D45 | `checkWorld(machine, verbs)` checks a world before a document exists. It gives one `#NOEVAL` for each kind and verb with no entry and no default. The language gives the list of verbs. |
+| D46 | Equal profiles give the same evaluators and hooks of the formula kit. Thus two languages that each build the kit with one profile merge. A cache keys each kit by its profile object and by the fields that the kit reads. |
 
 ## Open
 

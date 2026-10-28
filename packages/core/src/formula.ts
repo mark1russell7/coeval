@@ -498,19 +498,118 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
  * This function makes the evaluators of the formula kit for one language. Each evaluator compiles its document
  * one time into code. Each evaluator also holds its type rule, for a check of types (TYPE.SYNTH).
  *
+ * Equal profiles give the same evaluator objects (COMPOSE.UNIFY, D46). Thus two machines of one profile merge without
+ * a conflict. Each call gives a new record. Each evaluator object is frozen, because many machines can share it.
+ *
  * @param profile - The operations and the rules of the language.
  * @returns The evaluators, by their name.
  */
 export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record<string, Evaluator>> {
+  return { ...kitOf(profile).evaluators };
+}
+
+/** This function makes new evaluators of the formula kit for the fields of one profile. */
+function makeEvaluators(profile: FormulaProfile): Readonly<Record<string, Evaluator>> {
   const evaluators = formulaCode(profile);
   const types = formulaTypes(profile);
   const out: Record<string, Evaluator> = {};
   for (const name of Object.keys(evaluators)) {
     const evaluator = evaluators[name] as CompiledEvaluator;
     const type = Object.hasOwn(types, name) ? types[name] : undefined;
-    out[name] = type === undefined ? evaluator : { compile: evaluator.compile, type };
+    out[name] = Object.freeze(type === undefined ? evaluator : { compile: evaluator.compile, type });
   }
-  return out;
+  return Object.freeze(out);
+}
+
+/** The keys of a profile that the kit reads. The kit ignores each other key. */
+const PROFILE_KEYS = /* @__PURE__ */ Object.freeze([
+  "ops",
+  "lazy",
+  "ext",
+  "truthy",
+  "otherwise",
+  "logic",
+  "omit",
+  "missing",
+  "check",
+  "combine",
+  "pure",
+  "volatile",
+  "sigs",
+] as const satisfies readonly (keyof FormulaProfile)[]);
+
+/** The evaluators and the hooks of the formula kit for one profile, with the fields that made them. */
+interface Kit {
+  readonly fields: FormulaProfile;
+  readonly evaluators: Readonly<Record<string, Evaluator>>;
+  readonly known: (path: readonly Key[], evaluator: string) => true | string;
+  readonly facts: (path: readonly Key[], code: string) => KindFacts | undefined;
+}
+
+/** The number of recent kits that a profile in a new object can find by its fields. */
+const RECENT_KITS = 16;
+
+/** The kit of each profile object. A kit goes when its profile object goes. */
+const kitsByProfile = /* @__PURE__ */ new WeakMap<object, Kit>();
+
+/** The recent kits, the most recent first. The list holds `RECENT_KITS` kits or fewer. */
+const recentKits: Kit[] = [];
+
+/**
+ * This function gives the canonical form of a profile: a frozen record of the fields that the kit reads. A field
+ * with the value `undefined` is absent, but `otherwise` is present when the profile has it as an own key. A list
+ * is a frozen copy. Each other value stays the same object.
+ */
+function fieldsOf(profile: FormulaProfile): FormulaProfile {
+  const out: Record<string, unknown> = {};
+  for (const key of PROFILE_KEYS) {
+    if (key === "otherwise" ? !Object.hasOwn(profile, key) : profile[key] === undefined) continue;
+    const value: unknown = profile[key];
+    out[key] = Array.isArray(value) ? Object.freeze([...(value as unknown[])]) : value;
+  }
+  return Object.freeze(out);
+}
+
+/**
+ * This function tells if two canonical forms are equal. They must have the same keys. A function, a record and a host
+ * value are equal only to themselves. Two lists are equal when their items are the same, in order.
+ */
+function sameFields(a: FormulaProfile, b: FormulaProfile): boolean {
+  const left = a as Readonly<Record<string, unknown>>;
+  const right = b as Readonly<Record<string, unknown>>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => {
+    if (!Object.hasOwn(right, key)) return false;
+    const x = left[key];
+    const y = right[key];
+    if (Object.is(x, y)) return true;
+    return Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((item, index) => Object.is(item, y[index]));
+  });
+}
+
+/**
+ * This function gives the kit of a profile (D46). A profile object that the kit knows, with the same fields, gives its
+ * kit. Then a recent kit with equal fields serves a new profile object. Else the function makes a new kit from the
+ * canonical form. Thus a later change of a field of the profile object gives a new kit, and an old kit does not change.
+ */
+function kitOf(profile: FormulaProfile): Kit {
+  const fields = fieldsOf(profile);
+  const known = kitsByProfile.get(profile);
+  if (known !== undefined && sameFields(known.fields, fields)) return known;
+  const index = recentKits.findIndex((kit) => sameFields(kit.fields, fields));
+  let kit: Kit;
+  if (index >= 0) {
+    kit = recentKits[index] as Kit;
+    recentKits.splice(index, 1);
+  } else {
+    const hook = makeKnown(fields);
+    kit = { fields, evaluators: makeEvaluators(fields), known: hook, facts: makeFacts(fields, hook) };
+  }
+  recentKits.unshift(kit);
+  if (recentKits.length > RECENT_KITS) recentKits.length = RECENT_KITS;
+  kitsByProfile.set(profile, kit);
+  return kit;
 }
 
 /** This function makes the code of the evaluators of the formula kit, without their type rules. */
@@ -848,10 +947,17 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
  * `formula.ext` knows an extension of `ext` and each standard extension. The hook knows each name of the other
  * evaluators.
  *
+ * Equal profiles give the same hook (D46).
+ *
  * @param profile - The operations and the extensions of the language.
  * @returns The hook: `true`, or the reason of the `#NAME?` that the evaluator gives in a run.
  */
 export function formulaKnown(profile: FormulaProfile = {}): (path: readonly Key[], evaluator: string) => true | string {
+  return kitOf(profile).known;
+}
+
+/** This function makes a new hook `known` for the fields of one profile. */
+function makeKnown(profile: FormulaProfile): (path: readonly Key[], evaluator: string) => true | string {
   const hasOp = (name: string): boolean => {
     if (profile.lazy !== undefined && Object.hasOwn(profile.lazy, name)) return true;
     const ops = profile.ops;
@@ -890,13 +996,19 @@ const EACH_PART: readonly LazyRule[] = /* @__PURE__ */ Object.freeze([/* @__PURE
  * - An operation is pure when the profile names it in `pure`, or when `pure` is `true`. A volatile operation is not pure.
  * - A standard extension is pure. An extension of the profile gets the context, thus it is not pure.
  *
+ * Equal profiles give the same hook (D46).
+ *
  * @param profile - The operations, the extensions and their facts.
  * @returns The hook: the facts of a name, or `undefined` for the facts of the contract.
  */
 export function formulaFacts(profile: FormulaProfile = {}): (path: readonly Key[], code: string) => KindFacts | undefined {
+  return kitOf(profile).facts;
+}
+
+/** This function makes a new hook `facts` for the fields of one profile, with the hook `known` of the same fields. */
+function makeFacts(profile: FormulaProfile, known: (path: readonly Key[], evaluator: string) => true | string): (path: readonly Key[], code: string) => KindFacts | undefined {
   const volatile = new Set(profile.volatile ?? []);
   const pure = profile.pure === true ? undefined : new Set(profile.pure ?? []);
-  const known = formulaKnown(profile);
   return (path, code) => {
     if (code !== "formula.op" && code !== "formula.ext") return undefined;
     const name = path.slice(1).join(".");
@@ -922,14 +1034,16 @@ export function formulaFacts(profile: FormulaProfile = {}): (path: readonly Key[
  * The kit gives the domains of the kernel (`STD_DOMAINS`). Thus a domain of the language with the name `number` is a
  * conflict. The language names `["domains", "number"]` in `replaces` to replace it.
  *
+ * Equal profiles give the same evaluators and the same hooks (COMPOSE.UNIFY, D46). Thus two machines of one profile
+ * merge, also when each adds its own language. Two profiles with different fields give different evaluators, and
+ * their machines conflict at each evaluator name of the kit.
+ *
  * @param profile - The operations and the rules of the language.
  * @param more - The parts of a machine that the language adds, with the paths of the entries that it replaces.
  * @returns The machine.
  * @throws {MergeError} The language and the kit have a conflict.
  */
 export function formulaMachine(profile: FormulaProfile = {}, more: MachinePart = {}): Machine {
-  return mergeMachines(
-    { world: { kinds: formulaKinds() }, evaluators: formulaEvaluators(profile), domains: STD_DOMAINS, known: formulaKnown(profile), facts: formulaFacts(profile) },
-    more,
-  );
+  const kit = kitOf(profile);
+  return mergeMachines({ world: { kinds: formulaKinds() }, evaluators: { ...kit.evaluators }, domains: STD_DOMAINS, known: kit.known, facts: kit.facts }, more);
 }
