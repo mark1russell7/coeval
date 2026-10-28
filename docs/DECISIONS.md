@@ -1243,3 +1243,48 @@ D23 put off a contract that declares the effects of each verb. The design calls 
 **Why.** A private set keeps the public API and each guarantee of the grant. The plan reads the set one time in `prepare`, thus an evaluation pays nothing for the test. A test gives a failing sibling of a literal and finds the same error and place.
 
 **Limits.** A host compiler that gives a constant still gets the wrapper. A plan with folds already gives one value for a closed literal. Thus the gain shows in a plan without folds, in a trace and in a fold at compile time.
+
+## D51 (2026-10-28): `#CYCLE!` keeps its code, and its reason tells a cycle from a chain that is longer than the bound
+
+**Context.** K112, from K90 (D34). One resolution follows at most 64 references (DEREF.COLLAPSE-LIMIT), and one lookup follows at most 32 aliases (WORLD.ALIAS-LIMIT). At the bound, a resolution gave `#CYCLE!` with the reason "The references form a cycle.", and a lookup gave the reason `cycle`. A long chain without a cycle got the same reason. The design calls are the code of the error, the test for a real cycle and the reason of the lookup.
+
+**Decision.**
+
+- The code stays `#CYCLE!` for each case. A long chain and a cycle both stop the resolution, and a host that tests the code does not change.
+- A resolution keeps the references whose paths are in evaluation. A reference that comes again in that list closes a cycle, and the reason stays "The references form a cycle." (DEREF.CHAIN-REASON).
+- A resolution that reaches the bound without such a cycle gives the reason "The path follows more than 64 references. One resolution follows at most 64.".
+- A lookup keeps each path before an alias. The same path again gives the reason `cycle`. More than 32 aliases without such a path gives the new reason `too-long`.
+- The plan and the reference interpreter resolve each path with the same function `resolve`, thus the two give the same reason.
+
+**Rejected.**
+
+- A new code for a long chain, for example `#DEPTH!`. Each host that tests `#CYCLE!` then breaks, and the code tells nothing more than the reason.
+- A test of a cycle by the value of a reference, not by its identity. A walker or a host thing can give a new reference with an equal value. A real cycle of such references then reaches the bound, and the reason of the bound is true for it.
+- No test of a cycle, with a reason that says "a cycle or a long chain". The test costs one list, only for a path that reaches a reference, and the reason is then exact.
+
+**Why.** A reason that names the bound tells the writer of a document to make the chain shorter, not to look for a cycle. The evaluation of a path is a function of the path and the context, thus a reference in its own evaluation is always a cycle. The code and the bounds do not change.
+
+**Limits.** A cycle of more than 64 references, or of references that a walker makes again at each step, gets the reason of the bound. An alias that adds a key to its own path makes a new path at each step, thus it gets `too-long`. The type `Lookup` has one more reason, and a host that tests each reason sees it.
+
+## D52 (2026-10-28): compiled code reads the root `caps` through the grant, with the meet of the context and its grant
+
+**Context.** K100, from K91 (D32). Compiled code can resolve a path in a context that it makes, through `Runtime.resolve`. A resolution of the root `caps` read the capabilities of that context, also of a context that the code widened. Such a list permits no effect, because each part and each effect keeps only its grant (CAP.NARROW-CODE). But its value differed from the reference, whose definitions resolve each path in the context of the document.
+
+The design calls are the list that a read gives and the paths that get the step.
+
+**Decision.**
+
+- A resolution of the root `caps` through the runtime reads the capabilities that both the context and its grant permit. This list is the meet `intersectCaps` of the two lists (CAP.CAPS-GRANT).
+- A context whose grant is its own list stays the same object, thus each context of the kernel pays one comparison. A context without a grant reads no capabilities, as D32 gives such a context no capabilities.
+- A context that the code widened reads the list of its grant, with the same items in the same order. Thus the plan and the reference give the same value. A context that the code narrowed reads its own list.
+- `Runtime.resolve` and the resolution of a compiled path both take the step. A path from another root does not change.
+
+**Rejected.**
+
+- The grant itself as the value of the read. A context that the code narrowed then reads more capabilities than it has, and a read then disagrees with each effect of that context.
+- The step of a part, the list of the context that its grant permits (H-GRANT). For a grant `[["log"]]` under a wider list `["log", "write"]`, that list is `["log"]`. Its items come from the wider list, thus the value differs from the reference.
+- The step for each root. Only the root `caps` reads the capabilities, and a resolution of another root then pays for nothing.
+
+**Why.** The meet is the most that the context and its grant both permit. It keeps a narrowed list, and it gives back the list of the document for a widened one. The step costs one test of the root, and a new object only for a context that the code changed.
+
+**Limits.** A walker of a step document still gets the context that the code gives, and it can read its capabilities directly. A part of a widened context gets the items of the wider list that its grant permits (H-GRANT). Thus its read of the root `caps` can have another form than a direct read, with the same permissions.

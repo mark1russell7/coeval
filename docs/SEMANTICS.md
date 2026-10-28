@@ -173,7 +173,7 @@ K-ALIAS  [WORLD.ALIAS, WORLD.ALIAS-EVAL]
     ─────────────────────────────────────
     T, φ, a ⊢ k k̄ ⇒ κ̂
 
-K-ALIAS-LIMIT  [WORLD.ALIAS-LIMIT]
+K-ALIAS-LIMIT  [WORLD.ALIAS-LIMIT, DEREF.CHAIN-REASON]
     T(k) is an alias        a + 1 > 32
     ─────────────────────────────────────
     T, φ, a ⊢ k k̄ ⇒ ⊥
@@ -330,21 +330,28 @@ C-PLAIN  [DEREF.PLAIN]
     collapse(t) = t
 
 C-REF  [DEREF.COLLAPSE, DEREF.READER, WORLD.WALK]
-    t = ⟨ref, π'⟩ is a reference document        c + 1 ≤ 64
-    M, Γ ⊢ π' ⇒ t'        with the same Γ and the count c + 1
+    t = ⟨ref, π'⟩ is a reference document        t ∉ o        c + 1 ≤ 64
+    M, Γ ⊢ π' ⇒ t'        with the same Γ, the count c + 1 and the open references o + t
     ─────────────────────────────────────
     collapse(t) = collapse(adopt(t'))
 
-C-LIMIT  [DEREF.CYCLE, DEREF.COLLAPSE-LIMIT]
-    t is a reference document        c + 1 > 64
+C-CYCLE  [DEREF.CYCLE, DEREF.CHAIN-REASON]
+    t is a reference document        t ∈ o
     ─────────────────────────────────────
-    collapse(t) = err(#CYCLE!)
+    collapse(t) = err(#CYCLE!, the references form a cycle)
+
+C-LIMIT  [DEREF.COLLAPSE-LIMIT, DEREF.CHAIN-REASON]
+    t is a reference document        t ∉ o        c + 1 > 64
+    ─────────────────────────────────────
+    collapse(t) = err(#CYCLE!, the path follows more than 64 references)
 
 C-DONE  [DEREF.COLLAPSE]
     t is no reference document
     ─────────────────────────────────────
     collapse(t) = t
 ```
+
+The set `o` holds the references whose paths are in evaluation. The evaluation of a path is a function of the path and `Γ`. Thus a reference in `o` starts the same evaluation again, and C-CYCLE stops it. A cycle of more than 64 references gives the reason of C-LIMIT.
 
 In C-REF, the inner path resolves in `Γ`: the context of the resolution that reached the reference. This is the context of the reader, not the context of the writer (DEREF.READER). The thing of the root `world` holds each alias as a reference document, thus a walk through the world follows an alias.
 
@@ -427,7 +434,7 @@ H-CONTEXT  [CAP.NARROW, CAP.CONTRACT, CAP.ONLY, CAP.MONOTONE]
                    = Γ with caps = Γ.caps ⊓ L1 ⊓ …   for each rule only Li that covers ℓ
                    = Γ                               else
 
-H-GRANT  [CAP.NARROW-CODE, CAP.LATENT]
+H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT]
     in the plan, a context Γ can carry a grant g(Γ): the capabilities that the kernel gave its document
     a spread of Γ keeps g(Γ), and a context that the code makes without a spread has no grant
     at the start of each document, and at each effect of compiled code, the kernel takes grant(Γ):
@@ -435,6 +442,8 @@ H-GRANT  [CAP.NARROW-CODE, CAP.LATENT]
                  = Γ with caps = [] and g = []          when Γ has no grant
                  = Γ with caps = C and g = C            else, with C = [c in Γ.caps such that permits(g(Γ), c)]
     the root gets g = the capabilities of the host, and a part of a function evaluator gets g = the caps of narrow
+    a resolution of the root caps that compiled code asks for reads Γ.caps when g(Γ) is the same list as Γ.caps,
+        [] when Γ has no grant, and Γ.caps ⊓ g(Γ) else
     the rules of the contract apply after this step, as in H-CONTEXT
 
 H-PLACE  [VALUE.FAILURES]
@@ -732,8 +741,8 @@ The work on the rules found six facts that the code has and `SPEC.md` did not st
 
 | Fact | Rule | ID |
 | --- | --- | --- |
-| One resolution follows at most 64 references, also through the paths of the references. A long chain without a cycle also gives `#CYCLE!`. | C-LIMIT | DEREF.COLLAPSE-LIMIT |
-| One lookup follows at most 32 aliases. A longer chain gives no kind, thus a document of that type gives `#KIND?`. | K-ALIAS-LIMIT | WORLD.ALIAS-LIMIT |
+| One resolution follows at most 64 references, also through the paths of the references. A long chain without a cycle also gives `#CYCLE!`, with a reason that names the bound (DEREF.CHAIN-REASON). | C-LIMIT | DEREF.COLLAPSE-LIMIT |
+| One lookup follows at most 32 aliases. A longer chain gives no kind, thus a document of that type gives `#KIND?`. The reason of the lookup is `too-long`, not `cycle` (DEREF.CHAIN-REASON). | K-ALIAS-LIMIT | WORLD.ALIAS-LIMIT |
 | A reference in the data resolves in the context of its reader. | C-REF | DEREF.READER |
 | Each call of a handle is a new evaluation. The part evaluates again, and its effects happen again. | H-SEAL | EVAL.BY-NAME |
 | In a run, an effect of an evaluator gives `#CALC!` at once, also without a wait. A runner under an evaluator starts, and only a real wait fails. | X-NEEDS-RUNNER, DRIVE | RUN.NEEDS-RUNNER, RUN.DRIVE-NESTED |

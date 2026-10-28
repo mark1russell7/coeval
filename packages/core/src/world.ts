@@ -270,10 +270,28 @@ export interface World {
   readonly fallback?: Kind;
 }
 
-/** The result of a lookup of a type in the world. */
+/**
+ * The result of a lookup of a type in the world. The reasons of a failure:
+ *
+ * - `unknown`: the world has no entry for a key, and no fallback kind.
+ * - `cycle`: the aliases form a cycle. The lookup reached a path a second time.
+ * - `too-long`: the lookup followed more than 32 aliases without a path a second time (DEREF.CHAIN-REASON).
+ * - `not-a-kind`: the path reaches an entry of the wrong sort. An example is an alias whose target is not in the world.
+ * - `computed`: the type is a computed type, thus it has no keys.
+ */
 export type Lookup =
   | { readonly ok: true; readonly kind: Kind; readonly path: readonly Key[]; readonly aliases: number }
-  | { readonly ok: false; readonly reason: "unknown" | "cycle" | "not-a-kind" | "computed"; readonly path: readonly Key[] };
+  | { readonly ok: false; readonly reason: "unknown" | "cycle" | "too-long" | "not-a-kind" | "computed"; readonly path: readonly Key[] };
+
+/** The most aliases that one lookup follows (WORLD.ALIAS-LIMIT). */
+const MAX_ALIASES = 32;
+
+/** This function tells if two paths of a lookup have the same keys. */
+function samePath(a: readonly Key[], b: readonly Key[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false;
+  return true;
+}
 
 /**
  * This function tells if an entry of the world is a kind.
@@ -312,7 +330,8 @@ function entryAt(entries: Readonly<Record<string, WorldEntry>>, key: Key): World
 
 /**
  * This function finds the kind that a type names. It walks the path from the root of the world, one key at a
- * time. An alias on the way is followed until a kind answers (collapse). A cycle of aliases stops the lookup. In a
+ * time. An alias on the way is followed until a kind answers (collapse). A cycle of aliases stops the lookup, and so
+ * does a chain of more than 32 aliases. In a
  * namespace with a fallback, a key that the namespace does not have gets the fallback kind. In an open world, a first
  * key that the world does not have gets the fallback kind of the world.
  *
@@ -325,6 +344,8 @@ export function lookupKind(world: World, type: TypeRef): Lookup {
   if (start === undefined) return { ok: false, reason: "computed", path: [] };
   let path: readonly Key[] = start;
   let aliases = 0;
+  // The paths before each alias. The same path again closes a cycle, because the lookup of a path is always the same.
+  let seen: (readonly Key[])[] | undefined;
   for (;;) {
     let entries = world.kinds;
     let fallback: Kind | undefined = world.fallback;
@@ -339,12 +360,16 @@ export function lookupKind(world: World, type: TypeRef): Lookup {
       }
       if (isAlias(entry)) {
         aliases += 1;
-        if (aliases > 32) return { ok: false, reason: "cycle", path };
+        if (aliases > MAX_ALIASES) return { ok: false, reason: "too-long", path };
         const target = entry.value.slice(1);
         if (entry.value[0] !== "world" || !target.every((item) => typeof item === "string" || typeof item === "number")) {
           return { ok: false, reason: "not-a-kind", path };
         }
+        seen ??= [];
+        seen.push(path);
         path = [...(target as readonly Key[]), ...path.slice(index + 1)];
+        const next = path;
+        if (seen.some((before) => samePath(before, next))) return { ok: false, reason: "cycle", path };
         followed = true;
         break;
       }

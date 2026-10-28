@@ -99,6 +99,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | DEREF.COLLAPSE | A path follows a reference that a step reaches. |
 | DEREF.CYCLE | A cycle of references gives `#CYCLE!`. |
 | DEREF.COLLAPSE-LIMIT | One resolution follows at most 64 references, also through the paths of the references that it follows. A long chain without a cycle also gives `#CYCLE!`. |
+| DEREF.CHAIN-REASON | The reason of `#CYCLE!` tells a cycle from a long chain. A reference that comes again in the evaluation of its own path gives the reason "The references form a cycle.". A resolution that follows more than 64 references without such a cycle gives a reason that names the bound. A lookup gives the reason `cycle` when it reaches a path again, and the reason `too-long` after 32 aliases without a cycle. |
 | DEREF.READER | A reference in the data resolves in the context of its reader, not in the context of its writer. |
 | DEREF.HOST | A host thing answers its own steps. |
 | DEREF.PATH | A host thing can answer all the keys of a path in one call. |
@@ -243,6 +244,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | CAP.KEYS | A capability permits the kinds under it, key by key. A key with a dot is one key. |
 | CAP.NARROW | A part cannot get more capabilities than its parent. |
 | CAP.NARROW-CODE | A compiled evaluator or a compiled runner cannot give a part more capabilities than its document has. Each context carries the capabilities that the kernel gave its document, and a spread of the context keeps them. A part and an effect of compiled code keep only these capabilities. A context that compiled code makes without a spread has no capabilities. |
+| CAP.CAPS-GRANT | Compiled code that resolves the root `caps` through the runtime reads the capabilities that both its context and the grant of that context permit. Thus a context that the code widened gives the capabilities of its document, as in the reference. A context that the code narrowed keeps its own list. A context without a grant gives no capabilities. |
 | CAP.MONOTONE | Fewer capabilities change an evaluation only at an effect that they refuse and more capabilities permit. Before that effect, the two evaluations ask about the same effects and get the same answers. Without such an effect, they give the same result and the same effects. Thus fewer capabilities do not permit an effect that more capabilities refuse. This holds for a document that does not read the root `caps`, under code that keeps C1. A property test examines generated documents. |
 | CAP.HOOK | A machine can give the rule of the host for an effect. |
 | CAP.CONTRACT | A kind declares in its contract the capabilities that it gives its parts: `same`, `mask` or `only`. The kernel narrows the context of each part by these rules, thus an evaluator cannot give the part more. |

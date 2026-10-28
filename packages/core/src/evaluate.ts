@@ -157,6 +157,22 @@ function granted(ctx: Context): Context {
 }
 
 /**
+ * This function gives the context in which the runtime resolves a path of compiled code (CAP.CAPS-GRANT). A path from
+ * the root `caps` reads the capabilities that both the context and its grant permit, and a context without a grant
+ * reads none. Thus a context that compiled code widened gives the capabilities of its document, and a context that it
+ * narrowed keeps its own list. Each other path, and each context whose grant is its own list, keeps the same context.
+ */
+function readable(ctx: Context, path: readonly unknown[]): Context {
+  if (path[0] !== "caps") return ctx;
+  const grant = (ctx as Granted)[GRANT];
+  if (grant === ctx.caps) return ctx;
+  const caps = grant === undefined ? NO_CAPS : intersectCaps(ctx.caps, grant);
+  if (caps === ctx.caps) return ctx;
+  const out: Granted = { ...ctx, caps, [GRANT]: caps };
+  return out;
+}
+
+/**
  * This function gives the context of a part of a function evaluator. It is the context that the evaluator gives,
  * narrowed by the context of the document (CAP.NARROW), with the grant of its capabilities.
  */
@@ -896,15 +912,18 @@ class Session implements Runtime {
     return this.reading !== undefined;
   }
 
+  /** This function resolves a path. A path from the root `caps` reads the capabilities through the grant (CAP.CAPS-GRANT). */
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
-    return this.read(ctx, path, undefined, options);
+    return this.read(readable(ctx, path), path, undefined, options);
   }
 
   /**
    * This function resolves a compiled path (PLAN.PATH). Without a list of reads and without a trace, the compiled
-   * path answers at once. Each other resolution records its read, as `resolve` does.
+   * path answers at once. Each other resolution records its read, as `resolve` does. A path from the root `caps` reads
+   * the capabilities through the grant (CAP.CAPS-GRANT).
    */
-  resolvePath(ctx: Context, compiled: CompiledPath): Resolution {
+  resolvePath(given: Context, compiled: CompiledPath): Resolution {
+    const ctx = readable(given, compiled.path);
     if (this.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
     return this.read(ctx, compiled.path, compiled, undefined);
   }

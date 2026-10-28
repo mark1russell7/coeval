@@ -163,11 +163,48 @@ describe("the facts that the calculus states", () => {
       return withKinds(kinds);
     };
     expect(lookupKind(aliases(32).world, "a0")).toMatchObject({ ok: true, path: ["number"], aliases: 32 });
-    expect(lookupKind(aliases(33).world, "a0")).toMatchObject({ ok: false, reason: "cycle" });
+    expect(lookupKind(aliases(33).world, "a0")).toMatchObject({ ok: false, reason: "too-long" });
     const doc = typed("a0", 5);
     expect(prepare(aliases(32), doc).evaluate()).toEqual(ok(5));
     expect(reference(aliases(32), doc)).toEqual(ok(5));
     for (const result of [prepare(aliases(33), doc).evaluate(), reference(aliases(33), doc)]) expect(result).toMatchObject({ ok: false, error: { code: "#KIND?", place: [] } });
+  });
+
+  it("[DEREF.CHAIN-REASON] the reason of #CYCLE! tells a cycle of references from a chain that is longer than the bound", () => {
+    const end = { end: "end" };
+    const CYCLE = "The references form a cycle.";
+    const BOUND = "The path follows more than 64 references. One resolution follows at most 64.";
+    const cases: readonly { readonly names: Record<string, unknown>; readonly path: readonly unknown[]; readonly reason: string }[] = [
+      // A reference to itself, a cycle of two and a cycle of 64 close inside the bound.
+      { names: { a: ref("names", "a") }, path: ["names", "a"], reason: CYCLE },
+      { names: { a: ref("names", "b"), b: ref("names", "a") }, path: ["names", "a"], reason: CYCLE },
+      { names: chain("c", 64, "c0"), path: ["names", "c0"], reason: CYCLE },
+      // A cycle behind a field: the path of the reference reaches the reference again.
+      { names: { box: { x: ref("names", "box", "x") } }, path: ["names", "box", "x"], reason: CYCLE },
+      // A chain of 65 references without a cycle, and a cycle of 65 references, reach the bound first.
+      { names: { ...chain("r", 65, "end"), ...end }, path: ["names", "r0"], reason: BOUND },
+      { names: chain("c", 65, "c0"), path: ["names", "c0"], reason: BOUND },
+      // Two hops of 32 and 33 references: the count is for the whole resolution.
+      { names: { ...chain("a", 32, "box"), box: { x: ref("names", "b0") }, ...chain("b", 32, "end"), ...end }, path: ["names", "a0", "x"], reason: BOUND },
+    ];
+    for (const { names, path, reason } of cases) {
+      for (const hops of [true, false]) {
+        expect(resolve(STD_MACHINE, context({ names }), path, { hops }), `${path.join(".")} ${String(hops)}`).toMatchObject({ ok: false, code: "#CYCLE!", reason });
+      }
+      // The plan and the reference give the same error and reason.
+      const doc: Json = { type: "ref", value: path as Json[] };
+      for (const result of [prepare(STD_MACHINE, doc).evaluate(makeContext(names)), reference(STD_MACHINE, doc, makeContext(names))]) {
+        expect(result).toMatchObject({ ok: false, error: { code: "#CYCLE!", reason, place: [] } });
+      }
+    }
+    // A lookup gives `cycle` when it reaches a path again, and `too-long` after 32 aliases without a cycle.
+    const world = (kinds: Readonly<Record<string, WorldEntry>>) => withKinds(kinds).world;
+    expect(lookupKind(world({ a: { type: "ref", value: ["world", "a"] } }), "a")).toMatchObject({ ok: false, reason: "cycle" });
+    expect(lookupKind(world({ a: { type: "ref", value: ["world", "b"] }, b: { type: "ref", value: ["world", "a"] } }), "a")).toMatchObject({ ok: false, reason: "cycle" });
+    // An alias that adds a key to its own path makes a new path at each step, thus only the bound stops it.
+    expect(lookupKind(world({ a: { type: "ref", value: ["world", "a", "x"] } }), "a")).toMatchObject({ ok: false, reason: "too-long" });
+    const loop = withKinds({ a: { type: "ref", value: ["world", "b"] }, b: { type: "ref", value: ["world", "a"] } });
+    for (const result of [prepare(loop, typed("a", 5)).evaluate(), reference(loop, typed("a", 5))]) expect(result).toMatchObject({ ok: false, error: { code: "#KIND?", place: [] } });
   });
 
   it("[DEREF.READER] a reference in the data resolves in the context of its reader, not of its writer", () => {

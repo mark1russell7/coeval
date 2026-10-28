@@ -755,6 +755,54 @@ describe("the disagreements that the harness found", () => {
     expect(prepare(machine, { type: "fresh", value: [log("a")] }).evaluate(context({ caps: ["log"] }))).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
   });
 
+  it("[CAP.CAPS-GRANT] compiled code that widens its context reads the root caps through the grant, as the reference reads them", () => {
+    // Each kind reads the root caps in a context that its compiled code makes. The definitions read the context of the document.
+    const read = (make: (ctx: Context) => Context): CompiledEvaluator => ({
+      compile: () => (ctx, rt) => {
+        const found = rt.resolve(make(ctx), ["caps"]);
+        return found.ok ? ok(found.thing) : fail(found.code, found.reason);
+      },
+    });
+    const kinds = { peek: { verbs: { eval: "test.peek" } }, narrowPeek: { verbs: { eval: "test.narrow-peek" } }, freshPeek: { verbs: { eval: "test.fresh-peek" } } };
+    const machine: Machine = {
+      ...widening,
+      world: { ...widening.world, kinds: { ...widening.world.kinds, ...kinds } },
+      evaluators: {
+        ...widening.evaluators,
+        "test.peek": read(widened),
+        "test.narrow-peek": read((ctx) => ({ ...ctx, caps: [] })),
+        "test.fresh-peek": read((ctx) => context({ names: ctx.names, world: ctx.world, caps: WIDE })),
+      },
+    };
+    const definitions: Definitions = {
+      ...WIDENING_DEFINITIONS,
+      evaluators: {
+        ...WIDENING_DEFINITIONS.evaluators,
+        "test.peek": ({ resolve }) => {
+          const found = resolve(["caps"]);
+          return found.ok ? ok(found.thing) : fail(found.code, found.reason);
+        },
+      },
+    };
+    const peek: Json = { type: "peek", value: null };
+    // Before K100, the plan gave the wider list ["log", "write", "more"] for each of these contexts.
+    for (const caps of [[], ["log"], [["log"]], ["write", "log"], ["log.a"]] as const) {
+      const ctx = context({ caps });
+      const outcome = agree(machine, peek, ctx, { strict: true, definitions });
+      expect(outcome, show(caps)).toMatchObject({ ok: true, result: ok(caps) });
+      expect(prepare(machine, peek).evaluate(ctx), show(caps)).toEqual(ok(caps));
+      expect(evaluate(machine, peek, ctx).result, show(caps)).toEqual(ok(caps));
+      expect(reference(machine, peek, ctx, { definitions }), show(caps)).toEqual(ok(caps));
+    }
+    // A context that the code narrows keeps its own list, and a context without a spread has no grant, thus no capabilities.
+    const all = context({ caps: ["log", "write"] });
+    expect(prepare(machine, { type: "narrowPeek", value: null }).evaluate(all)).toEqual(ok([]));
+    expect(prepare(machine, peek).evaluate(context({ caps: ["log", "write", "more", "net"] }))).toEqual(ok(WIDE));
+    expect(prepare(machine, { type: "freshPeek", value: null }).evaluate(all)).toEqual(ok([]));
+    // A part of a kind that widens gets the items of the wider list that its document permits (CAP.NARROW-CODE), here "log".
+    expect(agree(machine, { type: "widen", value: [peek] }, context({ caps: [["log"]] }), { strict: true, definitions })).toMatchObject({ ok: true, result: ok([["log"]]) });
+  });
+
   it("[RUN.WAIT] a runner that waits under a parent that cannot wait gives #CALC! with its own place", () => {
     const doc = { type: "add", value: [1, { type: "wait", value: null }] };
     expect(agree(waiting, doc, context(), { strict: true })).toMatchObject({ ok: true, result: { ok: false, error: { code: "#CALC!", place: [1] } } });
