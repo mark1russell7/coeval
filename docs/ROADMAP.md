@@ -106,7 +106,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K33 | Each verb through the kernel: `prepare` and `check` take a verb, one ladder serves each verb, and a verb `format` is the demonstration (R6 P3) | done (2026-10-24, D23, released in the next batch) | K32 |
 | K34 | The composition checklist as spec tests: one test `COMPOSE.*` for each mode of composition, with small languages (R6 P1) | done (2026-10-24, version 0.6.1: `restrictWorld`, `restrictMachine`, D18 and `docs/COMPOSITION.md`) | K32 |
 | K35 | Verb entries for the kinds of another language: a language adds a verb that it owns to a foreign kind, through the merge of K32 (R6 P4) | later | K32, K33 |
-| K36 | A check of verb coverage: `checkWorld` lists each kind with no entry and no default for a verb that the language declares (R6 P5) | later | K33 |
+| K36 | A check of verb coverage: `checkWorld` lists each kind with no entry and no default for a verb that the language declares (R6 P5) | done (2026-10-27, D45, released in the next batch) | K33 |
 | K37 | A language package format: `defineLanguage` gives one value with a name, a version and a hash, and `compose` merges languages through K32 (R6 P7) | later | K32 |
 | K38 | A boundary kind `lang` for a part in another language, as the module boundary of Racket (R6 P8) | later (low value today, and a decision of the owner first) | K37 |
 | K39 | A host thing can say that a field holds `undefined`. Today `deref` uses `undefined` for a missing field, so a host that adopts the names root hides a name bound to `undefined`. Found by K20. | done (2026-10-24, released in 0.6.3: the optional `has` of a host thing, also on the nodes of the standard tree, D21) | K4 |

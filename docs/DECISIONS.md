@@ -1094,3 +1094,27 @@ Attribute grammars give equations on the kinds and a ladder of defaults. L2b tak
 **Why.** A read through `resolve` goes into the list of reads, into the static facts and into the checks of the probe. Thus the existing proofs of reads and facts cover the tree with no special rule.
 
 **Limits.** Each evaluation of a tree records a read of the whole root `self`. A durable host then verifies or evaluates a tree again after each change of `self`, also of a field that the tree does not read.
+
+## D45 (2026-10-27): `checkWorld` takes the machine and the verbs, and it gives one `#NOEVAL` for each kind and verb
+
+**Context.** R6 P5 asks for a check of verb coverage before a document exists. A language declares the verbs that each of its kinds must answer. The world has no field for these verbs, and a language is not a type of the kernel. Thus the design calls are the name, the place of the list of verbs and the shape of the result.
+
+**Decision.**
+
+- The function is `checkWorld(machine, verbs)` in `static.ts`, next to `check` and `typeCheck` (STATIC.COVERAGE). The name says that it checks the world, not a document.
+- It takes a machine, as `check` does, and it reads only `machine.world` today. K52 checks the value types of a machine before a document exists, and it can use the same function.
+- The list of verbs is an argument. The language that calls the check owns its verbs, thus the world does not get a new field.
+- The result is a list of `WorldIssue`: one issue for each kind and verb. An issue has the code `#NOEVAL`, the keys of the kind, the verb and a reason. A document of such a kind gives the same code in `check` with that verb.
+- A fallback kind of a namespace or of the world has the keys of its namespace and the mark `fallback: true`. The check does not follow an alias, because the kind of the alias has its own place.
+- An entry or a default covers a verb. The check does not ask if the machine has code for the name of the entry.
+
+**Rejected.**
+
+- A field `verbs` of the world. Two languages with different verbs then cannot share one world, and the merge of K32 then needs a rule for the field.
+- One record for each kind with a list of its missing verbs. One issue for each verb is the shape of `check`, and a host filters it by verb.
+- The type `Issue` of `check`. Its `place` is a path through the parts of a document, not a path of the world.
+- A test of the code of each entry. The code of `eval` is in `evaluators`, and the code of `step` and `deref` is in other tables. A host can draw a verb, for example `view`, with no code of the machine.
+
+**Why.** The static answers to the expression problem prove coverage with types. This check gives one world the same proof, with only the data of the world.
+
+**Limits.** An entry that names an evaluator without code passes `checkWorld`, and `check` finds it at a document. A kind that an alias names is checked only at its own place.

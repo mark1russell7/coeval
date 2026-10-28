@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type World, equationType } from "./world.ts";
+import { type Kind, type Namespace, type World, type WorldEntry, equationType, isKind, isNamespace } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
@@ -506,6 +506,74 @@ export function typeCheck(machine: Machine, doc: unknown, options: CheckOptions 
   const issues = checkAll(machine, doc, options, nodes);
   const pass = typePass(machine, nodes, options.verb ?? "eval", options.expect, options.rootTypes);
   return { type: pass.type, issues: pass.issues.length === 0 ? issues : [...issues, ...pass.issues], places: pass.places };
+}
+
+/**
+ * A problem of a world that `checkWorld` finds before a document exists (STATIC.COVERAGE). Each document of the
+ * kind gives this problem for the verb, thus `check` with the verb finds it too.
+ */
+export interface WorldIssue {
+  /** The code of the problem. `#NOEVAL`: no rung of the ladder gives an evaluator for the verb. */
+  readonly code: "#NOEVAL";
+  /** The keys of the kind from the root of the world. For a fallback kind, the keys of its namespace. */
+  readonly kind: readonly Key[];
+  /** `true` for the fallback kind of a namespace or of the world. */
+  readonly fallback?: true;
+  /** The verb without an evaluator. */
+  readonly verb: string;
+  readonly reason: string;
+}
+
+/** This function tells if a table of verbs has an entry for a verb. */
+function hasVerb(table: Readonly<Record<string, string>> | undefined, verb: string): boolean {
+  return table !== undefined && Object.hasOwn(table, verb);
+}
+
+/**
+ * This function checks the world of a machine before a document exists. It finds each kind that has no entry for a
+ * verb of the list, when the world has no default for that verb (STATIC.COVERAGE). A document of such a kind gets no
+ * evaluator for the verb, thus the check gives the same proof of coverage as a type system.
+ *
+ * The check visits each kind of each namespace, at each depth, and the fallback kind of each namespace and of the
+ * world. It does not follow an alias, because the kind of an alias has its own place. The check reads only the world.
+ *
+ * @param machine - The machine, for its world.
+ * @param verbs - The verbs that each kind of the language must answer, for example `eval`, `view` and `type`.
+ * @returns One issue for each kind and verb without an evaluator. The order is the order of the world, then the
+ *   order of the verbs. The fallback kind of a namespace comes after the entries of that namespace.
+ */
+export function checkWorld(machine: Machine, verbs: readonly string[]): readonly WorldIssue[] {
+  const world = machine.world;
+  const open = verbs.filter((verb) => !hasVerb(world.defaults, verb));
+  const out: WorldIssue[] = [];
+  if (open.length === 0) return out;
+  const visit = (kind: Kind, path: readonly Key[], fallback: boolean): void => {
+    const text = path.join(".");
+    const name = fallback ? (path.length === 0 ? "the fallback kind of the world" : `the fallback kind of ${text}`) : `the kind ${text}`;
+    for (const verb of open) {
+      if (hasVerb(kind.verbs, verb)) continue;
+      const reason = `${name.charAt(0).toUpperCase()}${name.slice(1)} has no entry for the verb ${verb}, and the world has no default for it.`;
+      out.push(fallback ? { code: "#NOEVAL", kind: path, fallback: true, verb, reason } : { code: "#NOEVAL", kind: path, verb, reason });
+    }
+  };
+  // The set holds the namespaces on the way, thus a namespace that holds itself does not loop.
+  const way = new Set<Namespace>();
+  const entries = (kinds: Readonly<Record<string, WorldEntry>>, path: readonly Key[]): void => {
+    for (const key of Object.keys(kinds)) {
+      const entry = kinds[key];
+      const here = [...path, key];
+      if (isKind(entry)) visit(entry, here, false);
+      else if (isNamespace(entry) && !way.has(entry)) {
+        way.add(entry);
+        entries(entry.kinds, here);
+        if (entry.fallback !== undefined) visit(entry.fallback, here, true);
+        way.delete(entry);
+      }
+    }
+  };
+  entries(world.kinds, []);
+  if (world.fallback !== undefined) visit(world.fallback, [], true);
+  return out;
 }
 
 /**

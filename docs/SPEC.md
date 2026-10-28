@@ -275,6 +275,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.AT | `check` gives the JSON path of each problem. For a value without its shape, the path goes to the value with the problem. |
 | STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |
 | STATIC.KNOWN | `check` asks the hook `known` of the machine about the kind and the evaluator of each document. A name that the evaluator does not know gives `#NAME?` with the reason of a run, for example an unknown operation. |
+| STATIC.COVERAGE | `checkWorld(machine, verbs)` checks the world before a document exists. It gives `#NOEVAL` for each kind and verb of the list when the kind has no entry and the world has no default for the verb. Thus a kind with no `view` entry, in a world with no `view` default, is in the list. The check visits each kind of each namespace and each fallback kind, and it does not follow an alias. A document of a kind in the list gives `#NOEVAL` in `check` with that verb. |
 
 ## The static facts
 
