@@ -1641,3 +1641,40 @@ The risk of R1 is a stale plan: an old value without an error. The design calls 
 - The reason for a name without a bind symbol is new: "This syntax has no text for the name of a document." Before, a name and an own entry gave the same reason.
 - A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check.
 - A choice has no text, because K158 has no text for a data envelope. A tree has no text, because K160 has no form for a record kind.
+
+## D63 (2026-10-28): a call form names the way its arguments make the value, and a step of a path in parentheses is a document
+
+**Context.** K158 and K160, from C17. The program A choice of the playground has the branch `{ type: "text", value: "big" }`. A profile had no text for a data envelope: its value is one literal, not a list of parts. The program A tree has the record kinds `panel` and `box`. A positional form needs the first fields in order, but a node of the tree has `width` and `children` without `height`.
+
+The inner box also reads `self.parent` with the step document `{ type: "nearest", value: { type: "panel" } }`. A path had no text for a step that is a document.
+
+**Decision.**
+
+- A call form gets the new field `args`. Its values are `list`, `fields`, `named` and `literal`. The default keeps the old forms: `fields` with fields, or `list`.
+- A form with `args: "literal"` takes one literal that JSON writes, and the literal is the value. Thus `text("big")` is `{ type: "text", value: "big" }` (SYNTAX.DATA).
+- The literal is a text, a finite number, a truth value or `null`. A document, `NaN`, `-0`, no argument or a second argument gives an issue.
+- A form with `args: "named"` reads each argument as a key, a `:` and a document. The value is a record, thus `panel(width: 300)` is `{ type: "panel", value: { width: 300 } }` (SYNTAX.RECORD).
+- A key is a plain name or a name in backticks. A reserved word is a good key, because the key comes before the document. A key with the same name two times gives an issue.
+- The field `fields` of a named form limits the keys. Without it, a named form permits each key, for example the construct `record`.
+- `print` writes the keys in the order of the record. A record with another key, or a value that is not a record, has no text by the form.
+- A step of a path in parentheses after a dot is a document, for example `self.parent.(nearest(type: "panel")).width` (SYNTAX.STEP). `print` writes a step that is an envelope in parentheses.
+- `SITE_SYNTAX` gets the literal forms `number`, `text` and `bool`, and the named forms `panel`, `box` and `nearest`. Each of the eight programs round-trips, and a test pins the text of each.
+- Each text that parsed before gives the same document. A new form reads only the calls of its own name, and the text `.(` after a name gave an issue before.
+
+**Rejected.**
+
+- A profile that reads each string literal as `{ type: "text" }`. Then `log("start")` gives another document, and the bare literal has no text.
+- A form `kind{field: value}` with braces. K145 can use the braces for a record literal of data. A call form already has the parentheses, the separator and the issues.
+- A form for the children of a tree, for example `panel(width: 300)(box())`. It fits only a tree, and `children: list(...)` already writes it.
+- Named arguments for each call. In the spreadsheet profile, `SUM(a:b)` is a range, thus that text then gives another document.
+- A check of the type of the literal, for example a number in `text(1)`. The parser makes documents, and the evaluator of the kind checks its data.
+
+**Why.** A field of the form keeps the text of each kind a choice of the profile, as D62 did for the header. One literal and one record of keys cover the data envelopes and the record kinds of the standard world. The step in parentheses uses the group of the parser, thus a step can be each document.
+
+**Fit with K145.** The construct `record` takes the named form without fields: `record(a: 1, b: x)`. The constructs `let`, `fn` and `call` take named or positional forms with their fields. Their fields `bind`, `params` and `args` hold a record or a list of data. K145 gives those a literal, for example `[a, b]` and `{x: 1}`, and the named form keeps those brackets free.
+
+**Limits.**
+
+- `print` writes the keys in the order of the record. Two records with the same fields in another order give two texts, but `docEquals` tells that they are equal.
+- A literal form does not check the type of the literal. Thus `text(1)` reads, and its evaluation gives `#VALUE!`.
+- A step document after a bare name needs a first name, for example `x.(y)`. A path from the root `names` with a document as its first step has no text.
