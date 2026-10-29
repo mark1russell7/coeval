@@ -1871,7 +1871,7 @@ The design calls are how the reads reach the outer list, and which reads of an e
 
 **Context.** K166, from D68. `factsOf` walked the document only, and the equations of a tree kind are in its contract. Thus the free read of an equation had no static read (READS.SUBSET). A read of `world` in an equation gave no edge of a schedule.
 
-A closure with a tree node in its body kept the reads of `factsOf` only (READS.CLOSURE). Thus a change of the event that an equation reads kept the old closure. The design calls are where the reads of an equation go, and which of them are reads.
+A closure with a tree node in its body kept the reads of `factsOf` only (READS.CLOSURE). Thus a change of the event that an equation reads kept the old closure. The design questions are where the reads of an equation go, and which of them are reads.
 
 **Decision.**
 
@@ -1895,7 +1895,14 @@ A closure with a tree node in its body kept the reads of `factsOf` only (READS.C
 
 **Why.** A host trusts the static reads for the edges of a schedule and for the kept reads of a closure. A free read without a static read breaks both. The rules of D68 tell which reads are free, thus the static reads follow the same rules.
 
-**Measured.** The bench of PR #129 compared the head with `main`. The results are in the PR.
+**Measured.** The bench of CI compared the head 10720b6 with `main` at 94cfeeb in the workflow 40807013893. A cell gives the change and the noise (A/A) in parentheses. The table shows each case outside the bound of 1.5% or two times its noise.
+
+| Case | Base (ns) | Head (ns) | Change |
+| --- | ---: | ---: | ---: |
+| `factsOf` of a tree with an equation | 6515.8 | 9132.7 | +39.2% (+0.5%) |
+| PLAN.COMPILE-SPEED prepare | 13505.0 | 12860.1 | -7.0% (+1.8%) |
+
+The walk of the equation costs the time of `factsOf`. A host computes the facts one time for each document, and `durable` keeps them. `prepare` does not use `factsOf`. The first bench, in the workflow 40806760672, also gave PLAN.COMPILE-SPEED -8.4%, thus the cause is not known. Each other case of the plans and the formulas stays in its bound.
 
 **Limits.**
 
