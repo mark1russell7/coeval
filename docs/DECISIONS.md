@@ -2437,3 +2437,45 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 
 - The language keeps `truthType` true to its `truthy`. A member without a truth makes the check unsound at that place. K181 adds this obligation to `conforms`.
 - A part of the type `unknown` fits `truthType`, by the gradual rule. The guards of K28 cover such a place.
+
+## D82 (2026-10-29): a list field and a record field of an exception keep their parts
+
+**Context.** K176 and K177, from K175 and K174 (D78 Limits). A list field without an exception lost each item when one item had no form. A record field with an exception, for example `{ inner: error }`, was a name in `dropped`.
+
+**Decision.**
+
+- An own enumerable field without a term document is in `parts` when it is an exception, a list or a plain record (RUN.REPLAY-FIELDS). A list or a record is a container of parts.
+- A list of parts is a JSON list, as in D78. An item that is a list without a term document is a JSON list in that list.
+- A record of parts is the new part `{ "record": { ... } }`. Each field of it is a part or a list of parts. A field without a form leaves the record, and its name goes in `dropped`.
+- An item of a container has the name of the container, a dot and its key or index in `dropped`, for example `wrap.send` or `grid.0.1`.
+- A container without a form in it, for example a list of functions, is one name in `dropped`, as in D76. A hidden list of a standard class keeps its marks, as in D78.
+- The walk takes the items of a container in the order of their keys. An exception in a container has the rule of a cause, also a `loop` to the outer exception.
+- A container that is again on the way from its field is a cycle. It has no form, thus it is a name in `dropped`. A container that two fields share gets a form at each place.
+- A value with a hole of a list at some depth is a container, not a term document. `encodeValue` writes a hole as `undefined`, thus the hole then keeps its mark.
+- `decodeLog` gives a new plain record for a record of parts, with its keys in their order. Each field is enumerable.
+- The form stays at the version 1. The part `record` and a list in a list are optional, and an old log decodes as before.
+
+**Rejected.**
+
+- A list of marks for a list without a form in it. It keeps only the length, and `decodeLog` then gives a list of holes as a fact of the host. One name tells the same truth with less text.
+- An empty list for such a list. `decodeLog` then tells that the host had no items.
+- A container only for a record with an exception. A record and a list then have two rules, and a record without an exception loses each field for one function.
+- A JSON record as a record of parts, without the field `record`. A reader then cannot tell a record of parts from a part.
+- The part `{ "list": [...] }` for a list in a list. A list of parts is a JSON list at the top, thus a JSON list at each depth keeps one rule.
+- A depth limit. The walks of D76 have none, and the check of the way ends each cycle of containers.
+- A loop to a container. A loop is the index of an exception. A record of the host has no class and no identity that a golden file needs.
+
+**Why.** A list and a record are the two containers of `encodeValue`, thus one rule covers both, at each depth. A container without a form adds no fact, thus it keeps the short form of D76.
+
+**Public types.** `ReplayPartJson` gets the member `{ record }`, and the new type `ReplayPartsJson` is a part or a list of them. `encodeLog` and `decodeLog` are not in a release before 0.17.0, thus no released form changes. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** One test of RUN.REPLAY-FIELDS changes. Before, the list `tries: [1, () => 1]` was the name `tries` in `dropped`. Since D82, it is a list of parts with a mark, and `dropped` has `tries.1`.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception is a `TypeError` without fields.
+
+**Limits.**
+
+- A cause that is a list or a record with an exception has no part rule, for example `{ cause: { inner: error } }`. It is the name `cause` in `dropped`. The row K182 keeps this idea.
+- `decodeLog` gives two records for a record that two fields share. The exceptions in them stay the same by `loop`. The row K183 keeps this idea.
+- A sparse list of plain values was a term document with `undefined` at a hole. Since D82, it is a list of parts with a mark at the hole.
+- A key with a dot gives a name in `dropped` that is not exact. The name `a.b` is the key `a.b` or the field `b` of `a`.
