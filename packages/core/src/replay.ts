@@ -244,6 +244,11 @@ export interface ReplayExceptionJson {
    * note: `decodeLog` does not give these fields back.
    */
   readonly dropped?: readonly string[];
+  /**
+   * The own fields of the standard classes that are not enumerable (RUN.REPLAY-HIDDEN, D77): `errors` of an
+   * `AggregateError`, `error` and `suppressed` of a `SuppressedError`. A list is a list of parts.
+   */
+  readonly hidden?: Readonly<Record<string, ReplayPartJson | readonly ReplayPartJson[]>>;
   /** The term document of the cause, when `encodeValue` writes the cause. */
   readonly cause?: Json;
   /** The JSON form of a cause that is an exception, when no domain with a codec holds it. */
@@ -251,6 +256,12 @@ export interface ReplayExceptionJson {
   /** The index in the chain of an earlier exception that is the cause. Thus a cycle of causes stays exact. */
   readonly loop?: number;
 }
+
+/**
+ * The JSON form of one value of a hidden field (D77): a term document, an exception, or the index of an earlier
+ * exception. The walk is depth first: the hidden fields in their order, then the cause.
+ */
+export type ReplayPartJson = { readonly value: Json } | { readonly exception: ReplayExceptionJson } | { readonly loop: number };
 
 /** This function tells if a key is a field of an error value that the JSON form keeps. */
 function errorField(key: string): boolean {
@@ -264,29 +275,49 @@ function ownField(key: string): boolean {
 
 /** This function tells if a key is a field of the JSON form of an exception. */
 function exceptionField(key: string): boolean {
-  return key === "name" || key === "message" || key === "fields" || key === "dropped" || key === "cause" || key === "exception" || key === "loop";
-}
-
-/** The parts of the JSON form of one exception before its cause, and the cause. */
-interface ExceptionStep {
-  readonly head: { readonly name: string; readonly message: string; readonly fields?: Readonly<Record<string, Json>> };
-  readonly dropped: string[];
-  link?: { readonly cause: Json } | { readonly loop: number };
+  return key === "name" || key === "message" || key === "fields" || key === "dropped" || key === "hidden" || key === "cause" || key === "exception" || key === "loop";
 }
 
 /**
- * This function writes an exception and the chain of its causes as JSON (RUN.REPLAY-CAUSES). A host makes the
- * exception, thus a part without a term document is a note in `dropped`, not a refusal (D75, D76). A cause that is an
- * earlier exception of the chain is its index in `loop`. The walk is a loop, thus a long chain does not overflow the
- * stack.
+ * The own fields that are not enumerable and that the JSON form keeps in `hidden` (D77). The standard classes define
+ * them: `errors` of `AggregateError`, `error` and `suppressed` of `SuppressedError`.
+ */
+const HIDDEN: readonly string[] = /* @__PURE__ */ Object.freeze(["errors", "error", "suppressed"]);
+
+/** The form of one value of an exception in the walk of `exceptionJson`: a term document, a loop, or a later node. */
+type Part = { readonly value: Json } | { readonly loop: number } | { readonly node: number };
+
+/** One exception of the walk of `exceptionJson`, before its JSON form. */
+interface ExceptionNode {
+  readonly head: { readonly name: string; readonly message: string; readonly fields?: Readonly<Record<string, Json>> };
+  readonly dropped: string[];
+  readonly hidden: Record<string, Part | Part[]>;
+  cause?: Part;
+}
+
+/** One value of an exception that the walk of `exceptionJson` writes next, and the place for its form. */
+interface ExceptionTask {
+  readonly value: unknown;
+  readonly owner: ExceptionNode;
+  /** The name for `dropped`. An item of a list has the name of the field, a dot and its index. */
+  readonly name: string;
+  readonly put: (part: Part) => void;
+}
+
+/**
+ * This function writes an exception, its hidden fields and the chain of its causes as JSON (RUN.REPLAY-CAUSES,
+ * RUN.REPLAY-HIDDEN). A host makes the exception, thus a part without a term document is a note in `dropped`, not a
+ * refusal (D75, D76). The walk gives each exception an index in the order of a depth-first walk: the hidden fields
+ * in the order of `HIDDEN`, then the cause. A value that is an earlier exception of the walk is its index in `loop`
+ * (D77). The walk is a loop, thus a long chain does not overflow the stack.
  */
 function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayExceptionJson {
-  const steps: ExceptionStep[] = [];
+  const nodes: ExceptionNode[] = [];
   const index = new Map<unknown, number>();
-  let at: Error | undefined = first;
-  while (at !== undefined) {
-    const current: Error = at;
-    index.set(current, steps.length);
+  const tasks: ExceptionTask[] = [];
+  const open = (current: Error): number => {
+    const at = nodes.length;
+    index.set(current, at);
     const dropped: string[] = [];
     const fields: [string, Json][] = [];
     for (const key of Object.keys(current)) {
@@ -298,30 +329,72 @@ function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayE
       }
     }
     const head = { name: String(current.name), message: String(current.message), ...(fields.length === 0 ? {} : { fields: Object.fromEntries(fields) }) };
-    const step: ExceptionStep = { head, dropped };
-    steps.push(step);
-    at = undefined;
-    if (!Object.hasOwn(current, "cause")) continue;
-    const cause: unknown = current.cause;
-    const loop = index.get(cause);
+    const node: ExceptionNode = { head, dropped, hidden: {} };
+    nodes.push(node);
+    const children: ExceptionTask[] = [];
+    for (const key of HIDDEN) {
+      if (Object.getOwnPropertyDescriptor(current, key)?.enumerable !== false) continue;
+      let value: unknown;
+      try {
+        value = (current as unknown as Record<string, unknown>)[key];
+      } catch {
+        dropped.push(key);
+        continue;
+      }
+      if (!Array.isArray(value)) {
+        const put = (part: Part): void => {
+          node.hidden[key] = part;
+        };
+        children.push({ value, owner: node, name: key, put });
+        continue;
+      }
+      const list: Part[] = [];
+      node.hidden[key] = list;
+      const put = (part: Part): void => {
+        list.push(part);
+      };
+      for (let item = 0; item < value.length; item += 1) children.push({ value: value[item], owner: node, name: `${key}.${item}`, put });
+    }
+    if (Object.hasOwn(current, "cause")) {
+      const put = (part: Part): void => {
+        node.cause = part;
+      };
+      children.push({ value: current.cause, owner: node, name: "cause", put });
+    }
+    for (let place = children.length - 1; place >= 0; place -= 1) tasks.push(children[place] as ExceptionTask);
+    return at;
+  };
+  open(first);
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    const loop = index.get(task.value);
     if (loop !== undefined) {
-      step.link = { loop };
+      task.put({ loop });
       continue;
     }
+    let value: Json;
     try {
-      step.link = { cause: encodeValue(machine, cause) };
+      value = encodeValue(machine, task.value);
     } catch {
-      if (cause instanceof Error) at = cause;
-      else dropped.push("cause");
+      if (task.value instanceof Error) task.put({ node: open(task.value) });
+      else task.owner.dropped.push(task.name);
+      continue;
     }
+    task.put({ value });
   }
-  let json: ReplayExceptionJson | undefined;
-  for (let place = steps.length - 1; place >= 0; place -= 1) {
-    const { head, dropped, link } = steps[place] as ExceptionStep;
-    const note = dropped.length === 0 ? {} : { dropped };
-    json = { ...head, ...note, ...(link ?? (json === undefined ? {} : { exception: json })) };
+  // A node of the walk has a higher index than its owner, thus the forms grow from the last node to the first.
+  const built: ReplayExceptionJson[] = [];
+  const formOf = (part: Part): ReplayPartJson => ("node" in part ? { exception: built[part.node] as ReplayExceptionJson } : part);
+  for (let at = nodes.length - 1; at >= 0; at -= 1) {
+    const { head, dropped, hidden, cause } = nodes[at] as ExceptionNode;
+    const kept: [string, ReplayPartJson | ReplayPartJson[]][] = [];
+    for (const key of HIDDEN) {
+      const part = hidden[key];
+      if (part !== undefined) kept.push([key, Array.isArray(part) ? part.map(formOf) : formOf(part)]);
+    }
+    const link = cause === undefined ? {} : "value" in cause ? { cause: cause.value } : "loop" in cause ? cause : { exception: built[cause.node] as ReplayExceptionJson };
+    built[at] = { ...head, ...(dropped.length === 0 ? {} : { dropped }), ...(kept.length === 0 ? {} : { hidden: Object.fromEntries(kept) }), ...link };
   }
-  return json as ReplayExceptionJson;
+  return built[0] as ReplayExceptionJson;
 }
 
 /** This function gives the message of an exception, or a short text for another value. */
@@ -363,6 +436,8 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   an exception keeps its name and its message in the field `exception`.
  * - An exception also keeps its own fields that `encodeValue` writes, and the chain of its causes (RUN.REPLAY-CAUSES).
  *   The list `dropped` names each other own field. A cause that is an earlier exception of the chain is its index in `loop`.
+ * - An exception keeps the hidden fields of the standard classes in `hidden`, for example `errors` of an
+ *   `AggregateError` (RUN.REPLAY-HIDDEN, D77). Each exception in them has the rule of a cause.
  * - An outcome that the log does not have stays absent.
  *
  * @param machine - The machine of the run, or only its domains.
@@ -387,23 +462,37 @@ export function encodeLog(machine: Pick<Machine, "domains">, log: ReplayLog): Re
 
 /** This function gives an exception with a name and a message. A standard name gives an instance of its class. */
 function exception(name: string, message: string): Error {
-  const made =
-    name === "TypeError"
-      ? new TypeError(message)
-      : name === "RangeError"
-        ? new RangeError(message)
-        : name === "SyntaxError"
-          ? new SyntaxError(message)
-          : name === "ReferenceError"
-            ? new ReferenceError(message)
-            : new Error(message);
+  const made = standard(name, message);
   if (made.name !== name) made.name = name;
   return made;
 }
 
-/** This function gives an exception the field `cause`, as the constructor of `Error` does. */
-function setCause(error: Error, cause: unknown): void {
-  Object.defineProperty(error, "cause", { value: cause, writable: true, enumerable: false, configurable: true });
+/**
+ * This function gives an instance of the standard class with a name, or an `Error`. An `AggregateError` gets an empty
+ * list `errors`, and a `SuppressedError` gets `undefined` for `error` and `suppressed`, as their constructors do.
+ */
+function standard(name: string, message: string): Error {
+  switch (name) {
+    case "TypeError":
+      return new TypeError(message);
+    case "RangeError":
+      return new RangeError(message);
+    case "SyntaxError":
+      return new SyntaxError(message);
+    case "ReferenceError":
+      return new ReferenceError(message);
+    case "AggregateError":
+      return new AggregateError([], message);
+    case "SuppressedError":
+      return typeof SuppressedError === "function" ? new SuppressedError(undefined, undefined, message) : new Error(message);
+    default:
+      return new Error(message);
+  }
+}
+
+/** This function gives an exception a field that is not enumerable, as the constructor of `Error` does for `cause`. */
+function hide(error: Error, key: string, value: unknown): void {
+  Object.defineProperty(error, key, { value, writable: true, enumerable: false, configurable: true });
 }
 
 /** This function gives the failed result of a JSON form that `decodeLog` cannot read. */
@@ -443,17 +532,26 @@ function readError(kit: Machine, data: unknown, place: readonly Key[]): Result<E
   return ok(error);
 }
 
+/** One part of the JSON form of an exception that the walk of `readException` reads next, and the place for its value. */
+interface ReadTask {
+  /** The field of the part: `value` or `cause` for a term document, `exception` or `loop`. */
+  readonly kind: string;
+  readonly data: unknown;
+  readonly where: readonly Key[];
+  readonly put: (value: unknown) => void;
+}
+
 /**
- * This function reads the JSON form of an exception and of the chain of its causes again (RUN.REPLAY-CAUSES). The walk
- * is a loop, thus a long chain does not overflow the stack.
+ * This function reads the JSON form of an exception, its hidden fields and the chain of its causes again
+ * (RUN.REPLAY-CAUSES, RUN.REPLAY-HIDDEN). The walk has the order of `exceptionJson`, thus a loop gives the same
+ * exception. The walk is a loop, thus a long chain does not overflow the stack.
  */
 function readException(kit: Machine, data: unknown, place: readonly Key[]): Result<Error> {
   const chain: Error[] = [];
-  let at: unknown = data;
-  let where: readonly Key[] = place;
-  while (at !== undefined) {
+  const tasks: ReadTask[] = [];
+  const open = (at: unknown, where: readonly Key[]): Result<Error> => {
     if (!isRecord(at) || typeof at["name"] !== "string" || typeof at["message"] !== "string" || !Object.keys(at).every(exceptionField)) {
-      return bad(where, "an exception is a record with the texts name and message, and only the fields fields, dropped, cause, exception and loop.");
+      return bad(where, "an exception is a record with the texts name and message, and only the fields fields, dropped, hidden, cause, exception and loop.");
     }
     const made = exception(at["name"], at["message"]);
     const fields = at["fields"];
@@ -468,29 +566,72 @@ function readException(kit: Machine, data: unknown, place: readonly Key[]): Resu
     }
     const dropped = at["dropped"];
     if (dropped !== undefined && !(Array.isArray(dropped) && dropped.every((name) => typeof name === "string"))) return bad([...where, "dropped"], "the list dropped holds texts.");
-    const last = chain[chain.length - 1];
-    if (last !== undefined) setCause(last, made);
     chain.push(made);
+    const children: ReadTask[] = [];
+    const hidden = at["hidden"];
+    if (hidden !== undefined) {
+      if (!isRecord(hidden)) return bad([...where, "hidden"], "the hidden fields of an exception are a record.");
+      for (const key of Object.keys(hidden)) {
+        if (!HIDDEN.includes(key) || (isRecord(fields) && Object.hasOwn(fields, key))) return bad([...where, "hidden", key], `an exception has no hidden field ${key}.`);
+      }
+      for (const key of HIDDEN) {
+        if (!Object.hasOwn(hidden, key)) continue;
+        const parts: unknown = hidden[key];
+        const spot = [...where, "hidden", key];
+        if (!Array.isArray(parts)) {
+          const task = partTask(parts, spot, (value) => hide(made, key, value));
+          if (!task.ok) return task;
+          children.push(task.value);
+          continue;
+        }
+        const list: unknown[] = [];
+        hide(made, key, list);
+        for (let item = 0; item < parts.length; item += 1) {
+          const task = partTask(parts[item], [...spot, item], (value) => list.push(value));
+          if (!task.ok) return task;
+          children.push(task.value);
+        }
+      }
+    }
     const record = at;
     const links = LINKS.filter((key) => Object.hasOwn(record, key));
     if (links.length > 1) return bad(where, "an exception has a cause, an exception or a loop, not more than one.");
-    const loop = record["loop"];
-    if (links[0] === "loop") {
-      if (typeof loop !== "number" || !Number.isInteger(loop) || loop < 0 || loop >= chain.length) return bad([...where, "loop"], "a loop is the index of an exception of the chain until this one.");
-      setCause(made, chain[loop]);
-    } else if (links[0] === "cause") {
-      const cause = readTerm(kit, record["cause"], [...where, "cause"]);
-      if (!cause.ok) return cause;
-      setCause(made, cause.value);
+    const link = links[0];
+    if (link !== undefined) children.push({ kind: link, data: record[link], where: [...where, link], put: (value) => hide(made, "cause", value) });
+    for (let index = children.length - 1; index >= 0; index -= 1) tasks.push(children[index] as ReadTask);
+    return ok(made);
+  };
+  const first = open(data, place);
+  if (!first.ok) return first;
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    const { kind, data: part, where } = task;
+    if (kind === "loop") {
+      if (typeof part !== "number" || !Number.isInteger(part) || part < 0 || part >= chain.length) return bad(where, "a loop is the index of an exception of the chain until this one.");
+      task.put(chain[part]);
+      continue;
     }
-    at = links[0] === "exception" ? record["exception"] : undefined;
-    where = [...where, "exception"];
+    const value = kind === "exception" ? open(part, where) : readTerm(kit, part, where);
+    if (!value.ok) return value;
+    task.put(value.value);
   }
-  return ok(chain[0] as Error);
+  return first;
+}
+
+/** This function reads one part of a hidden field: a record with only one of the fields `value`, `exception` and `loop`. */
+function partTask(data: unknown, where: readonly Key[], put: (value: unknown) => void): Result<ReadTask> {
+  const keys = isRecord(data) ? Object.keys(data) : [];
+  const kind = keys[0];
+  if (!isRecord(data) || keys.length !== 1 || kind === undefined || !PARTS.includes(kind)) {
+    return bad(where, "a hidden field is a part or a list of parts, and a part is a record with only one of the fields value, exception and loop.");
+  }
+  return ok({ kind, data: data[kind], where: [...where, kind], put });
 }
 
 /** The fields of the JSON form of an exception that give its cause. */
 const LINKS: readonly string[] = /* @__PURE__ */ Object.freeze(["cause", "exception", "loop"]);
+
+/** The fields of the JSON form of a part of a hidden field. */
+const PARTS: readonly string[] = /* @__PURE__ */ Object.freeze(["value", "exception", "loop"]);
 
 /** This function reads the JSON form of one effect again. */
 function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<ReplayEntry> {
