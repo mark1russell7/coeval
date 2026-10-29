@@ -1,10 +1,10 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
 import { type Context, isHostThing } from "./deref.ts";
 import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
-import { type Effect, type Journal, type Machine, type Perform, type Read, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
+import { type Effect, type Machine, type Perform, type Read, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
 import { Held, isClosure } from "./formula.ts";
 import { type Definitions, reference, referenceRun } from "./reference.ts";
-import { type ReplaySettle, recorder, replayer } from "./replay.ts";
+import { type ReplaySettle, recorder, relay, replayer } from "./replay.ts";
 
 /**
  * A tier that `agree` compares with the plan.
@@ -349,12 +349,9 @@ interface Watched {
 function watched(perform: Perform): Watched {
   const effects: Effect[] = [];
   const settles: ReplaySettle[] = [];
-  const inner = (perform as { readonly [JOURNAL]?: Journal })[JOURNAL];
-  const settled = (all: string, item: number): void => {
+  const journal = relay(perform, (all, item) => {
     settles.push({ all, item });
-    inner?.settled?.(all, item);
-  };
-  const journal: Journal = inner?.next === undefined ? { settled } : { settled, next: (all, waiting) => inner.next?.(all, waiting) };
+  });
   const host = (effect: Effect): unknown => {
     effects.push(effect);
     return perform(effect);

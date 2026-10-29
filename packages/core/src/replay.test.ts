@@ -1,5 +1,32 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { type Json, type Machine, type Perform, type Runner, type Steps, STD_CAPS, STD_MACHINE, makeContext, ok, prepare, recorder, replayer, run } from "./index.ts";
+import {
+  type Domain,
+  type Effect,
+  type Journal,
+  type Json,
+  type Machine,
+  type Perform,
+  type ReplayLog,
+  type Result,
+  type Runner,
+  type Steps,
+  Failure,
+  JOURNAL,
+  STD_CAPS,
+  STD_MACHINE,
+  decodeLog,
+  encodeLog,
+  generate,
+  makeContext,
+  ok,
+  prepare,
+  recorder,
+  referenceRun,
+  replayer,
+  run,
+  sameResult,
+} from "./index.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const log = (text: string): Json => ({ type: "log", value: [text] });
@@ -122,5 +149,363 @@ describe("record and replay", () => {
     const more = await replay(longer);
     expect(more.result).toEqual({ ok: false, error: { code: "#REPLAY!", reason: "The log has no effect at the address 2#0, and the run asks for the effect log.", place: [2] } });
     expect(prepare(STD_MACHINE, longer).evaluate(ctx, { perform: replayer(kept, { wait: false }) })).toMatchObject({ ok: false, error: { code: "#REPLAY!", place: [2] } });
+  });
+});
+
+/** This function gives the journal of a function `perform`. */
+function journalOf(perform: Perform): Journal {
+  return (perform as unknown as { readonly [JOURNAL]: Journal })[JOURNAL];
+}
+
+/** A host that answers after a number of turns of promises, thus each run gets the same order of the waits. */
+function after(turns: number, answer: () => unknown): Promise<unknown> {
+  let chain: Promise<unknown> = Promise.resolve();
+  for (let turn = 0; turn < turns; turn += 1) chain = chain.then(() => undefined);
+  return chain.then(answer);
+}
+
+/** A host whose slow effect settles after its fast effect. */
+const turns: Perform = (effect) => after(effect.payload === "slow" ? 6 : 1, () => String(effect.payload).toUpperCase());
+
+describe("a replayer for more than one run", () => {
+  it("[RUN.REPLAY-RUNS] one replayer serves runs after each other and at the same time, and a run with a mismatch does not change the next run", async () => {
+    const ctx = makeContext({}, STD_CAPS);
+    const doc: Json = { type: "par", value: [log("slow"), log("fast")] };
+    const recording = recorder(turns);
+    const first = await run(machine, doc, ctx, { perform: recording.perform });
+    const kept = recording.log();
+    expect(kept.settles).toEqual([
+      { all: "all0", item: 1 },
+      { all: "all0", item: 0 },
+    ]);
+    const replay = replayer(kept);
+    // Each run settles the waits in the recorded order, also when two runs share the replayer at the same time.
+    const replays = async (): Promise<readonly unknown[]> => {
+      const again = recorder(replay);
+      const done = await run(machine, doc, ctx, { perform: again.perform });
+      return [done.result, again.log().settles];
+    };
+    const expected = [first.result, kept.settles];
+    expect(await replays()).toEqual(expected);
+    expect(await replays()).toEqual(expected);
+    expect(await Promise.all([replays(), replays(), replays()])).toEqual([expected, expected, expected]);
+    // The reference gives the count too, thus it shares the replayer with the plan.
+    const watched = recorder(replay);
+    expect(await referenceRun(machine, doc, ctx, { perform: watched.perform })).toEqual(first.result);
+    expect(watched.log().settles).toEqual(kept.settles);
+    // A mismatch gives #REPLAY! in its run, and the next run replays again.
+    const other = await run(machine, { type: "par", value: [log("other"), log("fast")] }, ctx, { perform: replay });
+    expect(other.result).toEqual(ok(["#REPLAY!", "FAST"]));
+    expect(await replays()).toEqual(expected);
+  });
+
+  it("[RUN.REPLAY-RUNS] the journal of a replayer reads the count of the kernel, a call without the count keeps a place, and a recorded item that does not wait gives the order of the host", async () => {
+    const ctx = makeContext({}, STD_CAPS);
+    const doc: Json = { type: "par", value: [log("slow"), log("fast")] };
+    const recording = recorder(turns);
+    await run(machine, doc, ctx, { perform: recording.perform });
+    const kept = recording.log();
+    const journal = journalOf(replayer(kept));
+    // The kernel gives the count: each call with the same count gives the same item.
+    expect([journal.next?.("all0", [0, 1], 0), journal.next?.("all0", [0, 1], 0), journal.next?.("all0", [0], 1)]).toEqual([1, 1, 0]);
+    expect([journal.next?.("all0", [0], 2), journal.next?.("all1", [0, 1], 0)]).toEqual([undefined, undefined]);
+    // An older copy of the kernel gives no count, thus the replayer keeps its place for each all.
+    const old = journalOf(replayer(kept));
+    expect([old.next?.("all0", [0]), old.next?.("all0", [0, 1]), old.next?.("all0", [0]), old.next?.("all0", [0])]).toEqual([undefined, 1, 0, undefined]);
+    // In this log the fast effect does not wait. Its recorded wait thus does not come, and the wait of the slow effect follows the order of the host.
+    const changed: ReplayLog = { ...kept, effects: kept.effects.map((entry) => (entry.payload === "fast" ? { ...entry, waited: false } : entry)) };
+    const again = recorder(replayer(changed));
+    expect((await run(machine, doc, ctx, { perform: again.perform })).result).toEqual(ok(["SLOW", "FAST"]));
+    expect(again.log().settles).toEqual([{ all: "all0", item: 0 }]);
+  });
+
+  it("[RUN.REPLAY-ORDER] a recorder over a replayer keeps the recorded order of the waits, also in nested all and with failFast", async () => {
+    const ctx = makeContext({}, STD_CAPS);
+    const docs: readonly Json[] = [
+      { type: "par", value: [log("slow"), log("fast")] },
+      { type: "par", value: [{ type: "par", value: [log("slow"), log("fast")] }, log("fast"), { type: "seq", value: [log("slow"), log("fast")] }] },
+      { type: "fast", value: [{ type: "seq", value: [log("slow"), log("after slow")] }, log("boom"), log("later")] },
+    ];
+    const host: Perform = (effect) =>
+      after(effect.payload === "slow" ? 6 : 1, () => {
+        if (effect.payload === "boom") throw new Error("boom");
+        return String(effect.payload).toUpperCase();
+      });
+    for (const doc of docs) {
+      const recording = recorder(host);
+      const first = await run(machine, doc, ctx, { perform: recording.perform });
+      const kept = recording.log();
+      // The waits of a replay settle in the order of their start without the journal, thus the recorded order comes from the replayer.
+      const again = recorder(replayer(kept));
+      const second = await run(machine, doc, ctx, { perform: again.perform });
+      expect(second.result).toEqual(first.result);
+      expect(again.log()).toEqual(kept);
+    }
+  });
+});
+
+/** The domain of a time, with a codec (D40). */
+const DATE: Domain = {
+  is: (value) => value instanceof Date && !Number.isNaN(value.getTime()),
+  codec: { encode: (value) => (value as Date).toISOString(), decode: (data) => new Date(data as string) },
+};
+
+/** The machine of the replays, with the domain of a time. */
+const dated: Machine = { ...machine, domains: { date: DATE } };
+
+/** Two times are the same when they hold the same time. */
+const sameDate = (a: unknown, b: unknown): boolean | undefined => (a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : undefined);
+
+/** A value of a class without a codec. */
+class Box {
+  constructor(readonly v: unknown) {}
+}
+
+/** The names of the generated runs: values that JSON cannot write, a time, and a value without a codec. */
+const NAMES: Readonly<Record<string, unknown>> = {
+  a: 1,
+  nan: Number.NaN,
+  neg: -0,
+  nothing: undefined,
+  when: new Date(Date.UTC(2026, 9, 29)),
+  list: [1, Number.NaN, undefined],
+  box: new Box(1),
+};
+
+/**
+ * A host that answers at once or after a number of turns that depends on the address. It refuses some payloads with an
+ * exception or with a `Failure`, and it gives `-0`, `NaN` and `undefined` back.
+ */
+function generatedHost(effect: Effect): unknown {
+  let count = 0;
+  for (const char of effect.address ?? "") count = (count + char.charCodeAt(0)) % 4;
+  const answer = (): unknown => {
+    if (effect.payload === "") throw new Error("The host refuses an empty text.");
+    if (effect.payload === "b") throw new Failure({ code: "#MOCK", reason: "The host refuses b." });
+    if (effect.payload === "a" && count > 1) throw new TypeError("The host refuses a late a.");
+    if (typeof effect.payload === "number") return -effect.payload;
+    return effect.kind === "write" ? { stored: effect.address } : [effect.address, effect.payload];
+  };
+  return count === 0 ? answer() : after(count * 2, answer);
+}
+
+/** This function tells if two results are the same, with the name and the message of a cause that is an exception. */
+function sameRun(a: Result, b: Result): boolean {
+  if (!sameResult(a, b, sameDate)) return false;
+  if (a.ok || b.ok) return true;
+  const x: unknown = a.error.cause;
+  const y: unknown = b.error.cause;
+  if (x instanceof Error || y instanceof Error) return x instanceof Error && y instanceof Error && x.name === y.name && x.message === y.message;
+  return Object.hasOwn(a.error, "cause") === Object.hasOwn(b.error, "cause");
+}
+
+describe("the JSON form of a log", () => {
+  it("[RUN.REPLAY-JSON] encodeLog writes values that JSON cannot write, errors and their causes, and decodeLog reads them again", () => {
+    const log: ReplayLog = {
+      effects: [
+        { address: "0#0", kind: "log", payload: Number.NaN, outcome: ok(-0), waited: true },
+        { address: "1#0", kind: "log", payload: undefined, outcome: ok(undefined), waited: false },
+        { address: "2#0", kind: "log", payload: { type: "ref", value: ["x"] }, outcome: ok([new Date(Date.UTC(2026, 0, 1)), Number.POSITIVE_INFINITY]), waited: false },
+        { address: "3#0", kind: "write", payload: { key: "a" }, outcome: { ok: false, error: { code: "#CALC!", reason: "The host failed.", place: [3], cause: new TypeError("no") } }, waited: true },
+        { address: "4#0", kind: "log", payload: "b", outcome: { ok: false, error: { code: "#MOCK", reason: "Refused.", cause: { why: "b" } } }, waited: false },
+        { address: "5#0", kind: "log", payload: "c", outcome: { ok: false, error: { code: "#MOCK", reason: "Refused.", cause: undefined } }, waited: false },
+        { address: "all0.0/0#0", kind: "log", payload: "d", waited: true },
+      ],
+      settles: [{ all: "all0", item: 1 }],
+    };
+    const json = encodeLog(dated, log);
+    expect(json).toEqual({
+      version: 1,
+      effects: [
+        { address: "0#0", kind: "log", payload: { type: ["ext", "number"], value: "NaN" }, outcome: { ok: true, value: { type: ["ext", "number"], value: "-0" } }, waited: true },
+        { address: "1#0", kind: "log", payload: { type: ["ext", "undefined"], value: null }, outcome: { ok: true, value: { type: ["ext", "undefined"], value: null } }, waited: false },
+        {
+          address: "2#0",
+          kind: "log",
+          payload: { type: "lit", value: { type: "ref", value: ["x"] } },
+          outcome: {
+            ok: true,
+            value: {
+              type: "list",
+              value: [
+                { type: ["ext", "domain"], value: { domain: "date", data: "2026-01-01T00:00:00.000Z" } },
+                { type: ["ext", "number"], value: "Infinity" },
+              ],
+            },
+          },
+          waited: false,
+        },
+        { address: "3#0", kind: "write", payload: { key: "a" }, outcome: { ok: false, error: { code: "#CALC!", reason: "The host failed.", place: [3], exception: { name: "TypeError", message: "no" } } }, waited: true },
+        { address: "4#0", kind: "log", payload: "b", outcome: { ok: false, error: { code: "#MOCK", reason: "Refused.", cause: { why: "b" } } }, waited: false },
+        { address: "5#0", kind: "log", payload: "c", outcome: { ok: false, error: { code: "#MOCK", reason: "Refused.", cause: { type: ["ext", "undefined"], value: null } } }, waited: false },
+        { address: "all0.0/0#0", kind: "log", payload: "d", waited: true },
+      ],
+      settles: [{ all: "all0", item: 1 }],
+    });
+    const back = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    if (!back.ok) throw new Error(back.error.reason);
+    const effects = back.value.effects;
+    expect(Number.isNaN(effects[0]?.payload)).toBe(true);
+    expect(Object.is(effects[0]?.outcome?.ok === true && effects[0].outcome.value, -0)).toBe(true);
+    // undefined stays a value, and a missing outcome stays missing.
+    expect(Object.hasOwn(effects[1] ?? {}, "payload") && effects[1]?.payload === undefined).toBe(true);
+    expect(effects[1]?.outcome).toEqual(ok(undefined));
+    expect(Object.hasOwn(effects[6] ?? {}, "outcome")).toBe(false);
+    expect(effects[2]?.payload).toEqual({ type: "ref", value: ["x"] });
+    const value = effects[2]?.outcome?.ok === true ? (effects[2].outcome.value as readonly unknown[]) : [];
+    expect(value[0] instanceof Date && value[0].getTime()).toBe(Date.UTC(2026, 0, 1));
+    // An exception keeps its class, its name and its message. Its stack and its other fields are not in the form.
+    const cause: unknown = effects[3]?.outcome?.ok === false ? effects[3].outcome.error.cause : undefined;
+    expect(cause instanceof TypeError && cause.message).toBe("no");
+    expect(effects[4]?.outcome).toEqual({ ok: false, error: { code: "#MOCK", reason: "Refused.", cause: { why: "b" } } });
+    expect(Object.hasOwn(effects[5]?.outcome?.ok === false ? effects[5].outcome.error : {}, "cause")).toBe(true);
+    expect(encodeLog(dated, back.value)).toEqual(json);
+  });
+
+  it("[RUN.REPLAY-JSON] encodeLog refuses a value without a term document with the address of its effect, and decodeLog gives #VALUE! at the first bad field", () => {
+    const entry = (more: object): ReplayLog => ({ effects: [{ address: "0#0", kind: "log", payload: "x", waited: false, ...more }], settles: [] });
+    const refusal = (log: ReplayLog): string => {
+      try {
+        encodeLog(dated, log);
+      } catch (error) {
+        return error instanceof TypeError ? error.message : "another exception";
+      }
+      return "no refusal";
+    };
+    expect(refusal(entry({ payload: () => 1 }))).toMatch(/^encodeLog cannot write the payload of the effect log at the address 0#0: encodeValue cannot write the value/);
+    expect(refusal(entry({ payload: Symbol("s") }))).toMatch(/the payload of the effect log at the address 0#0/);
+    expect(refusal(entry({ payload: 1n }))).toMatch(/no domain of the machine with a codec holds it/);
+    expect(refusal(entry({ outcome: ok(new Box(1)) }))).toMatch(/^encodeLog cannot write the outcome of the effect log at the address 0#0/);
+    expect(refusal(entry({ outcome: { ok: false, error: { code: "#X", reason: "r", extra: 1 } } }))).toBe(
+      "encodeLog cannot write the outcome of the effect log at the address 0#0: the error has the field extra, and the JSON form has no field for it.",
+    );
+    expect(refusal(entry({ outcome: { ok: false, error: { code: "#X", reason: "r", cause: new Map() } } }))).toMatch(/^encodeLog cannot write the cause of the outcome of the effect log at the address 0#0/);
+    // An exception that a domain with a codec holds uses the codec.
+    const ranges: Domain = { is: (value) => value instanceof RangeError, codec: { encode: (value) => (value as Error).message, decode: (data) => new RangeError(String(data)) } };
+    const errors = { domains: { error: ranges } };
+    const coded = encodeLog(errors, entry({ outcome: { ok: false, error: { code: "#X", reason: "r", cause: new RangeError("far") } } }));
+    expect(coded.effects[0]?.outcome).toEqual({ ok: false, error: { code: "#X", reason: "r", cause: { type: ["ext", "domain"], value: { domain: "error", data: "far" } } } });
+    const reasonOf = (data: unknown): unknown => {
+      const read = decodeLog(dated, data);
+      return read.ok ? "read" : [read.error.code, read.error.place, read.error.reason];
+    };
+    const placeOf = (data: unknown): unknown => {
+      const read = decodeLog(dated, data);
+      return read.ok ? "read" : [read.error.code, read.error.place];
+    };
+    const good = encodeLog(dated, entry({ outcome: ok(1) }));
+    expect(reasonOf(good)).toBe("read");
+    expect(reasonOf({ ...good, version: 2 })).toEqual(["#VALUE!", [], "decodeLog cannot read the log: the form is a record with the version 1."]);
+    expect(placeOf({ effects: [], settles: [] })).toEqual(["#VALUE!", []]);
+    expect(placeOf({ ...good, effects: [{ address: "0#0", kind: "log", waited: false }] })).toEqual(["#VALUE!", ["effects", 0]]);
+    expect(placeOf({ ...good, effects: [{ address: "0#0", kind: "log", payload: { type: ["ext", "domain"], value: { domain: "nothing", data: 1 } }, waited: false }] })).toEqual([
+      "#VALUE!",
+      ["effects", 0, "payload"],
+    ]);
+    expect(placeOf({ ...good, effects: [{ ...good.effects[0], outcome: { ok: true } }] })).toEqual(["#VALUE!", ["effects", 0, "outcome"]]);
+    expect(placeOf({ ...good, effects: [{ ...good.effects[0], outcome: { ok: false, error: { code: "X", reason: "r" } } }] })).toEqual(["#VALUE!", ["effects", 0, "outcome", "error"]]);
+    expect(placeOf({ ...good, effects: [{ ...good.effects[0], outcome: { ok: false, error: { code: "#X", reason: "r", exception: { name: "E" } } } }] })).toEqual([
+      "#VALUE!",
+      ["effects", 0, "outcome", "error", "exception"],
+    ]);
+    expect(placeOf({ ...good, settles: [{ all: "all0", item: 0.5 }] })).toEqual(["#VALUE!", ["settles", 0]]);
+  });
+
+  it("[RUN.REPLAY-JSON] generated runs: each log that encodeLog writes replays from its JSON text with the same result and the same log", async () => {
+    const total = 300;
+    const ctx = makeContext(NAMES, STD_CAPS);
+    const bad: string[] = [];
+    let written = 0;
+    let refused = 0;
+    let reordered = 0;
+    let exceptions = 0;
+    let special = 0;
+    for (let seed = 1; seed <= total; seed += 1) {
+      const doc = generate(dated.world, {
+        seed,
+        names: Object.keys(NAMES),
+        malformed: 0.01,
+        types: ["par", "par", "fast", "seq", "log", "log", "write", "ref", "text", "number"].map((kind) => [kind]),
+        hints: (type) => {
+          const kind = String(type[0]);
+          if (kind === "par" || kind === "fast" || kind === "seq") return [["log"], ["log"], ["write"], ["par"], ["fast"], ["seq"]];
+          return kind === "log" || kind === "write" ? [["text"], ["number"], ["ref"]] : undefined;
+        },
+        data: (type, rng) => {
+          const name = type.join(".");
+          if (name === "number") return rng.pick([0, 1, 2.5, -1]);
+          if (name === "text") return rng.pick(["", "a", "b", "c"]);
+          return undefined;
+        },
+      });
+      const recording = recorder(generatedHost);
+      const first = await run(dated, doc, ctx, { perform: recording.perform });
+      const kept = recording.log();
+      let text: string;
+      try {
+        text = JSON.stringify(encodeLog(dated, kept));
+      } catch (error) {
+        // A refusal names the effect and its address.
+        if (!(error instanceof TypeError) || !/^encodeLog cannot write .* at the address /.test(error.message)) bad.push(`seed ${seed}: ${String(error)}`);
+        refused += 1;
+        continue;
+      }
+      written += 1;
+      if (kept.settles.some((settle, index) => kept.settles.slice(index + 1).some((later) => later.all === settle.all && later.item < settle.item))) reordered += 1;
+      if (text.includes('"exception"')) exceptions += 1;
+      if (text.includes('"ext"')) special += 1;
+      const back = decodeLog(dated, JSON.parse(text));
+      if (!back.ok) {
+        bad.push(`seed ${seed}: ${back.error.reason}`);
+        continue;
+      }
+      const again = recorder(replayer(back.value, { equal: sameDate }));
+      const second = await run(dated, doc, ctx, { perform: again.perform });
+      if (!sameRun(first.result, second.result)) bad.push(`seed ${seed}: the result differs: ${JSON.stringify(doc)}`);
+      if (JSON.stringify(encodeLog(dated, again.log())) !== text) bad.push(`seed ${seed}: the log of the replay differs: ${JSON.stringify(doc)}`);
+    }
+    expect(bad.slice(0, 3)).toEqual([]);
+    expect(written + refused).toBe(total);
+    // The corpus reaches each part of the form.
+    for (const [name, count] of Object.entries({ written, refused, reordered, exceptions, special })) expect(count, name).toBeGreaterThan(0);
+  });
+});
+
+/** The golden file of a log, its document and its host. `COEVAL_GOLDEN=write` writes the file again. */
+const GOLDEN = new URL("../golden/replay.json", import.meta.url);
+
+/** The document of the golden log: an all with three items, a sequence, and an all with failFast. */
+const GOLDEN_DOC: Json = {
+  type: "seq",
+  value: [
+    { type: "par", value: [log("slow"), write("a"), { type: "log", value: [ref("names", "when")] }, log("nan")] },
+    { type: "fast", value: [{ type: "seq", value: [log("slow"), log("after slow")] }, log("boom"), log("later")] },
+  ],
+};
+
+/** The host of the golden log. */
+const goldenHost: Perform = (effect) => {
+  if (effect.payload === "nan") return Number.NaN;
+  if (effect.payload instanceof Date) return effect.payload;
+  return after(effect.payload === "slow" ? 6 : 1, () => {
+    if (effect.payload === "boom") throw new TypeError("boom");
+    return effect.kind === "write" ? -0 : String(effect.payload).toUpperCase();
+  });
+};
+
+describe("a golden log", () => {
+  it("[RUN.REPLAY-GOLDEN] the log of a run equals the golden file, and the golden file replays with the result of the run", async () => {
+    const ctx = makeContext({ when: new Date(Date.UTC(2026, 9, 29)) }, STD_CAPS);
+    const recording = recorder(goldenHost);
+    const first = await run(dated, GOLDEN_DOC, ctx, { perform: recording.perform });
+    const json = encodeLog(dated, recording.log());
+    if (process.env["COEVAL_GOLDEN"] === "write") writeFileSync(GOLDEN, `${JSON.stringify(json, null, 2)}\n`);
+    const golden: unknown = JSON.parse(readFileSync(GOLDEN, "utf8"));
+    expect(json).toEqual(golden);
+    const back = decodeLog(dated, golden);
+    if (!back.ok) throw new Error(back.error.reason);
+    const replayed = await run(dated, GOLDEN_DOC, ctx, { perform: replayer(back.value, { equal: sameDate }) });
+    expect(sameRun(replayed.result, first.result)).toBe(true);
+    expect(replayed.result).toEqual(ok(["#ABORT", "#CALC!", "#ABORT"]));
   });
 });

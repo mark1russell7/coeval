@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "effects": [
+    {
+      "address": "all0.0/0/0#0",
+      "kind": "log",
+      "payload": "slow",
+      "outcome": {
+        "ok": true,
+        "value": "SLOW"
+      },
+      "waited": true
+    },
+    {
+      "address": "all0.1/0/1#0",
+      "kind": "write",
+      "payload": {
+        "key": "a",
+        "value": 2
+      },
+      "outcome": {
+        "ok": true,
+        "value": {
+          "type": [
+            "ext",
+            "number"
+          ],
+          "value": "-0"
+        }
+      },
+      "waited": true
+    },
+    {
+      "address": "all0.2/0/2#0",
+      "kind": "log",
+      "payload": {
+        "type": [
+          "ext",
+          "domain"
+        ],
+        "value": {
+          "domain": "date",
+          "data": "2026-10-29T00:00:00.000Z"
+        }
+      },
+      "outcome": {
+        "ok": true,
+        "value": {
+          "type": [
+            "ext",
+            "domain"
+          ],
+          "value": {
+            "domain": "date",
+            "data": "2026-10-29T00:00:00.000Z"
+          }
+        }
+      },
+      "waited": false
+    },
+    {
+      "address": "all0.3/0/3#0",
+      "kind": "log",
+      "payload": "nan",
+      "outcome": {
+        "ok": true,
+        "value": {
+          "type": [
+            "ext",
+            "number"
+          ],
+          "value": "NaN"
+        }
+      },
+      "waited": false
+    },
+    {
+      "address": "all1.0/1/0/0#0",
+      "kind": "log",
+      "payload": "slow",
+      "waited": true
+    },
+    {
+      "address": "all1.1/1/1#0",
+      "kind": "log",
+      "payload": "boom",
+      "outcome": {
+        "ok": false,
+        "error": {
+          "code": "#CALC!",
+          "reason": "The host failed the effect log: TypeError: boom",
+          "place": [
+            1,
+            1
+          ],
+          "exception": {
+            "name": "TypeError",
+            "message": "boom"
+          }
+        }
+      },
+      "waited": true
+    }
+  ],
+  "settles": [
+    {
+      "all": "all0",
+      "item": 1
+    },
+    {
+      "all": "all0",
+      "item": 0
+    },
+    {
+      "all": "all1",
+      "item": 1
+    }
+  ]
+}

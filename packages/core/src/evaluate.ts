@@ -405,9 +405,11 @@ export interface Journal {
    *
    * @param all - The address of the `all`.
    * @param waiting - The indices of the items that wait.
+   * @param before - The number of the waits of this `all` that settled before this call. The kernel gives it, thus a
+   *   replayer keeps no state of a run (RUN.REPLAY-RUNS). An older copy of the kernel does not give it.
    * @returns The index of an item that waits, or `undefined` for the order of the host.
    */
-  readonly next?: (all: string, waiting: readonly number[]) => number | undefined;
+  readonly next?: (all: string, waiting: readonly number[], before?: number) => number | undefined;
 }
 
 /** This function gives the journal of a function `perform`, when it has one. */
@@ -1296,6 +1298,7 @@ class Session implements Runtime {
     }
     const active: Active[] = [];
     let next = 0;
+    let before = 0;
     const settle = (index: number, result: Result): void => {
       results[index] = result;
       if (failFast && !result.ok) failed = true;
@@ -1347,7 +1350,7 @@ class Session implements Runtime {
     start();
     while (active.length > 0 && !failed) {
       // A replay settles the waits in the recorded order. Each other run takes the first wait that settles.
-      const chosen = journal?.next?.(address, active.map((item) => item.index));
+      const chosen = journal?.next?.(address, active.map((item) => item.index), before);
       const pick = chosen === undefined ? undefined : active.find((item) => item.index === chosen);
       const settled = (yield pick === undefined ? Promise.race(active.map((item) => item.pending)) : pick.pending) as {
         readonly item: Active;
@@ -1356,6 +1359,7 @@ class Session implements Runtime {
         readonly threw: boolean;
       };
       journal?.settled?.(address, settled.item.index);
+      before += 1;
       active.splice(active.indexOf(settled.item), 1);
       advance(settled.item.index, settled.item.steps, settled);
       start();
