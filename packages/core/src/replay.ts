@@ -244,6 +244,11 @@ export interface ReplayExceptionJson {
    * note: `decodeLog` does not give these fields back.
    */
   readonly dropped?: readonly string[];
+  /**
+   * The own fields of the standard classes that are not enumerable (RUN.REPLAY-HIDDEN, D77): `errors` of an
+   * `AggregateError`, `error` and `suppressed` of a `SuppressedError`. A list is a list of parts.
+   */
+  readonly hidden?: Readonly<Record<string, ReplayPartJson | readonly ReplayPartJson[]>>;
   /** The term document of the cause, when `encodeValue` writes the cause. */
   readonly cause?: Json;
   /** The JSON form of a cause that is an exception, when no domain with a codec holds it. */
@@ -251,6 +256,12 @@ export interface ReplayExceptionJson {
   /** The index in the chain of an earlier exception that is the cause. Thus a cycle of causes stays exact. */
   readonly loop?: number;
 }
+
+/**
+ * The JSON form of one value of a hidden field of an exception (D77): a term document, an exception, or the index of an
+ * earlier exception of the walk. The walk is depth first: the hidden fields in their order, then the cause.
+ */
+export type ReplayPartJson = { readonly value: Json } | { readonly exception: ReplayExceptionJson } | { readonly loop: number };
 
 /** This function tells if a key is a field of an error value that the JSON form keeps. */
 function errorField(key: string): boolean {
@@ -331,20 +342,25 @@ function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayE
         continue;
       }
       if (!Array.isArray(value)) {
-        children.push({ value, owner: node, name: key, put: (part) => {
-            node.hidden[key] = part;
-          },
-        });
+        const put = (part: Part): void => {
+          node.hidden[key] = part;
+        };
+        children.push({ value, owner: node, name: key, put });
         continue;
       }
       const list: Part[] = [];
       node.hidden[key] = list;
-      for (let item = 0; item < value.length; item += 1) children.push({ value: value[item], owner: node, name: `${key}.${item}`, put: (part) => list.push(part) });
+      const put = (part: Part): void => {
+        list.push(part);
+      };
+      for (let item = 0; item < value.length; item += 1) children.push({ value: value[item], owner: node, name: `${key}.${item}`, put });
     }
-    if (Object.hasOwn(current, "cause")) children.push({ value: current.cause, owner: node, name: "cause", put: (part) => {
-          node.cause = part;
-        },
-      });
+    if (Object.hasOwn(current, "cause")) {
+      const put = (part: Part): void => {
+        node.cause = part;
+      };
+      children.push({ value: current.cause, owner: node, name: "cause", put });
+    }
     for (let place = children.length - 1; place >= 0; place -= 1) tasks.push(children[place] as ExceptionTask);
     return at;
   };
@@ -375,7 +391,7 @@ function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayE
       const part = hidden[key];
       if (part !== undefined) kept.push([key, Array.isArray(part) ? part.map(formOf) : formOf(part)]);
     }
-    const link = cause === undefined ? {} : "value" in cause ? { cause: cause.value } : "loop" in cause ? cause : formOf(cause);
+    const link = cause === undefined ? {} : "value" in cause ? { cause: cause.value } : "loop" in cause ? cause : { exception: built[cause.node] as ReplayExceptionJson };
     built[at] = { ...head, ...(dropped.length === 0 ? {} : { dropped }), ...(kept.length === 0 ? {} : { hidden: Object.fromEntries(kept) }), ...link };
   }
   return built[0] as ReplayExceptionJson;
@@ -420,6 +436,8 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   an exception keeps its name and its message in the field `exception`.
  * - An exception also keeps its own fields that `encodeValue` writes, and the chain of its causes (RUN.REPLAY-CAUSES).
  *   The list `dropped` names each other own field. A cause that is an earlier exception of the chain is its index in `loop`.
+ * - An exception keeps the hidden fields of the standard classes in `hidden`, for example `errors` of an
+ *   `AggregateError` (RUN.REPLAY-HIDDEN, D77). Each exception in them has the rule of a cause.
  * - An outcome that the log does not have stays absent.
  *
  * @param machine - The machine of the run, or only its domains.
@@ -559,9 +577,9 @@ function readException(kit: Machine, data: unknown, place: readonly Key[]): Resu
       for (const key of HIDDEN) {
         if (!Object.hasOwn(hidden, key)) continue;
         const parts: unknown = hidden[key];
-        const at = [...where, "hidden", key];
+        const spot = [...where, "hidden", key];
         if (!Array.isArray(parts)) {
-          const task = partTask(parts, at, (value) => hide(made, key, value));
+          const task = partTask(parts, spot, (value) => hide(made, key, value));
           if (!task.ok) return task;
           children.push(task.value);
           continue;
@@ -569,16 +587,17 @@ function readException(kit: Machine, data: unknown, place: readonly Key[]): Resu
         const list: unknown[] = [];
         hide(made, key, list);
         for (let item = 0; item < parts.length; item += 1) {
-          const task = partTask(parts[item], [...at, item], (value) => list.push(value));
+          const task = partTask(parts[item], [...spot, item], (value) => list.push(value));
           if (!task.ok) return task;
           children.push(task.value);
         }
       }
     }
-    const links = LINKS.filter((key) => Object.hasOwn(at, key));
+    const record = at;
+    const links = LINKS.filter((key) => Object.hasOwn(record, key));
     if (links.length > 1) return bad(where, "an exception has a cause, an exception or a loop, not more than one.");
     const link = links[0];
-    if (link !== undefined) children.push({ kind: link, data: at[link], where: [...where, link], put: (value) => hide(made, "cause", value) });
+    if (link !== undefined) children.push({ kind: link, data: record[link], where: [...where, link], put: (value) => hide(made, "cause", value) });
     for (let index = children.length - 1; index >= 0; index -= 1) tasks.push(children[index] as ReadTask);
     return ok(made);
   };

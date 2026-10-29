@@ -289,6 +289,7 @@ export {
   type ReplayExceptionJson,
   type ReplayLog,
   type ReplayLogJson,
+  type ReplayPartJson,
   type ReplayOptions,
   type ReplayResultJson,
   type ReplaySettle,
