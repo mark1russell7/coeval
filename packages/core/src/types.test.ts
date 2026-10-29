@@ -8,6 +8,7 @@ import {
   MergeError,
   STD_DOMAINS,
   STD_MACHINE,
+  extendDomain,
   fits,
   formulaMachine,
   join,
@@ -75,13 +76,13 @@ function typeOf(rng: Random, depth: number, withUnknown: boolean): ValueType {
   }
 }
 
-/** This function gives a random member of a type, or `NONE` when it finds none. */
-function sampleOf(rng: Random, type: ValueType): unknown {
+/** This function gives a random member of a type, or `NONE` when it finds none. `samples` gives the members of each base type. */
+function sampleOf(rng: Random, type: ValueType, samples: Readonly<Record<string, readonly unknown[]>> = BASE_SAMPLES): unknown {
   if (type === "unknown") return rng.pick(VALUES);
   if (type === "never") return NONE;
-  if (typeof type === "string") return rng.pick(BASE_SAMPLES[type] as readonly unknown[]);
+  if (typeof type === "string") return rng.pick(samples[type] as readonly unknown[]);
   if ("list" in type) {
-    const items = Array.from({ length: rng.int(3) }, () => sampleOf(rng, type.list));
+    const items = Array.from({ length: rng.int(3) }, () => sampleOf(rng, type.list, samples));
     return items.filter((item) => item !== NONE);
   }
   if ("record" in type) {
@@ -89,7 +90,7 @@ function sampleOf(rng: Random, type: ValueType): unknown {
     for (const [name, field] of Object.entries(type.record)) {
       const optional = type.optional?.includes(name) === true;
       if (optional && rng.chance(0.5)) continue;
-      const value = sampleOf(rng, field);
+      const value = sampleOf(rng, field, samples);
       if (value === NONE) {
         if (optional) continue;
         return NONE;
@@ -103,7 +104,7 @@ function sampleOf(rng: Random, type: ValueType): unknown {
   }
   if ("fn" in type) return () => 0;
   if ("union" in type) {
-    const found = type.union.map((each) => sampleOf(rng, each)).filter((value) => value !== NONE);
+    const found = type.union.map((each) => sampleOf(rng, each, samples)).filter((value) => value !== NONE);
     return found.length === 0 ? NONE : rng.pick(found);
   }
   return type.one.length === 0 ? NONE : rng.pick(type.one);
@@ -266,8 +267,9 @@ describe("value types and value domains", () => {
     expect(fits({ fn: ["whole"], to: "number" }, { fn: ["number"], to: "number" }, DOMAINS)).toBe(false);
     expect(fits({ fn: ["number", "number"], to: "number" }, { fn: ["number"], to: "number" })).toBe(false);
     expect(fits({ fn: [], to: "number" }, { list: "number" })).toBe(false);
-    // The relation is sound, not complete.
-    expect(fits("bool", { one: [true, false] })).toBe(false);
+    // The relation is sound, not complete: an open record does not split its finite field over a union (K178).
+    const split: ValueType = { union: [{ record: { a: { one: [true] } } }, { record: { a: { one: [false] } } }] };
+    expect(fits({ record: { a: "bool" } }, split)).toBe(false);
   });
 
   it("[TYPE.FITS] never is the bottom: it fits each type, and only an empty type fits it", () => {
@@ -298,6 +300,130 @@ describe("value types and value domains", () => {
     expect(join("undefined", "undefined")).toBe("undefined");
     expect(join("undefined", "unknown")).toBe("unknown");
     expect(typeText({ union: ["number", "undefined"] })).toBe("number | undefined");
+  });
+
+  it("[TYPE.FITS-FINITE] a type with few members fits when each member is a member of expected", () => {
+    // A base type with a list of values: bool, null and undefined of the kernel.
+    expect(fits("bool", { one: [true, false] })).toBe(true);
+    expect(fits("bool", { union: [{ one: [true] }, { one: [false] }] })).toBe(true);
+    expect(fits("bool", { union: [{ one: [false, 1] }, { list: "text" }, { one: [true] }] })).toBe(true);
+    expect(fits("bool", { one: [true] })).toBe(false);
+    expect(fits("null", { one: [null, 1] })).toBe(true);
+    expect(fits({ union: ["null", "bool"] }, { one: [false, null, true] })).toBe(true);
+    expect(fits({ union: ["undefined", "bool"] }, { union: [{ one: [true, false] }, "undefined"] })).toBe(true);
+    // A base type without a list does not fit a `one`.
+    expect(fits("number", { one: [0, 1] })).toBe(false);
+    expect(fits("text", { one: [""] })).toBe(false);
+    // The parts of a list and of a record get the rule, and a closed record with few members splits over its fields.
+    expect(fits({ list: "bool" }, { list: { one: [true, false] } })).toBe(true);
+    expect(fits({ record: { a: "bool" } }, { record: { a: { one: [true, false] } } })).toBe(true);
+    const flags: ValueType = { record: { a: "bool", b: "null" }, optional: ["b"], closed: true };
+    expect(fits(flags, { one: [{ a: true }, { a: false }, { a: true, b: null }, { b: null, a: false }] })).toBe(true);
+    expect(fits(flags, { one: [{ a: true }, { a: false }, { a: true, b: null }] })).toBe(false);
+    const split: ValueType = { union: [{ record: { a: { one: [true] } } }, { record: { a: { one: [false] }, b: "unknown" }, optional: ["b"] }] };
+    expect(fits({ record: { a: "bool" }, closed: true }, split)).toBe(true);
+    expect(fits({ record: { a: "bool" } }, { one: [{ a: true }, { a: false }] })).toBe(false);
+    // A record with a needed field without members has no members, and a list of never holds only the empty list.
+    expect(fits({ record: { a: "never", b: "number" } }, "text")).toBe(true);
+    expect(fits({ record: { a: "never" }, optional: ["a"] }, "text")).toBe(false);
+    expect(fits({ list: "never" }, { one: [[]] })).toBe(true);
+    expect(fits({ list: "never" }, "never")).toBe(false);
+    // A domain of a language declares its values. A value that fails a test does not count, and a parent gives its list.
+    const domains: Readonly<Record<string, Domain>> = {
+      align: { is: (value) => value === "left" || value === "right", values: ["left", "right", "up"], under: ["text"] },
+      on: { is: (value) => value === true, under: ["bool"] },
+      many: { is: (value) => typeof value === "number", values: Array.from({ length: 65 }, (_, index) => index), under: ["number"] },
+    };
+    expect(fits("align", { one: ["right", "left"] }, domains)).toBe(true);
+    expect(fits("on", { one: [true] }, domains)).toBe(true);
+    expect(fits("on", { one: [false] }, domains)).toBe(false);
+    // A list of more than 64 values does not count.
+    expect(fits("many", { one: Array.from({ length: 65 }, (_, index) => index) }, domains)).toBe(false);
+    // The strict join reads the rule too. Thus bool and the `one` of its values join to the later type.
+    expect(join("bool", { one: [true, false] })).toEqual({ one: [true, false] });
+    expect(join({ one: [true, false] }, "bool")).toBe("bool");
+    expect(join({ one: [true] }, { one: [false] })).toEqual({ one: [true, false] });
+  });
+
+  it("[TYPE.FITS-FINITE] a merge compares the values of two domains, and extendDomain keeps them", () => {
+    const align: Domain = { is: (value) => value === "left" || value === "right", values: ["left", "right"], under: ["text"] };
+    expect(Object.keys(mergeMachines({ domains: { align } }, { domains: { align: { ...align, values: ["left", "right"] } } }).domains ?? {})).toEqual(["align"]);
+    expect(conflictsOf(() => mergeMachines({ domains: { align } }, { domains: { align: { ...align, values: ["left"] } } }))).toHaveLength(1);
+    expect(conflictsOf(() => mergeMachines({ domains: { align } }, { domains: { align: { is: align.is, under: ["text"] } } }))).toHaveLength(1);
+    const extended = extendDomain("bool", { under: ["truth"] })({ world: { kinds: {}, defaults: {} }, evaluators: {} });
+    expect(extended.domains?.["bool"]?.values).toEqual([true, false]);
+    const truth: Domain = { is: () => true };
+    expect(fits("bool", { one: [false, true] }, { ...extended.domains, truth })).toBe(true);
+  });
+
+  it("[TYPE.FITS-SOUND] a sampled member of found is a member of expected for each pair that fits, in a seeded corpus of finite types", () => {
+    // The domains of a small language: a list with a value that fails the test, and a domain that a parent gives its list.
+    const domains: Readonly<Record<string, Domain>> = {
+      ...DOMAINS,
+      align: { is: (value) => value === "left" || value === "right", values: ["left", "right", "up"], under: ["text"] },
+      on: { is: (value) => value === true, under: ["bool"] },
+    };
+    // The same domains without the lists. The pairs that fit only with the lists are the pairs of the finite rule.
+    const plain: Readonly<Record<string, Domain>> = {
+      ...DOMAINS,
+      null: { is: (value) => value === null },
+      undefined: { is: (value) => value === undefined },
+      bool: { is: (value) => typeof value === "boolean" },
+      align: { is: domains["align"]?.is as Domain["is"], under: ["text"] },
+      on: { is: domains["on"]?.is as Domain["is"], under: ["bool"] },
+    };
+    const samples: Readonly<Record<string, readonly unknown[]>> = { ...BASE_SAMPLES, align: ["left", "right"], on: [true] };
+    const bases = ["null", "undefined", "bool", "on", "align", "number", "text", "whole", "never"] as const;
+    const values: readonly Json[] = [true, false, null, 0, 1, "left", "right", "a", [], [true], {}, { a: true }, { a: false }, { a: null, b: true }];
+    const typeAt = (rng: Random, depth: number): ValueType => {
+      if (depth <= 0 || rng.chance(0.35)) return rng.chance(0.75) ? rng.pick(bases) : { one: values.filter(() => rng.chance(0.2)) };
+      const next = (): ValueType => typeAt(rng, depth - 1);
+      switch (rng.int(3)) {
+        case 0:
+          return { list: next() };
+        case 1: {
+          const names = ["a", "b"].filter(() => rng.chance(0.6));
+          const record: Record<string, ValueType> = {};
+          for (const name of names) record[name] = next();
+          const optional = names.filter(() => rng.chance(0.3));
+          return { record, ...(optional.length > 0 ? { optional } : {}), ...(rng.chance(0.7) ? { closed: true } : {}) };
+        }
+        default:
+          return { union: Array.from({ length: 1 + rng.int(3) }, next) };
+      }
+    };
+    const rng = random(48);
+    const pool: ValueType[] = [];
+    for (let index = 0; index < 240; index += 1) {
+      const type = typeAt(rng, 3);
+      pool.push(type);
+      // A `one` of samples of an earlier type gives more pairs that fit.
+      if (index % 3 === 0) {
+        const items = Array.from({ length: 4 }, () => sampleOf(rng, type, samples)).filter((value) => value !== NONE && !holdsUndefined(value));
+        pool.push({ one: items as Json[] });
+      }
+    }
+    let pairs = 0;
+    let finite = 0;
+    let checked = 0;
+    for (const found of pool) {
+      const members = Array.from({ length: 6 }, () => sampleOf(rng, found, samples)).filter((value) => value !== NONE);
+      for (const value of members) expect(member(value, found, domains), `${JSON.stringify(value)} in ${JSON.stringify(found)}`).toBe(true);
+      for (const expected of pool) {
+        if (!fits(found, expected, domains)) continue;
+        pairs += 1;
+        if (!fits(found, expected, plain)) finite += 1;
+        for (const value of members) {
+          checked += 1;
+          if (!member(value, expected, domains)) expect.fail(`${JSON.stringify(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+        }
+      }
+    }
+    // The corpus holds 320 types and 102400 pairs. The counts pin the corpus: a change to the generator shows here.
+    expect(pool.length).toBe(320);
+    expect(pairs).toBeGreaterThan(10000);
+    expect(finite).toBeGreaterThan(350);
+    expect(checked).toBeGreaterThan(25000);
   });
 
   it("[TYPE.FITS] fits is reflexive, and transitive for generated types without unknown", () => {

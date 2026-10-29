@@ -2321,3 +2321,47 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 - A list without an exception and with one item without a form drops the full field, as in D76. The row K176 keeps the idea of a mark for that item.
 - `parts` holds an exception or a list of them. A record that holds an exception, for example `{ inner: error }`, is a name in `dropped`. The row K177 keeps this idea.
 - `decodeLog` gives a field of `parts` after the fields of term documents. Thus the order of the keys of a decoded exception can differ from the order of the host.
+
+## D79 (2026-10-29): `fits` tests each member of a type with few members, and a domain declares its members in `values`
+
+**Context.** K48, from K23 (D22). `fits` was sound but missed true cases. A search over the kernel types found these misses:
+
+- A base type with few members against a `one` or a union that holds each member, for example `bool` against `{ "one": [true, false] }`, and `null` against `{ "one": [null] }`.
+- A union of such types against a `one`, for example `null | bool` against `{ "one": [null, true, false] }`.
+- A closed record of such fields against a `one` or against a union that splits a field. An example is `{a: bool}` against a record for `true` and a record for `false`.
+- A list of `never` against `{ "one": [[]] }`. Its one member is the empty list.
+- A record with a needed field without members, for example `{a: never}`, against each type. The record has no members.
+- An open record with a finite field against a union that splits the field.
+- A base type that a union of other domains covers, for example two domains of a language that split `number`.
+
+**Decision.**
+
+- The new rule comes after the rules of the shapes (TYPE.FITS-FINITE). When they refuse a type with at most 64 members, `fits` tests each member with `member` against `expected`.
+- `Domain` gets the optional field `values`: the full list of the members of the domain. `STD_DOMAINS` gives `[null]`, `[undefined]` and `[true, false]`.
+- A base type reads the list of the first domain of its line with at most 64 values. A value of the list that fails a test of the type does not count. Thus the list of `bool` serves a domain under `bool`.
+- A union and a `one` have the members of their parts. A closed record of such fields has the product of its fields. A list of `never` has the empty list.
+- A record with a needed field without members has no members, also an open record.
+- A member of a union in `expected` gets no finite rule. The call for the full union tests the members once.
+- The rule of `unknown` and the order of the other rules do not change. The strict join reads the rule too.
+- `mergeMachines` compares `values` as it compares the steps. `extendDomain` keeps `values`, because a new parent only adds a test.
+
+**Rejected.**
+
+- A table of the kernel for `bool`, `null` and `undefined` only. A language then cannot declare a small domain, for example an alignment with three values.
+- The finite rule before the rules of the shapes. Then each check of `bool` against `bool` starts the test of the domain for each value. The fallback keeps the common path as before.
+- A finite rule without a bound. A closed record with ten `bool` fields has 1024 members, and the product grows fast.
+- A split of an open record over a union. The rule must build a record type for each value of the field, and the number of checks grows with each field. The row K178 keeps it.
+
+**Why.** For a type with few members, the members decide the relation exactly. Thus the rule is complete for such types, and `member` keeps it sound. The bound of 64 keeps the cost small, and the rule only starts when the old rules refuse.
+
+**Soundness.** A generated test of 320 types and 102400 pairs over the kernel types samples members of `found` (TYPE.FITS-SOUND). More than 10000 pairs fit, and more than 350 of them fit only by the finite rule. The test finds 0 counterexamples. A test without the absent case of an optional field finds a counterexample at once.
+
+**Public types.** `Domain.values` is a new optional field. A check accepts some programs that it refused before, and a join of two equal types can give the other type. The change is a new feature: MINOR, in 0.17.0.
+
+**Changed expected values.** One test of TYPE.FITS changes. Before, `bool` did not fit `{ "one": [true, false] }`. Since D79, it fits, thus the test shows the open record of K178 as the case that `fits` still misses.
+
+**Limits.**
+
+- The language keeps `values` complete. A list without a member makes `fits` unsound for that domain, as a wrong `steps` makes a path wrong.
+- An open record does not split a field over a union (K178). A type with more than 64 members gets no finite rule.
+- Two domains that cover a base type together do not fit it (K179). A domain cannot declare such a cover.

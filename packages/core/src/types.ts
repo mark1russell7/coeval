@@ -59,6 +59,13 @@ export interface Domain {
    * standard extension `ext.domain`. A domain without a codec has no such document.
    */
   readonly codec?: DomainCodec;
+  /**
+   * The full list of the members of the domain, when the domain holds few values, for example `true` and `false` of
+   * `bool` (TYPE.FITS-FINITE). `fits` reads it: a base type with a list fits a type that holds each member of the list.
+   * The language keeps the list complete: each member of the domain is in the list. A value that fails a test of the
+   * domain does not count. The check reads a list of at most 64 values.
+   */
+  readonly values?: readonly unknown[];
 }
 
 /**
@@ -94,16 +101,19 @@ export interface TypeIssue {
  * A machine that does not name one of these domains gets it from this table.
  */
 export const STD_DOMAINS: Readonly<Record<string, Domain>> = {
-  null: { is: (value) => value === null, summary: "The value null." },
+  null: { is: (value) => value === null, values: [null], summary: "The value null." },
   // JSON has no undefined, thus a document holds it as ext.undefined (D48). The domain has no codec: the codec of values writes undefined first.
-  undefined: { is: (value) => value === undefined, summary: "The value undefined. A document holds it as the extension ext.undefined." },
-  bool: { is: (value) => typeof value === "boolean", summary: "A truth value: true or false." },
+  undefined: { is: (value) => value === undefined, values: [undefined], summary: "The value undefined. A document holds it as the extension ext.undefined." },
+  bool: { is: (value) => typeof value === "boolean", values: [true, false], summary: "A truth value: true or false." },
   number: { is: (value) => typeof value === "number", summary: "A number of the host, also NaN, an infinity and -0." },
   text: { is: (value) => typeof value === "string", summary: "A text." },
 };
 
 /** The deepest term that a value type can have. A deeper term reads as `unknown`, thus a check stays total. */
 const MAX_TYPE_DEPTH = 256;
+
+/** The most values that the finite rule of `fits` reads for one type (TYPE.FITS-FINITE). A type with more values is not finite for the rule. */
+const MAX_FINITE_VALUES = 64;
 
 /** The keys that each term permits beside its own key. */
 const TERM_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -287,11 +297,118 @@ function recordFits(
   return true;
 }
 
+/** This function adds a value to a list of distinct values, by `docEquals`. */
+function addValue(out: unknown[], value: unknown): void {
+  if (!out.some((item) => docEquals(item, value))) out.push(value);
+}
+
+/**
+ * This function gives the values of a base type with a finite list. It reads the list of the first domain of the line
+ * with at most 64 values, and it keeps only the members of the type. Thus the list of a parent serves each domain under it.
+ */
+function baseValues(name: string, domains: Readonly<Record<string, Domain>> | undefined): readonly unknown[] | undefined {
+  const domain = domainOf(name, domains);
+  if (domain === undefined) return undefined;
+  const line = Array.isArray(domain.values) || !Array.isArray(domain.under) ? [name] : lineOf(name, domains);
+  for (const each of line) {
+    const values: unknown = domainOf(each, domains)?.values;
+    if (!Array.isArray(values) || values.length > MAX_FINITE_VALUES) continue;
+    const out: unknown[] = [];
+    // A hole of the list holds undefined, thus a loop by index reads it too.
+    for (let index = 0; index < values.length; index += 1) if (inDomain(values[index], name, domains)) addValue(out, values[index]);
+    return out;
+  }
+  return undefined;
+}
+
+/** This function gives a copy of a record with one more field. */
+function withField(record: Readonly<Record<string, unknown>>, key: string, value: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const name of Object.keys(record)) setOwn(out, name, record[name]);
+  setOwn(out, key, value);
+  return out;
+}
+
+/**
+ * This function gives the members of a record type, when they are few. A record with a needed field without members
+ * has no members. Only a closed record with a finite list for each field has a finite list.
+ */
+function recordValues(form: Extract<Form, { readonly t: "record" }>, domains: Readonly<Record<string, Domain>> | undefined, depth: number): readonly unknown[] | undefined {
+  let out: readonly Record<string, unknown>[] = [{}];
+  let finite = form.closed;
+  for (const key of Object.keys(form.fields)) {
+    const values = valuesOf(form.fields[key], domains, depth);
+    const optional = form.optional.has(key);
+    if (values === undefined) {
+      finite = false;
+      continue;
+    }
+    if (values.length === 0 && !optional) return [];
+    if (!finite) continue;
+    if (out.length * (values.length + (optional ? 1 : 0)) > MAX_FINITE_VALUES) {
+      // The list is too long, but a later needed field without members can still empty the record.
+      finite = false;
+      continue;
+    }
+    out = out.flatMap((record) => [...(optional ? [record] : []), ...values.map((value) => withField(record, key, value))]);
+  }
+  return finite ? out : undefined;
+}
+
+/**
+ * This function gives a list of the members of a type, when the type has at most 64 members (TYPE.FITS-FINITE). Each
+ * other type gives `undefined`. Such a type is `unknown`, a base type without a finite list, or a function type. A
+ * list that can hold an item and an open record with members are also such types.
+ */
+function valuesOf(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number): readonly unknown[] | undefined {
+  if (depth > MAX_TYPE_DEPTH) return undefined;
+  const form = formOf(type, domains);
+  const next = depth + 1;
+  switch (form.t) {
+    case "bottom":
+      return [];
+    case "base":
+      return baseValues(form.name, domains);
+    case "list":
+      return valuesOf(form.item, domains, next)?.length === 0 ? [[]] : undefined;
+    case "record":
+      return recordValues(form, domains, next);
+    case "one":
+    case "union": {
+      const out: unknown[] = [];
+      const items: readonly unknown[] = form.t === "one" ? form.values : form.members;
+      for (const item of items) {
+        const values = form.t === "one" ? [item] : valuesOf(item, domains, next);
+        if (values === undefined) return undefined;
+        for (const value of values) addValue(out, value);
+        if (out.length > MAX_FINITE_VALUES) return undefined;
+      }
+      return out;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** This function holds the rules of the shapes of `fits`: base types, lists, records and functions. */
+function shapeFits(a: Form, b: Form, domains: Readonly<Record<string, Domain>> | undefined, next: number, gradual: boolean): boolean {
+  if (a.t === "base") return b.t === "base" && lineOf(a.name, domains).has(b.name);
+  if (a.t === "list") return b.t === "list" && fitsAt(a.item, b.item, domains, next, gradual);
+  if (a.t === "record") return b.t === "record" && recordFits(a, b, domains, next, gradual);
+  if (a.t !== "fn" || b.t !== "fn" || a.params.length > b.params.length) return false;
+  // A function fits when it accepts each argument of the expected type, and when its result fits.
+  return a.params.every((param, index) => fitsAt(b.params[index], param, domains, next, gradual)) && fitsAt(a.to, b.to, domains, next, gradual);
+}
+
 /**
  * This function is the relation `fits` at one depth of two types. The order of its tests is the order of the rules of
  * `fits`. Without `gradual`, `unknown` is only the top: it fits only `unknown`. The join uses this strict form.
+ *
+ * When the rules of the shapes refuse a type with few members, the finite rule tests each member (TYPE.FITS-FINITE).
+ * Without `finite`, the call skips that rule. The members of a union in `expected` get such calls, because the call
+ * for the union tests the members of `found` against the full union.
  */
-function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual = true): boolean {
+function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual = true, finite = true): boolean {
   if (depth > MAX_TYPE_DEPTH) return true;
   const a = formOf(found, domains);
   const b = formOf(expected, domains);
@@ -300,14 +417,10 @@ function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<stri
   if (a.t === "top") return gradual;
   if (a.t === "union") return a.members.every((item) => fitsAt(item, expected, domains, next, gradual));
   if (a.t === "one") return a.values.every((item) => memberAt(item, expected, domains, next));
-  if (b.t === "bottom") return false;
-  if (b.t === "union") return b.members.some((item) => fitsAt(found, item, domains, next, gradual));
-  if (a.t === "base") return b.t === "base" && lineOf(a.name, domains).has(b.name);
-  if (a.t === "list") return b.t === "list" && fitsAt(a.item, b.item, domains, next, gradual);
-  if (a.t === "record") return b.t === "record" && recordFits(a, b, domains, next, gradual);
-  if (b.t !== "fn" || a.params.length > b.params.length) return false;
-  // A function fits when it accepts each argument of the expected type, and when its result fits.
-  return a.params.every((param, index) => fitsAt(b.params[index], param, domains, next, gradual)) && fitsAt(a.to, b.to, domains, next, gradual);
+  if (b.t === "union" ? b.members.some((item) => fitsAt(found, item, domains, next, gradual, false)) : b.t !== "bottom" && shapeFits(a, b, domains, next, gradual)) return true;
+  if (!finite || a.t === "fn") return false;
+  // The finite rule: a type with few members fits when each member is a member of `expected`.
+  return valuesOf(found, domains, next)?.every((value) => memberAt(value, expected, domains, next)) ?? false;
 }
 
 /**
@@ -325,9 +438,15 @@ function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<stri
  *   field is `unknown`.
  * - A function fits when it has the same or fewer parameters, each expected parameter fits its parameter, and its
  *   result fits.
+ * - The finite rule comes after these rules (TYPE.FITS-FINITE). A type with at most 64 members fits when each member
+ *   is a member of `expected`. Thus `bool` fits `{ "one": [true, false] }`.
+ * - A base type has few members when its domain or a parent declares `values`, as `null`, `undefined` and `bool` do.
+ *   A union, a `one`, a closed record of such types and a list of `never` also have few members.
  *
- * The relation is sound: a member of `found` is a member of `expected` when no `unknown` is in the types. It is not
- * complete. For example, `bool` does not fit `{ "one": [true, false] }`. The function does not throw.
+ * The relation is sound: a member of `found` is a member of `expected` when no `unknown` is in the types
+ * (TYPE.FITS-SOUND). It is not complete. An open record does not split a field over a union, for example
+ * `{ "record": { "a": "bool" } }` and a union of a record for each value of `a`. A domain without `values` and a type
+ * with more than 64 members get no finite rule. The function does not throw.
  *
  * @param found - The type that a part has.
  * @param expected - The type that the position needs.
