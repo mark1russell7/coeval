@@ -1,6 +1,8 @@
 # The speed of plans and paths (K12, D29, K101): the base commit and this commit on one machine.
 # Each copy runs in its own processes, and a second copy of the base gives the noise floor (A/A) of each case.
-# The job only prints numbers, in its log and in its summary. It does not block a merge.
+# Two jobs make the same comparison on two runners (K167, D71). The job "verdict" merges their two tables.
+# A case is slower or faster only when both runs are over the bound in the same direction.
+# The jobs only print numbers, in their logs and in their summaries. They do not block a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
 name: Speed
 
@@ -19,15 +21,21 @@ on:
 permissions:
   contents: read
 
+# Two dispatches on one branch with different bases do not cancel each other.
 concurrency:
-  group: bench-${{ github.ref }}
+  group: bench-${{ github.ref }}-${{ inputs.base }}
   cancel-in-progress: true
 
 jobs:
   bench:
+    name: bench (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,3 +53,37 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
       - name: Compare the base with this commit
         run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts
+        env:
+          BENCH_RUN: ${{ matrix.run }}
+          BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
+      # A run with different results also gives its table to the verdict.
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: bench-run-${{ matrix.run }}
+          path: ${{ runner.temp }}/bench-${{ matrix.run }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  verdict:
+    needs: bench
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: packages/core/bench
+      # Node removes the types of merge.ts, and the script uses only the modules of Node.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bench-run-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/bench
+      - name: Merge the two runs
+        if: ${{ !cancelled() }}
+        run: node packages/core/bench/merge.ts "$RUNNER_TEMP/bench/bench-1.json" "$RUNNER_TEMP/bench/bench-2.json"
