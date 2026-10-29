@@ -85,6 +85,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D75 | A log has a JSON form for golden files: `encodeLog` writes each value through `encodeValue`, and a value without a form is a `TypeError` with its address. One replayer serves more than one run. |
 | D76 | `agreeRun` uses one replayer for its tiers. The JSON form of an exception keeps its own fields and its chain of causes, also a cycle, at the version 1. |
 | D77 | The JSON form of an exception keeps the hidden fields of the standard classes, for example `errors` of an `AggregateError`. An exception in them has the rule of a cause. |
+| D78 | An enumerable field of an exception that holds an exception gets parts in `parts`, with the rule of a cause. An item of a list without a form keeps its place with a mark. |
 
 ## Open
 

@@ -507,6 +507,8 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   The list `dropped` names each other own field. A cause that is an earlier exception of the chain is its index in `loop`.
  * - An exception keeps the hidden fields of the standard classes in `hidden`, for example `errors` of an
  *   `AggregateError` (RUN.REPLAY-HIDDEN, D77). Each exception in them has the rule of a cause.
+ * - An enumerable field that holds an exception, or a list with an exception, is in `parts` (RUN.REPLAY-FIELDS, D78).
+ *   An item of a list without a form is the mark `dropped` at its place.
  * - An outcome that the log does not have stays absent.
  *
  * @param machine - The machine of the run, or only its domains.
@@ -762,7 +764,8 @@ function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<R
 /**
  * This function reads the JSON form of a log again (RUN.REPLAY-JSON). It reads each term document with the formula kit
  * and the domains of the machine. A cause in the field `exception` becomes an exception with that name and message.
- * The exception gets its fields and the chain of its causes again, also a cycle (RUN.REPLAY-CAUSES).
+ * The exception gets its fields and the chain of its causes again, also a cycle (RUN.REPLAY-CAUSES). A list gets a
+ * hole at the place of the mark `dropped`, thus each later item keeps its index (D78).
  *
  * @param machine - The machine of the run, or only its domains.
  * @param data - The JSON form, for example from `JSON.parse` of a golden file.
