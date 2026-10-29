@@ -466,6 +466,9 @@ function readsDiffer(plan: readonly Read[], tier: readonly Read[], options: Agre
  * the plan records these reads. A kept read does not compare. When the plan keeps each root, its reads are not known,
  * and no read compares.
  *
+ * One replayer of the log serves each tier and the replay for the reads (RUN.AGREES-ONE-REPLAYER). The replayer keeps
+ * no state of a run (RUN.REPLAY-RUNS), thus each tier replays the same log as with a replayer of its own.
+ *
  * @param machine - The world, the evaluators and the runners.
  * @param doc - The document.
  * @param context - The names and the capabilities at the root.
@@ -490,12 +493,14 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
   // The reads of the plan come from another replay, thus the run of the plan above keeps its folds (PLAN.FOLD).
   let planReads: readonly Read[] | undefined;
   let compared: readonly Read[] | undefined;
+  // The kernel tells the journal the count of the waits that settled, thus one replayer serves each tier (RUN.AGREES-ONE-REPLAYER).
+  const replay = replayer(log);
 
   for (const tier of options.tiers ?? DEFAULT_TIERS) {
     // A run has no tier with fixed names (PLAN.FIXED).
     if (tier === "fixed") continue;
-    const replay = watched(replayer(log));
-    const host = { perform: replay.perform };
+    const tierReplay = watched(replay);
+    const host = { perform: tierReplay.perform };
     let other: Result;
     let tierReads: Read[] | undefined;
     if (tier === "reference") {
@@ -514,13 +519,13 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
     if (overflowed(result) || overflowed(other)) continue;
     let why =
       resultDiffers(result, other, options) ??
-      effectsDiffer(first.effects, replay.effects, options) ??
-      settlesDiffer(first.settles, replay.settles) ??
+      effectsDiffer(first.effects, tierReplay.effects, options) ??
+      settlesDiffer(first.settles, tierReplay.settles) ??
       (compareCalls && !sameValue(saw, calls, options.equal) ? "The host saw other calls in the tier." : undefined);
     if (why === undefined && tierReads !== undefined) {
       if (planReads === undefined) {
         const reads: Read[] = [];
-        await plan.run(context, { perform: replayer(log), reads });
+        await plan.run(context, { perform: replay, reads });
         // The calls of this replay are not a tier, thus the next tier compares only its own calls.
         observe?.();
         planReads = reads;

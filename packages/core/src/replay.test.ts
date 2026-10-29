@@ -8,6 +8,7 @@ import {
   type Machine,
   type Perform,
   type ReplayLog,
+  type ReplayLogJson,
   type Result,
   type Runner,
   type Steps,
@@ -282,20 +283,27 @@ function generatedHost(effect: Effect): unknown {
   const answer = (): unknown => {
     if (effect.payload === "") throw new Error("The host refuses an empty text.");
     if (effect.payload === "b") throw new Failure({ code: "#MOCK", reason: "The host refuses b." });
-    if (effect.payload === "a" && count > 1) throw new TypeError("The host refuses a late a.");
+    if (effect.payload === "a" && count > 1) throw Object.assign(new TypeError("The host refuses a late a.", { cause: new Error("The queue is full.") }), { code: "ELATE" });
     if (typeof effect.payload === "number") return -effect.payload;
     return effect.kind === "write" ? { stored: effect.address } : [effect.address, effect.payload];
   };
   return count === 0 ? answer() : after(count * 2, answer);
 }
 
-/** This function tells if two results are the same, with the name and the message of a cause that is an exception. */
+/** This function gives the names, the messages and the own fields of a chain of causes, until a cause that is not an exception. */
+function chainOf(value: unknown): unknown[] {
+  const chain: unknown[] = [];
+  for (let at = value; at instanceof Error && chain.length < 10; at = at.cause) chain.push([at.name, at.message, { ...at }]);
+  return chain;
+}
+
+/** This function tells if two results are the same, with the chain of the causes that are exceptions. */
 function sameRun(a: Result, b: Result): boolean {
   if (!sameResult(a, b, sameDate)) return false;
   if (a.ok || b.ok) return true;
   const x: unknown = a.error.cause;
   const y: unknown = b.error.cause;
-  if (x instanceof Error || y instanceof Error) return x instanceof Error && y instanceof Error && x.name === y.name && x.message === y.message;
+  if (x instanceof Error || y instanceof Error) return JSON.stringify(chainOf(x)) === JSON.stringify(chainOf(y));
   return Object.hasOwn(a.error, "cause") === Object.hasOwn(b.error, "cause");
 }
 
@@ -354,7 +362,7 @@ describe("the JSON form of a log", () => {
     expect(effects[2]?.payload).toEqual({ type: "ref", value: ["x"] });
     const value = effects[2]?.outcome?.ok === true ? (effects[2].outcome.value as readonly unknown[]) : [];
     expect(value[0] instanceof Date && value[0].getTime()).toBe(Date.UTC(2026, 0, 1));
-    // An exception keeps its class, its name and its message. Its stack and its other fields are not in the form.
+    // An exception keeps its class, its name and its message. Its stack is not in the form.
     const cause: unknown = effects[3]?.outcome?.ok === false ? effects[3].outcome.error.cause : undefined;
     expect(cause instanceof TypeError && cause.message).toBe("no");
     expect(effects[4]?.outcome).toEqual({ ok: false, error: { code: "#MOCK", reason: "Refused.", cause: { why: "b" } } });
@@ -419,6 +427,7 @@ describe("the JSON form of a log", () => {
     let refused = 0;
     let reordered = 0;
     let exceptions = 0;
+    let chains = 0;
     let special = 0;
     for (let seed = 1; seed <= total; seed += 1) {
       const doc = generate(dated.world, {
@@ -453,6 +462,7 @@ describe("the JSON form of a log", () => {
       written += 1;
       if (kept.settles.some((settle, index) => kept.settles.slice(index + 1).some((later) => later.all === settle.all && later.item < settle.item))) reordered += 1;
       if (text.includes('"exception"')) exceptions += 1;
+      if (text.includes('"fields"')) chains += 1;
       if (text.includes('"ext"')) special += 1;
       const back = decodeLog(dated, JSON.parse(text));
       if (!back.ok) {
@@ -467,9 +477,150 @@ describe("the JSON form of a log", () => {
     expect(bad.slice(0, 3)).toEqual([]);
     expect(written + refused).toBe(total);
     // The corpus reaches each part of the form.
-    for (const [name, count] of Object.entries({ written, refused, reordered, exceptions, special })) expect(count, name).toBeGreaterThan(0);
+    for (const [name, count] of Object.entries({ written, refused, reordered, exceptions, chains, special })) expect(count, name).toBeGreaterThan(0);
   });
 });
+
+/** This function gives a log with one effect whose outcome is an error with a cause. */
+function failedWith(cause: unknown): ReplayLog {
+  return { effects: [{ address: "0#0", kind: "log", payload: "x", outcome: { ok: false, error: { code: "#CALC!", reason: "The host failed.", cause } }, waited: false }], settles: [] };
+}
+
+/** This function gives the JSON form of the exception of the first effect of a log. */
+function exceptionOf(json: ReplayLogJson): unknown {
+  const outcome = json.effects[0]?.outcome;
+  return outcome?.ok === false ? outcome.error.exception : undefined;
+}
+
+/** This function gives the cause of the outcome of the first effect of a log that `decodeLog` reads from a JSON text. */
+function decodedCause(json: ReplayLogJson): unknown {
+  const back = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+  if (!back.ok) throw new Error(back.error.reason);
+  const outcome = back.value.effects[0]?.outcome;
+  return outcome?.ok === false ? outcome.error.cause : undefined;
+}
+
+describe("the causes of an exception in the JSON form", () => {
+  it("[RUN.REPLAY-CAUSES] a chain of three exceptions keeps each name, message, class and own field with a term document, and decodeLog gives the chain again", () => {
+    const port = new RangeError("The port is out of range.");
+    const socket = Object.assign(new TypeError("The socket closed.", { cause: port }), { errno: -111, at: new Date(Date.UTC(2026, 9, 29)) });
+    const connect = Object.assign(new Error("The connection failed.", { cause: socket }), { code: "ECONNREFUSED", retry: undefined });
+    const json = encodeLog(dated, failedWith(connect));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "The connection failed.",
+      fields: { code: "ECONNREFUSED", retry: { type: ["ext", "undefined"], value: null } },
+      exception: {
+        name: "TypeError",
+        message: "The socket closed.",
+        fields: { errno: -111, at: { type: ["ext", "domain"], value: { domain: "date", data: "2026-10-29T00:00:00.000Z" } } },
+        exception: { name: "RangeError", message: "The port is out of range." },
+      },
+    });
+    const cause = decodedCause(json);
+    expect(cause instanceof Error && cause.message).toBe("The connection failed.");
+    expect(chainOf(cause).map((step) => (step as unknown[]).slice(0, 2))).toEqual([
+      ["Error", "The connection failed."],
+      ["TypeError", "The socket closed."],
+      ["RangeError", "The port is out of range."],
+    ]);
+    const second = (cause as Error).cause as Error & { readonly errno?: unknown; readonly at?: unknown };
+    expect(second instanceof TypeError && second.errno).toBe(-111);
+    expect(second.at instanceof Date && second.at.getTime()).toBe(Date.UTC(2026, 9, 29));
+    expect(Object.hasOwn(cause as Error, "retry") && (cause as { readonly retry?: unknown }).retry === undefined).toBe(true);
+    // The last exception has no cause, and the field cause is not enumerable, as with the constructor of Error.
+    expect(Object.hasOwn(second.cause as Error, "cause")).toBe(false);
+    expect(Object.keys(cause as Error)).toEqual(["code", "retry"]);
+    // A cause that encodeValue writes ends the chain as a term document.
+    const coded = encodeLog(dated, failedWith(new Error("outer", { cause: { why: [1, Number.NaN] } })));
+    expect(exceptionOf(coded)).toEqual({ name: "Error", message: "outer", cause: { type: "record", value: { why: { type: "list", value: [1, { type: ["ext", "number"], value: "NaN" }] } } } });
+    const outer = decodedCause(coded) as Error;
+    expect(Number.isNaN(((outer.cause as { readonly why: unknown[] }).why)[1])).toBe(true);
+    // A recording of a replay of the decoded log gives the same form.
+    const back = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(back.ok && encodeLog(dated, back.value)).toEqual(json);
+  });
+
+  it("[RUN.REPLAY-CAUSES] a cycle of causes is the index of the earlier exception in loop, and decodeLog gives the same cycle", () => {
+    const self = new Error("self");
+    self.cause = self;
+    expect(exceptionOf(encodeLog(dated, failedWith(self)))).toEqual({ name: "Error", message: "self", loop: 0 });
+    const a = new Error("a");
+    const b = new TypeError("b", { cause: a });
+    const c = new Error("c", { cause: b });
+    a.cause = c;
+    const json = encodeLog(dated, failedWith(a));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "a",
+      exception: { name: "Error", message: "c", exception: { name: "TypeError", message: "b", loop: 0 } },
+    });
+    const cause = decodedCause(json) as Error;
+    const third = (cause.cause as Error).cause as Error;
+    expect(third instanceof TypeError && third.message).toBe("b");
+    expect(third.cause).toBe(cause);
+    const again = decodedCause(encodeLog(dated, failedWith(self))) as Error;
+    expect(again.cause).toBe(again);
+    // A long chain does not overflow the stack.
+    let long = new Error("0");
+    for (let index = 1; index < 5000; index += 1) long = new Error(String(index), { cause: long });
+    let depth = 0;
+    for (let at: unknown = decodedCauseOf(encodeLog(dated, failedWith(long))); at instanceof Error; at = at.cause) depth += 1;
+    expect(depth).toBe(5000);
+  });
+
+  it("[RUN.REPLAY-CAUSES] an own field or a cause without a term document is a name in dropped, not a refusal, and decodeLog does not give it back", () => {
+    const host = Object.assign(new Error("The request failed.", { cause: () => 1 }), { code: "EREQUEST", config: { send: () => 1 }, big: 1n });
+    const json = encodeLog(dated, failedWith(host));
+    expect(exceptionOf(json)).toEqual({ name: "Error", message: "The request failed.", fields: { code: "EREQUEST" }, dropped: ["config", "big", "cause"] });
+    const cause = decodedCause(json) as Error;
+    expect(Object.keys(cause)).toEqual(["code"]);
+    expect(Object.hasOwn(cause, "cause")).toBe(false);
+    // The stack is not a field, and a name or a message that the host sets is not a field either.
+    const named = Object.assign(new Error("m"), { name: "HostError" });
+    named.stack = "a stack";
+    expect(exceptionOf(encodeLog(dated, failedWith(named)))).toEqual({ name: "HostError", message: "m" });
+    // A part of the error value itself without a term document stays a refusal (D75).
+    expect(() => encodeLog(dated, failedWith(new Map()))).toThrow(TypeError);
+  });
+
+  it("[RUN.REPLAY-CAUSES] a log of the version 1 without the new fields decodes as before, and decodeLog gives #VALUE! at a bad field of a chain", () => {
+    const old = {
+      version: 1,
+      effects: [{ address: "0#0", kind: "log", payload: "x", outcome: { ok: false, error: { code: "#CALC!", reason: "r", exception: { name: "TypeError", message: "no" } } }, waited: false }],
+      settles: [],
+    };
+    const back = decodeLog(dated, old);
+    if (!back.ok) throw new Error(back.error.reason);
+    const cause = back.value.effects[0]?.outcome?.ok === false ? back.value.effects[0].outcome.error.cause : undefined;
+    expect(cause instanceof TypeError && cause.message).toBe("no");
+    expect(Object.keys(cause as Error)).toEqual([]);
+    expect(Object.hasOwn(cause as Error, "cause")).toBe(false);
+    expect(encodeLog(dated, back.value)).toEqual(old);
+    const placeOf = (exception: unknown): unknown => {
+      const read = decodeLog(dated, { ...old, effects: [{ ...old.effects[0], outcome: { ok: false, error: { code: "#X", reason: "r", exception } } }] });
+      return read.ok ? "read" : read.error.place;
+    };
+    const at = ["effects", 0, "outcome", "error", "exception"];
+    expect(placeOf({ name: "E", message: "m", loop: 1 })).toEqual([...at, "loop"]);
+    expect(placeOf({ name: "E", message: "m", exception: { name: "F", message: "n", loop: 2 } })).toEqual([...at, "exception", "loop"]);
+    expect(placeOf({ name: "E", message: "m", exception: { name: "F", message: "n", loop: 1 } })).toBe("read");
+    expect(placeOf({ name: "E", message: "m", loop: 0, cause: 1 })).toEqual(at);
+    expect(placeOf({ name: "E", message: "m", exception: { name: "F" } })).toEqual([...at, "exception"]);
+    expect(placeOf({ name: "E", message: "m", fields: { message: "x" } })).toEqual([...at, "fields", "message"]);
+    expect(placeOf({ name: "E", message: "m", fields: { code: { type: ["ext", "domain"], value: { domain: "nothing", data: 1 } } } })).toEqual([...at, "fields", "code"]);
+    expect(placeOf({ name: "E", message: "m", dropped: [1] })).toEqual([...at, "dropped"]);
+    expect(placeOf({ name: "E", message: "m", stack: "s" })).toEqual(at);
+  });
+});
+
+/** This function gives the cause of the outcome of the first effect of a JSON form, without a JSON text. */
+function decodedCauseOf(json: ReplayLogJson): unknown {
+  const back = decodeLog(dated, json);
+  if (!back.ok) throw new Error(back.error.reason);
+  const outcome = back.value.effects[0]?.outcome;
+  return outcome?.ok === false ? outcome.error.cause : undefined;
+}
 
 /** The golden file of a log, its document and its host. `COEVAL_GOLDEN=write` writes the file again. */
 const GOLDEN = new URL("../golden/replay.json", import.meta.url);
