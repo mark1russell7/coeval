@@ -2195,3 +2195,56 @@ A replayer kept its place in the order of the waits of each `all`. Thus each run
 - The form of an exception has no stack, no own fields and no cause of its own. A host that needs more gives a domain with a codec for its exceptions. The row K172 keeps the idea of a chain of causes.
 - A wait whose recorded item does not wait follows the order of the host, without a finding of its own.
 - `agreeRun` still makes one replayer for each tier. The row K171 keeps the simpler form.
+
+## D76 (2026-10-29): `agreeRun` uses one replayer for its tiers, and the JSON form of an exception keeps its fields and its chain of causes
+
+**Context.** K171 and K172, from K45 and K44 (D75). `agreeRun` made a new replayer for each tier and one more for the replay of the reads. Since D75, a replayer keeps no state of a run, thus one replayer is sufficient.
+
+The JSON form of a log kept only the name and the message of an exception. A host error often has a field `code` or `errno`, and a chain of causes. A test with a golden file then lost the facts that tell two host errors apart.
+
+**Decision.**
+
+- `agreeRun` makes one replayer of the log (RUN.AGREES-ONE-REPLAYER). Each tier and the replay for the reads use it. Each tier keeps its own wrapper for its effects and its waits.
+- Sharing is correct for each tier of `agreeRun`. The plan, the reference, the traced run and the plan with the other folds give `Journal.next` the count of the waits that settled. Thus no tier uses the place of the replayer for an older kernel.
+- `ReplayExceptionJson` is the new JSON form of an exception (RUN.REPLAY-CAUSES). It has the name and the message, and the optional fields `fields`, `dropped`, `cause`, `exception` and `loop`.
+- `fields` holds the term document of each own enumerable field that `encodeValue` writes, for example `code` and `errno`. The fields `name`, `message`, `stack` and `cause` are not in it.
+- The cause of an exception has the same rule as the cause of an error. A cause that `encodeValue` writes is `cause`. A cause that is an exception is `exception`, thus the chain nests.
+- A cause that is an earlier exception of the chain is `loop`: the index of that exception. The index 0 is the exception of the error. Thus a cycle of causes stays exact, and `decodeLog` gives the same cycle.
+- A field or a cause without a term document is a name in the list `dropped`. It is not a refusal. `decodeLog` does not give these fields back.
+- The form stays at the version 1. Each new field is optional, and a log without them decodes as before. An exception without own fields and without a cause has the same form as in D75.
+- `decodeLog` gives each exception of the chain its fields as own enumerable fields. It gives the cause as a field that is not enumerable, as the constructor of `Error` does. A bad field gives `#VALUE!` with its place.
+
+**The parts of an exception.**
+
+| Part | JSON form |
+| --- | --- |
+| The name and the message | `name` and `message`, as in D75 |
+| An own field that `encodeValue` writes | its term document in `fields` |
+| An own field without a term document | its name in `dropped` |
+| A cause that `encodeValue` writes | `cause` |
+| A cause that is an exception without a codec | `exception`, the next exception of the chain |
+| A cause that is an earlier exception of the chain | `loop`, the index of that exception |
+| A cause without a form | the name `cause` in `dropped` |
+| The stack | not in the form, as in D75 |
+
+**Rejected.**
+
+- A depth limit for the chain. A cycle is the one cause of a chain without an end, and `loop` keeps it exact. The walks of `encodeLog` and `decodeLog` are loops, thus a long chain does not overflow the stack.
+- A cut of the chain at a cycle. It loses the cycle, and `loop` costs one number.
+- A refusal of a field or a cause without a term document. A host makes the exception, and D75 keeps an exception as a best effort for this reason. An exception of a host library can have a field with a function or a host thing. A refusal then stops each log with that exception.
+- A silent drop. The list `dropped` tells the reader of a golden file which facts the form does not have.
+- The version 2 of the form. The new fields are optional, and each log of the version 1 stays correct.
+- One term document for all the fields of an exception. Then one field without a form drops each field.
+- A new replayer for each tier of `agreeRun` that a later tier adds. Each tier of the kernel gives the count, and a tier without the count is not a tier of `agreeRun`.
+
+**Why.** A replayer is a plain function of its log since D75, thus `agreeRun` makes it one time. The cause of an exception gets the same two forms as the cause of an error, thus the chain needs no new rule. An index for a cycle keeps the form exact, and the list `dropped` keeps it honest.
+
+**Public types.** `ReplayExceptionJson` is new, and `ReplayErrorJson.exception` has this type. Each new field is optional. `encodeLog` and `decodeLog` are not in a release before 0.17.0, thus no released form changes. The change is a new feature: MINOR, in 0.17.0. No expected value of the core changes.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception has no own fields and no cause, thus it has the form of D75.
+
+**Limits.**
+
+- A log with `dropped` does not give the dropped fields back. A recording of a replay of that log thus has no list `dropped`. A host that needs these fields gives a domain with a codec for its exceptions.
+- An own field that is not enumerable is not in the form, for example the field `errors` of an `AggregateError`. The row K173 keeps this idea.
+- A cause from another realm is not an instance of `Error` there, thus it has the rule of each other value.

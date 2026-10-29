@@ -225,13 +225,103 @@ export interface ReplayErrorJson {
   readonly place?: readonly Key[];
   /** The term document of the cause, when `encodeValue` writes the cause. */
   readonly cause?: Json;
-  /** The name and the message of a cause that is an exception, when no domain with a codec holds it. */
-  readonly exception?: { readonly name: string; readonly message: string };
+  /** The JSON form of a cause that is an exception, when no domain with a codec holds it. */
+  readonly exception?: ReplayExceptionJson;
+}
+
+/**
+ * The JSON form of an exception (RUN.REPLAY-CAUSES, D76). The exceptions of an error and of their causes are a chain.
+ * The index 0 of the chain is the exception of the error. Each field after `message` is optional, thus a log of the
+ * version 1 without them stays correct.
+ */
+export interface ReplayExceptionJson {
+  readonly name: string;
+  readonly message: string;
+  /** The term documents of the own fields of the exception that `encodeValue` writes, for example `code` or `errno`. */
+  readonly fields?: Readonly<Record<string, Json>>;
+  /**
+   * The names of the own fields without a term document, and `cause` for a cause without a form. This list is only a
+   * note: `decodeLog` does not give these fields back.
+   */
+  readonly dropped?: readonly string[];
+  /** The term document of the cause, when `encodeValue` writes the cause. */
+  readonly cause?: Json;
+  /** The JSON form of a cause that is an exception, when no domain with a codec holds it. */
+  readonly exception?: ReplayExceptionJson;
+  /** The index in the chain of an earlier exception that is the cause. Thus a cycle of causes stays exact. */
+  readonly loop?: number;
 }
 
 /** This function tells if a key is a field of an error value that the JSON form keeps. */
 function errorField(key: string): boolean {
   return key === "code" || key === "reason" || key === "place" || key === "cause";
+}
+
+/** This function tells if a key is a field of an exception that the JSON form keeps in a field of its own, or drops. */
+function ownField(key: string): boolean {
+  return key === "name" || key === "message" || key === "stack" || key === "cause";
+}
+
+/** This function tells if a key is a field of the JSON form of an exception. */
+function exceptionField(key: string): boolean {
+  return key === "name" || key === "message" || key === "fields" || key === "dropped" || key === "cause" || key === "exception" || key === "loop";
+}
+
+/** The parts of the JSON form of one exception before its cause, and the cause. */
+interface ExceptionStep {
+  readonly head: { readonly name: string; readonly message: string; readonly fields?: Readonly<Record<string, Json>> };
+  readonly dropped: string[];
+  link?: { readonly cause: Json } | { readonly loop: number };
+}
+
+/**
+ * This function writes an exception and the chain of its causes as JSON (RUN.REPLAY-CAUSES). A host makes the
+ * exception, thus a part without a term document is a note in `dropped`, not a refusal (D75, D76). A cause that is an
+ * earlier exception of the chain is its index in `loop`. The walk is a loop, thus a long chain does not overflow the
+ * stack.
+ */
+function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayExceptionJson {
+  const steps: ExceptionStep[] = [];
+  const index = new Map<unknown, number>();
+  let at: Error | undefined = first;
+  while (at !== undefined) {
+    const current: Error = at;
+    index.set(current, steps.length);
+    const dropped: string[] = [];
+    const fields: [string, Json][] = [];
+    for (const key of Object.keys(current)) {
+      if (ownField(key)) continue;
+      try {
+        fields.push([key, encodeValue(machine, (current as unknown as Record<string, unknown>)[key])]);
+      } catch {
+        dropped.push(key);
+      }
+    }
+    const head = { name: String(current.name), message: String(current.message), ...(fields.length === 0 ? {} : { fields: Object.fromEntries(fields) }) };
+    const step: ExceptionStep = { head, dropped };
+    steps.push(step);
+    at = undefined;
+    if (!Object.hasOwn(current, "cause")) continue;
+    const cause: unknown = current.cause;
+    const loop = index.get(cause);
+    if (loop !== undefined) {
+      step.link = { loop };
+      continue;
+    }
+    try {
+      step.link = { cause: encodeValue(machine, cause) };
+    } catch {
+      if (cause instanceof Error) at = cause;
+      else dropped.push("cause");
+    }
+  }
+  let json: ReplayExceptionJson | undefined;
+  for (let place = steps.length - 1; place >= 0; place -= 1) {
+    const { head, dropped, link } = steps[place] as ExceptionStep;
+    const note = dropped.length === 0 ? {} : { dropped };
+    json = { ...head, ...note, ...(link ?? (json === undefined ? {} : { exception: json })) };
+  }
+  return json as ReplayExceptionJson;
 }
 
 /** This function gives the message of an exception, or a short text for another value. */
@@ -259,7 +349,7 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
   try {
     return { ...base, cause: encodeValue(machine, cause) };
   } catch (failure) {
-    if (cause instanceof Error) return { ...base, exception: { name: String(cause.name), message: String(cause.message) } };
+    if (cause instanceof Error) return { ...base, exception: exceptionJson(machine, cause) };
     throw new TypeError(`encodeLog cannot write the cause of ${what()}: ${messageOf(failure)}`);
   }
 }
@@ -271,13 +361,15 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   stay exact, and a member of a domain with a codec is `ext.domain`.
  * - An error keeps its code, its reason, its place and its cause. A cause that `encodeValue` cannot write and that is
  *   an exception keeps its name and its message in the field `exception`.
+ * - An exception also keeps its own fields that `encodeValue` writes, and the chain of its causes (RUN.REPLAY-CAUSES).
+ *   The list `dropped` names each other own field. A cause that is an earlier exception of the chain is its index in `loop`.
  * - An outcome that the log does not have stays absent.
  *
  * @param machine - The machine of the run, or only its domains.
  * @param log - The log of a recorder.
  * @returns The JSON form. `decodeLog` gives the log again.
  * @throws {TypeError} A value has no term document, for example a closure, a host thing, a symbol, or a value that no
- *   domain with a codec holds. The message names the effect and its address.
+ *   domain with a codec holds. The message names the effect and its address. A part of an exception is not a refusal.
  */
 export function encodeLog(machine: Pick<Machine, "domains">, log: ReplayLog): ReplayLogJson {
   const effects = log.effects.map((entry): ReplayEntryJson => {
@@ -309,6 +401,11 @@ function exception(name: string, message: string): Error {
   return made;
 }
 
+/** This function gives an exception the field `cause`, as the constructor of `Error` does. */
+function setCause(error: Error, cause: unknown): void {
+  Object.defineProperty(error, "cause", { value: cause, writable: true, enumerable: false, configurable: true });
+}
+
 /** This function gives the failed result of a JSON form that `decodeLog` cannot read. */
 function bad(place: readonly Key[], reason: string): { readonly ok: false; readonly error: EvalError } {
   return fail("#VALUE!", `decodeLog cannot read the log: ${reason}`, { place });
@@ -335,10 +432,9 @@ function readError(kit: Machine, data: unknown, place: readonly Key[]): Result<E
   const thrown = data["exception"];
   if (thrown !== undefined) {
     if (Object.hasOwn(data, "cause")) return bad(place, "an error has a cause or an exception, not both.");
-    if (!isRecord(thrown) || typeof thrown["name"] !== "string" || typeof thrown["message"] !== "string" || Object.keys(thrown).length !== 2) {
-      return bad([...place, "exception"], "an exception is a record with only the texts name and message.");
-    }
-    error.cause = exception(thrown["name"], thrown["message"]);
+    const read = readException(kit, thrown, [...place, "exception"]);
+    if (!read.ok) return read;
+    error.cause = read.value;
   } else if (Object.hasOwn(data, "cause")) {
     const cause = readTerm(kit, data["cause"], [...place, "cause"]);
     if (!cause.ok) return cause;
@@ -346,6 +442,55 @@ function readError(kit: Machine, data: unknown, place: readonly Key[]): Result<E
   }
   return ok(error);
 }
+
+/**
+ * This function reads the JSON form of an exception and of the chain of its causes again (RUN.REPLAY-CAUSES). The walk
+ * is a loop, thus a long chain does not overflow the stack.
+ */
+function readException(kit: Machine, data: unknown, place: readonly Key[]): Result<Error> {
+  const chain: Error[] = [];
+  let at: unknown = data;
+  let where: readonly Key[] = place;
+  while (at !== undefined) {
+    if (!isRecord(at) || typeof at["name"] !== "string" || typeof at["message"] !== "string" || !Object.keys(at).every(exceptionField)) {
+      return bad(where, "an exception is a record with the texts name and message, and only the fields fields, dropped, cause, exception and loop.");
+    }
+    const made = exception(at["name"], at["message"]);
+    const fields = at["fields"];
+    if (fields !== undefined) {
+      if (!isRecord(fields)) return bad([...where, "fields"], "the fields of an exception are a record.");
+      for (const key of Object.keys(fields)) {
+        if (ownField(key)) return bad([...where, "fields", key], `the field ${key} of an exception is not in its fields.`);
+        const value = readTerm(kit, fields[key], [...where, "fields", key]);
+        if (!value.ok) return value;
+        Object.defineProperty(made, key, { value: value.value, writable: true, enumerable: true, configurable: true });
+      }
+    }
+    const dropped = at["dropped"];
+    if (dropped !== undefined && !(Array.isArray(dropped) && dropped.every((name) => typeof name === "string"))) return bad([...where, "dropped"], "the list dropped holds texts.");
+    const last = chain[chain.length - 1];
+    if (last !== undefined) setCause(last, made);
+    chain.push(made);
+    const record = at;
+    const links = LINKS.filter((key) => Object.hasOwn(record, key));
+    if (links.length > 1) return bad(where, "an exception has a cause, an exception or a loop, not more than one.");
+    const loop = record["loop"];
+    if (links[0] === "loop") {
+      if (typeof loop !== "number" || !Number.isInteger(loop) || loop < 0 || loop >= chain.length) return bad([...where, "loop"], "a loop is the index of an exception of the chain until this one.");
+      setCause(made, chain[loop]);
+    } else if (links[0] === "cause") {
+      const cause = readTerm(kit, record["cause"], [...where, "cause"]);
+      if (!cause.ok) return cause;
+      setCause(made, cause.value);
+    }
+    at = links[0] === "exception" ? record["exception"] : undefined;
+    where = [...where, "exception"];
+  }
+  return ok(chain[0] as Error);
+}
+
+/** The fields of the JSON form of an exception that give its cause. */
+const LINKS: readonly string[] = /* @__PURE__ */ Object.freeze(["cause", "exception", "loop"]);
 
 /** This function reads the JSON form of one effect again. */
 function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<ReplayEntry> {
@@ -375,6 +520,7 @@ function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<R
 /**
  * This function reads the JSON form of a log again (RUN.REPLAY-JSON). It reads each term document with the formula kit
  * and the domains of the machine. A cause in the field `exception` becomes an exception with that name and message.
+ * The exception gets its fields and the chain of its causes again, also a cycle (RUN.REPLAY-CAUSES).
  *
  * @param machine - The machine of the run, or only its domains.
  * @param data - The JSON form, for example from `JSON.parse` of a golden file.
