@@ -4,8 +4,8 @@ import { type CompiledPath, type Context, type Resolution, compilePath, valueOfT
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled, totalCode } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
-import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeText } from "./types.ts";
-import type { TypeInput, TypeRule } from "./typing.ts";
+import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeIssues, typeText } from "./types.ts";
+import type { PartType, TypeInput, TypeRule } from "./typing.ts";
 import { decodeDomain, domainTypeOf } from "./codec.ts";
 import { type StaticRead, factsOf } from "./facts.ts";
 
@@ -33,6 +33,9 @@ export type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<str
  *   `ext.domain`.
  * - `truthy`: the truth of a value for `if`, `and` and `or`. `undefined` is an error `#VALUE!`. The default
  *   accepts only `true` and `false`.
+ * - `truthType`: the value type of a truth for the own `truthy`, for a check of types (TYPE.TRUTH, D81). A test of
+ *   `if` and each term of `and` and `or` must fit it. Without it, the check accepts each type there. A profile without
+ *   `truthy` ignores it, because the default truth needs `bool`.
  * - `otherwise`: the value of an `if` without `else`. The default is `null`. A profile with this key gives its value,
  *   also `undefined`.
  * - `logic`: what `and` and `or` give: a truth value (the default), or the value that decided.
@@ -50,13 +53,15 @@ export type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<str
  *   overloads. An operation without a signature takes and gives `unknown` (TYPE.GRADUAL).
  *
  * A check of types trusts the signatures. Each operation must give a member of the result of each signature that
- * its arguments match. The hook `check` must keep each result in that type.
+ * its arguments match. The hook `check` must keep each result in that type. The function `truthy` must give a truth
+ * for each member of `truthType`.
  */
 export interface FormulaProfile {
   readonly ops?: Readonly<Record<string, OpFn>> | ((name: string) => OpFn | undefined);
   readonly lazy?: Readonly<Record<string, LazyOp>>;
   readonly ext?: Readonly<Record<string, ExtFn>>;
   readonly truthy?: (value: unknown) => boolean | undefined;
+  readonly truthType?: ValueType;
   readonly otherwise?: unknown;
   readonly logic?: "boolean" | "value";
   readonly omit?: (error: EvalError) => boolean;
@@ -266,12 +271,23 @@ function paramsOf(value: unknown): readonly string[] {
 
 /**
  * This function makes the type rules of the formula kit for one profile (TYPE.SYNTH, D25). Each evaluator of the kit
- * holds its rule. The rules read the rules of the profile that change a type: `truthy`, `logic`, `otherwise`, `omit`
- * and `sigs`.
+ * holds its rule. The rules read the rules of the profile that change a type: `truthy`, `truthType`, `logic`,
+ * `otherwise`, `omit` and `sigs`.
  */
 function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule>> {
-  // Only the default truth accepts nothing but a truth value. A truth of the profile accepts each value.
-  const truth: ValueType | undefined = profile.truthy === undefined ? "bool" : undefined;
+  // The default truth needs a truth value. An own truth needs its declared type, or nothing without a declaration (D81).
+  const declared = profile.truthy !== undefined && profile.truthType !== undefined;
+  const truth: ValueType | undefined = profile.truthy === undefined ? "bool" : profile.truthType;
+  /**
+   * The need of a test or a term. The check examines a declared type of a truth as a contract, one time. A declared
+   * type with a problem needs nothing, thus one problem gives one issue.
+   */
+  const truthPart = (input: TypeInput, what: string): PartType => {
+    if (truth === undefined) return {};
+    if (!declared) return { expect: truth, what };
+    const type = input.contract(truth, "truth type of the profile");
+    return typeIssues(type, input.machine.domains).length > 0 ? {} : { expect: type, what };
+  };
   const logicValue = profile.logic === "value";
   const otherwise = Object.hasOwn(profile, "otherwise") ? valueType(profile.otherwise) : "null";
   const lookup = (name: string): readonly unknown[] | undefined => {
@@ -307,7 +323,7 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     return { sigs, bad: sigs.length !== raw.length };
   };
   const logic = (word: "and" | "or"): TypeRule => ({
-    part: (_input, path) => (truth === undefined ? {} : { expect: truth, what: `term ${Number(path[0]) + 1} of ${word}` }),
+    part: (input, path) => truthPart(input, `term ${Number(path[0]) + 1} of ${word}`),
     synth: (input) => {
       if (!logicValue) return "bool";
       // With the logic "value", the result is the term that decided, or the last term.
@@ -438,7 +454,7 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
 
     "formula.if": {
       part: (input, path) => {
-        if (path[0] === "test") return truth === undefined ? {} : { expect: truth, what: "test of if" };
+        if (path[0] === "test") return truthPart(input, "test of if");
         return isUnknown(input.expected, input.machine.domains) ? {} : { expect: input.expected, what: `${String(path[0])} branch of if` };
       },
       synth: (input) => {
@@ -537,6 +553,7 @@ const PROFILE_KEYS = /* @__PURE__ */ Object.freeze([
   "lazy",
   "ext",
   "truthy",
+  "truthType",
   "otherwise",
   "logic",
   "omit",

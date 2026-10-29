@@ -2403,3 +2403,37 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 **Changed expected values.** No expected value of an earlier test changes. A new test of TYPE.PARENTS and a new test of TYPE.MERGE show the bug.
 
 **Limits.** Two codecs with separate functions that write the same JSON are a conflict, as two separate but equal tests are. Two languages share one codec object, or the later language replaces the domain.
+
+## D81 (2026-10-29): a profile with its own `truthy` declares the type of a truth in `truthType`
+
+**Context.** K50, from K24 (D25). The default truth accepts only `true` and `false`. Thus the check needs `bool` at a test of `if` and at a term of `and` and `or`. A profile with its own `truthy` accepts other values, and the check did not know which. Thus it accepted each type there, also a text that the run refuses with `#VALUE!`.
+
+**Decision.**
+
+- `FormulaProfile` gets the optional field `truthType`, a value type next to `truthy` (TYPE.TRUTH). A test of `if` and each term of `and` and `or` must fit it.
+- A part that does not fit gets `#TYPE!` with `expected` and `found`, as each other type issue. The reason names the place, for example "The term 2 of and has the type text. It must have the type number."
+- The check examines `truthType` as a contract, one time in a check. A bad type gives one issue at its first use, and the parts then need nothing. Thus one problem gives one issue.
+- `and` and `or` keep their result types. The logic `boolean` gives `bool`, and the logic `value` gives the join of the terms. Each term fits `truthType`, thus the join fits it too.
+- An own `truthy` without `truthType` accepts each type, as before. A profile without `truthy` needs `bool` and ignores `truthType`, because the default truth refuses each other value.
+- `truthType` is a field of the canonical form of a profile (D46). Two profiles with different truth types give two kits, and their machines conflict.
+- The language keeps its declaration: its `truthy` gives a truth for each member of `truthType`. The check trusts it, as it trusts the signatures.
+
+**Rejected.**
+
+- The declared type as the result of `and` and `or` with the logic `value`. It loses precision, for example `and(1, 2)` gives `number` and not `{ "one": [1, 2] }`. The join is a subtype of the declared type, thus it is sound and more exact.
+- A type that the check infers from the function `truthy`. A function is code of the host, and the check cannot test it on each member of a type.
+- `truthType` also for the default truth. A type wider than `bool` makes the check unsound, and a narrower type is a subtype of `bool` that a language does not need.
+- A `truthType` that each own `truthy` must have. Then each existing profile with `truthy` changes, and the change breaks the API.
+
+**Why.** The type of a truth is a rule of the language, as a signature is a rule of an operation. A field next to `truthy` keeps the two rules together, and the check reads it with no new mechanism.
+
+**Soundness.** A property test generates 300 documents of tests and terms over literals, operations and names of `let` (TYPE.TRUTH-SOUND). It examines the logic `boolean` and the logic `value`. Under `bool | number`, the check accepts 76 documents and refuses 224. No accepted document gives the error of a value without a truth. Without `truthType`, the check accepts 6 documents that give that error.
+
+**Public types.** `FormulaProfile.truthType` is a new optional field. A profile without it gets the same issues as before. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** No expected value of an earlier test changes. The new tests are in `truth.test.ts`.
+
+**Limits.**
+
+- The language keeps `truthType` true to its `truthy`. A member without a truth makes the check unsound at that place. K181 adds this obligation to `conforms`.
+- A part of the type `unknown` fits `truthType`, by the gradual rule. The guards of K28 cover such a place.
