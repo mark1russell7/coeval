@@ -452,6 +452,77 @@ describe("the obligation C8", () => {
   });
 });
 
+describe("the declared truth of a profile", () => {
+  /** The evaluators of the kit that read a truth. */
+  const READERS = ["formula.if", "formula.and", "formula.or"];
+  /** The truth of a language with numbers as truths: `0` is false, and each other number is true. A text has no truth. */
+  const numberTruthy = (value: unknown): boolean | undefined => (typeof value === "boolean" ? value : typeof value === "number" ? value !== 0 : undefined);
+  /** The findings of the check truth for each reader of a truth. */
+  const truthOf = (profile: FormulaProfile, more: Parameters<typeof formulaMachine>[1] = {}, results?: readonly Result[]): readonly (Finding | undefined)[] => {
+    const machine = formulaMachine(profile, more);
+    return READERS.map((name) => conforms(machine, name, { ...formulaOptions(name, profile), ...(results === undefined ? {} : { results }) }).find((finding) => finding.obligation === "truth"));
+  };
+
+  it("[CONFORM.TRUTH] a truthy that gives a truth for each member of its truth type conforms, and a value outside the type gets no test", () => {
+    const profile: FormulaProfile = { ops: OPS, truthy: numberTruthy, truthType: { union: ["bool", "number"] } };
+    const machine = formulaMachine(profile);
+    for (const name of READERS) expect(conforms(machine, name, formulaOptions(name, profile)), name).toEqual([]);
+    // The text "a" of the palette has no truth, but it is not a member of the truth type.
+    expect(truthOf({ ops: OPS, truthy: numberTruthy, truthType: "bool" })).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("[CONFORM.TRUTH] a truthy that throws for a member of its truth type breaks truth", () => {
+    const throwing = (value: unknown): boolean | undefined => {
+      if (value === 2) throw new Error("two has no truth here.");
+      return numberTruthy(value);
+    };
+    const found = truthOf({ ops: OPS, truthy: throwing, truthType: { union: ["bool", "number"] } });
+    for (const finding of found) {
+      expect(finding?.reason).toContain("throws for the member 2 of the truth type bool | number");
+      expect(finding?.reason).toContain("two has no truth here.");
+    }
+    // The probe gives the member to each part of the first probe document.
+    expect(Object.values(found[0]?.probe.results ?? {})).toContainEqual(ok(2));
+  });
+
+  it("[CONFORM.TRUTH] a truthy that gives a value other than true or false for a member breaks truth", () => {
+    const numbers = (value: unknown): boolean | undefined => (typeof value === "number" ? (value as unknown as boolean) : numberTruthy(value));
+    for (const finding of truthOf({ ops: OPS, truthy: numbers, truthType: "number" })) expect(finding?.reason).toContain("gives 1 for the member 1 of the truth type number. A truth is true or false.");
+    // A text is a member of the declared type, but numberTruthy gives it no truth.
+    for (const finding of truthOf({ ops: OPS, truthy: numberTruthy, truthType: { union: ["bool", "text"] } })) expect(finding?.reason).toContain('gives no truth for the member "a"');
+  });
+
+  it("[CONFORM.TRUTH] a truth type with a list of values tests each value of the list, also a value outside the palette", () => {
+    const level = { is: (value: unknown) => value === "low" || value === "high", under: ["text"], values: ["low", "high"] };
+    const more = { domains: { level } };
+    const both = (value: unknown): boolean | undefined => (value === "high" ? true : value === "low" ? false : undefined);
+    expect(truthOf({ ops: OPS, truthy: both, truthType: "level" }, more)).toEqual([undefined, undefined, undefined]);
+    const high = (value: unknown): boolean | undefined => (value === "high" ? true : undefined);
+    for (const finding of truthOf({ ops: OPS, truthy: high, truthType: "level" }, more)) expect(finding?.reason).toContain('gives no truth for the member "low" of the truth type level');
+  });
+
+  it("[CONFORM.TRUTH] a truth type without a list of values tests the members of the results of the palette, and the option results adds samples", () => {
+    const noZero = (value: unknown): boolean | undefined => (value === 0 ? undefined : numberTruthy(value));
+    // The default palette has the numbers 1 and 2, not 0.
+    expect(truthOf({ ops: OPS, truthy: noZero, truthType: "number" })).toEqual([undefined, undefined, undefined]);
+    const found = truthOf({ ops: OPS, truthy: noZero, truthType: "number" }, {}, [ok(0), ok(1), ok(true)]);
+    for (const finding of found) expect(finding?.reason).toContain("gives no truth for the member 0 of the truth type number");
+  });
+
+  it("[CONFORM.TRUTH] a standard profile, an own truthy without a truth type, a bad truth type and the other evaluators get no check", () => {
+    const never = (): boolean | undefined => undefined;
+    // The default truth ignores truthType (D81).
+    expect(truthOf({ ops: OPS, truthType: "number" })).toEqual([undefined, undefined, undefined]);
+    expect(truthOf({ ops: OPS, truthy: never })).toEqual([undefined, undefined, undefined]);
+    // The check of types gives the issue of a bad type.
+    expect(truthOf({ ops: OPS, truthy: never, truthType: "missing domain" })).toEqual([undefined, undefined, undefined]);
+    const profile: FormulaProfile = { ops: OPS, truthy: never, truthType: "bool" };
+    const machine = formulaMachine(profile);
+    expect(obligations(conforms(machine, "formula.list", formulaOptions("formula.list", profile)))).not.toContain("truth");
+    expect(obligations(conforms(machine, "formula.if", formulaOptions("formula.if", profile)))).toContain("truth");
+  });
+});
+
 describe("the options of conforms", () => {
   it("[CONFORM.STD] conforms throws for a name without code, and for code that no kind names without the option types", () => {
     expect(() => conforms(STD_MACHINE, "nothing")).toThrow("no evaluator and no runner");

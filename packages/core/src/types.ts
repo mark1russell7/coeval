@@ -401,6 +401,31 @@ function valuesOf(type: unknown, domains: Readonly<Record<string, Domain>> | und
   }
 }
 
+/** This function gives the members of a type at one depth, for `membersOf`. */
+function membersAt(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, samples: readonly unknown[], depth: number): readonly unknown[] {
+  const finite = valuesOf(type, domains, depth);
+  if (finite !== undefined) return finite;
+  const form = formOf(type, domains);
+  if (form.t !== "union" || depth > MAX_TYPE_DEPTH) return samples.filter((sample) => member(sample, type as ValueType, domains));
+  const out: unknown[] = [];
+  for (const item of form.members) for (const value of membersAt(item, domains, samples, depth + 1)) addValue(out, value);
+  return out;
+}
+
+/**
+ * This function gives members of a type for a test of a declaration (D86). A type with at most 64 members gives each
+ * member, from the lists `values` of its domains (TYPE.FITS-FINITE). A union gives the members of each of its types.
+ * Each other type gives the samples that are its members. The kernel does not export the function.
+ *
+ * @param type - The type.
+ * @param domains - The domains of the machine.
+ * @param samples - The values to test when the type has no full list of members.
+ * @returns Distinct members of the type.
+ */
+export function membersOf(type: ValueType, domains: Readonly<Record<string, Domain>> | undefined, samples: readonly unknown[]): readonly unknown[] {
+  return membersAt(type, domains, samples, 0);
+}
+
 /** This function holds the rules of the shapes of `fits`: base types, lists, records and functions. */
 function shapeFits(a: Form, b: Form, domains: Readonly<Record<string, Domain>> | undefined, next: number, gradual: boolean): boolean {
   if (a.t === "base") return b.t === "base" && lineOf(a.name, domains).has(b.name);

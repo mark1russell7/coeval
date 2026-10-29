@@ -2574,3 +2574,35 @@ A third corpus of TYPE.FITS-SOUND has 160 types and 25600 pairs over a language 
 - A new parent of a domain in a cover can make the cover false, because the domain then holds fewer members. A new parent of the covered domain keeps the cover true. K187 tests such a cover from samples.
 - A split of a record does not use a cover, thus `{a: number}` does not fit `{a: neg} | {a: nonneg}` (K186).
 - The rule takes at most 64 steps. It tests each full domain of a cover, not only the members that the domain shares with the found type.
+
+## D86 (2026-10-29): `conforms` tests the declared truth of a profile on the members of `truthType`
+
+**Context.** K181, found by K50 (D81 Limits). The check of types trusts `truthType`: the own `truthy` of a profile gives a truth for each member of the type. A member without a truth makes the check unsound at that place. No test examined this promise.
+
+**Decision.**
+
+- `conforms` gets the check `truth` (CONFORM.TRUTH). It examines `formula.if`, `formula.and` and `formula.or` of the formula kit, because only these evaluators read `truthy`.
+- The check starts only for a profile with an own `truthy` and a `truthType`. A profile without them gets no check, as the check of types needs `bool` or nothing there (D81).
+- A truth is `true` or `false`. `truthy` breaks the check when it throws for a member, or when it gives another value. `undefined` counts as no truth, because the run then gives `#VALUE!`.
+- A type with at most 64 members gives each member, from the lists `values` of its domains (D79). A union tests each of its types alone. Each other type gets the values of the palette of results that are its members.
+- A value outside `truthType` gets no test. The check of types refuses such a test or term, thus its truth does not count.
+- A `truthType` with a type issue gets no test. The check of types gives its issue (D81).
+- The kit records the declared truth of each of the three evaluators. `conforms` reads that record, thus a machine that holds the evaluators of the kit gets the check.
+
+**Rejected.**
+
+- A new function next to `conforms` for a profile. `conforms` already examines each evaluator of the kit, and a test of a language already uses it.
+- A new option with the samples of a type. The option `results` already gives the values of the palette, and they are the samples.
+- A check of `truthy` through the code of `if` with each member. An error of the code then has two possible causes, and the finding cannot name the member.
+- A test of each value of the palette. A value outside `truthType` has no promise, thus a finding there is false.
+
+**Why.** The declaration is a promise of the language, as C8 is. A test of each member that the kernel knows finds a false promise before a document evaluates. The same helper gives members for the test of covers of K187.
+
+**Public types.** `Obligation` gets the value `truth`. A switch over the obligations sees a new case. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** No result of `conforms` for an existing machine or test changes. No such profile has a `truthType`. The new tests are in `conform.test.ts`.
+
+**Limits.**
+
+- The palette has few values. A `truthType` without `values`, for example `number`, gets only the samples `1` and `2`. K188 adds samples of a domain.
+- An evaluator of a language that replaces `formula.if` gets no check, because the kit did not make it.

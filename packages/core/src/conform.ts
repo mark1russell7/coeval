@@ -32,6 +32,8 @@ import { type PartSlot, type Split, pathMatches, scopesOf, splitParts } from "./
 import { type Definitions, STD_DEFINITIONS } from "./reference.ts";
 import { STD_EVALUATORS } from "./stdlib.ts";
 import { sameValue } from "./agree.ts";
+import { declaredTruthOf } from "./formula.ts";
+import { membersOf, typeIssues, typeText } from "./types.ts";
 import { type Random, random } from "./generate.ts";
 import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effectsOfVerb, isKind, isNamespace, lookupKind } from "./world.ts";
 
@@ -56,8 +58,10 @@ import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effe
  * - `C8`: compiled code gives the result of code that compiles again at the time of the evaluation.
  * - `local`: the code keeps no state from one call to the next.
  * - `agree`: compiled code gives the result of its definition for the reference interpreter.
+ * - `truth`: the own `truthy` of a formula profile gives `true` or `false` for each member of its `truthType` (D86).
+ *   Only `formula.if`, `formula.and` and `formula.or` of the formula kit get this check.
  */
-export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree";
+export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "truth";
 
 /** The probe of a finding: the document, the result of each probe part, the capabilities and the handler. */
 export interface ConformProbe {
@@ -132,7 +136,7 @@ export interface ConformOptions {
 }
 
 /** The order of the obligations in the list of findings. */
-const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree"];
+const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree", "truth"];
 
 /** A function in the results of the probe parts. It gives the count of its arguments. */
 const PROBE_FN = (...args: readonly unknown[]): number => args.length;
@@ -1026,14 +1030,44 @@ function examine(env: Env, sample: Sample, contract: Contract): void {
 }
 
 /**
+ * This function checks the declared truth of a profile (D86). The function `truthy` must give `true` or `false` for
+ * each member of `truthType`, and it must not throw. The members come from the lists `values` of the domains of the
+ * type. A type without such a list gets the values of the results of the palette that are its members.
+ */
+function checkTruth(env: Env, code: unknown, probe: (value: unknown) => ConformProbe): void {
+  const truth = declaredTruthOf(code);
+  if (truth === undefined) return;
+  const domains = env.machine.domains;
+  // The check gives an issue for a bad type, and it then needs nothing of a test (D81).
+  if (typeIssues(truth.truthType, domains).length > 0) return;
+  const samples = env.results.flatMap((result) => (result.ok ? [result.value] : []));
+  const of = (value: unknown): string => `the member ${valueText(value)} of the truth type ${typeText(truth.truthType)}`;
+  for (const value of membersOf(truth.truthType, domains, samples)) {
+    let given: unknown;
+    try {
+      given = truth.truthy(value);
+    } catch (error) {
+      report(env, "truth", `The function truthy of the profile throws for ${of(value)}: ${describe(error)}`, () => probe(value));
+      return;
+    }
+    if (typeof given === "boolean") continue;
+    const what = given === undefined ? "no truth" : valueText(given);
+    report(env, "truth", `The function truthy of the profile gives ${what} for ${of(value)}. A truth is true or false.`, () => probe(value));
+    return;
+  }
+}
+
+/**
  * This function examines one evaluator or runner of a machine against the obligations of host code (K92, D36). It
  * starts the code directly, without the kernel, with probe parts and a probe runtime. It generates probe documents from
  * the contract of each kind that names the code, and it gives the probe parts chosen and random results.
  *
  * The checks follow the obligations C1 to C8 of `docs/SEMANTICS.md`. Two more checks follow the premises of the
  * simulation of the plan. The check `local` finds state that stays from one call to the next. The check `agree` compares
- * compiled code with its definition. The
- * finding of an obligation names the first probe that breaks it. An empty list means that each probe conforms.
+ * compiled code with its definition. The finding of an obligation names the first probe that breaks it. An empty list
+ * means that each probe conforms.
+ *
+ * The check `truth` tests the declared truth of a formula profile (D86).
  *
  * @param machine - The machine with the code and the world of the kinds.
  * @param name - The name of the evaluator or of the runner. A runner wins over an evaluator of the same name.
@@ -1064,13 +1098,23 @@ export function conforms(machine: Machine, name: string, options: ConformOptions
     found: new Map(),
   };
   const types = options.types ?? typesNaming(machine.world, name, verb);
+  let first: Sample | undefined;
   if (types.length === 0) throw new Error(`No kind of the world names ${name} for the verb ${verb}. Give the types of the probe documents in the option types.`);
   for (const type of types) {
     const found = lookupKind(machine.world, type);
     if (!found.ok) throw new Error(`The world has no kind for the type ${typeName(type)}.`);
     const contract = contractOf(env, found.kind, found.path, options.caps);
     const extra = own(options.values, typeName(type)) ?? own(options.values, found.path.join(".")) ?? [];
-    for (const sample of samplesOf(type, found.path, found.kind, contract, extra)) examine(env, sample, contract);
+    for (const sample of samplesOf(type, found.path, found.kind, contract, extra)) {
+      first ??= sample;
+      examine(env, sample, contract);
+    }
   }
+  // A probe of the truth gives the member to each part of the first probe document.
+  checkTruth(env, code, (value) =>
+    first === undefined
+      ? { type: typeName(types[0] as TypeRef), doc: { type: types[0] as TypeRef, value: null }, results: {}, waits: [], caps: NO_CAPS, running: runner }
+      : probeOf(first, { results: first.split.parts.map(() => ok(value)), waits: [], caps: NO_CAPS, running: runner }),
+  );
   return ORDER.filter((obligation) => env.found.has(obligation)).map((obligation) => env.found.get(obligation) as Finding);
 }
