@@ -420,7 +420,77 @@ function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<stri
   if (b.t === "union" ? b.members.some((item) => fitsAt(found, item, domains, next, gradual, false)) : b.t !== "bottom" && shapeFits(a, b, domains, next, gradual)) return true;
   if (!finite || a.t === "fn") return false;
   // The finite rule: a type with few members fits when each member is a member of `expected`.
-  return valuesOf(found, domains, next)?.every((value) => memberAt(value, expected, domains, next)) ?? false;
+  const values = valuesOf(found, domains, next);
+  if (values !== undefined) return values.every((value) => memberAt(value, expected, domains, next));
+  // The split rule: an open record, or a closed record with too many members, splits over a union or a `one` (D84).
+  return a.t === "record" && (b.t === "union" || (b.t === "one" && a.closed)) && splitFits(a, expected, domains, depth, gradual);
+}
+
+/** A field that the split rule can split: its key, the members of its type, and if the field is optional. */
+interface Split {
+  readonly key: string;
+  readonly values: readonly unknown[];
+  readonly optional: boolean;
+}
+
+/**
+ * This function is the split rule of `fits` (TYPE.FITS-FINITE, D84). A record type fits when each record of its split
+ * fits. A split takes the first field with a finite list of two or more cases. Each member of the field gives a record
+ * with the field narrowed to that member. An optional field also gives a record without the field.
+ *
+ * A record of the split that does not fit splits the next such field. The rule builds at most 64 records for one call.
+ */
+function splitFits(a: Extract<Form, { readonly t: "record" }>, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean): boolean {
+  const splits: Split[] = [];
+  for (const key of Object.keys(a.fields)) {
+    const values = valuesOf(a.fields[key], domains, depth + 1);
+    const optional = a.optional.has(key);
+    if (values !== undefined && values.length + (optional ? 1 : 0) > 1) splits.push({ key, values, optional });
+  }
+  const budget = { left: MAX_FINITE_VALUES };
+  return casesFit(a.fields, a.optional, a.closed, splits, 0, expected, domains, depth, gradual, budget);
+}
+
+/** This function tells if each record of the split of one field fits `expected`. It splits the next field for a record that does not fit. */
+function casesFit(
+  fields: Readonly<Record<string, ValueType>>,
+  optional: ReadonlySet<string>,
+  closed: boolean,
+  splits: readonly Split[],
+  index: number,
+  expected: unknown,
+  domains: Readonly<Record<string, Domain>> | undefined,
+  depth: number,
+  gradual: boolean,
+  budget: { left: number },
+): boolean {
+  const split = splits[index];
+  if (split === undefined) return false;
+  const others = [...optional].filter((name) => name !== split.key);
+  const cases: { readonly fields: Record<string, ValueType>; readonly optional: readonly string[] }[] = split.values.map((value) => ({
+    fields: withField(fields, split.key, { one: [value as Json] }) as Record<string, ValueType>,
+    optional: others,
+  }));
+  if (split.optional) {
+    // A closed record without the field holds exactly the absent case. In an open record, an optional field of type never is absent.
+    const absent: Record<string, ValueType> = {};
+    for (const name of Object.keys(fields)) if (name !== split.key) setOwn(absent, name, fields[name] as ValueType);
+    cases.push(closed ? { fields: absent, optional: others } : { fields: withField(fields, split.key, "never") as Record<string, ValueType>, optional: [...others, split.key] });
+  }
+  for (const each of cases) {
+    budget.left -= 1;
+    if (budget.left < 0) return false;
+    const record: ValueType = { record: each.fields, ...(each.optional.length === 0 ? {} : { optional: each.optional }), ...(closed ? { closed: true } : {}) };
+    // The rules of the shapes first, then the finite rule for a closed record, then the split of the next field.
+    if (fitsAt(record, expected, domains, depth, gradual, false)) continue;
+    const values = closed ? valuesOf(record, domains, depth + 1) : undefined;
+    if (values !== undefined) {
+      if (values.every((value) => memberAt(value, expected, domains, depth + 1))) continue;
+      return false;
+    }
+    if (!casesFit(each.fields, new Set(each.optional), closed, splits, index + 1, expected, domains, depth, gradual, budget)) return false;
+  }
+  return true;
 }
 
 /**
@@ -442,11 +512,15 @@ function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<stri
  *   is a member of `expected`. Thus `bool` fits `{ "one": [true, false] }`.
  * - A base type has few members when its domain or a parent declares `values`, as `null`, `undefined` and `bool` do.
  *   A union, a `one`, a closed record of such types and a list of `never` also have few members.
+ * - The split rule comes last (D84). An open record, or a closed record with more than 64 members, splits a field with
+ *   few members over a union. A closed record also splits over a `one`. Each record of the split narrows the field to
+ *   one member, and each record must fit.
+ *   Thus `{ "record": { "a": "bool" } }` fits a union of a record for each value of `a`.
  *
  * The relation is sound: a member of `found` is a member of `expected` when no `unknown` is in the types
- * (TYPE.FITS-SOUND). It is not complete. An open record does not split a field over a union, for example
- * `{ "record": { "a": "bool" } }` and a union of a record for each value of `a`. A domain without `values` and a type
- * with more than 64 members get no finite rule. The function does not throw.
+ * (TYPE.FITS-SOUND). It is not complete. A split builds at most 64 records, and it splits only the fields of the
+ * record itself. A domain without `values` gets no finite rule, and neither does a type with more than 64 members
+ * that is not a record. The function does not throw.
  *
  * @param found - The type that a part has.
  * @param expected - The type that the position needs.

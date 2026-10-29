@@ -2501,3 +2501,37 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 The other 14 cases gave 11 in bound and 3 mixed.
 
 **Limits.** A later item that moves `replay.ts` to its own entry point can take the cost away from a host that does not replay. No row exists for it, because the cost is under 2%.
+
+## D84 (2026-10-29): `fits` splits a record by a field with few members over a union
+
+**Context.** K178, found by K48 (D79 Limits). An open record has no list of members, because its other fields hold each value. Thus `{a: bool}` did not fit a union of a record for `true` and a record for `false`. A closed record with more than 64 members got no finite rule either.
+
+**Decision.**
+
+- The split rule comes after the finite rule of D79 (TYPE.FITS-FINITE). It starts only for a record against a union, or for a closed record against a `one`.
+- The rule takes the first field, in the order of the keys, with a finite list of two or more cases. The members of the field type are its cases. An optional field also has the absent case.
+- Each case gives a record with the field narrowed to `{ "one": [value] }`. The absent case of a closed record removes the field. The absent case of an open record gives an optional field of type `never`.
+- Each record of the split must fit `expected`. A record tries the rules of the shapes first, then the finite rule if it is closed, then the split of the next such field.
+- One call of the rule builds at most 64 records. A larger split gives `false`.
+- The rule of `unknown` does not change. A field of type `unknown` has no list, thus it does not split.
+
+**Rejected.**
+
+- The product of all finite fields at once. The product grows with each field, though a split of one field often gives a fit. One field at a time stops at the first record that fits by the shapes.
+- A choice of the field that the union tells apart. The first field with cases is simpler, and the next field still splits when the first field does not help.
+- A split over a `one` for an open record. Its other fields hold each value, thus no open record with members fits a `one`.
+- A larger cap for a closed record with more than 64 members. The split serves such a record with its own bound, and the list of 64 members stays for each other type.
+
+**Why.** Each member of the record has one of the cases at the field. Thus it is a member of one record of the split, and each such record fits `expected`. The rule is sound when `values` is complete, as in D79. One field at a time keeps the work small for the common unions that a field tells apart. The bound of 64 records keeps the worst case at the bound of D79.
+
+**Soundness.** A second generated corpus of TYPE.FITS-SOUND has 120 records and 159 unions of records: 19080 pairs. More than 2000 pairs fit, and more than 50 open records fit only by the split. The test finds 0 counterexamples. A split without the absent case of an optional field finds a counterexample at once.
+
+**Public types.** No type changes. A check accepts some programs that it refused before. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** One test of TYPE.FITS changes. Before, `{a: bool}` did not fit the union of a record for `true` and a record for `false`. Since D84, it fits. The test also shows `{a: number}` against the same union as a refusal.
+
+**Limits.**
+
+- A split narrows only the fields of the record itself. An open record in a field does not split, for example `{a: {x: bool}}` against a union of `{a: {x: true}}` and `{a: {x: false}}` (K185).
+- A split of seven fields of `bool` against a union of its 128 members needs 254 records, thus the rule refuses it.
+- A type with more than 64 members that is not a record gets no finite rule.
