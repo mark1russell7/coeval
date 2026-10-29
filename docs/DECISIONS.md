@@ -1954,3 +1954,60 @@ Each variant then went in one bench against `main` at 8ae6491. A negative change
 - The reference with a step document is a sixth case that is slower in both runs. The two benches of PR #126 gave -1.2% for it. The benches of PR #127, #128 and #129 each gave it in its bound. Thus small changes of the code add up in such a case.
 - The runners of CI are not all the same machine. The same case took 107 ns on one runner and 206 ns on another, and the change of a case can have another sign on each.
 - PLAN.COMPILE-SPEED is faster than 22d94f4 in both runs, -4.6% and -7.2%. D69 shows that this case also changes with the runner.
+
+## D71 (2026-10-29): the bench of a pull request repeats each comparison on two runners
+
+**Context.** K167, from K164 (D70). The same case took 107 ns on one runner and 206 ns on another. Single benches went over the bound in both directions without a repeat (K151, K164, K166). The design questions are how a bench repeats, and when a case is slower.
+
+**Decision.**
+
+- The workflow `bench.yml` has a matrix of two jobs. Each job compares the base and the head on its own runner, with the script `paths.ts` of D29.
+- Each job prints its table as before, with the model of its CPU. The header `| Case | Base (ns) | Head (ns) | Change | Noise (A/A) |` does not change.
+- Each job also writes its table as JSON. The job `verdict` merges the two tables with the script `merge.ts`.
+- The bound of a run is 1.5% or two times the noise of the case, whichever is larger (D50, D70).
+- A case is slower or faster only when both runs are over the bound in the same direction. A case that no run puts over the bound is in bound. Each other case is mixed.
+- The jobs do not block a merge. A run with different results fails its job and the verdict, as before.
+
+**Rejected.**
+
+- More rounds in one job. The noise of one runner stays low, but the change of a case can have another sign on another runner (D70). More rounds do not show that.
+- One job that measures two times. The two measurements then share one machine, thus they repeat the error of that machine.
+- A mean of the two changes. A large change on one runner then hides a change with the other sign on the other runner.
+
+**Why.** The noise (A/A) is the noise of one process on one machine. It does not include the difference between two machines. Two runners give two independent results, and a change that both runners show does not come from one machine. A dispatch with a base keeps this repeat, thus a comparison with an old commit also repeats.
+
+**Measured (K167).** A cell gives the change and the noise (A/A) in parentheses.
+
+The A/A check compared the head of PR #131 with itself (base `HEAD`) in the workflow 40809759741. The first runner had an AMD EPYC 9V45, and the second runner had an AMD EPYC 7763. No case is over the bound in a run, thus each of the 16 cases is in bound. The bench of the pull request (workflow 40809762247) compared the same kernel with `main` at d10ef9f. It also gave 16 cases in bound.
+
+| Case | Runner 1 | Runner 2 | Verdict |
+| --- | ---: | ---: | --- |
+| FORMULA.SPEED formula | -0.1% (-1.1%) | +0.2% (+0.3%) | in bound |
+| The formula with a list of reads | +0.1% (-0.4%) | 0.0% (+0.6%) | in bound |
+| A reference of five steps | +0.2% (-0.1%) | 0.0% (+0.3%) | in bound |
+| A reference with a step document | -0.6% (+0.3%) | +0.2% (+0.6%) | in bound |
+| PLAN.TOTAL, 20 literals without folds | +1.3% (+0.3%) | +0.1% (+0.1%) | in bound |
+| `factsOf` of a tree with an equation | +1.2% (-0.2%) | -0.1% (-0.4%) | in bound |
+
+The second check compared `main` at d10ef9f with 22d94f4, the parent of K154, as K164 did. The workflow is 40809762099. The first runner had an Intel Xeon Platinum 8573C, and the second runner had an AMD EPYC 7763.
+
+| Case | Runner 1 | Runner 2 | Verdict |
+| --- | ---: | ---: | --- |
+| A reference with a step document | +7.7% (+0.6%) | -0.7% (+0.8%) | mixed |
+| The formula with a list of reads | +3.6% (+0.6%) | +0.8% (0.0%) | mixed |
+| A reference of five steps | +8.2% (0.0%) | +3.4% (0.0%) | slower |
+| A reference into a host thing with `resolve` | +4.5% (+0.4%) | +5.1% (+0.1%) | slower |
+| The same tree, with a list of reads | +2.1% (-0.2%) | +1.8% (-0.1%) | slower |
+| `factsOf` of a tree with an equation | +43.4% (+1.4%) | +40.1% (-0.2%) | slower |
+| PLAN.FOLD a record of 20 literals | -6.6% (0.0%) | -7.8% (-0.1%) | faster |
+| PLAN.FIXED a path of four steps | -7.8% (0.0%) | -8.1% (-0.4%) | faster |
+
+The merged table had 4 cases slower, 5 faster, 5 mixed and 2 in bound. The reference with a step document does not repeat as slower: the Xeon gives +7.7% and the EPYC gives -0.7%. Thus the plan gets no new item for it. The cost of `factsOf` is the walk of the equations of K166 (D69). The tree with a list of reads gets the reads of the equations of K165 (D68).
+
+**Wall time.** The bench of PR #129 took 83 s in the workflow 40807342694, with one job. The bench of PR #131 took 113 s in the workflow 40809762247. The two jobs start at the same time, and the job `verdict` adds 12 s.
+
+**Limits.**
+
+- Two jobs do not always get two CPU models. Both runs of the bench of PR #131 had an AMD EPYC 7763.
+- A mixed case is not a result. Another dispatch can give a third run for it.
+- The reference into a host thing with `resolve` is slower in both runs against 22d94f4. D70 gave +11.1% and -2.7% for it, thus K154 can cost this case too.
