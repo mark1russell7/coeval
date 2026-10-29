@@ -1863,6 +1863,41 @@ The design calls are how the reads reach the outer list, and which reads of an e
 
 **Limits.**
 
-- `factsOf` gives no static read of an equation. Thus the free read of an equation is an exception of READS.SUBSET, and the edges of a schedule miss the reads of equations (K166).
+- `factsOf` gave no static read of an equation. Thus the free read of an equation was an exception of READS.SUBSET, and the edges of a schedule missed the reads of equations (K166). D69 removes the exception.
 - A read of `caps` in an equation always changes when the root has capabilities. That is safe, but the node then evaluates again after each change of the context.
 - Each evaluator that the kernel interprets gets one more key on its input. The bench of the PR measures the cost.
+
+## D69 (2026-10-29): `factsOf` gives the static reads of the equations of a tree kind
+
+**Context.** K166, from D68. `factsOf` walked the document only, and the equations of a tree kind are in its contract. Thus the free read of an equation had no static read (READS.SUBSET). A read of `world` in an equation gave no edge of a schedule.
+
+A closure with a tree node in its body kept the reads of `factsOf` only (READS.CLOSURE). Thus a change of the event that an equation reads kept the old closure. The design calls are where the reads of an equation go, and which of them are reads.
+
+**Decision.**
+
+- The first document of a tree kind gets the static reads of the equations of its kind (FACTS.EQUATIONS). `check` walks the equations at the same place (TREE.DOWN-NAMES), with the same function `equationsOf`.
+- Each such read has the place of that document, and it is lazy. An equation evaluates only when a demand reaches its attribute (TREE.LAZY).
+- The free rules of D68 decide the reads:
+  - A read from `self` reads the node, thus it is not a read. A step out of the tree is in the read of the whole root `self` that the tree node makes (TREE.SELF).
+  - A read of a name that the rung binds is not a read, as for a name that a kind binds in the document. A name that the rung does not bind is a read.
+  - A read of `caps`, `event`, `world` or another root is a read.
+- A read after a step document keeps the keys before that step, with `exact: false`, as in the document. A static read does not stop at a host thing, thus no read of an equation is lost.
+- A tree kind in an equation adds the reads of its own equations, one time for each kind. A kind that holds itself in an equation thus stops.
+- An effect, a kind on the run side or a kind that is not pure in an equation makes the document not pure. The effects and the side of the document do not change, because an equation has no capabilities.
+- The verb of an equation is `eval`, for each option `verb`, because the tree node plans each equation for `eval`.
+
+**Rejected.**
+
+- The reads of the equations at each document of the kind. The roots and the keys are the same at each document, thus the list only gets longer.
+- A cache of the reads of each kind for each machine. The walk of an equation is small, and a cache needs a rule for a kind that holds itself.
+- The reads from `self` as static reads. They are not free, and they add nothing to a schedule.
+- Eager reads of an equation. A read that the evaluation skips then makes a certain cycle of a schedule, and a demand ahead evaluates a node that nothing reads.
+
+**Why.** A host trusts the static reads for the edges of a schedule and for the kept reads of a closure. A free read without a static read breaks both. The rules of D68 tell which reads are free, thus the static reads follow the same rules.
+
+**Measured.** The bench of PR #129 compared the head with `main`. The results are in the PR.
+
+**Limits.**
+
+- The reads of an equation have the place of the first document of the kind, not the place of each document of the kind.
+- A kind with a tree contract and another evaluator also gets the reads of its equations. That is safe, but its schedule can get an edge that its evaluation does not use.

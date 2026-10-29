@@ -11,6 +11,7 @@ import {
   type Effect,
   type EvalError,
   type EvalFn,
+  type Evaluator,
   type FormulaProfile,
   type GenerateOptions,
   type HostThing,
@@ -1028,6 +1029,23 @@ describe("the reads of a run", () => {
     // The read of the equation is lazy, and it has the place of the document of the kind.
     expect(facts.reads[1]).toMatchObject({ root: "event", keys: ["a"], exact: true, lazy: true, place: [], at: [] });
     expect(facts.pure).toBe(true);
+  });
+
+  it("[FACTS.EQUATIONS] a closure whose body holds a tree node keeps the reads of the equations, thus verifyReads sees a change of the event (READS.CLOSURE)", () => {
+    const evaluator = (STD_MACHINE.evaluators as Readonly<Record<string, Evaluator>>)["tree.node"] as Evaluator;
+    const machine: Machine = { ...strictMachine, world: { ...strictMachine.world, kinds: { ...strictMachine.world.kinds, watch: treeKind({ seen: refTo("event", "a") }) } }, evaluators: { ...strictMachine.evaluators, "tree.node": evaluator } };
+    const doc = { type: "fn", value: { params: [], body: { type: "watch", value: { got: refTo("self", "seen") } } } };
+    const plan = prepare(machine, doc);
+    const reads: Read[] = [];
+    const before = context({ event: { a: 1, b: 1 } });
+    expect(plan.evaluate(before, { reads }).ok).toBe(true);
+    // Before K166, the closure kept only the root self, and a change of event.a kept the old closure.
+    expect(reads.map((read) => [read.path, read.kept])).toEqual([
+      [["self"], true],
+      [["event", "a"], true],
+    ]);
+    expect(verifyReads(plan, reads, context({ event: { a: 2, b: 1 } }))).toMatchObject({ same: false, index: 1 });
+    expect(verifyReads(plan, reads, context({ event: { a: 1, b: 2 } }))).toEqual({ same: true });
   });
 
   it("[RUN.AGREES-READS] agreeRun finds a definition that reads another list, and it compares no read when the plan keeps each root", async () => {
