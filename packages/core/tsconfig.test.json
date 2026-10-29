@@ -3,6 +3,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    "rootDir": ".",
     "emitDeclarationOnly": false,
     "declaration": false,
     "declarationMap": false,
@@ -12,7 +13,8 @@
     ]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "bench/**/*.ts"
   ],
   "exclude": []
 }
