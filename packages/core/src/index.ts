@@ -290,6 +290,7 @@ export {
   type ReplayLog,
   type ReplayLogJson,
   type ReplayPartJson,
+  type ReplayPartsJson,
   type ReplayOptions,
   type ReplayResultJson,
   type ReplaySettle,
