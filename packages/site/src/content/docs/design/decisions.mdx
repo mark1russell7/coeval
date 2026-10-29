@@ -81,6 +81,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D71 | The bench of a pull request repeats each comparison on two runners. A case is slower or faster only when both runs are over the bound in the same direction. |
 | D72 | `pnpm typecheck` checks the bench. The test config of the core includes `bench`, and the helper `ref` of the cases gives `Json`. |
 | D73 | PR #126 holds the cost of a reference into a host thing since 22d94f4. `rootContext` reads the epoch one time, and four reference cases are faster in both runs. |
+| D74 | The code of a `deref` evaluator and the input of a walker get the optional `has` of D21. Without `has`, `undefined` stays a missing field. |
 
 ## Open
 

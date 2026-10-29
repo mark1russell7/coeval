@@ -114,7 +114,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K40 | An evaluator that is a formula document (D1). A language is then data only: its kinds are JSON, and its evaluators are documents. From K34 (COMPOSE.SELF-EXTEND). | later (the open question 6 of R6 first) | K34 |
 | K41 | Two languages that each build the formula kit with one profile merge. Before, each `formulaMachine` call made new evaluators, thus each evaluator name of the kit was a conflict. From K34 (COMPOSE.UNIFY). | done (2026-10-27, D46, released in the next batch) | K34 |
 | K42 | Each call at the top of a module has the mark `/* @__PURE__ */`, and a test bundles an import with esbuild (PKG.PURE). A request of a language. | done (2026-10-24, version 0.6.2) | none |
-| K43 | The `deref` code of a kind and the `deref` of a walker can give a field that holds `undefined`. Today they use `undefined` for a missing field. From K39. | later | K39 |
+| K43 | The `deref` code of a kind and the `deref` of a walker can give a field that holds `undefined`. Before, they used `undefined` for a missing field. From K39. Since D74, `DerefCode` and `WalkInput` have the optional `has` of D21. | done (2026-10-29, D74, PR #134) | K39 |
 | K44 | A replay log is JSON, so a test can keep it as a golden file. Today the causes of errors and the host values are not JSON. From K11. | later | K11 |
 | K45 | A replayer serves more than one run, and a recorder keeps the order of the waits of an inner replayer. From K11. | later | K11 |
 | K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | done (2026-10-28, D55, released in the next batch) | K11 |

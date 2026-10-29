@@ -2090,3 +2090,44 @@ The bench of PR #133 repeated the comparison of variant A with `main` in the wor
 - The gain comes from the form of the code that the engine compiles, not from less work. Another change of `rootContext` or `readable` can lose it again.
 - Variant A gave six mixed cases in its first bench. The tree with a list of reads gave -1.0% and +14.4% there, and +0.6% and -4.4% in the bench of PR #133.
 - A reference through an envelope gave +4.1% and +4.3% on an AMD EPYC 7763. These are the two benches of variant A. The other runners gave +1.2% and -0.6%, thus the case does not repeat as slower.
+
+## D74 (2026-10-29): the code of a `deref` evaluator and the input of a walker get the optional `has` of D21
+
+**Context.** K43, from K39 (D21). D21 gave a host thing the optional `has`.
+
+Two other sites still read `undefined` as a missing field. The first is the code of a `deref` evaluator of a kind (`DerefCode`). The second is the function `deref` that a walker gets in its input (`WalkInput`). Thus a kind could not give a field that holds `undefined`, and a walker could not see one.
+
+**Decision.**
+
+- `DerefCode` is an interface with a call signature and the optional field `has(doc, key)`. The kernel asks it only when the code gives `undefined`, as for a host thing (DEREF.KIND-UNDEFINED).
+- A host gives the code its `has` with `Object.assign(code, { has })`. A plain function stays a valid `DerefCode`.
+- `WalkInput` has the optional function `has(thing, key)`. It gives `true` when the step through the ladder of `deref` reaches a field (DEREF.WALKER-UNDEFINED).
+- Each resolution of the kernel gives `has`, with and without a record of hops. The field is optional in the type, thus an input that a host makes stays valid.
+- A code without `has` and a host thing without `has` keep the old reading. No expected value of the core changes.
+
+**The sites of `deref`.** Each step on a key goes through `derefStep`. The reference, a plan, a compiled path, `keptPath` and `keptAgain` use it. Thus the change of `derefStep` gives one answer to each of them.
+
+| Site | Change |
+| --- | --- |
+| `HostThing.deref` (D21) | none: it has `has` |
+| The things of the kernel: the nodes of the standard tree, the nodes of the reference, the nodes of `schedule` and of `meaning` | none: each has `has` |
+| `DerefCode`, which `derefStep` uses | the optional `has` |
+| `WalkInput.deref`, given by `resolveFully` | the optional `has` next to it |
+| The short path `walkQuick` | none: it gives an envelope to `derefStep`, and a plain field that holds `undefined` already reaches it |
+| `HostThing.resolve` and `HostThing.known` | none: they give `{ thing }` |
+| The walker `nearest` | none: a key that holds `undefined` ends the walk, as a missing key does |
+| `FormulaProfile.missing` | none: a profile reads a value as missing after the resolution, by its own rule |
+
+**Rejected.**
+
+- A separate table of `has` functions in the machine, by the name of the code. Then `mergeMachines` and `restrictMachine` need a new table, and the two halves can disagree.
+- A table entry that is a record `{ deref, has }`. Each reader of the table then needs two forms.
+- A new function of the walker input that gives `{ thing }`, as `resolve` of a host thing. A walker author then learns a second rule. `has` next to `deref` is the rule of D21, as `Map` has `get` and `has`.
+- A `has` of the walker input that asks only the `has` of the thing. It gives a wrong answer when a walker asks it before `deref`, and it does not see a kind or a plain field.
+
+**Why.** One rule serves each site: `deref` gives `undefined`, and `has` tells a field from a missing one. The walker input asks the ladder again, thus its answer is correct also without a call of `deref` before it. The second step costs only when a walker asks `has`.
+
+**Limits.**
+
+- The `has` of a walker input asks the ladder again. A host thing or a code of a kind thus answers the step two times.
+- A navigator with `adopt` gives a walker `adopt(undefined)` for a field that holds `undefined`. An adopted value that is not `undefined` hides the case from `deref`, and `has` still tells it.
