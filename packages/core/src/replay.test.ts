@@ -285,6 +285,8 @@ function generatedHost(effect: Effect): unknown {
     if (effect.payload === "b") throw new Failure({ code: "#MOCK", reason: "The host refuses b." });
     if (effect.payload === "a" && count > 1) throw Object.assign(new TypeError("The host refuses a late a.", { cause: new Error("The queue is full.") }), { code: "ELATE" });
     if (effect.payload === "c" && count > 1) throw new AggregateError([new Error("The first try failed."), new RangeError("The second try failed.")], "Each try of c failed.");
+    // An enumerable list of exceptions with an item without a form in the middle (RUN.REPLAY-FIELDS).
+    if (effect.payload === "c" && count === 1) throw Object.assign(new Error("Each try of c failed."), { errors: [new Error("The first try failed."), () => 1, new RangeError("The third try failed.")] });
     if (typeof effect.payload === "number") return -effect.payload;
     return effect.kind === "write" ? { stored: effect.address } : [effect.address, effect.payload];
   };
@@ -434,6 +436,8 @@ describe("the JSON form of a log", () => {
     let exceptions = 0;
     let chains = 0;
     let hidden = 0;
+    let parts = 0;
+    let marks = 0;
     let special = 0;
     for (let seed = 1; seed <= total; seed += 1) {
       const doc = generate(dated.world, {
@@ -470,6 +474,8 @@ describe("the JSON form of a log", () => {
       if (text.includes('"exception"')) exceptions += 1;
       if (text.includes('"fields"')) chains += 1;
       if (text.includes('"hidden"')) hidden += 1;
+      if (text.includes('"parts"')) parts += 1;
+      if (text.includes('"dropped":true')) marks += 1;
       if (text.includes('"ext"')) special += 1;
       const back = decodeLog(dated, JSON.parse(text));
       if (!back.ok) {
@@ -484,7 +490,7 @@ describe("the JSON form of a log", () => {
     expect(bad.slice(0, 3)).toEqual([]);
     expect(written + refused).toBe(total);
     // The corpus reaches each part of the form.
-    for (const [name, count] of Object.entries({ written, refused, reordered, exceptions, chains, hidden, special })) expect(count, name).toBeGreaterThan(0);
+    for (const [name, count] of Object.entries({ written, refused, reordered, exceptions, chains, hidden, parts, marks, special })) expect(count, name).toBeGreaterThan(0);
   });
 });
 
@@ -687,8 +693,17 @@ describe("the hidden fields of an exception in the JSON form", () => {
   it("[RUN.REPLAY-HIDDEN] a hidden value without a term document is a name in dropped, and only the fields of the standard classes are hidden fields", () => {
     const list = new AggregateError([new Error("a"), () => 1, Symbol("s")], "m");
     const json = encodeLog(dated, failedWith(list));
-    expect(exceptionOf(json)).toEqual({ name: "AggregateError", message: "m", dropped: ["errors.1", "errors.2"], hidden: { errors: [{ exception: { name: "Error", message: "a" } }] } });
-    expect((decodedCause(json) as AggregateError).errors.map((error: Error) => error.message)).toEqual(["a"]);
+    // Since D78, an item without a form keeps its place with the mark dropped, and decodeLog gives a hole there.
+    expect(exceptionOf(json)).toEqual({
+      name: "AggregateError",
+      message: "m",
+      dropped: ["errors.1", "errors.2"],
+      hidden: { errors: [{ exception: { name: "Error", message: "a" } }, { dropped: true }, { dropped: true }] },
+    });
+    const holes = (decodedCause(json) as AggregateError).errors as unknown[];
+    expect(holes.length).toBe(3);
+    expect((holes[0] as Error).message).toBe("a");
+    expect([1 in holes, 2 in holes]).toEqual([false, false]);
     const broken = new Error("broken");
     Object.defineProperty(broken, "error", {
       enumerable: false,
@@ -705,6 +720,38 @@ describe("the hidden fields of an exception in the JSON form", () => {
     expect(exceptionOf(encodeLog(dated, failedWith(plain)))).toEqual({ name: "Error", message: "plain", fields: { errors: [1, 2] } });
   });
 
+  it("[RUN.REPLAY-HIDDEN] an item without a form in the middle of a list keeps its place, the later items keep their index, and a hole stays a hole", () => {
+    const later = new Error("later");
+    const list = new AggregateError([new Error("first"), () => 1, later], "m", { cause: later });
+    const json = encodeLog(dated, failedWith(list));
+    // The index of later is 2 in the walk, thus the cause loops to 2 and the item keeps the place 2.
+    expect(exceptionOf(json)).toEqual({
+      name: "AggregateError",
+      message: "m",
+      dropped: ["errors.1"],
+      hidden: { errors: [{ exception: { name: "Error", message: "first" } }, { dropped: true }, { exception: { name: "Error", message: "later" } }] },
+      loop: 2,
+    });
+    const back = decodedCause(json) as AggregateError;
+    const errors = back.errors as unknown[];
+    expect(errors.length).toBe(3);
+    expect(1 in errors).toBe(false);
+    expect((errors[2] as Error).message).toBe("later");
+    expect(back.cause).toBe(errors[2]);
+    // A hole of a list has no form either, thus a recording of a replay of the decoded log gives the same form.
+    const read = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(read.ok && encodeLog(dated, read.value)).toEqual(json);
+    // The mark is only an item of a list, and its value is true.
+    const at = ["effects", 0, "outcome", "error", "exception", "hidden"];
+    const placeOf = (hidden: unknown): unknown => {
+      const decoded = decodeLog(dated, { ...json, effects: [{ ...json.effects[0], outcome: { ok: false, error: { code: "#X", reason: "r", exception: { name: "E", message: "m", hidden } } } }] });
+      return decoded.ok ? "read" : decoded.error.place;
+    };
+    expect(placeOf({ errors: [{ dropped: true }] })).toBe("read");
+    expect(placeOf({ error: { dropped: true } })).toEqual([...at, "error"]);
+    expect(placeOf({ errors: [{ dropped: false }] })).toEqual([...at, "errors", 0]);
+    expect(placeOf({ errors: [{ dropped: true, value: 1 }] })).toEqual([...at, "errors", 0]);
+  });
   it("[RUN.REPLAY-HIDDEN] an old log decodes as before, an AggregateError without hidden gets an empty list, and decodeLog gives #VALUE! at a bad hidden field", () => {
     const old = {
       version: 1,
@@ -734,6 +781,138 @@ describe("the hidden fields of an exception in the JSON form", () => {
     expect(placeOf({ name: "E", message: "m", hidden: { errors: [{ exception: { name: "F" } }] } })).toEqual([...errors, 0, "exception"]);
     expect(placeOf({ name: "E", message: "m", hidden: { error: { exception: { name: "F", message: "n", loop: 2 } } } })).toEqual([...at, "hidden", "error", "exception", "loop"]);
   });
+});
+
+describe("the enumerable fields of an exception that hold exceptions in the JSON form", () => {
+  it("[RUN.REPLAY-FIELDS] an Error with an enumerable list errors of two exceptions keeps the list in parts, and decodeLog gives an enumerable list again", () => {
+    const both = Object.assign(new Error("Each host failed.", { cause: "late" }), {
+      code: "EALL",
+      errors: [Object.assign(new TypeError("The first host failed."), { code: "EONE" }), new RangeError("The second host failed.", { cause: 7 })],
+    });
+    const json = encodeLog(dated, failedWith(both));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "Each host failed.",
+      fields: { code: "EALL" },
+      parts: {
+        errors: [
+          { exception: { name: "TypeError", message: "The first host failed.", fields: { code: "EONE" } } },
+          { exception: { name: "RangeError", message: "The second host failed.", cause: 7 } },
+        ],
+      },
+      cause: "late",
+    });
+    const cause = decodedCause(json) as Error & { readonly errors?: unknown };
+    // The field errors stays enumerable, after the fields of term documents.
+    expect(Object.keys(cause)).toEqual(["code", "errors"]);
+    const [one, two] = cause.errors as [Error & { readonly code?: unknown }, Error];
+    expect(one instanceof TypeError && one.code).toBe("EONE");
+    expect(two instanceof RangeError && two.cause).toBe(7);
+    expect(cause.cause).toBe("late");
+    const back = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(back.ok && encodeLog(dated, back.value)).toEqual(json);
+    // A field with one exception is one part.
+    const single = Object.assign(new Error("outer"), { inner: new Error("inner") });
+    expect(exceptionOf(encodeLog(dated, failedWith(single)))).toEqual({ name: "Error", message: "outer", parts: { inner: { exception: { name: "Error", message: "inner" } } } });
+    expect(((decodedCause(encodeLog(dated, failedWith(single))) as { readonly inner: Error }).inner).message).toBe("inner");
+  });
+
+  it("[RUN.REPLAY-FIELDS] a field exception that loops to the outer exception is a loop, and the walk takes the parts before the hidden fields and the cause", () => {
+    const outer = new Error("outer");
+    Object.assign(outer, { self: outer, errors: [outer] });
+    expect(exceptionOf(encodeLog(dated, failedWith(outer)))).toEqual({ name: "Error", message: "outer", parts: { self: { loop: 0 }, errors: [{ loop: 0 }] } });
+    const back = decodedCause(encodeLog(dated, failedWith(outer))) as Error & { readonly self: unknown; readonly errors: unknown[] };
+    expect(back.self).toBe(back);
+    expect(back.errors[0]).toBe(back);
+    // The order of the walk: the parts in the order of their keys, the hidden fields, then the cause.
+    const first = new Error("first");
+    const second = new Error("second");
+    const third = new Error("third");
+    const all = Object.assign(new AggregateError([second, first], "all", { cause: third }), { b: first, a: [third, second] });
+    const json = encodeLog(dated, failedWith(all));
+    expect(exceptionOf(json)).toEqual({
+      name: "AggregateError",
+      message: "all",
+      parts: { b: { exception: { name: "Error", message: "first" } }, a: [{ exception: { name: "Error", message: "third" } }, { exception: { name: "Error", message: "second" } }] },
+      hidden: { errors: [{ loop: 3 }, { loop: 1 }] },
+      loop: 2,
+    });
+    // The keys of parts keep the order of the walk, also when a single part comes before a list.
+    expect(Object.keys((exceptionOf(json) as { readonly parts: object }).parts)).toEqual(["b", "a"]);
+    const read = decodedCause(json) as AggregateError & { readonly a: Error[]; readonly b: Error };
+    expect(read.errors[0]).toBe(read.a[1]);
+    expect(read.errors[1]).toBe(read.b);
+    expect(read.cause).toBe(read.a[0]);
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(again.ok && encodeLog(dated, again.value)).toEqual(json);
+  });
+
+  it("[RUN.REPLAY-FIELDS] a list that mixes values and exceptions keeps each item at its place, and an item without a form is the mark dropped", () => {
+    const mixed = Object.assign(new Error("mixed"), { tries: [1, new Error("try"), () => 1, Number.NaN, undefined] });
+    const json = encodeLog(dated, failedWith(mixed));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "mixed",
+      parts: {
+        tries: [
+          { value: 1 },
+          { exception: { name: "Error", message: "try" } },
+          { dropped: true },
+          { value: { type: ["ext", "number"], value: "NaN" } },
+          { value: { type: ["ext", "undefined"], value: null } },
+        ],
+      },
+      dropped: ["tries.2"],
+    });
+    const tries = (decodedCause(json) as { readonly tries: unknown[] }).tries;
+    expect(tries.length).toBe(5);
+    expect(tries[0]).toBe(1);
+    expect((tries[1] as Error).message).toBe("try");
+    expect([2 in tries, 4 in tries]).toEqual([false, true]);
+    expect(Number.isNaN(tries[3])).toBe(true);
+    const back = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(back.ok && encodeLog(dated, back.value)).toEqual(json);
+    // A list without an exception has the rule of D76: a term document in fields, or a name in dropped.
+    const values = Object.assign(new Error("values"), { tries: [1, () => 1], codes: [1, 2] });
+    expect(exceptionOf(encodeLog(dated, failedWith(values)))).toEqual({ name: "Error", message: "values", fields: { codes: [1, 2] }, dropped: ["tries"] });
+    // An exception that a domain with a codec holds stays a term document in fields.
+    const ranges: Domain = { is: (value) => value instanceof RangeError, codec: { encode: (value) => (value as Error).message, decode: (data) => new RangeError(String(data)) } };
+    const coded = exceptionOf(encodeLog({ domains: { error: ranges } }, failedWith(Object.assign(new Error("coded"), { range: new RangeError("far") }))));
+    expect(coded).toEqual({ name: "Error", message: "coded", fields: { range: { type: ["ext", "domain"], value: { domain: "error", data: "far" } } } });
+  });
+
+  it("[RUN.REPLAY-FIELDS] an old log decodes as before, and decodeLog gives #VALUE! at a bad field of parts", () => {
+    const old = {
+      version: 1,
+      effects: [
+        {
+          address: "0#0",
+          kind: "log",
+          payload: "x",
+          outcome: { ok: false, error: { code: "#CALC!", reason: "r", exception: { name: "Error", message: "old", fields: { errors: [1] }, dropped: ["more"], exception: { name: "TypeError", message: "inner" } } } },
+          waited: false,
+        },
+      ],
+      settles: [],
+    };
+    const back = decodeLog(dated, old);
+    if (!back.ok) throw new Error(back.error.reason);
+    expect(encodeLog(dated, back.value)).toEqual({ ...old, effects: [{ ...old.effects[0], outcome: { ok: false, error: { code: "#CALC!", reason: "r", exception: { name: "Error", message: "old", fields: { errors: [1] }, exception: { name: "TypeError", message: "inner" } } } } }] });
+    const placeOf = (exception: unknown): unknown => {
+      const read = decodeLog(dated, { ...old, effects: [{ ...old.effects[0], outcome: { ok: false, error: { code: "#X", reason: "r", exception } } }] });
+      return read.ok ? "read" : read.error.place;
+    };
+    const at = ["effects", 0, "outcome", "error", "exception"];
+    expect(placeOf({ name: "E", message: "m", parts: { a: { loop: 0 }, b: [{ dropped: true }] } })).toBe("read");
+    expect(placeOf({ name: "E", message: "m", parts: [] })).toEqual([...at, "parts"]);
+    expect(placeOf({ name: "E", message: "m", parts: { stack: { value: 1 } } })).toEqual([...at, "parts", "stack"]);
+    expect(placeOf({ name: "E", message: "m", fields: { a: 1 }, parts: { a: { value: 1 } } })).toEqual([...at, "parts", "a"]);
+    expect(placeOf({ name: "E", message: "m", parts: { errors: [] }, hidden: { errors: [] } })).toEqual([...at, "hidden", "errors"]);
+    expect(placeOf({ name: "E", message: "m", parts: { a: { dropped: true } } })).toEqual([...at, "parts", "a"]);
+    expect(placeOf({ name: "E", message: "m", parts: { a: [{ loop: 1 }] } })).toEqual([...at, "parts", "a", 0, "loop"]);
+    expect(placeOf({ name: "E", message: "m", parts: { a: { exception: { name: "F", message: "n", loop: 2 } } } })).toEqual([...at, "parts", "a", "exception", "loop"]);
+  });
+
 });
 
 /** This function gives the cause of the outcome of the first effect of a JSON form, without a JSON text. */
