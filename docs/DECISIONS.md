@@ -1902,7 +1902,9 @@ A closure with a tree node in its body kept the reads of `factsOf` only (READS.C
 | `factsOf` of a tree with an equation | 6515.8 | 9132.7 | +39.2% (+0.5%) |
 | PLAN.COMPILE-SPEED prepare | 13505.0 | 12860.1 | -7.0% (+1.8%) |
 
-The walk of the equation costs the time of `factsOf`. A host computes the facts one time for each document, and `durable` keeps them. `prepare` does not use `factsOf`. The first bench, in the workflow 40806760672, also gave PLAN.COMPILE-SPEED -8.4%, thus the cause is not known. Each other case of the plans and the formulas stays in its bound.
+The walk of the equation costs the time of `factsOf`. A host computes the facts one time for each document, and `durable` keeps them. Each other case of the plans and the formulas stays in its bound.
+
+The change of PLAN.COMPILE-SPEED is noise of the runner, not a gain of K166. `prepare` does not call `factsOf`, and K166 changed no code that `prepare` calls. The first bench, in the workflow 40806760672, gave -8.4%. The bench of the last head e9d1b6a, in the workflow 40807342694, gave +2.4% (+1.6%), in its bound. The heads 10720b6 and e9d1b6a have the same code, and only the runners were different (D70).
 
 **Limits.**
 
