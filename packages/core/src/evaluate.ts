@@ -146,12 +146,22 @@ const GRANT = /* @__PURE__ */ Symbol("coeval.grant");
 /**
  * The key of the epoch of a grant (CAP.NARROW-KEPT). The epoch is the list of capabilities that the host gave the root
  * of the evaluation of the grant. A spread of a context keeps its epoch, as it keeps its grant. An
- * effect and a resolution read a context of another epoch as a context without a grant.
+ * effect and a resolution read a context of another epoch as a context without a grant. The root has no field of
+ * the epoch, because its grant is the list of the host (`epochOf`).
  */
 const EPOCH = /* @__PURE__ */ Symbol("coeval.epoch");
 
 /** A context with the grant of the kernel and the epoch of that grant. */
 type Granted = Context & { readonly [GRANT]?: readonly Cap[]; readonly [EPOCH]?: readonly Cap[] | undefined };
+
+/**
+ * This function gives the epoch of the grant of a context (CAP.NARROW-KEPT). A context without the field of the epoch
+ * has the epoch of its grant. Only a root has no field, thus its grant is the list of the host. The root then has
+ * one field fewer, and each evaluation makes it faster (K154).
+ */
+function epochOf(ctx: Context): readonly Cap[] | undefined {
+  return (ctx as Granted)[EPOCH] ?? (ctx as Granted)[GRANT];
+}
 
 /**
  * This function gives the capabilities that a context and its grant both permit, the meet `intersectCaps` (CAP.MEET).
@@ -171,8 +181,35 @@ function grantedCaps(ctx: Context): readonly Cap[] {
 function granted(ctx: Context): Context {
   if ((ctx as Granted)[GRANT] === ctx.caps) return ctx;
   const caps = grantedCaps(ctx);
-  const out: Granted = { ...ctx, caps, [GRANT]: caps };
+  const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
   return out;
+}
+
+/**
+ * This function tells if a list of capabilities is equal to the epoch of the evaluation (CAP.EPOCH-EQUAL). An equal list
+ * has the same length, and at each index the same text or the same keys in the same order. The runtime calls it only
+ * when the two lists are not the same object. Thus a host that gives a new copy of its list for each evaluation keeps
+ * the grant of a kept context.
+ */
+function sameCaps(caps: readonly Cap[] | undefined, epoch: readonly Cap[]): boolean {
+  if (caps === undefined || caps.length !== epoch.length) return false;
+  for (let index = 0; index < caps.length; index += 1) {
+    const a = caps[index] as Cap;
+    const b = epoch[index] as Cap;
+    if (a === b) continue;
+    if (typeof a === "string" || typeof b === "string" || a.length !== b.length) return false;
+    for (let key = 0; key < a.length; key += 1) if (!Object.is(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+/**
+ * This function tells if a context has the epoch of the evaluation: the same list, or an equal list (CAP.NARROW-KEPT,
+ * CAP.EPOCH-EQUAL). The comparison of the entries happens only when the two lists are not the same object.
+ */
+function inEpoch(ctx: Context, epoch: readonly Cap[]): boolean {
+  const own = epochOf(ctx);
+  return own === epoch || sameCaps(own, epoch);
 }
 
 /**
@@ -190,13 +227,14 @@ function ungranted(ctx: Context, epoch: readonly Cap[]): Context {
  * The context has the meet of its list and its grant, and a context without a grant has none. Thus a read of the root
  * `caps` and a walker of a step document get the capabilities of the document from a widened context.
  * A context that the code narrowed keeps its own list. A context whose list does not change stays the same object.
- * A context of another epoch has no capabilities (CAP.NARROW-KEPT).
+ * A context of another epoch has no capabilities (CAP.NARROW-KEPT). An equal list of the host is the same epoch
+ * (CAP.EPOCH-EQUAL).
  */
 function readable(ctx: Context, epoch: readonly Cap[]): Context {
-  if ((ctx as Granted)[EPOCH] !== epoch) return ctx.caps.length === 0 ? ctx : ungranted(ctx, epoch);
+  if (!inEpoch(ctx, epoch)) return ctx.caps.length === 0 ? ctx : ungranted(ctx, epoch);
   const caps = grantedCaps(ctx);
   if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
-  const out: Granted = { ...ctx, caps, [GRANT]: caps };
+  const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
   return out;
 }
 
@@ -207,8 +245,8 @@ function readable(ctx: Context, epoch: readonly Cap[]): Context {
  */
 function handed(parent: Context, next: Context): Context {
   const ctx = narrow(parent, next);
-  const epoch = (parent as Granted)[EPOCH];
-  if ((ctx as Granted)[GRANT] === ctx.caps && (ctx as Granted)[EPOCH] === epoch) return ctx;
+  const epoch = epochOf(parent);
+  if ((ctx as Granted)[GRANT] === ctx.caps && epochOf(ctx) === epoch) return ctx;
   const out: Granted = { ...ctx, [GRANT]: ctx.caps, [EPOCH]: epoch };
   return out;
 }
@@ -1152,10 +1190,10 @@ class Session implements Runtime {
    * This function checks the capability of an effect, and records the effect with its address (RUN.ADDRESS). The
    * context keeps only the capabilities of its grant, thus compiled code cannot widen the context of its own effect
    * (CAP.NARROW-CODE). A context of another epoch has no capabilities, thus code cannot keep a context for a later
-   * evaluation with fewer capabilities (CAP.NARROW-KEPT).
+   * evaluation with fewer capabilities (CAP.NARROW-KEPT). An equal list of the host is the same epoch (CAP.EPOCH-EQUAL).
    */
   private record(given: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result | Recorded {
-    const ctx = (given as Granted)[EPOCH] === this.epoch ? granted(given) : ungranted(given, this.epoch);
+    const ctx = inEpoch(given, this.epoch) ? granted(given) : ungranted(given, this.epoch);
     const keys = typeof kind === "string" ? kind.split(".") : kind;
     const text = keys.join(".");
     if (!this.permitted(ctx, keys)) return fail("#CAP!", `The context has no capability for the effect ${text}.`, { place });
@@ -2070,7 +2108,7 @@ function gated(rules: readonly CapsRule[], part: Compiled): Compiled {
     const ctx = granted(given);
     const caps = capsUnder(rules, ctx.caps);
     if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
-    const out: Granted = { ...ctx, caps, [GRANT]: caps };
+    const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
     return out;
   };
   // The steps of an evaluator are `runOf` of its code, thus `runOf` of this code narrows the context the same way.
@@ -2192,14 +2230,20 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
 /**
  * This function gives the context at the root of an evaluation. It is the context of the host, with the world of
  * the machine when the context has none. The host gives the capabilities, thus the root has the grant of each one
- * (CAP.NARROW-CODE). The list of the host is also the epoch of the grant (CAP.NARROW-KEPT). An evaluation and
- * `verifyReads` share it.
+ * (CAP.NARROW-CODE). The list of the host is also the epoch of the grant (CAP.NARROW-KEPT). The root has no field of
+ * the epoch, thus it has the shape of a context before K120 (K154). An evaluation and `verifyReads` share it.
  *
  * @param machine - The machine.
  * @param ctx - The context of the host.
  * @returns The context at the root.
  */
 export function rootContext(machine: Machine, ctx: Context): Context {
+  if ((ctx as Granted)[EPOCH] === undefined) {
+    if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps) return ctx;
+    const root: Granted = { ...ctx, world: ctx.world === null ? worldThing(machine.world) : ctx.world, [GRANT]: ctx.caps };
+    return root;
+  }
+  // A context of the kernel as the context of the host gets the list of the host as its epoch.
   if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps && (ctx as Granted)[EPOCH] === ctx.caps) return ctx;
   const root: Granted = { ...ctx, world: ctx.world === null ? worldThing(machine.world) : ctx.world, [GRANT]: ctx.caps, [EPOCH]: ctx.caps };
   return root;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type AgreeOptions,
   type AgreeRunOptions,
+  type Cap,
   type CompiledEvaluator,
   type CompiledRunner,
   type Context,
@@ -1079,6 +1080,54 @@ describe("the disagreements that the harness found", () => {
     });
     expect(done.result).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
     expect(performed).toEqual([]);
+  });
+
+  it("[CAP.EPOCH-EQUAL] a kept context keeps its grant in a later evaluation with a new but equal list of the host, as the reference permits the effect", () => {
+    // The kind keeps the context of its first evaluation, also for a later plan, and gives it to its parts and its own effect.
+    let kept: Context | undefined;
+    const keep: CompiledEvaluator = {
+      compile: ({ parts, place }) => (ctx, rt) => {
+        kept ??= ctx;
+        const values = valuesOf(parts.map((part) => part.code(kept as Context, rt)));
+        return values.ok ? rt.effect(kept as Context, "log", values.value, place) : values;
+      },
+    };
+    const machine: Machine = {
+      ...widening,
+      world: { ...widening.world, kinds: { ...widening.world.kinds, keep: { verbs: { eval: "test.keep" }, parts: { shape: "list" }, effects: ["log"] } } },
+      evaluators: { ...widening.evaluators, "test.keep": keep },
+    };
+    const definitions: Definitions = {
+      ...WIDENING_DEFINITIONS,
+      evaluators: {
+        ...WIDENING_DEFINITIONS.evaluators,
+        "test.keep": ({ parts, effect }) => {
+          const values = valuesOf(parts.map((part) => part.evaluate()));
+          return values.ok ? effect("log", values.value) : values;
+        },
+      },
+    };
+    const options: AgreeOptions = { strict: true, definitions };
+    const log: Json = { type: "log", value: ["a"] };
+    const write: Json = { type: "write", value: { key: "k", value: { type: "number", value: 1 } } };
+    const doc: Json = { type: "keep", value: [log, write] };
+    // The host makes a new list for each evaluation: a text and a list of keys.
+    const caps = (): Cap[] => ["log", ["write"]];
+    expect(agree(machine, doc, context({ caps: caps() }), options)).toMatchObject({ ok: true, result: { ok: true } });
+    expect(kept?.caps).toEqual(caps());
+    // Before K153, the plan gave #CAP! for the new list, and the reference permitted each effect.
+    const again = agree(machine, doc, context({ caps: caps() }), options);
+    expect(again).toMatchObject({ ok: true, result: { ok: true } });
+    if (again.ok) expect(again.effects.map((effect) => effect.kind)).toEqual(["log", "write", "log"]);
+    // A list that is not equal is another epoch. Where the reference refuses the effect too, the tiers agree on #CAP!.
+    const refused = agree(machine, { type: "keep", value: [write] }, context({ caps: ["log"] }), options);
+    expect(refused).toMatchObject({ ok: true, result: { ok: false, error: { code: "#CAP!", place: [0] } } });
+    // A wider list, the same entries in another order and a text for a list of keys are also other epochs (CAP.NARROW-KEPT).
+    for (const other of [["log", ["write"], "read"], [["write"], "log"], ["log", "write"]] as const) {
+      const effects: Effect[] = [];
+      expect(prepare(machine, doc).evaluate(context({ caps: other }), { effects }), show(other)).toMatchObject({ ok: false, error: { code: "#CAP!", place: [0] } });
+      expect(effects).toEqual([]);
+    }
   });
 
   it("[RUN.WAIT] a runner that waits under a parent that cannot wait gives #CALC! with its own place", () => {
