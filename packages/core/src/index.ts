@@ -281,7 +281,21 @@ export {
   agreeSchedule,
 } from "./meaning.ts";
 export { type GraphCycle, type GraphEdge, type GraphNode, type GraphOptions, type NodeGraph, components, cycles, heights, necessary, nodeLayers } from "./graph.ts";
-export { type Recorder, type ReplayEntry, type ReplayLog, type ReplayOptions, type ReplaySettle, recorder, replayer } from "./replay.ts";
+export {
+  type Recorder,
+  type ReplayEntry,
+  type ReplayEntryJson,
+  type ReplayErrorJson,
+  type ReplayLog,
+  type ReplayLogJson,
+  type ReplayOptions,
+  type ReplayResultJson,
+  type ReplaySettle,
+  decodeLog,
+  encodeLog,
+  recorder,
+  replayer,
+} from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";
 export { type Domain, type DomainCodec, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";
 export { type PartType, type RootTypes, type TypeInput, type TypeProblem, type TypeRule, type Typed, CAPS_TYPE } from "./typing.ts";

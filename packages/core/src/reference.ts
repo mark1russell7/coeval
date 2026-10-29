@@ -513,6 +513,7 @@ function* together(env: Env, list: readonly RunPart[], options: AllOptions = {})
   outer.alls += 1;
   let failed = false;
   let started = 0;
+  let before = 0;
   const end = (index: number, result: Result): void => {
     results[index] = result;
     if (failFast && !result.ok) failed = true;
@@ -563,10 +564,11 @@ function* together(env: Env, list: readonly RunPart[], options: AllOptions = {})
   };
   startMore();
   while (waiting.length > 0 && !failed) {
-    const chosen = env.journal?.next?.(address, waiting.map((waiter) => waiter.index));
+    const chosen = env.journal?.next?.(address, waiting.map((waiter) => waiter.index), before);
     const pick = chosen === undefined ? undefined : waiting.find((waiter) => waiter.index === chosen);
     const resumed = (yield pick === undefined ? Promise.race(waiting.map((waiter) => waiter.next)) : pick.next) as Resumed;
     env.journal?.settled?.(address, resumed.waiter.index);
+    before += 1;
     waiting.splice(waiting.indexOf(resumed.waiter), 1);
     goOn(resumed.waiter.index, resumed.waiter.steps, resumed);
     startMore();
