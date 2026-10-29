@@ -2282,3 +2282,42 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 - An item of a list without a form leaves the list. Thus the later items get a lower index. The row K175 keeps the idea of a place for it.
 - An enumerable field that holds an exception has no part rule, for example `errors` on an `Error`. It is a name in `dropped`. The row K174 keeps this idea.
 - A host without `SuppressedError` gets an `Error` with that name and the hidden fields.
+
+## D78 (2026-10-29): an enumerable field of an exception that holds an exception gets parts, and a dropped item keeps its place
+
+**Context.** K174 and K175, from K173 (D77 Limits). An `Error` with an enumerable list `errors` of exceptions lost the list, because `encodeValue` cannot write an exception without a codec. An item of a hidden list without a form left the list. Thus each later item got a lower index.
+
+**Decision.**
+
+- `ReplayExceptionJson.parts` keeps each own enumerable field that `encodeValue` cannot write and that holds an exception (RUN.REPLAY-FIELDS). The value is an exception, or a list with one exception or more.
+- Each value in `parts` is a part, `ReplayPartJson`, as in `hidden`. A list is a list of parts, thus a list can mix term documents and exceptions.
+- An exception in `parts` has the rule of a cause. Thus a field that is the outer exception, or an earlier exception of the walk, is a `loop`.
+- The walk takes the fields in `parts` in the order of their keys, then the hidden fields in the order of D77, then the cause. `decodeLog` walks in the same order.
+- A field that `encodeValue` writes stays in `fields`, also an exception that a domain with a codec holds. A field without an exception and without a term document stays a name in `dropped`, as in D76.
+- An item of a list in `parts` or `hidden` without a form is the mark `{ "dropped": true }` at its place (RUN.REPLAY-HIDDEN). Its name stays in `dropped`, for example `errors.1`.
+- `decodeLog` gives a hole at the place of a mark. The list keeps its length, and each later item keeps its index. A hole of a list has no form, thus a new recording writes the mark again.
+- `decodeLog` gives each field of `parts` as an own enumerable field. The mark is only an item of a list. Another use of the mark gives `#VALUE!` with its place.
+- The form stays at the version 1. The field `parts` and the mark are optional, and a log without them decodes as before.
+
+**Rejected.**
+
+- An exception in `fields`. A term document and a part do not have one shape, thus a reader cannot tell them apart.
+- An enumerable field in `hidden`. Then `decodeLog` cannot give the field back as an enumerable field.
+- The hidden fields before `parts` in the walk. The order of the form is then not the order of the walk, and `parts` comes before `hidden` in the form.
+- `undefined` at the place of a dropped item. A host that maps the list then reads a field of `undefined` and fails. A hole is also `undefined` when a host reads it, and `map` skips it.
+- The removal of the item, as in D77. Then a `loop` to a later item stays correct, but a reader of the list gets each later item at another index.
+- Parts for each list without an exception. A list of plain values keeps the rule of D76, thus the form of each log before D78 stays the same.
+
+**Why.** An enumerable field with an exception holds the same facts as a hidden field of a standard class, thus it gets the same part rule. One fixed order of the walk keeps each `loop` exact. A mark costs one small record, and each later index stays exact.
+
+**Public types.** `ReplayExceptionJson.parts` is optional, and `ReplayPartJson` gets the new member `{ dropped: true }`. `encodeLog` and `decodeLog` are not in a release before 0.17.0, thus no released form changes. The change is a new feature: MINOR, in 0.17.0.
+
+**Changed expected values.** One test of RUN.REPLAY-HIDDEN changes. Before, a list `errors` with two items without a form gave one part, and `decodeLog` gave a list of one item. Since D78, the list has two marks, and `decodeLog` gives two holes at the indices 1 and 2.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception is a `TypeError` without fields.
+
+**Limits.**
+
+- A list without an exception and with one item without a form drops the full field, as in D76. The row K176 keeps the idea of a mark for that item.
+- `parts` holds an exception or a list of them. A record that holds an exception, for example `{ inner: error }`, is a name in `dropped`. The row K177 keeps this idea.
+- `decodeLog` gives a field of `parts` after the fields of term documents. Thus the order of the keys of a decoded exception can differ from the order of the host.

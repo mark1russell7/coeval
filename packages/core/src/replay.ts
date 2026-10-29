@@ -240,6 +240,11 @@ export interface ReplayExceptionJson {
   /** The term documents of the own fields of the exception that `encodeValue` writes, for example `code` or `errno`. */
   readonly fields?: Readonly<Record<string, Json>>;
   /**
+   * The own enumerable fields without a term document that hold an exception (RUN.REPLAY-FIELDS, D78), for example a
+   * list `errors` on an `Error`. A list is a list of parts. Each exception in them has the rule of a cause.
+   */
+  readonly parts?: Readonly<Record<string, ReplayPartJson | readonly ReplayPartJson[]>>;
+  /**
    * The names of the own fields without a term document, and `cause` for a cause without a form. This list is only a
    * note: `decodeLog` does not give these fields back.
    */
@@ -258,10 +263,15 @@ export interface ReplayExceptionJson {
 }
 
 /**
- * The JSON form of one value of a hidden field (D77): a term document, an exception, or the index of an earlier
- * exception. The walk is depth first: the hidden fields in their order, then the cause.
+ * The JSON form of one value of a field in `parts` or `hidden` (D77, D78). It is a term document, an exception, or the
+ * index of an earlier exception. The walk is depth first: the fields in `parts` in their order, the hidden fields, then the
+ * cause. The mark `dropped` keeps the place of an item of a list without a form, and `decodeLog` gives a hole there.
  */
-export type ReplayPartJson = { readonly value: Json } | { readonly exception: ReplayExceptionJson } | { readonly loop: number };
+export type ReplayPartJson =
+  | { readonly value: Json }
+  | { readonly exception: ReplayExceptionJson }
+  | { readonly loop: number }
+  | { readonly dropped: true };
 
 /** This function tells if a key is a field of an error value that the JSON form keeps. */
 function errorField(key: string): boolean {
@@ -275,7 +285,17 @@ function ownField(key: string): boolean {
 
 /** This function tells if a key is a field of the JSON form of an exception. */
 function exceptionField(key: string): boolean {
-  return key === "name" || key === "message" || key === "fields" || key === "dropped" || key === "hidden" || key === "cause" || key === "exception" || key === "loop";
+  return (
+    key === "name" ||
+    key === "message" ||
+    key === "fields" ||
+    key === "parts" ||
+    key === "dropped" ||
+    key === "hidden" ||
+    key === "cause" ||
+    key === "exception" ||
+    key === "loop"
+  );
 }
 
 /**
@@ -284,12 +304,15 @@ function exceptionField(key: string): boolean {
  */
 const HIDDEN: readonly string[] = /* @__PURE__ */ Object.freeze(["errors", "error", "suppressed"]);
 
-/** The form of one value of an exception in the walk of `exceptionJson`: a term document, a loop, or a later node. */
-type Part = { readonly value: Json } | { readonly loop: number } | { readonly node: number };
+/** The form of one value of an exception in the walk of `exceptionJson`: a term document, a loop, a mark, or a later node. */
+type Part = { readonly value: Json } | { readonly loop: number } | { readonly dropped: true } | { readonly node: number };
 
 /** One exception of the walk of `exceptionJson`, before its JSON form. */
 interface ExceptionNode {
   readonly head: { readonly name: string; readonly message: string; readonly fields?: Readonly<Record<string, Json>> };
+  readonly parts: Record<string, Part | Part[]>;
+  /** The keys of `parts` in the order of the walk. A single part gets its value later than a list, thus this list keeps the order. */
+  readonly order: readonly string[];
   readonly dropped: string[];
   readonly hidden: Record<string, Part | Part[]>;
   cause?: Part;
@@ -301,15 +324,47 @@ interface ExceptionTask {
   readonly owner: ExceptionNode;
   /** The name for `dropped`. An item of a list has the name of the field, a dot and its index. */
   readonly name: string;
+  /** The value `true` marks an item of a list. An item without a form then gets the mark `dropped` at its place (D78). */
+  readonly item: boolean;
+  /** The value `true` marks a hole of a list. A hole has no value, thus it has no form. */
+  readonly hole: boolean;
   readonly put: (part: Part) => void;
 }
 
 /**
+ * This function adds the tasks of the walk of `exceptionJson` for one value of a field. A list gives one task for each
+ * item, and each item keeps its index in the list of parts.
+ */
+function writeTasks(owner: ExceptionNode, into: Record<string, Part | Part[]>, key: string, value: unknown, children: ExceptionTask[]): void {
+  if (!Array.isArray(value)) {
+    const put = (part: Part): void => {
+      into[key] = part;
+    };
+    children.push({ value, owner, name: key, item: false, hole: false, put });
+    return;
+  }
+  const list: Part[] = [];
+  into[key] = list;
+  for (let item = 0; item < value.length; item += 1) {
+    const put = (part: Part): void => {
+      list[item] = part;
+    };
+    children.push({ value: value[item], owner, name: `${key}.${item}`, item: true, hole: !Object.hasOwn(value, item), put });
+  }
+}
+
+/** This function tells if a value is an exception, or a list that holds an exception (D78). */
+function holdsException(value: unknown): boolean {
+  return value instanceof Error || (Array.isArray(value) && value.some((item) => item instanceof Error));
+}
+
+/**
  * This function writes an exception, its hidden fields and the chain of its causes as JSON (RUN.REPLAY-CAUSES,
- * RUN.REPLAY-HIDDEN). A host makes the exception, thus a part without a term document is a note in `dropped`, not a
- * refusal (D75, D76). The walk gives each exception an index in the order of a depth-first walk: the hidden fields
- * in the order of `HIDDEN`, then the cause. A value that is an earlier exception of the walk is its index in `loop`
- * (D77). The walk is a loop, thus a long chain does not overflow the stack.
+ * RUN.REPLAY-HIDDEN, RUN.REPLAY-FIELDS). A host makes the exception, thus a part without a term document is a note in
+ * `dropped`, not a refusal (D75, D76). The walk gives each exception an index in the order of a depth-first walk. It
+ * takes the fields in `parts` in the order of their keys, the hidden fields in the order of `HIDDEN`, then the cause (D78). A
+ * value that is an earlier exception of the walk is its index in `loop` (D77). The walk is a loop, thus a long chain
+ * does not overflow the stack.
  */
 function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayExceptionJson {
   const nodes: ExceptionNode[] = [];
@@ -320,18 +375,23 @@ function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayE
     index.set(current, at);
     const dropped: string[] = [];
     const fields: [string, Json][] = [];
+    const linked: [string, unknown][] = [];
     for (const key of Object.keys(current)) {
       if (ownField(key)) continue;
+      let value: unknown;
       try {
-        fields.push([key, encodeValue(machine, (current as unknown as Record<string, unknown>)[key])]);
+        value = (current as unknown as Record<string, unknown>)[key];
+        fields.push([key, encodeValue(machine, value)]);
       } catch {
-        dropped.push(key);
+        if (holdsException(value)) linked.push([key, value]);
+        else dropped.push(key);
       }
     }
     const head = { name: String(current.name), message: String(current.message), ...(fields.length === 0 ? {} : { fields: Object.fromEntries(fields) }) };
-    const node: ExceptionNode = { head, dropped, hidden: {} };
+    const node: ExceptionNode = { head, parts: {}, order: linked.map(([key]) => key), dropped, hidden: {} };
     nodes.push(node);
     const children: ExceptionTask[] = [];
+    for (const [key, value] of linked) writeTasks(node, node.parts, key, value, children);
     for (const key of HIDDEN) {
       if (Object.getOwnPropertyDescriptor(current, key)?.enumerable !== false) continue;
       let value: unknown;
@@ -341,31 +401,28 @@ function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayE
         dropped.push(key);
         continue;
       }
-      if (!Array.isArray(value)) {
-        const put = (part: Part): void => {
-          node.hidden[key] = part;
-        };
-        children.push({ value, owner: node, name: key, put });
-        continue;
-      }
-      const list: Part[] = [];
-      node.hidden[key] = list;
-      const put = (part: Part): void => {
-        list.push(part);
-      };
-      for (let item = 0; item < value.length; item += 1) children.push({ value: value[item], owner: node, name: `${key}.${item}`, put });
+      writeTasks(node, node.hidden, key, value, children);
     }
     if (Object.hasOwn(current, "cause")) {
       const put = (part: Part): void => {
         node.cause = part;
       };
-      children.push({ value: current.cause, owner: node, name: "cause", put });
+      children.push({ value: current.cause, owner: node, name: "cause", item: false, hole: false, put });
     }
     for (let place = children.length - 1; place >= 0; place -= 1) tasks.push(children[place] as ExceptionTask);
     return at;
   };
   open(first);
+  // An item of a list without a form keeps its place with the mark, thus each later item keeps its index (D78).
+  const drop = (task: ExceptionTask): void => {
+    task.owner.dropped.push(task.name);
+    if (task.item) task.put({ dropped: true });
+  };
   for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    if (task.hole) {
+      drop(task);
+      continue;
+    }
     const loop = index.get(task.value);
     if (loop !== undefined) {
       task.put({ loop });
@@ -376,7 +433,7 @@ function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayE
       value = encodeValue(machine, task.value);
     } catch {
       if (task.value instanceof Error) task.put({ node: open(task.value) });
-      else task.owner.dropped.push(task.name);
+      else drop(task);
       continue;
     }
     task.put({ value });
@@ -384,15 +441,27 @@ function exceptionJson(machine: Pick<Machine, "domains">, first: Error): ReplayE
   // A node of the walk has a higher index than its owner, thus the forms grow from the last node to the first.
   const built: ReplayExceptionJson[] = [];
   const formOf = (part: Part): ReplayPartJson => ("node" in part ? { exception: built[part.node] as ReplayExceptionJson } : part);
-  for (let at = nodes.length - 1; at >= 0; at -= 1) {
-    const { head, dropped, hidden, cause } = nodes[at] as ExceptionNode;
+  const formsOf = (record: Record<string, Part | Part[]>, keys: readonly string[]): [string, ReplayPartJson | ReplayPartJson[]][] => {
     const kept: [string, ReplayPartJson | ReplayPartJson[]][] = [];
-    for (const key of HIDDEN) {
-      const part = hidden[key];
+    for (const key of keys) {
+      const part = record[key];
       if (part !== undefined) kept.push([key, Array.isArray(part) ? part.map(formOf) : formOf(part)]);
     }
-    const link = cause === undefined ? {} : "value" in cause ? { cause: cause.value } : "loop" in cause ? cause : { exception: built[cause.node] as ReplayExceptionJson };
-    built[at] = { ...head, ...(dropped.length === 0 ? {} : { dropped }), ...(kept.length === 0 ? {} : { hidden: Object.fromEntries(kept) }), ...link };
+    return kept;
+  };
+  for (let at = nodes.length - 1; at >= 0; at -= 1) {
+    const { head, parts, order, dropped, hidden, cause } = nodes[at] as ExceptionNode;
+    const linked = formsOf(parts, order);
+    const kept = formsOf(hidden, HIDDEN);
+    // A cause is not an item of a list, thus it never has the mark.
+    const link = cause === undefined || "dropped" in cause ? {} : "value" in cause ? { cause: cause.value } : "loop" in cause ? cause : { exception: built[cause.node] as ReplayExceptionJson };
+    built[at] = {
+      ...head,
+      ...(linked.length === 0 ? {} : { parts: Object.fromEntries(linked) }),
+      ...(dropped.length === 0 ? {} : { dropped }),
+      ...(kept.length === 0 ? {} : { hidden: Object.fromEntries(kept) }),
+      ...link,
+    };
   }
   return built[0] as ReplayExceptionJson;
 }
@@ -438,6 +507,8 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   The list `dropped` names each other own field. A cause that is an earlier exception of the chain is its index in `loop`.
  * - An exception keeps the hidden fields of the standard classes in `hidden`, for example `errors` of an
  *   `AggregateError` (RUN.REPLAY-HIDDEN, D77). Each exception in them has the rule of a cause.
+ * - An enumerable field that holds an exception, or a list with an exception, is in `parts` (RUN.REPLAY-FIELDS, D78).
+ *   An item of a list without a form is the mark `dropped` at its place.
  * - An outcome that the log does not have stays absent.
  *
  * @param machine - The machine of the run, or only its domains.
@@ -568,29 +639,29 @@ function readException(kit: Machine, data: unknown, place: readonly Key[]): Resu
     if (dropped !== undefined && !(Array.isArray(dropped) && dropped.every((name) => typeof name === "string"))) return bad([...where, "dropped"], "the list dropped holds texts.");
     chain.push(made);
     const children: ReadTask[] = [];
+    const taken = (key: string): boolean => isRecord(fields) && Object.hasOwn(fields, key);
+    const parts = at["parts"];
+    if (parts !== undefined) {
+      if (!isRecord(parts)) return bad([...where, "parts"], "the parts of an exception are a record.");
+      for (const key of Object.keys(parts)) {
+        if (ownField(key) || taken(key)) return bad([...where, "parts", key], `the field ${key} of an exception is not in its parts.`);
+        const show = (value: unknown): void => {
+          Object.defineProperty(made, key, { value, writable: true, enumerable: true, configurable: true });
+        };
+        const read = readTasks(parts[key], [...where, "parts", key], show, children);
+        if (!read.ok) return read;
+      }
+    }
     const hidden = at["hidden"];
     if (hidden !== undefined) {
       if (!isRecord(hidden)) return bad([...where, "hidden"], "the hidden fields of an exception are a record.");
       for (const key of Object.keys(hidden)) {
-        if (!HIDDEN.includes(key) || (isRecord(fields) && Object.hasOwn(fields, key))) return bad([...where, "hidden", key], `an exception has no hidden field ${key}.`);
+        if (!HIDDEN.includes(key) || taken(key) || (isRecord(parts) && Object.hasOwn(parts, key))) return bad([...where, "hidden", key], `an exception has no hidden field ${key}.`);
       }
       for (const key of HIDDEN) {
         if (!Object.hasOwn(hidden, key)) continue;
-        const parts: unknown = hidden[key];
-        const spot = [...where, "hidden", key];
-        if (!Array.isArray(parts)) {
-          const task = partTask(parts, spot, (value) => hide(made, key, value));
-          if (!task.ok) return task;
-          children.push(task.value);
-          continue;
-        }
-        const list: unknown[] = [];
-        hide(made, key, list);
-        for (let item = 0; item < parts.length; item += 1) {
-          const task = partTask(parts[item], [...spot, item], (value) => list.push(value));
-          if (!task.ok) return task;
-          children.push(task.value);
-        }
+        const read = readTasks(hidden[key], [...where, "hidden", key], (value) => hide(made, key, value), children);
+        if (!read.ok) return read;
       }
     }
     const record = at;
@@ -605,6 +676,8 @@ function readException(kit: Machine, data: unknown, place: readonly Key[]): Resu
   if (!first.ok) return first;
   for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
     const { kind, data: part, where } = task;
+    // The mark keeps the place of an item without a form: the list keeps a hole there (D78).
+    if (kind === "dropped") continue;
     if (kind === "loop") {
       if (typeof part !== "number" || !Number.isInteger(part) || part < 0 || part >= chain.length) return bad(where, "a loop is the index of an exception of the chain until this one.");
       task.put(chain[part]);
@@ -617,12 +690,42 @@ function readException(kit: Machine, data: unknown, place: readonly Key[]): Resu
   return first;
 }
 
-/** This function reads one part of a hidden field: a record with only one of the fields `value`, `exception` and `loop`. */
-function partTask(data: unknown, where: readonly Key[], put: (value: unknown) => void): Result<ReadTask> {
+/**
+ * This function reads the parts of one field in `parts` or `hidden`, and it adds their tasks. A list gets its length
+ * at once, thus the mark `dropped` leaves a hole at its place, and each later item keeps its index (D78).
+ */
+function readTasks(data: unknown, where: readonly Key[], define: (value: unknown) => void, children: ReadTask[]): Result<true> {
+  if (!Array.isArray(data)) {
+    const task = partTask(data, where, false, define);
+    if (!task.ok) return task;
+    // The field gets its place in the order of the keys at once, and the walk gives its value later.
+    define(undefined);
+    children.push(task.value);
+    return ok(true);
+  }
+  const list: unknown[] = [];
+  list.length = data.length;
+  define(list);
+  for (let item = 0; item < data.length; item += 1) {
+    const task = partTask(data[item], [...where, item], true, (value) => {
+      list[item] = value;
+    });
+    if (!task.ok) return task;
+    children.push(task.value);
+  }
+  return ok(true);
+}
+
+/**
+ * This function reads one part: a record with only one of the fields `value`, `exception` and `loop`. An item of a
+ * list can also be the mark `{ "dropped": true }`.
+ */
+function partTask(data: unknown, where: readonly Key[], item: boolean, put: (value: unknown) => void): Result<ReadTask> {
   const keys = isRecord(data) ? Object.keys(data) : [];
   const kind = keys[0];
-  if (!isRecord(data) || keys.length !== 1 || kind === undefined || !PARTS.includes(kind)) {
-    return bad(where, "a hidden field is a part or a list of parts, and a part is a record with only one of the fields value, exception and loop.");
+  const mark = kind === "dropped" && item && isRecord(data) && data[kind] === true;
+  if (!isRecord(data) || keys.length !== 1 || kind === undefined || !(PARTS.includes(kind) || mark)) {
+    return bad(where, "a field of parts is a part or a list of parts. A part has only one of the fields value, exception and loop, or an item is the mark dropped.");
   }
   return ok({ kind, data: data[kind], where: [...where, kind], put });
 }
@@ -630,7 +733,7 @@ function partTask(data: unknown, where: readonly Key[], put: (value: unknown) =>
 /** The fields of the JSON form of an exception that give its cause. */
 const LINKS: readonly string[] = /* @__PURE__ */ Object.freeze(["cause", "exception", "loop"]);
 
-/** The fields of the JSON form of a part of a hidden field. */
+/** The fields of the JSON form of a part of a field in `parts` or `hidden`. */
 const PARTS: readonly string[] = /* @__PURE__ */ Object.freeze(["value", "exception", "loop"]);
 
 /** This function reads the JSON form of one effect again. */
@@ -661,7 +764,8 @@ function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<R
 /**
  * This function reads the JSON form of a log again (RUN.REPLAY-JSON). It reads each term document with the formula kit
  * and the domains of the machine. A cause in the field `exception` becomes an exception with that name and message.
- * The exception gets its fields and the chain of its causes again, also a cycle (RUN.REPLAY-CAUSES).
+ * The exception gets its fields and the chain of its causes again, also a cycle (RUN.REPLAY-CAUSES). A list gets a
+ * hole at the place of the mark `dropped`, thus each later item keeps its index (D78).
  *
  * @param machine - The machine of the run, or only its domains.
  * @param data - The JSON form, for example from `JSON.parse` of a golden file.
