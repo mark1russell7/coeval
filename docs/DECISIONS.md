@@ -1904,9 +1904,53 @@ A closure with a tree node in its body kept the reads of `factsOf` only (READS.C
 
 The walk of the equation costs the time of `factsOf`. A host computes the facts one time for each document, and `durable` keeps them. Each other case of the plans and the formulas stays in its bound.
 
-The change of PLAN.COMPILE-SPEED is noise of the runner, not a gain of K166. `prepare` does not call `factsOf`, and K166 changed no code that `prepare` calls. The first bench, in the workflow 40806760672, gave -8.4%. The bench of the last head e9d1b6a, in the workflow 40807342694, gave +2.4% (+1.6%), in its bound. The heads 10720b6 and e9d1b6a have the same code, and only the runners were different (D70).
+The change of PLAN.COMPILE-SPEED is noise of the runner, not a gain of K166. `prepare` does not use `factsOf`, and K166 changed no code that `prepare` uses. The first bench, in the workflow 40806760672, gave -8.4%. The bench of the last head e9d1b6a, in the workflow 40807342694, gave +2.4% (+1.6%), in its bound. The heads 10720b6 and e9d1b6a have the same code, and only the runners were different (D70).
 
 **Limits.**
 
 - The reads of an equation have the place of the first document of the kind, not the place of each document of the kind.
 - A kind with a tree contract and another evaluator also gets the reads of its equations. That is safe, but its schedule can get an edge that its evaluation does not use.
+
+## D70 (2026-10-29): the kernel keeps the code of D66, because no part of K154 gives the time of two reference cases back
+
+**Context.** K164, from the Limits of D66. The bench of PR #126 gave five cases of a reference 2.7% to 4.7% slower than `main` at 22d94f4. A variant without an epoch gave such a change too. The design questions are which cases stay slower, and which part of the change costs the time.
+
+**Decision.**
+
+- The kernel keeps the code of D66, and no code changes.
+- Two of the five cases are slower in two runs: the formula with a list of reads and the reference of five steps. The other three cases do not repeat.
+- No variant of a part gives the time back without a cost of 6% to 24% in another case (below).
+
+**Rejected.**
+
+- The field of the epoch on each root again (V1). The list of reads and the step document get 3% back. FORMULA.SPEED, PLAN.FOLD, PLAN.FIXED and PLAN.PATH become 6% to 9% slower.
+- `readable` as one function, without its first test (V2). Six cases become 2% to 9% slower.
+- A session that gives its own root to the resolution without `readable` (V3). The two slower cases do not change, and a formula with a fixed name and a free name becomes 23.5% slower.
+- A change of the key `RUNTIME` of K165 on the input of an evaluator. The formula kit compiles each evaluator, thus these cases do not make that input. The bench of PR #128 gave each of the five cases in its bound.
+
+**Why.** No single part holds the cost. A session that does not use `readable` for its root gives the same time, thus the first test of `readable` costs nothing. The variant without an epoch of D66 also gave a reference of five steps +4.6%. Thus the cost comes from the form of the code that the engine compiles, as in D50. The gains of D66 in PLAN.FOLD, PLAN.FIXED and FORMULA.SPEED are larger than the cost.
+
+**Measured (K164).** Two benches of CI compared `main` at 8ae6491 with 22d94f4, the parent of K154. A cell gives the change and the noise (A/A) in parentheses. A case is slower only when its change is over the bound in both runs. The bound is 1.5% or two times the noise, whichever is larger.
+
+| Case | Workflow 40807793509 | Workflow 40807795964 | Slower in both runs |
+| --- | ---: | ---: | --- |
+| The formula with a list of reads | +5.5% (-0.1%) | +4.8% (+0.5%) | yes |
+| A reference of five steps | +2.9% (+0.1%) | +3.5% (+0.1%) | yes |
+| A reference into a host thing with `resolve` | +11.1% (-0.3%) | -2.7% (0.0%) | no |
+| A reference through an envelope | +1.4% (-0.2%) | -2.2% (+0.6%) | no |
+| PLAN.PATH, the same path without the declaration | -1.6% (0.0%) | -2.2% (-0.1%) | no |
+| A reference with a step document | +8.2% (-0.7%) | +4.9% (+0.3%) | yes |
+
+Each variant then went in one bench against `main` at 8ae6491. A negative change is a gain of the variant.
+
+| Variant | List of reads | Five steps | Step document | Largest other change | Run |
+| --- | ---: | ---: | ---: | --- | --- |
+| V1: the root has the field of the epoch | -3.2% (0.0%) | -0.1% (-0.5%) | -2.6% (+0.3%) | PLAN.FIXED path +9.4%, PLAN.FOLD +9.1% | 40808521422 |
+| V2: `readable` without its first test | +0.2% (-0.5%) | +5.5% (+0.1%) | +8.7% (+0.3%) | host thing +7.9% | 40808523956 |
+| V3: the session gives its root at once | -0.7% (-0.1%) | +1.0% (0.0%) | +0.4% (+0.6%) | PLAN.FIXED formula +23.5% | 40808526055 |
+
+**Limits.**
+
+- The reference with a step document is a sixth case that is slower in both runs. The two benches of PR #126 gave -1.2% for it. The benches of PR #127, #128 and #129 each gave it in its bound. Thus small changes of the code add up in such a case.
+- The runners of CI are not all the same machine. The same case took 107 ns on one runner and 206 ns on another, and the change of a case can have another sign on each.
+- PLAN.COMPILE-SPEED is faster than 22d94f4 in both runs, -4.6% and -7.2%. D69 shows that this case also changes with the runner.
