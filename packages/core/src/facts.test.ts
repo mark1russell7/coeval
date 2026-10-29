@@ -652,6 +652,49 @@ describe("factsOf", () => {
     expect(factsOf(peeker, { type: "peek", value: null }, { volatile: (read) => read.root === "event" }).volatile).toBe(true);
   });
 
+  it("[FACTS.EQUATIONS] the first document of a tree kind gets the static reads of its equations, without the reads from self and from the names of a rung", () => {
+    const sum = (...items: Json[]): Json => ({ type: "add", value: items });
+    const node = (tree: Kind["tree"]): Kind => ({
+      verbs: { eval: "tree.node" },
+      parts: { shape: "record", fields: {}, rest: { shape: "term", of: "number" } },
+      caps: [{ rule: "mask" }],
+      pure: true,
+      lazy: [{}],
+      reads: ["self"],
+      ...(tree === undefined ? {} : { tree }),
+    });
+    const row = node({
+      equations: { base: sum(ref("self", "parent", "base"), ref("event", "a")), inner: { type: "inner", value: {} }, again: { type: "row", value: {} } },
+      down: { left: sum(ref("self", "base"), ref("names", "index"), ref("names", "other")) },
+      attributes: { total: { fold: { unit: ref("world", "unit"), combine: sum(ref("names", "acc"), ref("names", "item")) } }, mark: { default: ref("caps", 0) } },
+    });
+    const inner = node({ equations: { b: ref("event", "b", { type: "nearest", value: { type: "panel" } }) } });
+    const machine: Machine = { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, row, inner } } };
+    const doc = { type: "list", value: [1, { type: "row", value: { children: { type: "list", value: [{ type: "row", value: { x: ref("self", "left") } }] } } }] };
+    const facts = factsOf(machine, doc);
+    // A read from self or from a name that the rung binds is not free (READS.EQUATION). The kind of a nested node and
+    // the kind itself in an equation give their reads one time. Each read of an equation is lazy, at the first document of its kind.
+    expect(facts.reads.map((read) => [read.path, read.exact, read.lazy, read.place])).toEqual([
+      [["self"], true, false, [1]],
+      [["event", "a"], true, true, [1]],
+      [["event", "b", { type: "nearest", value: { type: "panel" } }], false, true, [1]],
+      [["names", "other"], true, true, [1]],
+      [["world", "unit"], true, true, [1]],
+      [["caps", 0], true, true, [1]],
+      [["self"], true, true, [1, "children", 0]],
+      [["self", "left"], true, true, [1, "children", 0, "x"]],
+    ]);
+    expect(facts.reads[2]).toMatchObject({ root: "event", keys: ["b"] });
+    expect(facts).toMatchObject({ pure: true, volatile: false, effects: [], side: "derive", size: 5 });
+    // An effect in an equation never reaches the host, and the document is not pure. A host marks a read of an equation volatile.
+    const logs: Machine = { ...machine, world: { ...machine.world, kinds: { ...machine.world.kinds, row: node({ equations: { said: { type: "log", value: ["x"] } } }) } } };
+    expect(factsOf(logs, { type: "row", value: {} })).toMatchObject({ pure: false, effects: [], side: "derive" });
+    expect(factsOf(machine, doc, { volatile: (read) => read.root === "world" })).toMatchObject({ pure: false, volatile: true });
+    // The reads of an equation do not depend on the verb.
+    const others = (found: DocFacts): readonly (readonly Json[])[] => found.reads.filter((read) => read.root !== "self").map((read) => read.path);
+    expect(others(factsOf(machine, doc, { verb: "view" }))).toEqual(others(facts));
+  });
+
   it("[FACTS.VERB] the option verb names the verb whose code the facts describe, and only the hook describes the code of another verb", () => {
     const formats: Machine = { ...STD_MACHINE, world: { ...STD_MACHINE.world, defaults: { ...STD_MACHINE.world.defaults, format: "show" } } };
     const doc = { type: "if", value: { test: ref("names", "t"), then: ref("names", "a") } };

@@ -220,6 +220,14 @@ export const CASES: readonly Case[] = [
     },
   },
   {
+    // The static facts of the same node: factsOf walks the equations of its kind too (FACTS.EQUATIONS, D69).
+    name: "factsOf a tree with an equation",
+    make: (k) => {
+      const machine = treeMachine(k);
+      return () => k.factsOf(machine, TREE);
+    },
+  },
+  {
     // The cost of a compilation, as PLAN.COMPILE-SPEED measures it.
     name: "PLAN.COMPILE-SPEED prepare",
     make: (k) => {
