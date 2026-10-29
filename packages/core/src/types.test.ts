@@ -584,6 +584,20 @@ describe("value types and value domains", () => {
     expect(fits("color", "number", without.domains)).toBe(true);
   });
 
+  it("[TYPE.MERGE] a merge compares the codecs of two domains (D80)", () => {
+    const codec = { encode: (value: unknown) => String(value), decode: (data: Json) => BigInt(data as string) };
+    const big: Domain = { is: (value) => typeof value === "bigint", codec };
+    // The same functions give one domain, also in a copy of the codec.
+    expect(mergeMachines({ domains: { big } }, { domains: { big: { ...big, codec: { ...codec } } } }).domains?.["big"]).toBe(big);
+    // Another codec, or no codec, gives another document for the same member, thus it is a conflict.
+    const other = { ...codec, encode: (value: unknown) => `n${String(value)}` };
+    expect(conflictsOf(() => mergeMachines({ domains: { big } }, { domains: { big: { ...big, codec: other } } })).map((item) => item.path)).toEqual([["domains", "big"]]);
+    expect(conflictsOf(() => mergeMachines({ domains: { big } }, { domains: { big: { is: big.is } } }))).toHaveLength(1);
+    // The later part names the path in replaces, and its codec wins.
+    const replaced = mergeMachines({ domains: { big } }, { domains: { big: { ...big, codec: other } }, replaces: [["domains", "big"]] });
+    expect(replaced.domains?.["big"]?.codec).toBe(other);
+  });
+
   it("[TYPE.JOIN] the join holds each member of both types, and both types fit it, for generated types without unknown", () => {
     const pool = poolOf(31, 50, false);
     const rng = random(13);

@@ -21,6 +21,8 @@ import {
   STD_DOMAINS,
   check,
   context,
+  decodeValue,
+  encodeValue,
   evaluate,
   extendDomain,
   fail,
@@ -819,6 +821,22 @@ describe("the types of the roots, of the names and of the paths", () => {
     const empty: Machine = { world: { kinds: {}, defaults: {} }, evaluators: {} };
     expect(extendDomain("number", { under: ["quantity"] })(empty)).toEqual({ domains: { number: { ...STD_DOMAINS["number"], under: ["quantity"] } }, replaces: [["domains", "number"]] });
     expect(extendDomain("lenght", { under: ["quantity"] })(base)).toEqual({});
+  });
+
+  it("[TYPE.PARENTS] extendDomain keeps the codec of the domain, thus a member keeps its JSON form (D80)", () => {
+    const codec = { encode: (value: unknown) => String(value), decode: (data: Json) => BigInt(data as string) };
+    const big: Domain = { is: (value) => typeof value === "bigint", summary: "A whole number of any size.", codec };
+    const whole: Domain = { is: (value) => typeof value === "bigint" || Number.isInteger(value), summary: "A whole number." };
+    const base = formulaMachine({}, { domains: { big, whole } });
+    const joined = mergeMachines(base, extendDomain("big", { under: ["whole"] }));
+    expect(joined.domains?.["big"]).toEqual({ is: big.is, under: ["whole"], summary: big.summary, codec });
+    // The member has the same document before and after the extension.
+    const doc = { type: ["ext", "domain"], value: { domain: "big", data: "12345678901234567890" } };
+    expect(encodeValue(base, 12345678901234567890n)).toEqual(doc);
+    expect(encodeValue(joined, 12345678901234567890n)).toEqual(doc);
+    expect(decodeValue(joined, doc)).toEqual(ok(12345678901234567890n));
+    // A domain without a codec gets no codec from the extension.
+    expect(extendDomain("whole", { under: ["number"] })(base).domains?.["whole"]).not.toHaveProperty("codec");
   });
 
   it("[TYPE.ROOTS-SOUND] for generated root types and contexts of their members, a document that checks evaluates to members of its types", () => {

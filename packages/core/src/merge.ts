@@ -89,11 +89,21 @@ function same(a: unknown, b: unknown): boolean {
 
 /**
  * Two domains are the same when they are one object. They are also the same when they have the same test `is`,
- * parents, summary, steps and list of values. Thus two languages that give one test under one name give one domain.
+ * parents, summary, steps, codec and list of values. Thus two languages that give one test under one name give one
+ * domain. Two codecs are the same when they have the same functions `encode` and `decode` (D80).
  */
 function sameDomain(a: Domain, b: Domain): boolean {
   if (a === b) return true;
-  return a.is === b.is && same(a.under ?? [], b.under ?? []) && a.summary === b.summary && same(a.steps ?? {}, b.steps ?? {}) && same(a.values ?? null, b.values ?? null);
+  // The type names each field of Domain, thus a new field fails the check of types until the merge compares it (K180).
+  const fields: { readonly [K in keyof Domain]-?: boolean } = {
+    is: a.is === b.is,
+    under: same(a.under ?? [], b.under ?? []),
+    summary: a.summary === b.summary,
+    steps: same(a.steps ?? {}, b.steps ?? {}),
+    codec: same(a.codec ?? null, b.codec ?? null),
+    values: same(a.values ?? null, b.values ?? null),
+  };
+  return Object.values(fields).every(Boolean);
 }
 
 /** What `extendDomain` adds to a domain: more parents, and the types of more steps. */
@@ -107,8 +117,10 @@ export interface DomainExtension {
 /**
  * This function makes a part of a merge that adds parents or steps to a domain of an earlier part (TYPE.PARENTS). An
  * example is a domain of another language. The part reads the domain from the merge before it (`prev`). It gives a
- * copy with the same test, summary and list of values, and it names `["domains", name]` in `replaces` (D17). A
- * domain of the kernel that the earlier parts do not name comes from `STD_DOMAINS`.
+ * copy with the same test, summary, codec and list of values, and it names `["domains", name]` in `replaces` (D17).
+ * A domain of the kernel that the earlier parts do not name comes from `STD_DOMAINS`.
+ *
+ * An extension does not change the codec. Thus each member keeps its document (D80).
  *
  * A new parent adds its test to the domain (TYPE.MEMBER). Thus `fits` stays sound, but a value that fails the test of
  * the parent is no longer a member. The language that adds the parent keeps the signatures of the other language
@@ -126,16 +138,21 @@ export function extendDomain(name: string, more: DomainExtension): (prev: Machin
     const under = [...(found.under ?? [])];
     for (const parent of more.under ?? []) if (parent !== name && !under.includes(parent)) under.push(parent);
     const steps = { ...found.steps, ...more.steps };
-    const domain: Domain = {
+    // The type names each field of Domain, thus a new field fails the check of types until the copy reads it (K180).
+    const fields: { readonly [K in keyof Domain]-?: Domain[K] | undefined } = {
       is: found.is,
-      ...(under.length === 0 ? {} : { under }),
-      ...(found.summary === undefined ? {} : { summary: found.summary }),
-      ...(Object.keys(steps).length === 0 ? {} : { steps }),
+      under: under.length === 0 ? undefined : under,
+      summary: found.summary,
+      steps: Object.keys(steps).length === 0 ? undefined : steps,
+      // A new parent only adds a test, thus each member keeps its document (D80).
+      codec: found.codec,
       // A new parent only adds a test, thus the list of values stays complete (TYPE.FITS-FINITE).
-      ...(found.values === undefined ? {} : { values: found.values }),
+      values: found.values,
     };
+    const domain: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(fields)) if (value !== undefined) domain[key] = value;
     const domains: Record<string, Domain> = {};
-    setOwn(domains, name, domain);
+    setOwn(domains, name, domain as unknown as Domain);
     return { domains, replaces: [["domains", name]] };
   };
 }

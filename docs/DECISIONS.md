@@ -2365,3 +2365,41 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 - The language keeps `values` complete. A list without a member makes `fits` unsound for that domain, as a wrong `steps` makes a path wrong.
 - An open record does not split a field over a union (K178). A type with more than 64 members gets no finite rule.
 - Two domains that cover a base type together do not fit it (K179). A domain cannot declare such a cover.
+
+## D80 (2026-10-29): `extendDomain` keeps the codec of a domain, and a merge compares the codecs
+
+**Context.** K180, found by K48 (D79). `extendDomain` copied a domain field by field and dropped `codec`. A member of the extended domain then had no `ext.domain` document. Thus `encodeValue` and `encodeLog` threw a `TypeError` for it (D40, D75).
+
+`mergeMachines` also did not compare `codec`. Two domains that differ only in their codec gave one domain. The merge kept the earlier codec without a conflict.
+
+**Audit.** The fields of `Domain` against both functions:
+
+| Field | `extendDomain` before | `mergeMachines` before | Since D80 |
+|---|---|---|---|
+| `is` | kept | compared | no change |
+| `under` | kept, with the new parents | compared | no change |
+| `summary` | kept | compared | no change |
+| `steps` | kept, with the new steps | compared | no change |
+| `codec` | dropped | not compared | kept and compared |
+| `values` | kept (D79) | compared (D79) | no change |
+
+**Decision.**
+
+- `extendDomain` keeps the codec of the domain. `DomainExtension` gets no field for a codec. Thus an extension does not change the codec.
+- `mergeMachines` compares the codecs of two domains with one name. Two codecs are the same when they are one object, or plain records with the same functions `encode` and `decode`.
+- Another codec, or a codec on one side only, is a conflict. The later part resolves it with `["domains", name]` in `replaces` (D17).
+- In both functions, a mapped type names each field of `Domain`. Thus a new field of `Domain` fails the check of types until both functions read it.
+
+**Rejected.**
+
+- A codec in `DomainExtension`. Another codec gives another document for the same member, thus two languages write two documents for one value (D12). A language that needs another codec replaces the domain.
+- A merge that keeps the one codec when only one side has a codec. Then one part gives the members no document, and the other part gives them a document. D17 makes such a pair a conflict.
+- A comparison of codecs by their output. A codec is a pair of host functions, and a merge cannot test them on each member. The test `is` has the same rule.
+
+**Why.** The document of a member must not change when a language adds a parent to its domain. Thus the copy keeps the codec, and the merge refuses two codecs for one name.
+
+**Public types.** No type changes. `extendDomain` gives a domain with its codec. A merge of two different codecs for one name is a conflict since D80. The fix changes observable values: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** No expected value of an earlier test changes. A new test of TYPE.PARENTS and a new test of TYPE.MERGE show the bug.
+
+**Limits.** Two codecs with separate functions that write the same JSON are a conflict, as two separate but equal tests are. Two languages share one codec object, or the later language replaces the domain.
