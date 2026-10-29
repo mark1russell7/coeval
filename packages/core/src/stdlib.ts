@@ -133,6 +133,11 @@ export const STD_WORLD: World = {
  * not write its own profile. The operators `>`, `+` and `*` make `greater`, `add` and `multiply`. A call form makes
  * each other kind, and `ref` uses the reference syntax of the kit.
  *
+ * A literal in a place that takes a document gets its data envelope (K159, D65). Such a place is a part of `if`,
+ * `list`, `seq` or `pure`, the value of `write`, or the whole text. The document after a header name is such a place
+ * too. Thus `list(1, "a")` evaluates to `[1, "a"]`. The forms `add`, `multiply` and `greater` write an operator document that its operator
+ * does not write, for example `add(5)` (K163).
+ *
  * A host with more kinds spreads this profile and adds its forms to `calls.forms`. `STD_SYNTAX` stays the profile of
  * the formula kit.
  */
@@ -145,12 +150,12 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
   calls: {
     ops: [],
     forms: [
-      { name: "if", kind: "if", fields: ["test", "then", "else"], min: 2 },
-      { name: "list", kind: "list" },
-      { name: "seq", kind: "seq" },
-      { name: "pure", kind: "pure", min: 1 },
+      { name: "if", kind: "if", fields: ["test", "then", "else"], min: 2, wrap: true },
+      { name: "list", kind: "list", wrap: true },
+      { name: "seq", kind: "seq", wrap: true },
+      { name: "pure", kind: "pure", min: 1, wrap: true },
       { name: "log", kind: "log", min: 1 },
-      { name: "write", kind: "write", fields: ["key", "value"] },
+      { name: "write", kind: "write", fields: ["key", "value"], wrap: ["value"] },
       { name: "math.sum", kind: "math.sum" },
       { name: "math.product", kind: "math.product" },
       { name: "number", kind: "number", args: "literal" },
@@ -159,8 +164,13 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "panel", kind: "panel", args: "named", fields: ["width", "height", "children"] },
       { name: "box", kind: "box", args: "named", fields: ["width", "height", "children"] },
       { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
+      // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
+      { name: "add", kind: "add" },
+      { name: "multiply", kind: "multiply" },
+      { name: "greater", kind: "greater" },
     ],
   },
+  literals: { envelopes: { number: "number", text: "text", bool: "bool" } },
   header: { bind: "=" },
 } satisfies SyntaxProfile);
 

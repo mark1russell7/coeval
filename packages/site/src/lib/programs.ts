@@ -53,7 +53,7 @@ export const VALUES: readonly Json[] = [
   { type: "number", value: 42 },
   { type: "text", value: "Notes" },
   { type: "bool", value: true },
-  { type: "list", value: [1, 2, 3] },
+  { type: "list", value: [{ type: "number", value: 1 }, { type: "number", value: 2 }, { type: "number", value: 3 }] },
 ];
 
 /** A tree of nodes. A box reads the width of its parent, and the inner box reads the nearest panel. */

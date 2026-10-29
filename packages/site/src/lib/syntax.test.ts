@@ -15,7 +15,7 @@ const NO_TEXT: Readonly<Record<string, { readonly reason: string; readonly place
 /** The text of each program that prints (D62, D63). The test reads each text back to the same document. */
 const TEXT: Readonly<Record<string, string>> = {
   add: "2 + 3 * 4",
-  choice: 'if(size > 10, text("big"), log("small"))',
+  choice: 'if(size > 10, "big", log("small"))',
   tree: 'panel(width: 300, children: list(box(width: self.parent.width + -20, children: list(box(width: self.parent.(nearest(type: "panel")).width)))))',
   names: "seq(a = 1 + 2, b = a * 10, log(b))",
   effects: 'seq(log("start"), total = write("total", 2 + 3), log(total))',
@@ -57,11 +57,11 @@ describe("the text of the playground (C17)", () => {
     expect(evaluate(MACHINE, alias.doc as Json, makeContext({}, STD_CAPS)).result).toEqual({ ok: true, value: 42 });
   });
 
-  it("writes each data envelope as a form with one literal, and evaluates the text of a choice (D63)", () => {
+  it("writes each data envelope as its bare literal where a part takes a document, and evaluates a choice (D63, D65)", () => {
     expect(VALUES.map((value) => docText(value))).toEqual([
-      { ok: true, text: "number(42)" },
-      { ok: true, text: 'text("Notes")' },
-      { ok: true, text: "bool(true)" },
+      { ok: true, text: "42" },
+      { ok: true, text: '"Notes"' },
+      { ok: true, text: "true" },
       { ok: true, text: "list(1, 2, 3)" },
     ]);
     for (const value of VALUES) {
@@ -71,6 +71,11 @@ describe("the text of the playground (C17)", () => {
     const choice = readText('if(size > 10, text("big"), log("small"))');
     if (!choice.ok) throw new Error(choice.issues[0]?.message);
     expect(evaluate(MACHINE, choice.doc as Json, makeContext({ size: 12 }, STD_CAPS)).result).toEqual({ ok: true, value: "big" });
+    // A bare literal in a branch of if or in a list gets its envelope, thus it evaluates (K159).
+    const bare = readText('if(size > 10, "big", list(1, 2))');
+    if (!bare.ok) throw new Error(bare.issues[0]?.message);
+    expect(evaluate(MACHINE, bare.doc as Json, makeContext({ size: 12 }, STD_CAPS)).result).toEqual({ ok: true, value: "big" });
+    expect(evaluate(MACHINE, bare.doc as Json, makeContext({ size: 3 }, STD_CAPS)).result).toEqual({ ok: true, value: [1, 2] });
   });
 
   it("gives an issue with a span for a bad text, and no document", () => {

@@ -37,6 +37,23 @@ export interface SyntaxLiterals {
   readonly strings?: false | { readonly quote?: '"' | "'"; readonly escape?: "backslash" | "double" };
   /** The words that are literals, with their values. The default is `true`, `false` and `null`. */
   readonly words?: Readonly<Record<string, unknown>>;
+  /**
+   * The kinds of the data envelopes of a text, a number and a truth value, with dots between the keys (K159, D65). A
+   * literal in a place that takes a document gets its envelope. Such a place is the whole text, the document after a
+   * header name, or an argument that its form names in `wrap`. Thus `list(1)` gives `list(number(1))`, and `print`
+   * writes the envelope as the bare literal there. Without this field, a literal stays bare in each place.
+   */
+  readonly envelopes?: SyntaxEnvelopes;
+}
+
+/** The kinds of the data envelopes of the literals (K159, D65). A literal without a kind stays bare, for example `null`. */
+export interface SyntaxEnvelopes {
+  /** The kind of a finite number, for example `number`. */
+  readonly number?: string;
+  /** The kind of a text, for example `text`. */
+  readonly text?: string;
+  /** The kind of a truth value, for example `bool`. */
+  readonly bool?: string;
 }
 
 /** A reference syntax that a pattern gives, for example the address `A1` of a cell. */
@@ -86,6 +103,12 @@ export interface SyntaxForm {
    * - `literal`: the one argument is a literal, and the value is its data, for example `text("big")`.
    */
   readonly args?: SyntaxFormArgs;
+  /**
+   * The arguments that take a document (K159, D65): `true` for each argument, or the names of some fields. A literal
+   * in such an argument gets its data envelope of `literals.envelopes`. Without that field, `wrap` changes nothing. A
+   * form `literal` takes no `wrap`, and a form `list` takes only `true`.
+   */
+  readonly wrap?: boolean | readonly string[];
 }
 
 /** The way that the arguments of a call form make the value of its document (D63). */
@@ -197,6 +220,14 @@ interface Form {
   readonly args: SyntaxFormArgs;
   readonly fields: readonly string[] | undefined;
   readonly min: number;
+  /** The arguments that take a document: `true` for each, or the names of the fields. */
+  readonly wrap: boolean | ReadonlySet<string>;
+}
+
+/** The type of a data envelope, and its key for a comparison with the path of a type. */
+interface EnvelopeKind {
+  readonly type: Json;
+  readonly key: string;
 }
 
 interface Pattern {
@@ -217,6 +248,7 @@ interface Compiled {
   readonly quote: string | undefined;
   readonly doubled: boolean;
   readonly words: ReadonlyMap<string, unknown>;
+  readonly envelopes: { readonly number?: EnvelopeKind; readonly text?: EnvelopeKind; readonly bool?: EnvelopeKind } | undefined;
   readonly bare: string;
   readonly roots: ReadonlySet<string>;
   readonly fields: boolean;
@@ -294,6 +326,30 @@ function compileBind(bind: string | undefined, separator: string, binary: Readon
   return bind;
 }
 
+/** This function examines the field `wrap` of a call form (K159). A name that is not a field of the form throws. */
+function compileWrap(given: SyntaxForm, args: SyntaxFormArgs): boolean | ReadonlySet<string> {
+  const wrap = given.wrap;
+  if (wrap === undefined || wrap === false) return false;
+  if (args === "literal") throw new TypeError(`The call form "${given.name}" with the arguments literal takes no wrap.`);
+  if (wrap === true) return true;
+  if (args === "list") throw new TypeError(`The call form "${given.name}" with the arguments list takes only the wrap true.`);
+  for (const name of wrap) {
+    if (given.fields !== undefined && !given.fields.includes(name)) throw new TypeError(`The call form "${given.name}" has no field ${name} for its wrap.`);
+  }
+  return new Set(wrap);
+}
+
+/** This function gives the types of the data envelopes of a profile (K159), or `undefined` without them. */
+function compileEnvelopes(given: SyntaxEnvelopes | undefined): Compiled["envelopes"] {
+  if (given === undefined) return undefined;
+  const out: { number?: EnvelopeKind; text?: EnvelopeKind; bool?: EnvelopeKind } = {};
+  for (const key of ["number", "text", "bool"] as const) {
+    const kind = given[key];
+    if (kind !== undefined) out[key] = typeOfKind(kind);
+  }
+  return out;
+}
+
 function compileProfile(profile: SyntaxProfile): Compiled {
   const cached = compiledProfiles.get(profile);
   if (cached !== undefined) return cached;
@@ -317,7 +373,7 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     if (!FORM_ARGS.includes(args)) throw new TypeError(`The call form "${given.name}" has the unknown arguments ${String(args)}.`);
     if ((args === "fields") !== (given.fields !== undefined) && args !== "named") throw new TypeError(`The call form "${given.name}" with the arguments ${args} ${args === "fields" ? "needs" : "takes no"} fields.`);
     if (given.min !== undefined && (args === "named" || args === "literal")) throw new TypeError(`The call form "${given.name}" with the arguments ${args} takes no min.`);
-    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0 };
+    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0, wrap: compileWrap(given, args) };
     forms.set(form.name, form);
     addTo(formsByKind, key, form);
   }
@@ -328,6 +384,7 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     quote: strings === undefined ? undefined : (strings.quote ?? '"'),
     doubled: strings !== undefined && strings.escape === "double",
     words,
+    envelopes: compileEnvelopes(literals.envelopes),
     bare: refs.bare ?? "names",
     roots,
     fields: refs.fields ?? true,
@@ -362,6 +419,24 @@ function opDoc(op: Op | Form, value: Json): Json {
   return { type: op.type, value };
 }
 
+/** This function gives the kind of the data envelope of a literal (K159), or `undefined` when the literal has none. */
+function envelopeOf(syn: Compiled, value: unknown): EnvelopeKind | undefined {
+  const kinds = syn.envelopes;
+  if (kinds === undefined || !isScalar(value)) return undefined;
+  return typeof value === "string" ? kinds.text : typeof value === "number" ? kinds.number : typeof value === "boolean" ? kinds.bool : undefined;
+}
+
+/** This function gives a literal in a place that takes a document its data envelope (K159). Each other document stays. */
+function envelop(syn: Compiled, doc: Json): Json {
+  const kind = isEnvelope(doc) ? undefined : envelopeOf(syn, doc);
+  return kind === undefined ? doc : { type: kind.type, value: doc };
+}
+
+/** This function tells if an argument of a form takes a document (K159). */
+function wraps(form: Form, key: Key): boolean {
+  return form.wrap === true || (form.wrap !== false && form.wrap.has(String(key)));
+}
+
 /** This function tells if a value is a literal that JSON writes exactly: a text, a finite number, a truth value or `null`. */
 function isScalar(value: unknown): value is string | number | boolean | null {
   return value === null || typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0));
@@ -389,7 +464,8 @@ class Parser {
     const doc = this.bound();
     this.skip();
     if (this.pos < this.text.length) this.stop("The text continues after the expression.", this.pos, this.tokenLength());
-    return doc;
+    // The whole text is a document, thus a literal gets its data envelope (K159).
+    return envelop(this.syn, doc);
   }
 
   position(): number {
@@ -427,7 +503,8 @@ class Parser {
       if (doc.name !== undefined) this.stop(`The document already has the name ${doc.name}.`, start, this.pos - start);
       return { ...doc, name };
     }
-    return { type: "lit", value: doc, name };
+    const kind = envelopeOf(this.syn, doc);
+    return kind === undefined ? { type: "lit", value: doc, name } : { type: kind.type, value: doc, name };
   }
 
   /** This method reads a name and the bind symbol after it. Without them, it gives `undefined` and keeps the position. */
@@ -723,7 +800,8 @@ class Parser {
       if (form.fields !== undefined && !form.fields.includes(key)) this.stop(`The form ${form.name} has no field ${key}.`, at, end - at);
       if (Object.hasOwn(value, key)) this.stop(`The form ${form.name} has the field ${key} two times.`, at, end - at);
       this.pos += 1;
-      setOwn(value, key, this.bound());
+      const arg = this.bound();
+      setOwn(value, key, wraps(form, key) ? envelop(this.syn, arg) : arg);
     });
     return opDoc(form, value);
   }
@@ -743,10 +821,11 @@ class Parser {
         const range = most === form.min ? String(most) : most === Number.POSITIVE_INFINITY ? `${String(form.min)} or more` : `${String(form.min)} to ${String(most)}`;
         this.stop(`The form ${name} takes ${range} arguments.`, start, this.pos - start);
       }
-      if (form.fields === undefined) return opDoc(form, args);
+      if (form.fields === undefined) return opDoc(form, form.wrap === true ? args.map((arg) => envelop(this.syn, arg)) : args);
       const value: Record<string, Json> = {};
       args.forEach((arg, index) => {
-        value[form.fields?.[index] as string] = arg;
+        const key = form.fields?.[index] as string;
+        value[key] = wraps(form, key) ? envelop(this.syn, arg) : arg;
       });
       return opDoc(form, value);
     }
@@ -777,13 +856,16 @@ export function parse(profile: SyntaxProfile, text: string): ParseResult {
 
 // === Print ===
 
-/** The text of a part, from its document and its path in the value of the parent. */
-type SubText = (child: unknown, path: readonly Key[]) => Result<string>;
+/**
+ * The text of a part, from its document and its path in the value of the parent. `wrapped` is `true` when the place
+ * of the part takes a document (K159).
+ */
+type SubText = (child: unknown, path: readonly Key[], wrapped?: boolean) => Result<string>;
 
 type Shape =
   | { readonly tag: "text"; readonly text: string }
   | { readonly tag: "op"; readonly op: Op; readonly terms: readonly unknown[] }
-  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown])[]; readonly named?: boolean }
+  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown, boolean?])[]; readonly named?: boolean }
   | { readonly tag: "path"; readonly segments: readonly (string | readonly [Key, unknown])[] }
   | { readonly tag: "bind"; readonly name: string; readonly doc: unknown }
   | { readonly tag: "none"; readonly reason: string };
@@ -863,6 +945,26 @@ function callName(syn: Compiled, keys: readonly Key[]): string | undefined {
   return syn.ops === true || syn.ops.has(name) ? name : undefined;
 }
 
+const WRAPPED = "This syntax reads a literal in this place as its data envelope, thus a bare literal has no text here.";
+
+/**
+ * This function gives the text of a document in a place that takes a document (K159). A data envelope of a literal
+ * is the bare literal. A literal without its envelope has no text, because `parse` gives it the envelope. The
+ * function gives `undefined` for each other document.
+ */
+function wrappedShape(syn: Compiled, doc: unknown): Shape | undefined {
+  if (syn.envelopes === undefined) return undefined;
+  if (!isEnvelope(doc)) return envelopeOf(syn, doc) === undefined ? undefined : none(WRAPPED);
+  if (doc.name !== undefined || doc.own !== undefined || !Object.hasOwn(doc, "value")) return undefined;
+  const path = typePath(doc.type);
+  if (path === undefined) return undefined;
+  const key = JSON.stringify(path);
+  if (key === JSON.stringify(["lit"])) return envelopeOf(syn, doc.value) === undefined ? undefined : none(WRAPPED);
+  if (envelopeOf(syn, doc.value)?.key !== key) return undefined;
+  const literal = literalShape(syn, doc.value);
+  return literal.tag === "text" ? literal : undefined;
+}
+
 function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined {
   if (form.args === "literal") {
     if (!isScalar(value)) return undefined;
@@ -873,18 +975,18 @@ function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined
     if (!isRecord(value)) return undefined;
     const keys = Object.keys(value);
     if (form.fields !== undefined && !keys.every((key) => form.fields?.includes(key) === true)) return undefined;
-    return { tag: "call", name: form.name, args: keys.map((key) => [key, value[key]] as const), named: true };
+    return { tag: "call", name: form.name, args: keys.map((key) => [key, value[key], wraps(form, key)] as const), named: true };
   }
   if (form.fields === undefined) {
     if (!Array.isArray(value) || value.length < form.min) return undefined;
-    return { tag: "call", name: form.name, args: value.map((item, index) => [index, item] as const) };
+    return { tag: "call", name: form.name, args: value.map((item, index) => [index, item, wraps(form, index)] as const) };
   }
   if (!isRecord(value)) return undefined;
   // The fields that the value holds must be the first fields of the form, because the arguments go in order.
   const count = Object.keys(value).length;
   const present = form.fields.slice(0, count);
   if (count < form.min || present.length < count || !present.every((key) => Object.hasOwn(value, key))) return undefined;
-  return { tag: "call", name: form.name, args: present.map((key) => [key, value[key]] as const) };
+  return { tag: "call", name: form.name, args: present.map((key) => [key, value[key], wraps(form, key)] as const) };
 }
 
 function opShape(syn: Compiled, key: string, terms: readonly unknown[]): Shape | undefined {
@@ -965,7 +1067,9 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
   if (shape.tag === "none") return fail("#VALUE!", shape.reason);
   if (shape.tag === "op") return opText(syn, shape.op, shape.terms, sub);
   if (shape.tag === "bind") {
-    const inner = printNode(syn, shape.doc, sub);
+    // The document after a header name takes a document, thus a data envelope of a literal is the bare literal (K159).
+    const head = wrappedShape(syn, shape.doc);
+    const inner = head === undefined ? printNode(syn, shape.doc, sub) : head.tag === "text" ? ok(head.text) : fail("#VALUE!", WRAPPED);
     return inner.ok ? ok(`${NAME.test(shape.name) ? shape.name : quoteName(shape.name)} ${syn.bind as string} ${inner.value}`) : inner;
   }
   if (shape.tag === "path") {
@@ -982,8 +1086,8 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
     return ok(texts.join("."));
   }
   const texts: string[] = [];
-  for (const [key, arg] of shape.args) {
-    const result = sub(arg, [key]);
+  for (const [key, arg, wrapped] of shape.args) {
+    const result = sub(arg, [key], wrapped);
     if (!result.ok) return result;
     texts.push(shape.named === true ? `${NAME.test(String(key)) ? String(key) : quoteName(String(key))}: ${result.value}` : result.value);
   }
@@ -991,8 +1095,15 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
 }
 
 function printTree(syn: Compiled, doc: unknown, place: readonly Key[]): Result<string> {
-  const result = printNode(syn, doc, (child, path) => printTree(syn, child, [...place, ...path]));
+  const result = printNode(syn, doc, (child, path, wrapped) => (wrapped === true ? printPlace : printTree)(syn, child, [...place, ...path]));
   return result.ok || result.error.place !== undefined ? result : fail(result.error.code, result.error.reason, { place });
+}
+
+/** This function writes a document in a place that takes a document, for example the whole text (K159). */
+function printPlace(syn: Compiled, doc: unknown, place: readonly Key[]): Result<string> {
+  const shape = wrappedShape(syn, doc);
+  if (shape === undefined) return printTree(syn, doc, place);
+  return shape.tag === "text" ? ok(shape.text) : fail("#VALUE!", WRAPPED, { place });
 }
 
 /**
@@ -1007,7 +1118,7 @@ function printTree(syn: Compiled, doc: unknown, place: readonly Key[]): Result<s
 export function print(profile: SyntaxProfile, doc: unknown): Result<string> {
   const syn = compileProfile(profile);
   try {
-    return printTree(syn, doc, []);
+    return printPlace(syn, doc, []);
   } catch (error) {
     if (isStackOverflow(error)) return fail("#DEPTH!", "The document is too deep for the stack of the host.", { cause: error });
     throw error;
@@ -1026,7 +1137,9 @@ export function syntaxFormat(profile: SyntaxProfile): MachinePart {
   const syn = compileProfile(profile);
   const code: EvalFn = ({ doc, parts, place }) => {
     const byPath = new Map<string, Part>(parts.map((part) => [JSON.stringify(part.path), part]));
-    return printNode(syn, doc, (child, path) => {
+    return printNode(syn, doc, (child, path, wrapped) => {
+      const own = wrapped === true ? wrappedShape(syn, child) : undefined;
+      if (own !== undefined) return own.tag === "text" ? ok(own.text) : fail("#VALUE!", WRAPPED, { place: [...place, ...path] });
       const part = byPath.get(JSON.stringify(path));
       if (part === undefined) return printTree(syn, child, [...place, ...path]);
       const result = part.evaluate();
