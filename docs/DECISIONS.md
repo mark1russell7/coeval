@@ -2479,3 +2479,25 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 - `decodeLog` gives two records for a record that two fields share. The exceptions in them stay the same by `loop`. The row K183 keeps this idea.
 - A sparse list of plain values was a term document with `undefined` at a hole. Since D82, it is a list of parts with a mark at the hole.
 - A key with a dot gives a name in `dropped` that is not exact. The name `a.b` is the key `a.b` or the field `b` of `a`.
+
+## D83 (2026-10-29): the kernel keeps the code of D82, because the cost in PLAN.FOLD comes from the module, not from the fold
+
+**Context.** K184. The bench of PR #147 (K176, K177) gave PLAN.FOLD, a record of 20 literals, slower in both runs: +2.8% and +2.4%. The fold does not use `replay.ts`, and PR #147 changed only `replay.ts` at run time. The design questions are if the cost is real, and where it comes from.
+
+**Decision.**
+
+- The kernel keeps the code of D82, and no code changes.
+- The cost repeats, but it is smaller than the PR bench gave: +1.7% in both runs, over the bound of 1.5%.
+
+**Why.** The bench imports the whole kernel from `src/index.ts`. Thus a larger `replay.ts` changes the code that the engine loads and compiles, though the fold does not use it. This is the effect of the form of the code that D50 and D70 found. A change to the fold for a cost that a module outside the fold makes is not a fix.
+
+**Measured (K184).** Bench workflow 40959703241 compared `main` at b8e5466 with a9b5243, the parent of PR #147. A cell gives the change and the noise (A/A) in parentheses.
+
+| Case | First bench | Second bench | Verdict |
+| --- | ---: | ---: | --- |
+| PLAN.FOLD a record of 20 literals | +1.7% (-0.3%) | +1.7% (+0.7%) | slower |
+| PLAN.FIXED a path of four steps from a fixed name | -1.6% (0.0%) | -2.5% (-0.7%) | faster |
+
+The other 14 cases gave 11 in bound and 3 mixed.
+
+**Limits.** A later item that moves `replay.ts` to its own entry point can take the cost away from a host that does not replay. No row exists for it, because the cost is under 2%.
