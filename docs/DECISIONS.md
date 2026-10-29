@@ -2725,3 +2725,43 @@ An example is a record with `b: bool` and five `bool` fields in `a`. Against two
 - A path does not go into a union in a field, for example `{a: {x: bool} | {y: null}}` against a union of three records (K191).
 - A split does not use a cover, also at a depth (K186).
 - Two outer splits beside each other, for example in two fields that the rules of the shapes test, each get a budget of 64 records.
+
+## D90 (2026-10-29): a split of `fits` narrows a field to each domain of a cover or each member of a union
+
+**Context.** K186, found by K179 (D85 Limits), and K191, found by K185 (D89 Limits). The split of D84 takes its cases only from the members of a field. Thus `{a: number}` did not fit `{a: neg} | {a: nonneg}`, though `neg` and `nonneg` cover `number`. Also a path of D89 stopped at a union in a field, because the members of a union are types, not values.
+
+**Decision.**
+
+- A split has value splits and type splits (TYPE.FITS-SPLIT-TYPE). A value split has the members of a field, as in D84. A type split has case types.
+- A field of a base type without a finite list gets a type split when its line has a valid cover. The cases are the domains of that cover. The line rule of D85 decides if a cover is valid.
+- A field of a union without a finite list gets a type split. The cases are the members of the union (K191).
+- The order: each value split comes first, in the order of D89. Then the type splits follow, in the same order of depths and keys.
+- A record of a type split that does not fit splits its case again, at the same path, before the next split. A case with a finite list splits by its members. A base type splits by a cover of its own domain. A union splits by its members, and a record splits by the paths into its fields.
+- The cover of a field is the first valid cover of the first domain of its line that has one. The line starts at the domain of the field, then its parents follow.
+- An optional field also gives the absent case, as in D84 and D89. Each case costs one record of the shared budget of D89.
+- `fits` trusts each cover, as in D85. The rule of `unknown` does not change.
+
+**Rejected.**
+
+- Type splits in the order of the keys among the value splits. Then a fit of D89 can build other records and use more of the budget. With the type splits last, the order of D89 is a prefix, and each fit of D89 builds the same records.
+- A test of each cover of a field. The split then searches over the covers, and each failed cover uses the budget of the others. The cover rule of D85 still tests each cover for a base type alone. The row K192 keeps the idea.
+- A cover of a parent for a case that splits again. The covers of the parents hold the case already, thus they give the same cases again. A cycle of such splits only uses the budget.
+- A second budget for the type splits. Then nested splits multiply the work again, and D89 removed that.
+- A separate design for K191. A member of a union is a case type, as a domain of a cover is. Thus one form of split serves both, with a small change.
+
+**Why.** A cover holds each member of its domain, and a union holds each member of its members. Thus each member of the record is a member of one record of a type split. A domain of a cover of a parent holds more members than the field, thus the split stays sound. The rule is sound when `values` and `covers` are true, as in D79 and D85.
+
+**Soundness.** A fifth corpus of TYPE.FITS-SOUND holds 120 records with covered fields, union fields and inner records. Its unions hold the type splits of each record by the covers of the language, at one or two paths. The corpus has more than 20000 pairs, and more than 100 of them fit. More than 40 pairs fit only by a split, and more than 20 fit only by a cover. The test finds 0 counterexamples. The same corpus with a false cover of `number` finds counterexamples at once.
+
+**Public types.** No type changes. A check accepts some programs that it refused before. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** Two tests change.
+
+- TYPE.FITS-COVER: before, `{a: number}` did not fit `{a: neg} | {a: nonneg}`. Since D90, it fits (K186).
+- TYPE.FITS-PATH: before, `{a: {x: bool} | {y: null}}` did not fit a union of three records. Since D90, it fits (K191).
+
+**Limits.**
+
+- A split uses one cover of a field. Thus `{a: number}` does not fit `{a: lo} | {a: hi}` when `neg` and `nonneg` are the first cover of `number` (K192).
+- A cover of a parent gives cases with more members than the field. Such a case fits less often than a cover of the domain of the field.
+- Two outer splits beside each other each get a budget of 64 records, as in D89.

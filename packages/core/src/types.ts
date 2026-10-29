@@ -70,6 +70,7 @@ export interface Domain {
    * The covers of the domain (TYPE.FITS-COVER, D85). A cover is a list of domains under this domain, and its domains
    * together hold each member of this domain. An example is a domain of negative numbers and a domain of the other
    * numbers as a cover of `number`. `fits` reads it: a base type fits a union when each domain of a cover fits it.
+   * A split of a record also narrows a field of the domain to each domain of a cover (D90).
    * The language keeps each cover true, and `fits` trusts it, as it trusts `values`. A cover that is empty, or that
    * names this domain or a name that is not under it, does not count.
    */
@@ -537,10 +538,15 @@ function partFits(part: string, expected: unknown, domains: Readonly<Record<stri
   return lineCovered(part, expected, domains, depth, gradual, state);
 }
 
-/** A field that the split rule can split: the path of keys to it, the members of its type, and if the field is optional. */
+/**
+ * A field that the split rule can split: the path of keys to it, its cases, and if the field is optional. A value
+ * split has the members of the field type. A type split has case types: the domains of a cover, or the members of a
+ * union (TYPE.FITS-SPLIT-TYPE, D90).
+ */
 interface Split {
   readonly path: readonly string[];
-  readonly values: readonly unknown[];
+  readonly values?: readonly unknown[];
+  readonly types?: readonly ValueType[];
   readonly optional: boolean;
 }
 
@@ -554,10 +560,19 @@ interface SplitBudget {
  * fields of the record come first, in the order of the keys. Then the paths of the next depth follow, and so on. A path
  * goes into a field only when the field is a record without a finite list. A field with a finite list of two or more
  * cases is a split. An optional field also has the absent case.
+ *
+ * The type splits follow each value split, in the same order (D90). A base type with a valid cover in its line splits
+ * into the domains of the cover. A union without a finite list splits into its members. The prefix is the path of `a`.
  */
-function splitsOf(a: Extract<Form, { readonly t: "record" }>, domains: Readonly<Record<string, Domain>> | undefined, depth: number): readonly Split[] {
+function splitsOf(
+  a: Extract<Form, { readonly t: "record" }>,
+  domains: Readonly<Record<string, Domain>> | undefined,
+  depth: number,
+  prefix: readonly string[] = [],
+): readonly Split[] {
   const out: Split[] = [];
-  let level: { readonly path: readonly string[]; readonly form: Extract<Form, { readonly t: "record" }> }[] = [{ path: [], form: a }];
+  const later: Split[] = [];
+  let level: { readonly path: readonly string[]; readonly form: Extract<Form, { readonly t: "record" }> }[] = [{ path: prefix, form: a }];
   for (let at = depth + 1; level.length > 0 && at <= MAX_TYPE_DEPTH; at += 1) {
     const deeper: typeof level = [];
     for (const { path, form } of level) {
@@ -570,11 +585,50 @@ function splitsOf(a: Extract<Form, { readonly t: "record" }>, domains: Readonly<
         }
         const inner = formOf(form.fields[key], domains);
         if (inner.t === "record") deeper.push({ path: [...path, key], form: inner });
+        else if (inner.t === "union") later.push({ path: [...path, key], types: inner.members, optional });
+        else if (inner.t === "base") {
+          const cover = coverOf(inner.name, domains, false);
+          if (cover !== undefined) later.push({ path: [...path, key], types: cover, optional });
+        }
       }
     }
     level = deeper;
   }
-  return out;
+  return later.length === 0 ? out : [...out, ...later];
+}
+
+/** This function tells if a cover of a domain is valid by the line rule of D85: it is not empty, and each name is a domain under the domain. */
+function validCover(name: string, cover: unknown, domains: Readonly<Record<string, Domain>> | undefined): cover is readonly string[] {
+  return Array.isArray(cover) && cover.length > 0 && (cover as readonly unknown[]).every((part) => typeof part === "string" && part !== name && lineOf(part, domains).has(name));
+}
+
+/**
+ * This function gives the cover of a base type for a type split (D90): the first valid cover of the first domain of the
+ * line that has one. With `own`, only the domain of the type itself counts. Each other type gives `undefined`.
+ */
+function coverOf(name: string, domains: Readonly<Record<string, Domain>> | undefined, own: boolean): readonly string[] | undefined {
+  for (const each of own ? [name] : lineOf(name, domains)) {
+    const covers: unknown = domainOf(each, domains)?.covers;
+    if (!Array.isArray(covers)) continue;
+    for (const cover of covers as readonly unknown[]) if (validCover(each, cover, domains)) return cover;
+  }
+  return undefined;
+}
+
+/**
+ * This function gives the splits of a case of a type split, at the path of the case (D90). A case with a finite list
+ * splits by its members. A base type splits by a cover of its own domain, because the covers of its parents hold it
+ * already. A union splits by its members, and a record splits by the paths into its fields.
+ */
+function againOf(type: ValueType, path: readonly string[], domains: Readonly<Record<string, Domain>> | undefined, depth: number): readonly Split[] {
+  const at = depth + path.length;
+  const values = valuesOf(type, domains, at);
+  if (values !== undefined) return values.length > 1 ? [{ path, values, optional: false }] : [];
+  const form = formOf(type, domains);
+  if (form.t === "record") return splitsOf(form, domains, at, path);
+  if (form.t === "union") return [{ path, types: form.members, optional: false }];
+  const cover = form.t === "base" ? coverOf(form.name, domains, true) : undefined;
+  return cover === undefined ? [] : [{ path, types: cover, optional: false }];
 }
 
 /**
@@ -601,10 +655,12 @@ function narrowAt(type: unknown, path: readonly string[], at: number, narrowed: 
 /**
  * This function is the split rule of `fits` (TYPE.FITS-FINITE, D84, TYPE.FITS-PATH, D89). A record type fits when each
  * record of its split fits. A split takes the first field in the order of `splitsOf`. Each member of the field gives a
- * record with the field narrowed to that member. An optional field also gives a record without the field.
+ * record with the field narrowed to that member. An optional field also gives a record without the field. A type split
+ * narrows the field to each case type instead (TYPE.FITS-SPLIT-TYPE, D90).
  *
- * A record of the split that does not fit splits the next such field. One budget of 64 records serves the outer split
- * and each split inside its work, at each depth. Thus nested splits do not multiply the work.
+ * A record of the split that does not fit splits the next such field. A record of a type split first splits its case
+ * again, at the same path. One budget of 64 records serves the outer split and each split inside its work, at each
+ * depth. Thus nested splits do not multiply the work.
  */
 function splitFits(
   found: unknown,
@@ -634,9 +690,10 @@ function casesFit(
 ): boolean {
   const split = splits[index];
   if (split === undefined) return false;
-  const cases: ValueType[] = split.values.map((value) => narrowAt(type, split.path, 0, { one: [value as Json] }, domains));
+  const types: readonly ValueType[] = split.values?.map((value) => ({ one: [value as Json] })) ?? split.types ?? [];
+  const cases: ValueType[] = types.map((each) => narrowAt(type, split.path, 0, each, domains));
   if (split.optional) cases.push(narrowAt(type, split.path, 0, undefined, domains));
-  for (const record of cases) {
+  for (const [at, record] of cases.entries()) {
     budget.left -= 1;
     if (budget.left < 0) return false;
     // The rules of the shapes first, then the finite rule for a closed record, then the split of the next field.
@@ -646,7 +703,10 @@ function casesFit(
       if (values.every((value) => memberAt(value, expected, domains, depth + 1))) continue;
       return false;
     }
-    if (!casesFit(record, closed, splits, index + 1, expected, domains, depth, gradual, budget)) return false;
+    // A case of a type split splits again at its path, before the next split (D90).
+    const again = split.types !== undefined && at < split.types.length ? againOf(split.types[at] as ValueType, split.path, domains, depth) : [];
+    const rest = again.length === 0 ? splits : [...again, ...splits.slice(index + 1)];
+    if (!casesFit(record, closed, rest, again.length === 0 ? index + 1 : 0, expected, domains, depth, gradual, budget)) return false;
   }
   return true;
 }
@@ -679,16 +739,20 @@ function casesFit(
  *   Thus `{ "record": { "a": "bool" } }` fits a union of a record for each value of `a`.
  * - A split also narrows a field of a record in a field, by its path (TYPE.FITS-PATH, D89). The fields of the record
  *   split first, then the paths of each next depth, in the order of the keys. A path goes into a record without a
- *   finite list, and not into a union. Thus `{a: {x: bool}}` fits the union of `{a: {x: true}}` and `{a: {x: false}}`.
+ *   finite list. Thus `{a: {x: bool}}` fits the union of `{a: {x: true}}` and `{a: {x: false}}`.
+ * - A type split comes after each value split (TYPE.FITS-SPLIT-TYPE, D90). A field of a base type with a valid cover in
+ *   its line splits into the domains of the first such cover. A field of a union without a finite list splits into its
+ *   members. A case that does not fit splits again at its path: by its members, a cover of its own domain, its union
+ *   or the paths into its fields. Thus `{a: number}` fits `{a: neg} | {a: nonneg}` when `neg` and `nonneg` cover `number`.
  *
  * The relation is sound: a member of `found` is a member of `expected` when no `unknown` is in the types
  * (TYPE.FITS-SOUND). The finite rule trusts `values`, and the cover rule trusts `covers`. Thus a list without a member
  * or a false cover makes the relation unsound for that domain.
  *
  * The relation is not complete. A split builds at most 64 records, with each split inside its work at each depth. A
- * path of a split does not go into a union. A domain without `values` gets no finite rule, and neither does a type
- * with more than 64 members that is not a record. The cover rule tests at most 64 domains of covers, and a split does
- * not use a cover. The function does not throw.
+ * type split uses one cover of a field, not each cover of its line. A domain without `values` gets no finite rule, and
+ * neither does a type with more than 64 members that is not a record. The cover rule tests at most 64 domains of
+ * covers. The function does not throw.
  *
  * @param found - The type that a part has.
  * @param expected - The type that the position needs.

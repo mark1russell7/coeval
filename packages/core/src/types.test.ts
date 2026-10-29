@@ -187,6 +187,114 @@ function falseCovers(domains: Readonly<Record<string, Domain>>, samples: Readonl
   return out;
 }
 
+/**
+ * This function tests a seeded corpus of records with covered fields and union fields over a language (D90). The
+ * unions hold the type splits of each record by the covers of the language. Thus a false cover gives a fit.
+ */
+function splitCorpus(domains: Readonly<Record<string, Domain>>): {
+  readonly pairs: number;
+  readonly total: number;
+  readonly split: number;
+  readonly cover: number;
+  readonly checked: number;
+  readonly bad: readonly string[];
+} {
+  type Rec = { record: Record<string, ValueType>; optional?: string[]; closed?: true };
+  const plain: Record<string, Domain> = {};
+  for (const [name, domain] of Object.entries(domains)) {
+    const { covers: _covers, ...rest } = domain;
+    plain[name] = rest;
+  }
+  const leaves: readonly ValueType[] = [
+    "number",
+    "nonneg",
+    "text",
+    "bool",
+    "null",
+    "whole",
+    { union: ["number", "null"] },
+    { union: ["nonneg", "text"] },
+    { union: [{ record: { x: "bool" } }, { record: { y: "number" } }] },
+  ];
+  const wide: readonly ValueType[] = [...leaves, "neg", "zero", "plus", "empty", "filled", { one: [true] }, { union: ["neg", "text"] }];
+  const rng = random(90);
+  const shapeOf = (fields: Record<string, ValueType>, open: number): Rec => {
+    const optional = Object.keys(fields).filter(() => rng.chance(0.2));
+    return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(rng.chance(open) ? {} : { closed: true }) };
+  };
+  const innerOf = (from: readonly ValueType[]): Rec => {
+    const fields: Record<string, ValueType> = {};
+    for (const name of ["x", "y"]) if (rng.chance(0.8)) fields[name] = rng.pick(from);
+    return shapeOf(fields, 0.6);
+  };
+  const outerOf = (from: readonly ValueType[]): Rec => {
+    const fields: Record<string, ValueType> = { a: rng.chance(0.6) ? rng.pick(from) : innerOf(from) };
+    if (rng.chance(0.5)) fields["b"] = rng.pick(from);
+    return shapeOf(fields, 0.7);
+  };
+  const pathsOf = (type: Rec, prefix: readonly string[]): string[][] =>
+    Object.entries(type.record).flatMap(([key, field]) => (typeof field === "object" && "record" in field ? pathsOf(field as Rec, [...prefix, key]) : [[...prefix, key]]));
+  const fieldAt = (type: Rec, path: readonly string[]): ValueType => path.reduce<ValueType>((at, key) => (at as Rec).record[key] as ValueType, type);
+  const narrowed = (type: Rec, path: readonly string[], to: ValueType): Rec => {
+    const [key, ...rest] = path as [string, ...string[]];
+    const fields: Record<string, ValueType> = {};
+    for (const [name, field] of Object.entries(type.record)) {
+      if (name === key) fields[name] = rest.length === 0 ? to : narrowed(field as Rec, rest, to);
+      else fields[name] = typeof field === "string" && rng.chance(0.1) ? rng.pick(wide) : field;
+    }
+    const optional = (type.optional ?? []).filter((name) => name !== key || rest.length > 0 || rng.chance(0.5));
+    return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(type.closed === true && rng.chance(0.7) ? { closed: true } : {}) };
+  };
+  // The cases of a field: the first cover of its domain, the members of a union, or the values of bool.
+  const coverOf = (type: ValueType): readonly string[] | undefined => (typeof type === "string" ? domains[type]?.covers?.[0] : undefined);
+  const casesOf = (type: ValueType): ValueType[] => {
+    const first: ValueType[] = coverOf(type) !== undefined ? [...(coverOf(type) ?? [])] : typeof type === "object" && "union" in type ? [...type.union] : type === "bool" ? [{ one: [true] }, { one: [false] }] : [type];
+    // A case with its own cover, or a record with a field of bool, sometimes splits again.
+    const again = first.flatMap((each): ValueType[] => {
+      if (coverOf(each) !== undefined && rng.chance(0.4)) return [...(coverOf(each) ?? [])];
+      if (typeof each === "object" && "record" in each && each.record["x"] === "bool" && rng.chance(0.5)) return [true, false].map((value) => ({ record: { x: { one: [value] } } }));
+      return [each];
+    });
+    return again.map((each) => (rng.chance(0.15) ? rng.pick(wide) : each));
+  };
+  const founds: Rec[] = Array.from({ length: 120 }, () => outerOf(leaves));
+  const unions: ValueType[] = Array.from({ length: 40 }, () => ({ union: Array.from({ length: 1 + rng.int(3) }, () => outerOf(wide)) }));
+  for (const found of [...founds, ...founds]) {
+    const paths = pathsOf(found, []).filter((path) => casesOf(fieldAt(found, path)).length > 1);
+    if (paths.length === 0) continue;
+    const path = rng.pick(paths);
+    let parts = casesOf(fieldAt(found, path)).map((to) => narrowed(found, path, to));
+    // A second path sometimes splits each part again: a cover split and a value split together.
+    const others = paths.filter((other) => other[0] !== path[0]);
+    if (others.length > 0 && rng.chance(0.4)) {
+      const second = rng.pick(others);
+      parts = parts.flatMap((part) => casesOf(fieldAt(part, second)).map((to) => narrowed(part, second, to)));
+    }
+    if (parts.length > 1 && rng.chance(0.2)) parts.splice(rng.int(parts.length), 1);
+    unions.push({ union: parts });
+  }
+  let pairs = 0;
+  let split = 0;
+  let cover = 0;
+  let checked = 0;
+  const bad: string[] = [];
+  for (const found of founds) {
+    const members = Array.from({ length: 10 }, () => sampleOf(rng, found, COVER_SAMPLES)).filter((value) => value !== NONE);
+    for (const value of members) if (!member(value, found, domains)) bad.push(`${JSON.stringify(value)} is not in ${JSON.stringify(found)}`);
+    for (const expected of unions) {
+      if (!fits(found, expected, domains)) continue;
+      pairs += 1;
+      if (!(expected as { union: ValueType[] }).union.some((each) => fits(found, each, domains))) split += 1;
+      if (!fits(found, expected, plain)) cover += 1;
+      for (const value of members) {
+        checked += 1;
+        if (!member(value, expected, domains)) bad.push(`${String(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+      }
+    }
+  }
+  return { pairs, total: founds.length * unions.length, split, cover, checked, bad };
+}
+
 /** This function tests a seeded corpus of types over the domains of `COVERED`: each pair that fits, with the sampled members of `found`. */
 function coverCorpus(domains: Readonly<Record<string, Domain>>): { readonly types: number; readonly pairs: number; readonly cover: number; readonly checked: number; readonly bad: readonly string[] } {
   // The same domains without covers. The pairs that fit only with the covers are the pairs of the cover rule.
@@ -512,9 +620,9 @@ describe("value types and value domains", () => {
     for (const b of [true, false]) for (const x of [true, false]) four.push({ record: { a: { record: { x: bool(x) } }, b: bool(b) } });
     expect(fits(withB, { union: four })).toBe(true);
     expect(fits(withB, { union: four.slice(1) })).toBe(false);
-    // A path does not go through a union in a field. The members of such a union are types, not values.
+    // Since D90, a union in a field splits into its members, and a path goes on into a member (K191).
     const either: ValueType = { record: { a: { union: [{ record: { x: "bool" } }, { record: { y: "null" } }] } } };
-    expect(fits(either, { union: [...(byX as { union: ValueType[] }).union, inA({ y: "null" })] })).toBe(false);
+    expect(fits(either, { union: [...(byX as { union: ValueType[] }).union, inA({ y: "null" })] })).toBe(true);
     // The gradual rule of unknown does not change.
     expect(fits(inA({ x: "unknown" }), byX)).toBe(true);
     expect(fits({ record: { a: "unknown" } }, byX)).toBe(true);
@@ -794,8 +902,8 @@ describe("value types and value domains", () => {
     // The rule starts only against a union or a `one`, and the strict join reads it too.
     expect(fits("number", "nonneg", COVERED)).toBe(false);
     expect(join("number", { union: ["neg", "nonneg"] }, COVERED)).toEqual({ union: ["neg", "nonneg"] });
-    // A split of a record does not use a cover (K186).
-    expect(fits({ record: { a: "number" } }, { union: [{ record: { a: "neg" } }, { record: { a: "nonneg" } }] }, COVERED)).toBe(false);
+    // Since D90, a split of a record uses a cover too (K186).
+    expect(fits({ record: { a: "number" } }, { union: [{ record: { a: "neg" } }, { record: { a: "nonneg" } }] }, COVERED)).toBe(true);
   });
 
   it("[TYPE.FITS-COVER] a cover that is empty, or that names the domain or a name outside its line, does not count", () => {
@@ -861,6 +969,107 @@ describe("value types and value domains", () => {
     const wrong: Readonly<Record<string, Domain>> = { ...COVERED, number: { ...(COVERED["number"] as Domain), covers: [["neg", "zero"]] } };
     expect(falseCovers(wrong, COVER_SAMPLES).length).toBeGreaterThan(0);
     expect(coverCorpus(wrong).bad.length).toBeGreaterThan(0);
+  });
+
+  it("[TYPE.FITS-SPLIT-TYPE] a split of a record narrows a covered field to each domain of a cover (D90)", () => {
+    const of = (a: ValueType, more: { optional?: string[]; closed?: true } = {}): ValueType => ({ record: { a }, ...more });
+    const halves: ValueType = { union: [of("neg"), of("nonneg")] };
+    // The example of K186: neg and nonneg cover number, thus the record splits into a record for each domain.
+    expect(fits(of("number"), halves, COVERED)).toBe(true);
+    expect(fits(of("number"), halves, { ...COVERED, number: STD_DOMAINS["number"] as Domain })).toBe(false);
+    expect(fits(of("number"), { union: [of("neg"), of("zero")] }, COVERED)).toBe(false);
+    expect(fits(of("number", { closed: true }), { union: [of("neg", { closed: true }), of("nonneg", { closed: true })] }, COVERED)).toBe(true);
+    // A case splits again by a cover of its own domain: zero and plus cover nonneg.
+    expect(fits(of("number"), { union: [of("neg"), of("zero"), of("plus")] }, COVERED)).toBe(true);
+    expect(fits(of("nonneg"), { union: [of("zero"), of("plus")] }, COVERED)).toBe(true);
+    // A nested covered field splits by its path.
+    const inA = (x: ValueType): ValueType => ({ record: { a: { record: { x } } } });
+    expect(fits(inA("number"), { union: [inA("neg"), inA("nonneg")] }, COVERED)).toBe(true);
+    expect(fits(inA("number"), { union: [inA("neg"), inA("plus")] }, COVERED)).toBe(false);
+    // A cover split and a value split together. The value split of b comes first, then each record splits a.
+    const both = (a: ValueType, b: ValueType): ValueType => ({ record: { a, b } });
+    const four: ValueType[] = [];
+    for (const b of [true, false]) for (const a of ["neg", "nonneg"]) four.push(both(a, { one: [b] }));
+    expect(fits(both("number", "bool"), { union: four }, COVERED)).toBe(true);
+    expect(fits(both("number", "bool"), { union: four.slice(1) }, COVERED)).toBe(false);
+    // An optional covered field also gives the absent case.
+    expect(fits(of("number", { optional: ["a"] }), halves, COVERED)).toBe(false);
+    expect(fits(of("number", { optional: ["a"] }), { union: [of("neg"), of("nonneg"), of("never", { optional: ["a"] })] }, COVERED)).toBe(true);
+    // The gradual rule of unknown does not change.
+    expect(fits(of("unknown"), halves, COVERED)).toBe(true);
+  });
+
+  it("[TYPE.FITS-SPLIT-TYPE] a split uses the first valid cover of the line, and ignores an invalid cover", () => {
+    const of = (a: ValueType): ValueType => ({ record: { a } });
+    const withCover = (covers: readonly (readonly string[])[], more: Readonly<Record<string, Domain>> = {}): Readonly<Record<string, Domain>> => ({
+      ...COVERED,
+      ...more,
+      number: { ...(STD_DOMAINS["number"] as Domain), covers },
+    });
+    const halves: ValueType = { union: [of("neg"), of("nonneg")] };
+    expect(fits(of("number"), halves, withCover([["neg", "ghost"]]))).toBe(false);
+    expect(fits(of("number"), halves, withCover([[], ["number"], ["neg", "unknown"]]))).toBe(false);
+    expect(fits(of("number"), halves, withCover([["neg", "ghost"], ["neg", "nonneg"]]))).toBe(true);
+    // A cover of a parent serves a field of a domain under it: whole is under number.
+    expect(fits(of("whole"), halves, COVERED)).toBe(true);
+    // Only the first valid cover splits a field. The cover rule of a base type alone tests each cover.
+    const lo: Domain = { is: (value) => (value as number) < 1, under: ["number"] };
+    const hi: Domain = { is: (value) => !((value as number) < 1), under: ["number"] };
+    const two = withCover([["neg", "nonneg"], ["lo", "hi"]], { lo, hi });
+    expect(fits("number", { union: ["lo", "hi"] }, two)).toBe(true);
+    expect(fits(of("number"), { union: [of("lo"), of("hi")] }, two)).toBe(false);
+    expect(fits(of("number"), { union: [of("lo"), of("hi")] }, withCover([["lo", "hi"]], { lo, hi }))).toBe(true);
+    // A cycle of covers ends: each domain is under the other, and each covers the other.
+    const cycle: Readonly<Record<string, Domain>> = {
+      a: { is: (value) => typeof value === "number", under: ["b"], covers: [["b"]] },
+      b: { is: (value) => typeof value === "number", under: ["a"], covers: [["a"]] },
+    };
+    expect(fits(of("a"), { union: [of("text")] }, cycle)).toBe(false);
+  });
+
+  it("[TYPE.FITS-SPLIT-TYPE] a union in a field splits into its members, and a path goes on into a member (K191)", () => {
+    const of = (a: ValueType): ValueType => ({ record: { a } });
+    expect(fits(of({ union: ["number", "text"] }), { union: [of("number"), of("text")] })).toBe(true);
+    expect(fits(of({ union: ["number", "text"] }), { union: [of("number"), of("null")] })).toBe(false);
+    // The example of K191: the member with x splits again by the path a.x.
+    const either = of({ union: [{ record: { x: "bool" } }, { record: { y: "null" } }] });
+    const three: ValueType[] = [of({ record: { x: { one: [true] } } }), of({ record: { x: { one: [false] } } }), of({ record: { y: "null" } })];
+    expect(fits(either, { union: three })).toBe(true);
+    expect(fits(either, { union: three.slice(1) })).toBe(false);
+    // A member splits again by its cover, thus a union and a cover work together.
+    expect(fits(of({ union: ["number", "text"] }), { union: [of("neg"), of("nonneg"), of("text")] }, COVERED)).toBe(true);
+    expect(fits(of({ union: ["number", "text"] }), { union: [of("neg"), of("nonneg")] }, COVERED)).toBe(false);
+  });
+
+  it("[TYPE.FITS-SPLIT-TYPE] one budget of 64 records serves the value splits and the type splits", () => {
+    const wide = (count: number): Readonly<Record<string, Domain>> => {
+      const out: Record<string, Domain> = { wide: { is: (value) => typeof value === "number", covers: [Array.from({ length: count }, (_, index) => `w${index}`)] } };
+      for (let index = 0; index < count; index += 1) out[`w${index}`] = { is: (value) => value === index, under: ["wide"], values: [index] };
+      return out;
+    };
+    const each = (count: number, b?: boolean): ValueType[] =>
+      Array.from({ length: count }, (_, index) => ({ record: { a: { one: [index] }, ...(b === undefined ? {} : { b: { one: [b] } }) } }));
+    // A cover of 64 domains builds 64 records. A cover of 65 domains needs 65 records, thus the rule refuses it.
+    expect(fits({ record: { a: "wide" } }, { union: each(64) }, wide(64))).toBe(true);
+    expect(fits({ record: { a: "wide" } }, { union: each(65) }, wide(65))).toBe(false);
+    // The value split of b comes first: 2 records, then 31 records for each. The order with the cover first needs 93.
+    const withB: ValueType = { record: { a: "wide", b: "bool" } };
+    expect(fits(withB, { union: [...each(31, true), ...each(31, false)] }, wide(31))).toBe(true);
+    expect(fits(withB, { union: [...each(32, true), ...each(32, false)] }, wide(32))).toBe(false);
+  });
+
+  it("[TYPE.FITS-SOUND] a sampled member of a record with covered fields and union fields is a member of each union of its type splits that it fits (D90)", () => {
+    expect(falseCovers(COVERED, COVER_SAMPLES)).toEqual([]);
+    const run = splitCorpus(COVERED);
+    expect(run.bad).toEqual([]);
+    expect(run.total).toBeGreaterThan(20000);
+    expect(run.pairs).toBeGreaterThan(100);
+    expect(run.split).toBeGreaterThan(40);
+    expect(run.cover).toBeGreaterThan(20);
+    expect(run.checked).toBeGreaterThan(800);
+    // A false cover: neg and zero do not hold 1.5. The corpus then finds a counterexample.
+    const wrong: Readonly<Record<string, Domain>> = { ...COVERED, number: { ...(COVERED["number"] as Domain), covers: [["neg", "zero"]] } };
+    expect(splitCorpus(wrong).bad.length).toBeGreaterThan(0);
   });
 
   it("[TYPE.FITS] fits is reflexive, and transitive for generated types without unknown", () => {
