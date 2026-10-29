@@ -2276,19 +2276,22 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
  * (CAP.NARROW-CODE). The list of the host is also the epoch of the grant (CAP.NARROW-KEPT). The root has no field of
  * the epoch, thus it has the shape of a context before K120 (K154). An evaluation and `verifyReads` share it.
  *
+ * The function reads the epoch of the context one time, and one test keeps a context that is already a root (K169).
+ *
  * @param machine - The machine.
  * @param ctx - The context of the host.
  * @returns The context at the root.
  */
 export function rootContext(machine: Machine, ctx: Context): Context {
-  if ((ctx as Granted)[EPOCH] === undefined) {
-    if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps) return ctx;
-    const root: Granted = { ...ctx, world: ctx.world === null ? worldThing(machine.world) : ctx.world, [GRANT]: ctx.caps };
+  const epoch = (ctx as Granted)[EPOCH];
+  if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps && (epoch === undefined || epoch === ctx.caps)) return ctx;
+  const world = ctx.world === null ? worldThing(machine.world) : ctx.world;
+  if (epoch === undefined) {
+    const root: Granted = { ...ctx, world, [GRANT]: ctx.caps };
     return root;
   }
   // A context of the kernel as the context of the host gets the list of the host as its epoch.
-  if (ctx.world !== null && (ctx as Granted)[GRANT] === ctx.caps && (ctx as Granted)[EPOCH] === ctx.caps) return ctx;
-  const root: Granted = { ...ctx, world: ctx.world === null ? worldThing(machine.world) : ctx.world, [GRANT]: ctx.caps, [EPOCH]: ctx.caps };
+  const root: Granted = { ...ctx, world, [GRANT]: ctx.caps, [EPOCH]: ctx.caps };
   return root;
 }
 

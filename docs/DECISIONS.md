@@ -2036,3 +2036,45 @@ The merged table had 4 cases slower, 5 faster, 5 mixed and 2 in bound. The refer
 **Limits.**
 
 - Node removes the types of `merge.ts` and `paths.ts`, but no check refuses syntax that Node cannot remove. Only a review keeps enums, namespaces and parameter properties out of `bench`.
+
+## D73 (2026-10-29): `rootContext` reads the epoch one time, and the reference cases get the time of K154 back
+
+**Context.** K169, from K167 (D71). Against 22d94f4, the repeated bench gave a reference into a host thing with `resolve` +4.5% and +5.1%. It gave a reference of five steps +8.2% and +3.4%. Four merges since 22d94f4 changed the kernel: #126, #127, #128 and #129. The design questions are which merge holds the cost, and which form of its code gives the time back.
+
+**Decision.**
+
+- PR #126 (K153, K154, D66) holds the whole cost of the host thing case. The three later merges keep each of the two cases in bound.
+- `rootContext` reads the field of the epoch one time. One test keeps a context that is already a root, as before K154. Then the function makes the root with or without the field of the epoch.
+- The function gives the same root for each context as before. Thus CAP.NARROW-KEPT, CAP.EPOCH-EQUAL, READS.EQUATION, RUN.AGREES-EQUATIONS and FACTS.EQUATIONS do not change.
+
+**Rejected.**
+
+- `readable` that reads the field of the epoch before the grant (variant C). The host thing case is mixed, and a reference through an envelope is slower in both runs.
+- The field of the epoch on each root again (V1 of D70). It costs PLAN.FOLD and PLAN.FIXED 9%.
+
+**Why.** D66 added a first test of the field of the epoch to `rootContext`, before the test of the base. Each evaluation of a host context goes through that function. The engine compiles the form of D66 slower for these cases, as in D50 and D70. The form of the base with one read of the field gives the time back, and the root keeps the shape of D66.
+
+**Measured (K169).** Each merge went in one repeated bench against its parent. A cell gives the change of the two runs, with the noise (A/A) in parentheses. The bench at each old kernel used the cases of `main` at e7e0d38.
+
+| Merge | Base | Host thing with `resolve` | Five steps | Verdicts | Run |
+| --- | --- | ---: | ---: | --- | --- |
+| #126 (K153, K154) | 22d94f4 | +5.3% (-0.8%), +5.3% (-0.5%) | +2.3% (-1.4%), +3.7% (-0.2%) | slower, mixed | 40811484841 |
+| #127 (K155) | a3b5a04 | +0.9% (0.0%), +0.1% (-0.2%) | -1.1% (+0.3%), +0.3% (0.0%) | in bound, in bound | 40811487089 |
+| #128 (K165) | 48c4be6 | 0.0% (0.0%), +0.1% (+0.1%) | +0.2% (-0.3%), +0.5% (+0.6%) | in bound, in bound | 40811489238 |
+| #129 (K166) | 94cfeeb | 0.0% (+0.7%), +0.2% (-0.1%) | +0.3% (+0.1%), +0.5% (+0.3%) | in bound, in bound | 40811491500 |
+
+PR #126 also gave FORMULA.SPEED, PLAN.FOLD, PLAN.FIXED and PLAN.PATH faster in both runs. The formula with a list of reads was slower in both runs, +3.2% and +2.8%.
+
+Two variants of the code of D66 then went in one repeated bench each, against `main` at e7e0d38. A negative change is a gain of the variant.
+
+| Variant | Host thing with `resolve` | Five steps | List of reads | Step document | Slower | Run |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| A: `rootContext` reads the epoch one time | -9.6%, -3.4% (faster) | -3.5%, -5.2% (faster) | -8.5%, -4.6% (faster) | -7.6%, -8.1% (faster) | none | 40812040853 |
+| C: `readable` reads the epoch first | -2.6%, -1.1% (mixed) | +1.8%, +0.1% (mixed) | -2.6%, +0.3% (mixed) | +0.2%, +0.4% (in bound) | an envelope, +5.7% and +5.1% | 40812043111 |
+
+Variant A gave 4 cases faster, 6 mixed, 6 in bound and none slower. The kernel keeps variant A.
+
+**Limits.**
+
+- The gain comes from the form of the code that the engine compiles, not from less work. Another change of `rootContext` or `readable` can lose it again.
+- Variant A gave six mixed cases. The largest is the tree with a list of reads: -1.0% on one runner and +14.4% on the other.
