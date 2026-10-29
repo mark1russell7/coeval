@@ -483,6 +483,59 @@ describe("value types and value domains", () => {
     expect(fits({ record: { a: "bool", b: "unknown" } }, { union: [{ record: { a: bool(true), b: "number" } }, { record: { a: bool(false), b: "text" } }] })).toBe(true);
   });
 
+  it("[TYPE.FITS-PATH] a split narrows a field of a record in a field by its path, with one budget at each depth (D89)", () => {
+    const bool: (value: boolean) => ValueType = (value) => ({ one: [value] });
+    const inA = (fields: Record<string, ValueType>, more: { optional?: string[]; closed?: true } = {}): ValueType => ({ record: { a: { record: fields, ...more } } });
+    // The example of K185: the path a.x gives a record for each value, and each record fits a member of the union.
+    const byX: ValueType = { union: [inA({ x: bool(true) }), inA({ x: bool(false) })] };
+    expect(fits(inA({ x: "bool" }), byX)).toBe(true);
+    expect(fits({ record: { a: { record: { x: "bool", y: "text" } }, b: "number" } }, byX)).toBe(true);
+    expect(fits(inA({ x: "bool" }), { union: [inA({ x: bool(true) }), inA({ x: "null" })] })).toBe(false);
+    // Two depths: the path a.b.x.
+    const deep = (x: ValueType): ValueType => ({ record: { a: { record: { b: { record: { x } } } } } });
+    expect(fits(deep("bool"), { union: [deep(bool(true)), deep(bool(false))] })).toBe(true);
+    expect(fits(deep("bool"), { union: [deep(bool(true)), deep("null")] })).toBe(false);
+    // An inner optional field also gives the absent case. An open inner record gets an optional field of type never.
+    const optionalX = inA({ x: "bool" }, { optional: ["x"] });
+    expect(fits(optionalX, byX)).toBe(false);
+    expect(fits(optionalX, { union: [...(byX as { union: ValueType[] }).union, inA({ x: "never" }, { optional: ["x"] })] })).toBe(true);
+    // A closed inner record with a field without a finite list splits by its path too. Its absent case removes the field.
+    const closed = inA({ x: "bool", n: "number" }, { optional: ["x"], closed: true });
+    const parts: ValueType[] = [inA({ x: bool(true), n: "number" }, { closed: true }), inA({ x: bool(false), n: "number" }, { closed: true })];
+    expect(fits(closed, { union: [...parts, inA({ n: "number" }, { closed: true })] })).toBe(true);
+    expect(fits(closed, { union: parts })).toBe(false);
+    // An inner field stops the fit: the record for true has a field of text, and the union needs a number there.
+    expect(fits(inA({ x: "bool", y: "text" }), { union: [inA({ x: bool(true), y: "number" }), inA({ x: bool(false) })] })).toBe(false);
+    // The fields of the record split first, then the paths. Each record of the split of b splits a.x.
+    const withB: ValueType = { record: { a: { record: { x: "bool" } }, b: "bool" } };
+    const four: ValueType[] = [];
+    for (const b of [true, false]) for (const x of [true, false]) four.push({ record: { a: { record: { x: bool(x) } }, b: bool(b) } });
+    expect(fits(withB, { union: four })).toBe(true);
+    expect(fits(withB, { union: four.slice(1) })).toBe(false);
+    // A path does not go through a union in a field. The members of such a union are types, not values.
+    const either: ValueType = { record: { a: { union: [{ record: { x: "bool" } }, { record: { y: "null" } }] } } };
+    expect(fits(either, { union: [...(byX as { union: ValueType[] }).union, inA({ y: "null" })] })).toBe(false);
+    // The gradual rule of unknown does not change.
+    expect(fits(inA({ x: "unknown" }), byX)).toBe(true);
+    expect(fits({ record: { a: "unknown" } }, byX)).toBe(true);
+    // One budget of 64 records serves the split at each depth. Five fields at a.k need 62 records, six fields need 126.
+    const keysOf = (count: number): string[] => ["k1", "k2", "k3", "k4", "k5", "k6"].slice(0, count);
+    const allOf = (keys: readonly string[]): ValueType[] => {
+      const members: ValueType[] = [];
+      for (let bits = 0; bits < 2 ** keys.length; bits += 1) members.push({ record: Object.fromEntries(keys.map((key, index) => [key, bool(((bits >> index) & 1) === 1)])) });
+      return members;
+    };
+    const flags = (count: number): ValueType => ({ record: Object.fromEntries(keysOf(count).map((key) => [key, "bool"])) });
+    expect(fits({ record: { a: flags(5) } }, { union: allOf(keysOf(5)).map((each) => ({ record: { a: each } })) })).toBe(true);
+    expect(fits({ record: { a: flags(6) } }, { union: allOf(keysOf(6)).map((each) => ({ record: { a: each } })) })).toBe(false);
+    // A split inside the work of a split takes from the same budget. The split of b builds 2 records, and each splits a in the shapes.
+    const nested = (count: number): ValueType => ({ union: [true, false].map((b) => ({ record: { b: bool(b), a: { union: allOf(keysOf(count)) } } })) });
+    expect(fits({ record: { b: "bool", a: flags(4) } }, nested(4))).toBe(true);
+    expect(fits({ record: { b: "bool", a: flags(5) } }, nested(5))).toBe(false);
+    // Each split alone fits under the budget: a by itself needs 62 records.
+    expect(fits(flags(5), { union: allOf(keysOf(5)) })).toBe(true);
+  });
+
   it("[TYPE.FITS-FINITE] a merge compares the values of two domains, and extendDomain keeps them", () => {
     const align: Domain = { is: (value) => value === "left" || value === "right", values: ["left", "right"], under: ["text"] };
     expect(Object.keys(mergeMachines({ domains: { align } }, { domains: { align: { ...align, values: ["left", "right"] } } }).domains ?? {})).toEqual(["align"]);
@@ -620,6 +673,95 @@ describe("value types and value domains", () => {
     expect(pairs).toBeGreaterThan(2000);
     expect(split).toBeGreaterThan(50);
     expect(checked).toBeGreaterThan(15000);
+  });
+
+  it("[TYPE.FITS-SOUND] a sampled member of a nested record with finite inner fields is a member of each union of nested records that it fits (D89)", () => {
+    const domains: Readonly<Record<string, Domain>> = {
+      ...DOMAINS,
+      align: { is: (value) => value === "left" || value === "right", values: ["left", "right", "up"], under: ["text"] },
+      on: { is: (value) => value === true, under: ["bool"] },
+    };
+    const samples: Readonly<Record<string, readonly unknown[]>> = { ...BASE_SAMPLES, align: ["left", "right"], on: [true] };
+    const leaves: readonly ValueType[] = ["null", "bool", "on", "align", "undefined", { one: [true] }, { one: [false] }, { one: ["left"] }, { one: [null, 1] }];
+    const wide: readonly ValueType[] = [...leaves, "number", "text", { union: ["bool", "null"] }, { list: "bool" }];
+    const SPLIT: readonly ValueType[] = ["bool", "align", { one: [null, 1] }];
+    type Rec = { record: Record<string, ValueType>; optional?: string[]; closed?: true };
+    const shapeOf = (fields: Record<string, ValueType>, rng: Random, open: number): Rec => {
+      const optional = Object.keys(fields).filter(() => rng.chance(0.25));
+      return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(rng.chance(open) ? {} : { closed: true }) };
+    };
+    // An inner record has finite fields x and y, and a closed inner record sometimes has a field n without a finite list.
+    const innerOf = (rng: Random, from: readonly ValueType[], depth: number): Rec => {
+      const fields: Record<string, ValueType> = {};
+      for (const name of ["x", "y"]) if (rng.chance(0.8)) fields[name] = rng.pick(rng.chance(0.5) ? from : SPLIT);
+      if (depth > 1 && rng.chance(0.3)) fields["z"] = innerOf(rng, from, depth - 1);
+      if (rng.chance(0.3)) fields["n"] = "number";
+      return shapeOf(fields, rng, 0.6);
+    };
+    const outerOf = (rng: Random, from: readonly ValueType[]): Rec => {
+      const fields: Record<string, ValueType> = { a: innerOf(rng, from, 2) };
+      if (rng.chance(0.3)) fields["b"] = rng.pick(from);
+      if (rng.chance(0.3)) fields["c"] = innerOf(rng, from, 1);
+      return shapeOf(fields, rng, 0.7);
+    };
+    // The paths of a record type to its fields with a finite type.
+    const pathsOf = (type: Rec, prefix: readonly string[]): string[][] =>
+      Object.entries(type.record).flatMap(([key, field]) => (typeof field === "object" && "record" in field ? pathsOf(field as Rec, [...prefix, key]) : [[...prefix, key]]));
+    // A copy of a record type with the field at a path narrowed, the other fields sometimes wider, and the optional fields sometimes needed.
+    const narrowed = (rng: Random, type: Rec, path: readonly string[], to: ValueType): Rec => {
+      const [key, ...rest] = path as [string, ...string[]];
+      const fields: Record<string, ValueType> = {};
+      for (const [name, field] of Object.entries(type.record)) {
+        if (name === key) fields[name] = rest.length === 0 ? to : narrowed(rng, field as Rec, rest, to);
+        else fields[name] = typeof field === "string" && field !== "number" && rng.chance(0.1) ? rng.pick(wide) : field;
+      }
+      // Only the field at the end of the path can become needed: a needed record on the path refuses each found record.
+      const optional = (type.optional ?? []).filter((name) => name !== key || rest.length > 0 || rng.chance(0.5));
+      return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(type.closed === true && rng.chance(0.7) ? { closed: true } : {}) };
+    };
+    const rng = random(89);
+    const founds: Rec[] = Array.from({ length: 120 }, () => outerOf(rng, leaves));
+    const unions: ValueType[] = Array.from({ length: 40 }, () => ({ union: Array.from({ length: 1 + rng.int(4) }, () => outerOf(rng, wide)) }));
+    // The field at a path of a found record: a type with few members, or a record.
+    const fieldAt = (type: Rec, path: readonly string[]): ValueType => path.reduce<ValueType>((at, key) => (at as Rec).record[key] as ValueType, type);
+    // A case for each member of a type with few members. A case sometimes is a random type instead.
+    const casesOf = (rng: Random, type: ValueType): ValueType[] => {
+      const values: readonly unknown[] = type === "bool" ? [true, false] : type === "align" ? ["left", "right"] : type === "on" ? [true] : typeof type === "object" && "one" in type ? type.one : [];
+      const cases: ValueType[] = values.length === 0 ? [type] : values.map((value) => ({ one: [value as Json] }));
+      return cases.map((each) => (rng.chance(0.2) ? rng.pick(leaves) : each));
+    };
+    // A union of the split of a found record by one path at depth two or more gives more pairs that fit.
+    for (const found of [...founds, ...founds]) {
+      const paths = pathsOf(found, []).filter((path) => path.length > 1 && fieldAt(found, path) !== "number");
+      if (paths.length === 0) continue;
+      const path = rng.pick(paths);
+      const parts = casesOf(rng, fieldAt(found, path)).map((to) => narrowed(rng, found, path, to));
+      if (parts.length > 1 && rng.chance(0.2)) parts.splice(rng.int(parts.length), 1);
+      unions.push({ union: parts });
+    }
+    let pairs = 0;
+    let nested = 0;
+    let checked = 0;
+    for (const found of founds) {
+      const members = Array.from({ length: 10 }, () => sampleOf(rng, found, samples)).filter((value) => value !== NONE);
+      for (const value of members) expect(member(value, found, domains), `${JSON.stringify(value)} in ${JSON.stringify(found)}`).toBe(true);
+      // A record without a field of its own that splits fits a union only by a path, when no member of the union alone takes it.
+      const flat = Object.entries(found.record).every(([, field]) => typeof field === "object" && "record" in field);
+      for (const expected of unions) {
+        if (!fits(found, expected, domains)) continue;
+        pairs += 1;
+        if (flat && !(expected as { union: ValueType[] }).union.some((each) => fits(found, each, domains))) nested += 1;
+        for (const value of members) {
+          checked += 1;
+          if (!member(value, expected, domains)) expect.fail(`${JSON.stringify(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+        }
+      }
+    }
+    // The corpus holds 120 records, 274 unions and 32880 pairs. A split without the absent case at depth two fails here.
+    expect(founds.length * unions.length).toBe(32880);
+    expect(pairs).toBeGreaterThan(450);
+    expect(nested).toBeGreaterThan(100);
+    expect(checked).toBeGreaterThan(4500);
   });
 
   it("[TYPE.FITS-COVER] a base type fits a union that holds each domain of a cover of its line (D85)", () => {
