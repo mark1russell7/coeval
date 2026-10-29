@@ -406,11 +406,76 @@ describe("the syntax kit", () => {
     expect(issue(host, "max(1, 2)")).toMatchObject({ offset: 0 });
   });
 
+  it("[SYNTAX.ENVELOPE] a literal in a place that takes a document gets its data envelope, and STD_MACHINE evaluates it", () => {
+    const run = (source: string, names: Readonly<Record<string, Json>> = {}): unknown => evaluate(STD_MACHINE, doc(WORLD_SYNTAX, source), makeContext(names, STD_CAPS)).result;
+    const n = (value: number): Json => ({ type: "number", value });
+    const t = (value: string): Json => ({ type: "text", value });
+    // K159: a part of list and a branch of if declare no type. Before D65, a bare literal there gave #PART?.
+    expect(doc(WORLD_SYNTAX, "list(1, 2)")).toEqual({ type: "list", value: [n(1), n(2)] });
+    expect(run("list(1, 2)")).toEqual(ok([1, 2]));
+    expect(doc(WORLD_SYNTAX, 'if(size > 10, "big", "small")')).toEqual({ type: "if", value: { test: { type: "greater", value: [ref("names", "size"), 10] }, then: t("big"), else: t("small") } });
+    expect(run('if(size > 10, "big", "small")', { size: 12 })).toEqual(ok("big"));
+    expect(run('if(size > 10, "big", "small")', { size: 3 })).toEqual(ok("small"));
+    // The whole text and the document after a header name take a document too.
+    expect(doc(WORLD_SYNTAX, "42")).toEqual(n(42));
+    expect(run("true")).toEqual(ok(true));
+    expect(doc(WORLD_SYNTAX, "seq(a = 1, a)")).toEqual({ type: "seq", value: [{ type: "number", value: 1, name: "a" }, ref("names", "a")] });
+    expect(run('seq(a = 1, b = "x", list(a, b))')).toEqual(ok([1, "x"]));
+    expect(run("pure(1)")).toEqual(ok(1));
+    // The key of write is data, and a part with a declared type keeps its bare literal.
+    expect(doc(WORLD_SYNTAX, 'write("k", 1)')).toEqual({ type: "write", value: { key: "k", value: n(1) } });
+    expect(doc(WORLD_SYNTAX, 'list(1 + 2, log("x"), panel(width: 3))')).toEqual({ type: "list", value: [{ type: "add", value: [1, 2] }, { type: "log", value: ["x"] }, { type: "panel", value: { width: 3 } }] });
+    // A literal without an envelope kind stays bare, and a literal form reads the same document.
+    expect(doc(WORLD_SYNTAX, "list(null)")).toEqual({ type: "list", value: [null] });
+    expect(doc(WORLD_SYNTAX, "list(number(1), (2))")).toEqual(doc(WORLD_SYNTAX, "list(1, 2)"));
+    expect(doc(WORLD_SYNTAX, "a = null")).toEqual({ type: "lit", value: null, name: "a" });
+    // print writes the envelope as the bare literal there. A bare literal there has no text, because parse wraps it.
+    expect(text(WORLD_SYNTAX, { type: "list", value: [n(1), t("a"), { type: "bool", value: false }, null] })).toBe('list(1, "a", false, null)');
+    expect(text(WORLD_SYNTAX, { type: "list", value: [{ type: "number", value: "x" }] })).toBe('list(number("x"))');
+    expect(text(WORLD_SYNTAX, { type: "add", value: [n(1), 2] })).toBe("number(1) + 2");
+    expect(text(WORLD_SYNTAX, { type: "number", value: 1, name: "a" })).toBe("a = 1");
+    const reason = "This syntax reads a literal in this place as its data envelope, thus a bare literal has no text here.";
+    expect(print(WORLD_SYNTAX, { type: "list", value: [n(1), 2] })).toEqual({ ok: false, error: { code: "#VALUE!", reason, place: [1] } });
+    expect(print(WORLD_SYNTAX, "big")).toMatchObject({ ok: false, error: { reason, place: [] } });
+    expect(print(WORLD_SYNTAX, { type: "seq", value: [{ type: "lit", value: 1, name: "a" }] })).toMatchObject({ ok: false, error: { reason, place: [0] } });
+    // The rule is opt-in: STD_SYNTAX has no envelopes, thus its documents stay the same.
+    expect(doc(STD_SYNTAX, "list(1, 2)")).toEqual({ type: "list", value: [1, 2] });
+    expect(text(STD_SYNTAX, { type: "list", value: [1, 2] })).toBe("list(1, 2)");
+    // A wrap that does not fit its form throws.
+    const bad = (calls: NonNullable<SyntaxProfile["calls"]>): (() => unknown) => () => parse({ calls }, "x");
+    expect(bad({ forms: [{ name: "n", kind: "n", args: "literal", wrap: true }] })).toThrow(TypeError);
+    expect(bad({ forms: [{ name: "l", kind: "l", wrap: ["a"] }] })).toThrow(TypeError);
+    expect(bad({ forms: [{ name: "f", kind: "f", fields: ["a"], wrap: ["b"] }] })).toThrow(TypeError);
+  });
+
+  it("[SYNTAX.FEW-TERMS] an operator document with fewer terms than its operator takes has a text by the form of its kind", () => {
+    const run = (source: string): unknown => evaluate(STD_MACHINE, doc(WORLD_SYNTAX, source), makeContext({}, STD_CAPS)).result;
+    // K163: an infix operator needs two terms, thus the form of the kind writes one term or none.
+    for (const value of [{ type: "add", value: [5] }, { type: "add", value: [] }, { type: "multiply", value: [x] }, { type: "greater", value: [1, 2, 3] }] as const) {
+      const source = text(WORLD_SYNTAX, value);
+      expect(doc(WORLD_SYNTAX, source)).toEqual(value);
+    }
+    expect(text(WORLD_SYNTAX, { type: "add", value: [5] })).toBe("add(5)");
+    expect(text(WORLD_SYNTAX, { type: "add", value: [] })).toBe("add()");
+    expect(text(WORLD_SYNTAX, { type: "add", value: [{ type: "add", value: [5] }, 1] })).toBe("add(5) + 1");
+    // The operator wins when it fits, thus a document with two terms keeps its text.
+    expect(doc(WORLD_SYNTAX, "add(1, 2)")).toEqual(doc(WORLD_SYNTAX, "1 + 2"));
+    expect(text(WORLD_SYNTAX, doc(WORLD_SYNTAX, "add(1, 2)"))).toBe("1 + 2");
+    // The type is the kind, not the alias: math.sum(5) is another document.
+    expect(doc(WORLD_SYNTAX, "math.sum(5)")).toEqual({ type: ["math", "sum"], value: [5] });
+    // The evaluator decides a document without terms: the sum is 0, the product is 1, and greater gives #VALUE!.
+    expect(run("add(5)")).toEqual(ok(5));
+    expect(run("add()")).toEqual(ok(0));
+    expect(run("multiply()")).toEqual(ok(1));
+    expect(run("greater(1)")).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
+  });
+
   it("[SYNTAX.ROUNDTRIP] parse(print(doc)) gives each generated document of a profile again", () => {
     const bad: string[] = [];
     for (const [name, gen] of Object.entries(GENERATORS)) {
       for (let seed = 1; seed <= 300; seed += 1) {
-        const original = generateDoc(gen, random(seed), 0);
+        const made = generateDoc(gen, random(seed), 0);
+        const original = gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made;
         const printed = print(gen.profile, original);
         if (!printed.ok) {
           bad.push(`${name} ${String(seed)}: ${printed.error.reason} ${JSON.stringify(original)}`);
@@ -436,14 +501,14 @@ const NO_TEXT: Readonly<Record<string, string>> = {};
 
 /** One text for each kind of `STD_WORLD`, in the profile `WORLD_SYNTAX`. */
 const WORLD_TEXTS: Readonly<Record<string, string>> = {
-  number: "number(42)",
-  text: 'text("big")',
-  bool: "bool(true)",
+  number: "42",
+  text: '"big"',
+  bool: "true",
   add: "1 + 2 + 3",
   multiply: "6 * 7",
   greater: "size > 10",
   list: "list(1, x)",
-  if: 'if(size > 10, text("big"), log("small"))',
+  if: 'if(size > 10, "big", log("small"))',
   ref: "self.parent.width",
   nearest: 'nearest(type: "panel")',
   panel: "panel(width: 300, children: list(box(width: self.parent.width + -20)))",
@@ -480,7 +545,22 @@ interface Generator {
   readonly keys?: readonly string[];
   /** `true` gives some references a step document (SYNTAX.STEP). */
   readonly steps?: boolean;
+  /** `true` gives each literal in a place that takes a document its data envelope, as `parse` reads it (SYNTAX.ENVELOPE). */
+  readonly envelopes?: boolean;
 }
+
+/** The names of the forms of `WORLD_SYNTAX` for an operator document with fewer or more terms (K163, D65). */
+const OPERATOR_FORMS: readonly string[] = ["add", "multiply", "greater"];
+
+/**
+ * `WORLD_SYNTAX` as D64 gave it: without the data envelopes of K159 and the forms of K163. The generator `world` keeps
+ * the documents that it gave before D65 with this profile.
+ */
+const WORLD_D64: SyntaxProfile = {
+  ...WORLD_SYNTAX,
+  literals: {},
+  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name)) },
+};
 
 const GENERATORS: Readonly<Record<string, Generator>> = {
   standard: {
@@ -514,12 +594,21 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     steps: true,
   },
   world: {
+    profile: WORLD_D64,
+    leaves: [0, -3, 2.5, 1e21, true, false, null, "", 'a"b', x, ref("self", "parent", "width"), ref("names", "math", "sum"), ref("world", "add")],
+    calls: [],
+    names: ["a", "total", "if", "a b"],
+    data: ["", "big", 'a"b', 0, -3, 2.5, true, false, null],
+    steps: true,
+  },
+  envelopes: {
     profile: WORLD_SYNTAX,
     leaves: [0, -3, 2.5, 1e21, true, false, null, "", 'a"b', x, ref("self", "parent", "width"), ref("names", "math", "sum"), ref("world", "add")],
     calls: [],
     names: ["a", "total", "if", "a b"],
     data: ["", "big", 'a"b', 0, -3, 2.5, true, false, null],
     steps: true,
+    envelopes: true,
   },
 };
 
@@ -576,6 +665,35 @@ function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly s
     Object.defineProperty(value, key, { value: generateDoc(gen, rng, depth + 1), enumerable: true, writable: true, configurable: true });
   }
   return value;
+}
+
+/**
+ * This function gives each literal in a place that takes a document its data envelope, as `parse` reads it (K159).
+ * Such a place is the root, an argument that its form names in `wrap`, and the document after a header name. The
+ * function uses no random numbers, thus the documents of the generator stay the same.
+ */
+function withEnvelopes(profile: SyntaxProfile, made: Json, place: boolean): Json {
+  const kinds = profile.literals?.envelopes ?? {};
+  const kindOf = (value: unknown): string | undefined =>
+    typeof value === "string" ? kinds.text : typeof value === "boolean" ? kinds.bool : typeof value === "number" ? kinds.number : undefined;
+  if (typeof made !== "object" || made === null || Array.isArray(made)) {
+    const kind = place ? kindOf(made) : undefined;
+    return kind === undefined ? made : { type: kindType(kind), value: made };
+  }
+  const envelope = made as { readonly type: Json; readonly value?: Json; readonly name?: string };
+  if (envelope.type === "lit" && envelope.name !== undefined) {
+    const kind = kindOf(envelope.value);
+    return kind === undefined ? made : { type: kindType(kind), value: envelope.value as Json, name: envelope.name };
+  }
+  const form = (profile.calls?.forms ?? []).find((each) => JSON.stringify(kindType(each.kind)) === JSON.stringify(envelope.type));
+  const wraps = (key: string): boolean => form?.wrap === true || (Array.isArray(form?.wrap) && form.wrap.includes(key));
+  const value = envelope.value;
+  let next: Json | undefined = value;
+  if (Array.isArray(value)) next = value.map((item, index) => withEnvelopes(profile, item, wraps(String(index))));
+  else if (typeof value === "object" && value !== null) {
+    next = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withEnvelopes(profile, item, wraps(key))]));
+  }
+  return next === value ? made : { ...made, value: next as Json };
 }
 
 /** This function builds a reference from `self` with a step document, for example the step `nearest` of a tree. */

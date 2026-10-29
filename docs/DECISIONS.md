@@ -1710,3 +1710,53 @@ The site profile `SITE_SYNTAX` of D61 to D63 was such a profile. Each of its for
 
 - An operator kind with fewer than two parts has no text, for example `{ type: "add", value: [5] }`. The alias `math.sum(5)` has a text. K163 holds the gap.
 - A bare literal in a part without a declared type still gives `#PART?`, for example in `list(1, 2)` (K159).
+
+## D65 (2026-10-29): a literal in a place that takes a document gets its data envelope, and the form of an operator kind writes its other documents
+
+**Context.** K159, from C17, and K163, from K162. `parse` gave a bare JSON literal, for example `1` in `list(1, 2)`. The kinds `list`, `if`, `seq`, `pure` and `write` declare no type for their parts. Thus `partsOf` found no envelope and no declared type, and the evaluation gave `#PART?`.
+
+The whole text `42` gave `#PART?` too. A named literal `a = 1` got the kind `lit` of the formula kit, and `STD_WORLD` has no kind `lit`. An infix operator writes two terms or more. Thus `{ type: "add", value: [5] }` had no text in `WORLD_SYNTAX`.
+
+**Decision.**
+
+- The fix is on the side of the parser. No rule of evaluation changes, thus each document evaluates as before.
+- The new literal rule `literals.envelopes` names the kinds of the data envelopes of a text, a number and a truth value (SYNTAX.ENVELOPE). The rule is opt-in for each profile.
+- The new form field `wrap` names the arguments that take a document: `true` for each argument, or the names of some fields.
+- With the rule, a literal in such a place gets its envelope. Thus `list(1, 2)` is `list(number(1), number(2))`. The whole text and the document after a header name take a document too.
+- `print` writes such an envelope there as the bare literal. A bare literal there has no text, because `parse` gives it the envelope. Thus the round trip stays exact.
+- A literal without a kind stays bare, for example `null`. A literal form, for example `number(1)`, still reads the same document.
+- `WORLD_SYNTAX` turns the rule on with the kinds `number`, `text` and `bool`. The forms `if`, `list`, `seq` and `pure` wrap each argument, and `write` wraps only its `value`.
+- `log`, `panel` and `box` declare the type of their parts, thus their bare literals stay. The key of `write` is data.
+- `WORLD_SYNTAX` gets the forms `add`, `multiply` and `greater` (SYNTAX.FEW-TERMS). The operator wins when it fits, thus `1 + 2` keeps its text.
+- The form writes the other documents of the kind, for example `add(5)`, `add()` and `greater(1, 2, 3)`. The type reads back as the kind, not the alias `math.sum`.
+- The evaluator decides a document without parts: `add()` is `0`, `multiply()` is `1`, and `greater()` gives `#VALUE!`.
+- `STD_SYNTAX` and the test profiles have no envelopes. Their documents stay the same.
+
+**Texts of `WORLD_SYNTAX` that read another document since D65.**
+
+- `list(1, x)` of the pinned kind texts gave `[1, x]`. It gives `[number(1), x]` since D65. Its text stays the same.
+- The site value `list(1, 2, 3)` held three bare numbers. The value holds three envelopes since D65, thus its text stays the same and it evaluates.
+- Each text with a bare literal in a part of `if`, `list`, `seq`, `pure` or the value of `write` changes the same way. The whole text `42` and `a = 1` change too.
+- Each new document evaluates where the old document gave `#PART?` or `#KIND?`. No pinned text of the playground reads another document.
+
+**Texts that `print` writes in another way since D65.** The documents stay the same.
+
+- The kinds `number`, `text` and `bool` print as `42`, `"big"` and `true`, not `number(42)`, `text("big")` and `bool(true)`.
+- The program A choice prints as `if(size > 10, "big", log("small"))`, not `if(size > 10, text("big"), log("small"))`. The old text reads the same document.
+
+**Rejected.**
+
+- A rule of evaluation that gives a bare literal a type by its JSON value. It changes the results of documents, and a world decides its own kinds.
+- An envelope for each literal in each place. Then `1 + 2` and `log("start")` give other documents, and D63 rejected that.
+- The places from the kinds of the world. The syntax kit does not read a world, thus the profile names the places as data.
+- A text for a bare literal in a place that takes a document. Such a document gives `#PART?`, and the text needs a new syntax.
+- A field `max` of a form, so that only the operator writes two terms. Two texts already read to one document, for example `number(1)` and `1`.
+- A text of the operator symbol as a call, for example `+(5)`. It is a new syntax, and a call form already has a name.
+
+**Why.** The profile is data, thus a world names its own envelopes and places. The parser makes documents that the world evaluates, and the printer keeps the round trip exact. A form of the kind name uses the call syntax of D63.
+
+**Limits.**
+
+- `list(null)` still gives `#PART?`, because `STD_WORLD` has no kind for `null`.
+- `syntaxFormat` writes a data envelope as the whole text with its form, for example `number(1)`. `parse` reads the same document.
+- The generator `world` of the round trip test uses `WORLD_SYNTAX` as D64 gave it, thus it keeps its documents. The new generator `envelopes` examines the full profile.

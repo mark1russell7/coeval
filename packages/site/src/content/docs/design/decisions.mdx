@@ -72,6 +72,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D62 | A profile names a bind symbol in `header.bind`, thus `total = 2 + 3` gives a document the header name `total`. A call form can have a name with dots, for example `math.product`. Six programs of the playground round-trip. |
 | D63 | A call form names the way that its arguments make the value. `text("big")` writes a data envelope, and `panel(width: 300)` writes a record kind. A step of a path in parentheses is a document. Each program of the playground round-trips. |
 | D64 | The kernel gives `WORLD_SYNTAX`, the text profile of `STD_WORLD`. A test lists each kind of the world and finds its text. The site profile is that profile, and a host spreads it to add forms. |
+| D65 | A literal in a place that takes a document gets its data envelope, thus `list(1, 2)` evaluates. A profile names the places. The forms `add`, `multiply` and `greater` write an operator with one part or none, for example `add(5)`. |
 
 ## Open
 

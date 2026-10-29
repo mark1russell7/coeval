@@ -27,6 +27,8 @@ The text pane shows the document as a formula, for example `2 + 3 * 4`. Change t
 - The text has the operators `+`, `*` and `>`, and the forms `if`, `list`, `seq`, `pure`, `log` and `write`. A bare name, for example `price`, reads a name of the context.
 - The text `a = 1 + 2` gives a step the name `a`. The form `math.product` writes the alias of `multiply`.
 - A data envelope has a form with one literal, for example `text("big")`. A node of a tree has a key for each field, for example `panel(width: 300)`.
+- A bare literal in a part of `if`, `list`, `seq` or `pure` is a data envelope, thus `if(size > 10, "big", "small")` evaluates. The whole text `42` is a number too.
+- The forms `add`, `multiply` and `greater` write an operator with one part or none, for example `add(5)`.
 - A step of a path in parentheses is a document, for example `self.parent.(nearest(type: "panel")).width`.
 
 The JSON under the picture is the document. Change it, and the picture changes.
