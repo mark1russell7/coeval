@@ -66,6 +66,14 @@ export interface Domain {
    * domain does not count. The check reads a list of at most 64 values.
    */
   readonly values?: readonly unknown[];
+  /**
+   * The covers of the domain (TYPE.FITS-COVER, D85). A cover is a list of domains under this domain, and its domains
+   * together hold each member of this domain. An example is a domain of negative numbers and a domain of the other
+   * numbers as a cover of `number`. `fits` reads it: a base type fits a union when each domain of a cover fits it.
+   * The language keeps each cover true, and `fits` trusts it, as it trusts `values`. A cover that is empty, or that
+   * names this domain or a name that is not under it, does not count.
+   */
+  readonly covers?: readonly (readonly string[])[];
 }
 
 /**
@@ -114,6 +122,9 @@ const MAX_TYPE_DEPTH = 256;
 
 /** The most values that the finite rule of `fits` reads for one type (TYPE.FITS-FINITE). A type with more values is not finite for the rule. */
 const MAX_FINITE_VALUES = 64;
+
+/** The most domains of covers that the cover rule of `fits` tests for one type (TYPE.FITS-COVER). A larger test gives `false`. */
+const MAX_COVER_STEPS = 64;
 
 /** The keys that each term permits beside its own key. */
 const TERM_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -405,8 +416,8 @@ function shapeFits(a: Form, b: Form, domains: Readonly<Record<string, Domain>> |
  * `fits`. Without `gradual`, `unknown` is only the top: it fits only `unknown`. The join uses this strict form.
  *
  * When the rules of the shapes refuse a type with few members, the finite rule tests each member (TYPE.FITS-FINITE).
- * Without `finite`, the call skips that rule. The members of a union in `expected` get such calls, because the call
- * for the union tests the members of `found` against the full union.
+ * The cover rule and the split rule come after it. Without `finite`, the call skips these three rules. The members of
+ * a union in `expected` get such calls, because the call for the union tests `found` against the full union.
  */
 function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual = true, finite = true): boolean {
   if (depth > MAX_TYPE_DEPTH) return true;
@@ -422,8 +433,69 @@ function fitsAt(found: unknown, expected: unknown, domains: Readonly<Record<stri
   // The finite rule: a type with few members fits when each member is a member of `expected`.
   const values = valuesOf(found, domains, next);
   if (values !== undefined) return values.every((value) => memberAt(value, expected, domains, next));
+  // The cover rule: a base type fits when each domain of a cover of its line fits (D85).
+  if (a.t === "base") return (b.t === "union" || b.t === "one") && lineCovered(a.name, expected, domains, depth, gradual, undefined);
   // The split rule: an open record, or a closed record with too many members, splits over a union or a `one` (D84).
   return a.t === "record" && (b.t === "union" || (b.t === "one" && a.closed)) && splitFits(a, expected, domains, depth, gradual);
+}
+
+/** The state of the cover rule for one type: the result for each domain whose covers it tested, and the steps that are left. */
+interface CoverState {
+  readonly held: Map<string, boolean>;
+  left: number;
+}
+
+/**
+ * This function is the cover rule of `fits` (TYPE.FITS-COVER, D85). A base type fits when a domain of its line has a
+ * cover, and each domain of the cover fits `expected`. The function makes the state at the first domain with covers.
+ */
+function lineCovered(name: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState | undefined): boolean {
+  let now = state;
+  for (const each of lineOf(name, domains)) {
+    if (!Array.isArray(domainOf(each, domains)?.covers)) continue;
+    now ??= { held: new Map(), left: MAX_COVER_STEPS };
+    if (covered(each, expected, domains, depth, gradual, now)) return true;
+  }
+  return false;
+}
+
+/**
+ * This function tells if a cover of one domain holds the domain in `expected`. A cover that is empty, or that names
+ * the domain or a name that is not under it, does not count. Each domain of a cover costs one step, and the rule
+ * stops after 64 steps.
+ */
+function covered(name: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState): boolean {
+  const known = state.held.get(name);
+  if (known !== undefined) return known;
+  // A domain on the way gives false until its cover holds, thus a cycle of covers ends.
+  state.held.set(name, false);
+  const covers: unknown = domainOf(name, domains)?.covers;
+  if (!Array.isArray(covers)) return false;
+  for (const cover of covers as readonly unknown[]) {
+    if (!Array.isArray(cover) || cover.length === 0) continue;
+    let held = true;
+    for (const part of cover as readonly unknown[]) {
+      state.left -= 1;
+      if (state.left < 0) return false;
+      if (typeof part !== "string" || part === name || !lineOf(part, domains).has(name) || !partFits(part, expected, domains, depth, gradual, state)) {
+        held = false;
+        break;
+      }
+    }
+    if (held) {
+      state.held.set(name, true);
+      return true;
+    }
+  }
+  return false;
+}
+
+/** This function tells if a domain of a cover fits `expected`. It tries the rules of the shapes, the finite rule and its own covers. */
+function partFits(part: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState): boolean {
+  if (fitsAt(part, expected, domains, depth, gradual, false)) return true;
+  const values = valuesOf(part, domains, depth + 1);
+  if (values !== undefined) return values.every((value) => memberAt(value, expected, domains, depth + 1));
+  return lineCovered(part, expected, domains, depth, gradual, state);
 }
 
 /** A field that the split rule can split: its key, the members of its type, and if the field is optional. */
@@ -512,15 +584,22 @@ function casesFit(
  *   is a member of `expected`. Thus `bool` fits `{ "one": [true, false] }`.
  * - A base type has few members when its domain or a parent declares `values`, as `null`, `undefined` and `bool` do.
  *   A union, a `one`, a closed record of such types and a list of `never` also have few members.
+ * - The cover rule comes next (TYPE.FITS-COVER, D85). A base type fits a union or a `one` when each domain of a cover
+ *   fits. The cover is in `covers` of a domain of its line. Each domain of a cover is under the covered
+ *   domain. Thus a cover of `number` by `neg` and `nonneg` gives `number` a fit against `neg | nonneg`.
  * - The split rule comes last (D84). An open record, or a closed record with more than 64 members, splits a field with
  *   few members over a union. A closed record also splits over a `one`. Each record of the split narrows the field to
  *   one member, and each record must fit.
  *   Thus `{ "record": { "a": "bool" } }` fits a union of a record for each value of `a`.
  *
  * The relation is sound: a member of `found` is a member of `expected` when no `unknown` is in the types
- * (TYPE.FITS-SOUND). It is not complete. A split builds at most 64 records, and it splits only the fields of the
- * record itself. A domain without `values` gets no finite rule, and neither does a type with more than 64 members
- * that is not a record. The function does not throw.
+ * (TYPE.FITS-SOUND). The finite rule trusts `values`, and the cover rule trusts `covers`. Thus a list without a member
+ * or a false cover makes the relation unsound for that domain.
+ *
+ * The relation is not complete. A split builds at most 64 records, and it splits only the fields of the record
+ * itself. A domain without `values` gets no finite rule, and neither does a type with more than 64 members that is
+ * not a record. The cover rule tests at most 64 domains of covers, and a split does not use a cover. The function
+ * does not throw.
  *
  * @param found - The type that a part has.
  * @param expected - The type that the position needs.

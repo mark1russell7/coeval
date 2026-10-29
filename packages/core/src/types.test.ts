@@ -145,6 +145,96 @@ function conflictsOf(merge: () => unknown): readonly MergeConflict[] {
   return [];
 }
 
+/**
+ * The domains of a language with covers (D85): neg and nonneg split number, zero and plus split nonneg, and empty and
+ * filled split text. NaN and the infinities are not negative, thus nonneg and plus hold them.
+ */
+const COVERED: Readonly<Record<string, Domain>> = {
+  ...DOMAINS,
+  number: { ...(STD_DOMAINS["number"] as Domain), covers: [["neg", "nonneg"]] },
+  neg: { is: (value) => (value as number) < 0, under: ["number"], summary: "A negative number." },
+  nonneg: { is: (value) => !((value as number) < 0), under: ["number"], covers: [["zero", "plus"]], summary: "A number that is not negative." },
+  zero: { is: (value) => value === 0, under: ["nonneg"], summary: "Zero or -0." },
+  plus: { is: (value) => value !== 0, under: ["nonneg"], summary: "A number that is not negative and not zero." },
+  text: { ...(STD_DOMAINS["text"] as Domain), covers: [["empty", "filled"]] },
+  empty: { is: (value) => value === "", under: ["text"], values: [""], summary: "The empty text." },
+  filled: { is: (value) => value !== "", under: ["text"], summary: "A text that is not empty." },
+};
+
+/** The samples of each base type of `COVERED`. Each sample is a member of its base type. */
+const COVER_SAMPLES: Readonly<Record<string, readonly unknown[]>> = {
+  ...BASE_SAMPLES,
+  number: [0, -0, 1.5, -3, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY],
+  neg: [-3, -0.5, Number.NEGATIVE_INFINITY],
+  nonneg: [0, -0, 2, Number.NaN, Number.POSITIVE_INFINITY],
+  zero: [0, -0],
+  plus: [2, Number.NaN, Number.POSITIVE_INFINITY],
+  empty: [""],
+  filled: ["a", "#00ff00"],
+};
+
+/**
+ * This function finds the false covers of a language from samples: each sample of a covered domain that no domain of
+ * the cover holds. A test helper uses it, because `fits` trusts the covers.
+ */
+function falseCovers(domains: Readonly<Record<string, Domain>>, samples: Readonly<Record<string, readonly unknown[]>>): readonly string[] {
+  const out: string[] = [];
+  for (const [name, domain] of Object.entries(domains)) {
+    for (const cover of domain.covers ?? []) {
+      for (const value of samples[name] ?? []) if (!cover.some((part) => member(value, part, domains))) out.push(`${name}: ${String(value)} is in no domain of ${cover.join(", ")}`);
+    }
+  }
+  return out;
+}
+
+/** This function tests a seeded corpus of types over the domains of `COVERED`: each pair that fits, with the sampled members of `found`. */
+function coverCorpus(domains: Readonly<Record<string, Domain>>): { readonly types: number; readonly pairs: number; readonly cover: number; readonly checked: number; readonly bad: readonly string[] } {
+  // The same domains without covers. The pairs that fit only with the covers are the pairs of the cover rule.
+  const plain: Record<string, Domain> = {};
+  for (const [name, domain] of Object.entries(domains)) {
+    const { covers: _covers, ...rest } = domain;
+    plain[name] = rest;
+  }
+  const bases = ["number", "neg", "nonneg", "zero", "plus", "whole", "finite", "text", "empty", "filled", "bool", "null", "never"] as const;
+  const children = [["neg", "nonneg"], ["neg", "zero", "plus"], ["empty", "filled"], ["zero", "plus"], ["neg", "zero"]] as const;
+  const rng = random(85);
+  const typeAt = (depth: number): ValueType => {
+    if (depth <= 0 || rng.chance(0.4)) return rng.chance(0.3) ? { union: [...rng.pick(children), ...(rng.chance(0.3) ? [rng.pick(bases)] : [])] } : rng.pick(bases);
+    const next = (): ValueType => typeAt(depth - 1);
+    switch (rng.int(3)) {
+      case 0:
+        return { list: next() };
+      case 1: {
+        const names = ["a", "b"].filter(() => rng.chance(0.6));
+        const record: Record<string, ValueType> = {};
+        for (const name of names) record[name] = next();
+        return { record, ...(rng.chance(0.5) ? { closed: true } : {}) };
+      }
+      default:
+        return { union: Array.from({ length: 1 + rng.int(3) }, next) };
+    }
+  };
+  const pool: ValueType[] = Array.from({ length: 160 }, () => typeAt(2));
+  let pairs = 0;
+  let cover = 0;
+  let checked = 0;
+  const bad: string[] = [];
+  for (const found of pool) {
+    const members = Array.from({ length: 8 }, () => sampleOf(rng, found, COVER_SAMPLES)).filter((value) => value !== NONE);
+    for (const value of members) if (!member(value, found, domains)) bad.push(`${String(value)} is not in ${JSON.stringify(found)}`);
+    for (const expected of pool) {
+      if (!fits(found, expected, domains)) continue;
+      pairs += 1;
+      if (!fits(found, expected, plain)) cover += 1;
+      for (const value of members) {
+        checked += 1;
+        if (!member(value, expected, domains)) bad.push(`${String(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+      }
+    }
+  }
+  return { types: pool.length, pairs, cover, checked, bad };
+}
+
 describe("value types and value domains", () => {
   it("[TYPE.BASE] the kernel has unknown, never, null, undefined, bool, number and text, and each text names a base type", () => {
     expect(Object.keys(STD_DOMAINS).sort()).toEqual(["bool", "null", "number", "text", "undefined"]);
@@ -530,6 +620,105 @@ describe("value types and value domains", () => {
     expect(pairs).toBeGreaterThan(2000);
     expect(split).toBeGreaterThan(50);
     expect(checked).toBeGreaterThan(15000);
+  });
+
+  it("[TYPE.FITS-COVER] a base type fits a union that holds each domain of a cover of its line (D85)", () => {
+    const plain: Readonly<Record<string, Domain>> = { ...COVERED, number: STD_DOMAINS["number"] as Domain };
+    // The example of K179: neg and nonneg split number, thus number fits their union, in each order and with more members.
+    expect(fits("number", { union: ["neg", "nonneg"] }, COVERED)).toBe(true);
+    expect(fits("number", { union: ["nonneg", "text", "neg"] }, COVERED)).toBe(true);
+    expect(fits("number", { union: ["neg", "nonneg"] }, plain)).toBe(false);
+    // A cover of a domain in the line serves each domain under it, also through two levels of parents.
+    expect(fits("whole", { union: ["neg", "nonneg"] }, COVERED)).toBe(true);
+    expect(fits("px", { union: ["neg", "nonneg"] }, COVERED)).toBe(true);
+    // A domain of a cover gets its own covers: zero and plus split nonneg.
+    expect(fits("number", { union: ["neg", "zero", "plus"] }, COVERED)).toBe(true);
+    expect(fits("nonneg", { union: ["plus", "zero"] }, COVERED)).toBe(true);
+    // A partial union does not fit: each domain of the cover must fit a member.
+    expect(fits("number", { union: ["neg"] }, COVERED)).toBe(false);
+    expect(fits("number", { union: ["neg", "zero"] }, COVERED)).toBe(false);
+    expect(fits("number", { union: ["zero", "plus"] }, COVERED)).toBe(false);
+    expect(fits("whole", { union: ["neg", "plus"] }, COVERED)).toBe(false);
+    // A domain of a cover also gets the finite rule. Thus a cover by domains with values fits a `one`.
+    expect(fits("text", { union: ["empty", "filled"] }, COVERED)).toBe(true);
+    expect(fits("text", { union: [{ one: [""] }, "filled"] }, COVERED)).toBe(true);
+    const sides: Readonly<Record<string, Domain>> = {
+      side: { is: (value) => value === "l" || value === "r", under: ["text"], covers: [["left", "right"]] },
+      left: { is: (value) => value === "l", under: ["side"], values: ["l"] },
+      right: { is: (value) => value === "r", under: ["side"], values: ["r"] },
+    };
+    expect(fits("side", { one: ["r", "l"] }, sides)).toBe(true);
+    expect(fits("side", { one: ["l"] }, sides)).toBe(false);
+    // The rule starts only against a union or a `one`, and the strict join reads it too.
+    expect(fits("number", "nonneg", COVERED)).toBe(false);
+    expect(join("number", { union: ["neg", "nonneg"] }, COVERED)).toEqual({ union: ["neg", "nonneg"] });
+    // A split of a record does not use a cover (K186).
+    expect(fits({ record: { a: "number" } }, { union: [{ record: { a: "neg" } }, { record: { a: "nonneg" } }] }, COVERED)).toBe(false);
+  });
+
+  it("[TYPE.FITS-COVER] a cover that is empty, or that names the domain or a name outside its line, does not count", () => {
+    const withCover = (covers: readonly (readonly string[])[], more: Readonly<Record<string, Domain>> = {}): Readonly<Record<string, Domain>> => ({
+      ...COVERED,
+      ...more,
+      number: { ...(STD_DOMAINS["number"] as Domain), covers },
+    });
+    // rest holds the same values as nonneg, but it is not under number. A ghost has no domain, thus it reads as unknown.
+    const rest: Domain = { is: (value) => typeof value === "number" && !(value < 0) };
+    expect(fits("number", { union: ["neg", "rest"] }, withCover([["neg", "rest"]], { rest }))).toBe(false);
+    expect(fits("number", { union: ["neg", "nonneg"] }, withCover([["neg", "ghost"]]))).toBe(false);
+    expect(fits("number", { union: ["neg", "nonneg"] }, withCover([["neg", "unknown"]]))).toBe(false);
+    expect(fits("number", { union: ["text"] }, withCover([[], ["number"]]))).toBe(false);
+    // A bad cover does not stop a good cover after it.
+    expect(fits("number", { union: ["neg", "nonneg"] }, withCover([["neg", "ghost"], ["neg", "nonneg"]]))).toBe(true);
+    // The gradual rule of unknown does not change.
+    expect(fits("unknown", { union: ["neg", "nonneg"] }, COVERED)).toBe(true);
+    expect(fits("number", { union: ["neg", "unknown"] }, COVERED)).toBe(true);
+    // A cycle of covers ends: each domain is under the other, and each covers the other.
+    const cycle: Readonly<Record<string, Domain>> = {
+      a: { is: (value) => typeof value === "number", under: ["b"], covers: [["b"]] },
+      b: { is: (value) => typeof value === "number", under: ["a"], covers: [["a"]] },
+    };
+    expect(fits("a", { union: ["text"] }, cycle)).toBe(false);
+    // The rule tests at most 64 domains of covers. A cover of 65 domains does not fit, a cover of 64 domains fits.
+    const wide = (count: number): Readonly<Record<string, Domain>> => {
+      const out: Record<string, Domain> = { wide: { is: (value) => typeof value === "number", covers: [Array.from({ length: count }, (_, index) => `w${index}`)] } };
+      for (let index = 0; index < count; index += 1) out[`w${index}`] = { is: (value) => value === index, under: ["wide"], values: [index] };
+      return out;
+    };
+    const all = (count: number): ValueType => ({ one: Array.from({ length: count }, (_, index) => index) });
+    expect(fits("wide", all(64), wide(64))).toBe(true);
+    expect(fits("wide", all(65), wide(65))).toBe(false);
+  });
+
+  it("[TYPE.FITS-COVER] a merge compares the covers of two domains, and extendDomain keeps and adds them", () => {
+    const number = COVERED["number"] as Domain;
+    expect(Object.keys(mergeMachines({ domains: { number } }, { domains: { number: { ...number, covers: [["neg", "nonneg"]] } } }).domains ?? {})).toEqual(["number"]);
+    expect(conflictsOf(() => mergeMachines({ domains: { number } }, { domains: { number: { ...number, covers: [["neg", "zero", "plus"]] } } })).map((item) => item.path)).toEqual([["domains", "number"]]);
+    expect(conflictsOf(() => mergeMachines({ domains: { number } }, { domains: { number: STD_DOMAINS["number"] as Domain } }))).toHaveLength(1);
+    // An extension adds a cover to a kernel domain, and a cover that the domain has already does not change.
+    const world = { world: { kinds: {}, defaults: {} }, evaluators: {} };
+    const added = extendDomain("number", { covers: [["neg", "nonneg"]] })(world);
+    expect(added.domains?.["number"]?.covers).toEqual([["neg", "nonneg"]]);
+    const again = extendDomain("number", { covers: [["neg", "nonneg"], ["neg", "zero", "plus"]] })({ ...world, domains: COVERED });
+    expect(again.domains?.["number"]?.covers).toEqual([["neg", "nonneg"], ["neg", "zero", "plus"]]);
+    expect(extendDomain("number", { under: ["real"] })({ ...world, domains: COVERED }).domains?.["number"]?.covers).toEqual([["neg", "nonneg"]]);
+    expect(fits("number", { union: ["neg", "nonneg"] }, { ...COVERED, ...added.domains })).toBe(true);
+  });
+
+  it("[TYPE.FITS-SOUND] a sampled member of found is a member of expected for each pair that fits, with a language that declares true covers (D85)", () => {
+    // The samples hold each member that a cover can miss: NaN, the infinities and -0.
+    expect(falseCovers(COVERED, COVER_SAMPLES)).toEqual([]);
+    const run = coverCorpus(COVERED);
+    // The corpus holds 160 types and 25600 pairs. The counts pin the corpus: a change to the generator shows here.
+    expect(run.types).toBe(160);
+    expect(run.pairs).toBeGreaterThan(3000);
+    expect(run.cover).toBeGreaterThan(200);
+    expect(run.checked).toBeGreaterThan(15000);
+    expect(run.bad).toEqual([]);
+    // A false cover: neg and zero do not hold NaN or 2. The helper finds it from the samples, and the corpus finds a counterexample.
+    const wrong: Readonly<Record<string, Domain>> = { ...COVERED, number: { ...(COVERED["number"] as Domain), covers: [["neg", "zero"]] } };
+    expect(falseCovers(wrong, COVER_SAMPLES).length).toBeGreaterThan(0);
+    expect(coverCorpus(wrong).bad.length).toBeGreaterThan(0);
   });
 
   it("[TYPE.FITS] fits is reflexive, and transitive for generated types without unknown", () => {
