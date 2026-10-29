@@ -2535,3 +2535,42 @@ The other 14 cases gave 11 in bound and 3 mixed.
 - A split narrows only the fields of the record itself. An open record in a field does not split, for example `{a: {x: bool}}` against a union of `{a: {x: true}}` and `{a: {x: false}}` (K185).
 - A split of seven fields of `bool` against a union of its 128 members needs 254 records, thus the rule refuses it.
 - A type with more than 64 members that is not a record gets no finite rule.
+
+## D85 (2026-10-29): a domain declares its covers in `covers`, and `fits` trusts them
+
+**Context.** K179, found by K48 (D79 Limits). A language can split a base type into domains, for example `neg` and `nonneg` under `number`. Their union holds each number, but `number` did not fit `neg | nonneg`. A domain had no form to declare such a split.
+
+**Decision.**
+
+- `Domain` gets the optional field `covers`: a list of covers (TYPE.FITS-COVER). A cover is a list of names of domains, and its domains together hold each member of the domain.
+- The line rule: each name of a cover is a domain under the covered domain, through each level. A cover that is empty, or that names the domain or a name that is not under it, does not count. `fits` ignores it and does not throw.
+- The cover rule comes after the finite rule of D79. It starts only for a base type against a union or a `one`. The base type fits when a domain of its line has a cover, and each domain of the cover fits `expected`.
+- A domain of a cover gets the rules of the shapes, then the finite rule, then its own covers. Thus covers nest: `number` fits `neg | zero | plus` when `zero` and `plus` cover `nonneg`.
+- Each domain of a cover costs one step. One call of the rule takes at most 64 steps, and a larger test gives `false`. A domain on the way gives `false`, thus a cycle of covers ends.
+- The rule of `unknown` does not change. A name without a domain reads as `unknown`, and the line rule refuses it in a cover.
+- `extendDomain` keeps the covers, and `DomainExtension.covers` adds covers. A cover that the domain has already does not change. `mergeMachines` compares the covers as it compares the parents.
+
+**Rejected.**
+
+- A cover in the domains of the split, for example a field `part` in `neg` and in `nonneg`. Then no one domain holds the full claim, and a merge cannot compare it.
+- A cover with a name outside the line. A name without a domain then reads as `unknown` and fits each type. The line rule also makes each cover a split of the domain, thus samples of the domain alone test it.
+- A cover rule for a base type against a record, a list or a base type. A common refusal, for example `number` against `text`, then does more work, and no known language needs it.
+- A cover rule in the split of a record. The split then builds records for each domain of each cover. The row K186 keeps this idea.
+- `covers` without a change of `DomainExtension`. A language that splits a kernel domain then must replace the domain, and two such languages conflict.
+
+**Why.** A language knows how its domains split a base type, as it knows its `values`. A declaration on the covered domain keeps the claim in one place. The line rule keeps each domain of a cover inside the covered domain. Thus a member of a found type is in one domain of the cover, and that domain fits `expected`.
+
+**Soundness.** `fits` trusts each cover, as it trusts `values` (D79) and `truthType` (D81). The TSDoc of `Domain.covers` and of `fits` tells it.
+
+A third corpus of TYPE.FITS-SOUND has 160 types and 25600 pairs over a language with true covers. More than 3000 pairs fit, and more than 200 of them fit only by a cover. The test finds 0 counterexamples. The same corpus with a false cover of `number` finds counterexamples at once. The test helper `falseCovers` finds the false cover from samples of the domain. The row K187 adds this test to `conforms`.
+
+**Public types.** `Domain.covers` and `DomainExtension.covers` are new optional fields. A check accepts some programs that it refused before. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** No expected value of an earlier test changes. No domain of an earlier test declares a cover.
+
+**Limits.**
+
+- The language keeps each cover true. A false cover makes `fits` unsound for that domain.
+- A new parent of a domain in a cover can make the cover false, because the domain then holds fewer members. A new parent of the covered domain keeps the cover true. K187 tests such a cover from samples.
+- A split of a record does not use a cover, thus `{a: number}` does not fit `{a: neg} | {a: nonneg}` (K186).
+- The rule takes at most 64 steps. It tests each full domain of a cover, not only the members that the domain shares with the found type.
