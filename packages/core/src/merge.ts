@@ -89,7 +89,7 @@ function same(a: unknown, b: unknown): boolean {
 
 /**
  * Two domains are the same when they are one object. They are also the same when they have the same test `is`,
- * parents, summary, steps, codec and list of values. Thus two languages that give one test under one name give one
+ * parents, summary, steps, codec, list of values and covers. Thus two languages that give one test under one name give one
  * domain. Two codecs are the same when they have the same functions `encode` and `decode` (D80).
  */
 function sameDomain(a: Domain, b: Domain): boolean {
@@ -102,32 +102,40 @@ function sameDomain(a: Domain, b: Domain): boolean {
     steps: same(a.steps ?? {}, b.steps ?? {}),
     codec: same(a.codec ?? null, b.codec ?? null),
     values: same(a.values ?? null, b.values ?? null),
+    covers: same(a.covers ?? [], b.covers ?? []),
   };
   return Object.values(fields).every(Boolean);
 }
 
-/** What `extendDomain` adds to a domain: more parents, and the types of more steps. */
+/** What `extendDomain` adds to a domain: more parents, the types of more steps, and more covers. */
 export interface DomainExtension {
   /** The names of the parents to add. A member of the domain then also passes the test of each new parent. */
   readonly under?: readonly string[];
   /** The types of the steps to add. A step with the key of an earlier step replaces its type. */
   readonly steps?: Readonly<Record<string, ValueType>>;
+  /**
+   * The covers to add (TYPE.FITS-COVER, D85). A cover that the domain has already does not change. The language that
+   * adds a cover keeps it true, because `fits` trusts it.
+   */
+  readonly covers?: readonly (readonly string[])[];
 }
 
 /**
- * This function makes a part of a merge that adds parents or steps to a domain of an earlier part (TYPE.PARENTS). An
- * example is a domain of another language. The part reads the domain from the merge before it (`prev`). It gives a
- * copy with the same test, summary, codec and list of values, and it names `["domains", name]` in `replaces` (D17).
+ * This function makes a part of a merge that adds parents, steps or covers to a domain of an earlier part
+ * (TYPE.PARENTS). An example is a domain of another language. The part reads the domain from the merge before it
+ * (`prev`). It gives a copy with the same test, summary, codec and list of values, and it names `["domains", name]`
+ * in `replaces` (D17).
  * A domain of the kernel that the earlier parts do not name comes from `STD_DOMAINS`.
  *
  * An extension does not change the codec. Thus each member keeps its document (D80).
  *
  * A new parent adds its test to the domain (TYPE.MEMBER). Thus `fits` stays sound, but a value that fails the test of
  * the parent is no longer a member. The language that adds the parent keeps the signatures of the other language
- * true. A name without a domain gives an empty part, and `typeIssues` reports each use of that name.
+ * true. A new parent of a domain in a cover of another domain can make that cover false (D85). A name without a
+ * domain gives an empty part, and `typeIssues` reports each use of that name.
  *
  * @param name - The name of the domain.
- * @param more - The parents and the steps to add.
+ * @param more - The parents, the steps and the covers to add.
  * @returns The part, as a function of the merge before it.
  */
 export function extendDomain(name: string, more: DomainExtension): (prev: Machine) => MachinePart {
@@ -138,6 +146,8 @@ export function extendDomain(name: string, more: DomainExtension): (prev: Machin
     const under = [...(found.under ?? [])];
     for (const parent of more.under ?? []) if (parent !== name && !under.includes(parent)) under.push(parent);
     const steps = { ...found.steps, ...more.steps };
+    const covers = [...(found.covers ?? [])];
+    for (const cover of more.covers ?? []) if (!covers.some((each) => same(each, cover))) covers.push([...cover]);
     // The type names each field of Domain, thus a new field fails the check of types until the copy reads it (K180).
     const fields: { readonly [K in keyof Domain]-?: Domain[K] | undefined } = {
       is: found.is,
@@ -148,6 +158,8 @@ export function extendDomain(name: string, more: DomainExtension): (prev: Machin
       codec: found.codec,
       // A new parent only adds a test, thus the list of values stays complete (TYPE.FITS-FINITE).
       values: found.values,
+      // A new parent only adds a test, thus each cover stays true (TYPE.FITS-COVER). A new cover is a claim of the extension.
+      covers: covers.length === 0 ? undefined : covers,
     };
     const domain: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(fields)) if (value !== undefined) domain[key] = value;
