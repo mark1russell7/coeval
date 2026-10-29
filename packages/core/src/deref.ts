@@ -101,8 +101,31 @@ export interface Context {
   readonly caps: readonly Cap[];
 }
 
-/** The code of a `deref` evaluator: it answers one step of a path on a document of its kind. */
-export type DerefCode = (doc: Envelope, key: Key) => Thing | undefined;
+/**
+ * The code of a `deref` evaluator: it answers one step of a path on a document of its kind. A field that holds
+ * `undefined` also gives `undefined`. The optional function `has` of the code tells the two cases apart
+ * (DEREF.KIND-UNDEFINED). A host gives the code a `has` with `Object.assign(code, { has })`.
+ */
+export interface DerefCode {
+  /**
+   * This function answers one step on a document.
+   *
+   * @param doc - The document.
+   * @param key - The key of the step.
+   * @returns What the step reaches, or `undefined` when it reaches nothing.
+   */
+  (doc: Envelope, key: Key): Thing | undefined;
+  /**
+   * This optional function tells if a document has a field for a key. The kernel asks it only when the code gives
+   * `undefined`. Then `true` tells that the field holds `undefined`. A code without `has` reads `undefined` as a
+   * missing field, as a host thing does (DEREF.HOST-UNDEFINED).
+   *
+   * @param doc - The document.
+   * @param key - The key of the step.
+   * @returns `true` when the document has the field.
+   */
+  readonly has?: (doc: Envelope, key: Key) => boolean;
+}
 
 /**
  * The result of a step document: what it reached, or the reason of a failure. A failure can give its code, for
@@ -118,13 +141,24 @@ export interface WalkInput {
   readonly here: Thing;
   readonly context: Context;
   /**
-   * This function answers one step on a thing, through the ladder.
+   * This function answers one step on a thing, through the ladder. A field that holds `undefined` also gives
+   * `undefined`. The function `has` tells the two cases apart (DEREF.WALKER-UNDEFINED).
    *
    * @param thing - The thing.
    * @param key - The key.
    * @returns What the step reaches, or `undefined`.
    */
   deref(thing: Thing, key: Key): Thing | undefined;
+  /**
+   * This optional function tells if a step on a thing reaches a field, through the ladder. A walker needs it only
+   * when `deref` gives `undefined`. Then `true` tells that the field holds `undefined` (DEREF.WALKER-UNDEFINED).
+   * Each resolution of the kernel gives it. The function asks the ladder again, thus a host thing answers the step again.
+   *
+   * @param thing - The thing.
+   * @param key - The key.
+   * @returns `true` when the step reaches a field, also a field that holds `undefined`.
+   */
+  has?(thing: Thing, key: Key): boolean;
   /**
    * This optional function records one hop inside the walk (HOP.EACH-STEP). The resolution gives it only when it
    * records hops. The hop of the whole walk comes after these hops, as before.
@@ -318,8 +352,10 @@ export function derefStep(nav: Navigator, thing: Thing, key: Key): { readonly th
     // A navigator without the code of a deref needs no lookup of the kind: no rung can answer.
     const answer = derefs === undefined ? undefined : answerOf(nav.world, ownEntries(envelope), kindFor(nav.world, envelope.type), "deref", (name) => codeIn(derefs, name));
     if (answer !== undefined) {
-      const reached = (derefs as Readonly<Record<string, DerefCode>>)[answer.name]?.(envelope, key);
-      return reached === undefined ? undefined : { thing: reached, by: answer.rung };
+      const code = (derefs as Readonly<Record<string, DerefCode>>)[answer.name];
+      const reached = code?.(envelope, key);
+      // DEREF.KIND-UNDEFINED: the `has` of the code tells a field that holds undefined from a missing field.
+      return reached !== undefined || code?.has?.(envelope, key) === true ? { thing: reached, by: answer.rung } : undefined;
     }
     const reached = plainStep(envelope.value, key);
     return reached === NOTHING ? undefined : { thing: reached, by: "default" };
@@ -672,11 +708,13 @@ function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], ho
           const reached = derefStep(nav, thing, key);
           return reached === undefined ? undefined : adopt(reached.thing);
         };
+        // DEREF.WALKER-UNDEFINED: the same ladder tells a field that holds undefined from a missing field.
+        const has = (thing: Thing, key: Key): boolean => derefStep(nav, thing, key) !== undefined;
         // A resolution without a record of hops gives no `visit`, thus a walker records nothing (HOP.EACH-STEP).
         const result = walker(
           hops === undefined
-            ? { data: envelope.value, here, context: ctx, deref }
-            : { data: envelope.value, here, context: ctx, deref, visit: (key, thing) => hops.push({ step: key, thing, by: "step" }) },
+            ? { data: envelope.value, here, context: ctx, deref, has }
+            : { data: envelope.value, here, context: ctx, deref, has, visit: (key, thing) => hops.push({ step: key, thing, by: "step" }) },
         );
         if (!result.ok) return failed(result.code ?? "#N/A", result.reason);
         here = adopt(result.thing);
