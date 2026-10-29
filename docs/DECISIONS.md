@@ -1801,4 +1801,6 @@ The root is the one context that each evaluation makes. Its second field with a 
 
 The field of the root costs most. Without it, PLAN.FOLD and PLAN.FIXED are 8% to 10% faster than `main`, and FORMULA.SPEED is 2% faster. The session, the test in `readable` and the test of an effect cost nothing that the bench can see.
 
-**Limits.** A host list with the same entries in another order is another epoch. A kept context gets `#CAP!` there, but the reference permits the effect. The case of a formula with a list of reads is 3% to 4% slower than `main` in both tries. Two other variants of `readable` and `rootContext` gave 5% to 47% in some cases of a reference. Thus such a case reacts strongly to the form of this code.
+**Limits.** A host list with the same entries in another order is another epoch. A kept context gets `#CAP!` there, but the reference permits the effect. Some cases of a reference are 3% to 5% slower than `main`. The bench of PR #126 gives a reference of five steps +3.4%, the formula with a list of reads +2.7% and PLAN.PATH +4.7%.
+
+The variant without an epoch gave such changes too, for example +4.6% for five steps. Two other variants of `readable` and `rootContext` gave 5% to 47% in some of these cases. Thus such a case reacts strongly to the form of this code, and K164 examines it.
