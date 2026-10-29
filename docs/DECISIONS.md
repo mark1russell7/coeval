@@ -2074,7 +2074,19 @@ Two variants of the code of D66 then went in one repeated bench each, against `m
 
 Variant A gave 4 cases faster, 6 mixed, 6 in bound and none slower. The kernel keeps variant A.
 
+The bench of PR #133 repeated the comparison of variant A with `main` in the workflow 40812604288. It gave 5 cases faster, 7 mixed, 4 in bound and none slower.
+
+| Case | Runner 1 | Runner 2 | Verdict |
+| --- | ---: | ---: | --- |
+| A reference into a host thing with `resolve` | -9.8% (+0.1%) | -7.7% (0.0%) | faster |
+| A reference of five steps | -3.3% (+0.2%) | -3.7% (-0.2%) | faster |
+| The formula with a list of reads | -8.4% (+0.1%) | -4.4% (-0.1%) | faster |
+| A reference with a step document | -9.3% (+0.6%) | -5.3% (+0.2%) | faster |
+| PLAN.FIXED a formula with a fixed name and a free name | -9.6% (+0.3%) | -1.7% (-0.1%) | faster |
+| A reference through an envelope | +4.3% (+0.5%) | -0.6% (-0.1%) | mixed |
+
 **Limits.**
 
 - The gain comes from the form of the code that the engine compiles, not from less work. Another change of `rootContext` or `readable` can lose it again.
-- Variant A gave six mixed cases. The largest is the tree with a list of reads: -1.0% on one runner and +14.4% on the other.
+- Variant A gave six mixed cases in its first bench. The tree with a list of reads gave -1.0% and +14.4% there, and +0.6% and -4.4% in the bench of PR #133.
+- A reference through an envelope gave +4.1% and +4.3% on an AMD EPYC 7763. These are the two benches of variant A. The other runners gave +1.2% and -0.6%, thus the case does not repeat as slower.
