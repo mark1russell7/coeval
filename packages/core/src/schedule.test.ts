@@ -111,6 +111,20 @@ const cycle = (id: string): Result => fail("#CYCLE!", `The node ${id} is on a cy
 /** The error of a read of a node on the run side, as D31 gives it. */
 const refused = (id: string): Result => fail("#REF!", `The node ${id} is on the run side, thus it has no value for a reader.`);
 
+/** The standard machine with the tree kind `watch`: each field is an attribute, and the kind gives the equations. */
+function treeMachine(equations: Readonly<Record<string, Json>>): typeof STD_MACHINE {
+  const watch = {
+    verbs: { eval: "tree.node" },
+    parts: { shape: "record", fields: {}, rest: { shape: "term" } },
+    caps: [{ rule: "mask" }],
+    pure: true,
+    lazy: [{}],
+    reads: ["self"],
+    tree: { equations },
+  } as const;
+  return { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, watch } } };
+}
+
 describe("the interface of a schedule", () => {
   it("[SCHED.GRAPH] a schedule keeps named documents as nodes under the root world, and the graph stays one object in a structure epoch", () => {
     const b: Json = op("add", ref("world", "a"), ref("names", "x"));
@@ -353,6 +367,45 @@ describe("the interface of a schedule", () => {
     expect(own.ok && isClosure(own.value)).toBe(true);
     const called = s.read("k");
     expect(called.ok && isClosure(called.value)).toBe(true);
+  });
+
+  it("[SCHED.EQUATION] a node with a tree keeps the reads of its equations, thus a change of a node or of the event that an equation reads evaluates it again", () => {
+    // The kind watch has an equation that reads the node a and the event. Its document reads the attribute through self.
+    const machine = treeMachine({ seen: { type: "add", value: [ref("world", "a"), ref("event", "n")] } });
+    const s = schedule(machine, { context: context({ names: { x: 1, y: 1 }, event: { n: 10, m: 0 } }) });
+    s.set("a", ref("names", "x"));
+    s.set("b", ref("names", "y"));
+    s.set("t", { type: "watch", value: { got: ref("self", "seen") } });
+    const first = s.read("t");
+    expect(first).toEqual(ok({ got: 11 }));
+    // A change of the node b and of another field of the event keeps the old result: t and a verify and do not evaluate.
+    let counts = s.counts;
+    s.changeData(context({ names: { x: 1, y: 2 }, event: { n: 10, m: 1 } }));
+    expect(s.read("t")).toBe(first);
+    expect(s.counts.evaluations - counts.evaluations).toBe(0);
+    expect(s.counts.reuses - counts.reuses).toBe(2);
+    // A change of the node a that the equation reads discards the old result.
+    counts = s.counts;
+    s.changeData(context({ names: { x: 2, y: 2 }, event: { n: 10, m: 1 } }));
+    expect(s.read("t")).toEqual(ok({ got: 12 }));
+    expect(s.counts.evaluations - counts.evaluations).toBe(2);
+    // A change of the event that the equation reads discards it too.
+    counts = s.counts;
+    s.changeData(context({ names: { x: 2, y: 2 }, event: { n: 20, m: 1 } }));
+    expect(s.read("t")).toEqual(ok({ got: 22 }));
+    expect(s.counts.evaluations - counts.evaluations).toBe(1);
+    // An edit of the node a gives the new value to the equation.
+    s.set("a", { type: "number", value: 5 });
+    expect(s.read("t")).toEqual(ok({ got: 25 }));
+  });
+
+  it("[SCHED.EQUATION] agreeSchedule finds no stale answer for nodes with trees whose equations read other nodes", () => {
+    const machine = treeMachine({ seen: ref("world", "p"), twice: { type: "add", value: [ref("world", "q"), ref("self", "seen")] } });
+    const wire = (rng: Random, node: () => Json): unknown =>
+      rng.chance(0.5) ? { type: "watch", value: { got: ref("self", "seen"), more: ref("self", "twice") } } : { type: "watch", value: { got: ref("self", "twice"), at: node() } };
+    const outcome = agreeSchedule(schedule, { machines: [machine, { ...machine }], wire, wired: 0.5, count: COUNT / 2, steps: STEPS, equal });
+    expect(told(outcome)).toEqual([]);
+    expect(outcome.counts.compared).toBeGreaterThan(COUNT * 2);
   });
 
   it("[SCHED.CYCLE] each node of a cycle gives #CYCLE! with its name and no place, in each order of demands, and a reader gets the error at its reference", () => {

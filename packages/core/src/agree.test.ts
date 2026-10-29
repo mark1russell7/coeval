@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type AgreeOptions,
   type AgreeRunOptions,
+  type AttributeDeclaration,
   type Cap,
   type CompiledEvaluator,
   type CompiledRunner,
@@ -19,6 +20,7 @@ import {
   type Machine,
   type MachinePart,
   type Perform,
+  type Random,
   type Read,
   type Result,
   type Runtime,
@@ -36,6 +38,7 @@ import {
   context,
   docEquals,
   evaluate,
+  factsOf,
   fail,
   formulaDefinitions,
   formulaEvaluators,
@@ -58,6 +61,7 @@ import {
   replayer,
   resolve,
   run,
+  sameResult,
   sameValue,
   typeName,
   typesOf,
@@ -940,38 +944,85 @@ describe("the reads of a run", () => {
     const ofPlan: Read[] = [];
     expect(await referenceRun(machine, doc, ctx, { reads: ofReference })).toEqual(ok({ width: 3, total: 6 }));
     expect(await prepare(machine, doc).run(ctx, { reads: ofPlan })).toEqual(ok({ width: 3, total: 6 }));
-    // The equation reads the node as self, thus its reads are not free. The plan does not record them (READS.EQUATION).
+    // The equation reads the node as self, thus its reads are not free. The plan records them too (READS.EQUATION).
     expect(ofReference.map((read) => [read.path, read.free])).toEqual([
       [["self"], true],
       [["self", "width"], false],
       [["self", "width"], false],
       [["self", "area"], false],
     ]);
-    expect(ofPlan.map((read) => [read.path, read.free])).toEqual([
-      [["self"], true],
-      [["self", "area"], false],
-    ]);
+    expect(resolved(ofPlan)).toEqual(resolved(ofReference));
     expect(await agreeRun(machine, doc, ctx, { strict: true })).toMatchObject({ ok: true, reads: [{ path: ["self"], free: true }] });
   });
 
-  it("[READS.EQUATION] an equation of a tree records no read in the plan, thus agreeRun reports its free read, and verifyReads keeps a stale result (K165)", async () => {
+  it("[READS.EQUATION] an equation of a tree records its reads in the list of the plan, thus agreeRun agrees and verifyReads sees a change of its free read (K165)", async () => {
     const machine = withTree("watch", { seen: refTo("event", "a") });
     const doc = { type: "watch", value: { got: refTo("self", "seen") } };
-    const before = context({ event: { a: 1 } });
-    const after = context({ event: { a: 2 } });
-    expect(await agreeRun(machine, doc, before, { strict: true })).toMatchObject({
-      ok: false,
-      tier: "reference",
-      plan: ok({ got: 1 }),
-      other: ok({ got: 1 }),
-      reason: 'The free read 1 is no read in the plan, and ["event","a"] in the tier.',
-    });
+    const before = context({ event: { a: 1, b: 5 } });
+    const agreed = await agreeRun(machine, doc, before, { strict: true });
+    expect(agreed).toMatchObject({ ok: true, result: ok({ got: 1 }) });
+    expect(agreed.ok ? agreed.reads?.map((read) => read.path) : undefined).toEqual([["self"], ["event", "a"]]);
     const plan = prepare(machine, doc);
     const reads: Read[] = [];
     expect(plan.evaluate(before, { reads })).toEqual(ok({ got: 1 }));
-    // The list has no read of event, thus the old result stays, and a new evaluation gives another result.
-    expect(verifyReads(plan, reads, after)).toEqual({ same: true });
+    // The read of the equation is free, and the read of the attribute from self is not free (READS.FREE).
+    expect(reads.map((read) => [read.path, read.free])).toEqual([
+      [["self"], true],
+      [["event", "a"], true],
+      [["self", "seen"], false],
+    ]);
+    // A change of the free path of the equation discards the old result, and a new evaluation gives another result.
+    const after = context({ event: { a: 2, b: 5 } });
+    expect(verifyReads(plan, reads, after)).toMatchObject({ same: false, index: 1, now: ok(2) });
     expect(plan.evaluate(after)).toEqual(ok({ got: 2 }));
+    // A change of a path that the equation does not read keeps the old result.
+    const other = context({ event: { a: 1, b: 6 } });
+    expect(verifyReads(plan, reads, other)).toEqual({ same: true });
+    expect(plan.evaluate(other)).toEqual(ok({ got: 1 }));
+    // A run of the plan and a traced evaluation record the same reads.
+    const ofRun: Read[] = [];
+    expect(await plan.run(before, { reads: ofRun })).toEqual(ok({ got: 1 }));
+    const ofTrace: Read[] = [];
+    expect(evaluate(machine, doc, before, { reads: ofTrace }).result).toEqual(ok({ got: 1 }));
+    expect(resolved(ofRun)).toEqual(resolved(reads));
+    expect(resolved(ofTrace)).toEqual(resolved(reads));
+  });
+
+  it("[READS.EQUATION] a read of an equation from self, from its names or from a parent in the tree is not free, and a step out of the tree reads the root self", () => {
+    // The equation of down reads its parent through self, the child through its names, and the context above the tree.
+    const machine: Machine = {
+      ...STD_MACHINE,
+      world: {
+        ...STD_MACHINE.world,
+        kinds: {
+          ...STD_MACHINE.world.kinds,
+          row: { ...treeKind({ base: refTo("self", "parent", "base") }), tree: { equations: { base: refTo("self", "parent", "base") }, down: { left: { type: "add", value: [refTo("self", "base"), refTo("names", "index")] } } } },
+          cell: treeKind({}),
+        },
+      },
+    };
+    const doc = { type: "row", value: { children: { type: "list", value: [{ type: "cell", value: { at: refTo("self", "left") } }] } } };
+    const before = context({ self: { base: 10 }, names: { index: 7 } });
+    const reads: Read[] = [];
+    const plan = prepare(machine, doc);
+    expect(plan.evaluate(before, { reads })).toEqual(ok({ children: [{ at: 10 }] }));
+    const free = reads.filter((read) => read.free).map((read) => read.path);
+    // The root of the tree reads the whole root self, thus a step out of the tree through parent changes that read.
+    expect(free).toEqual([["self"]]);
+    expect(reads.some((read) => !read.free && read.path[0] === "names" && read.path[1] === "index")).toBe(true);
+    expect(verifyReads(plan, reads, context({ self: { base: 10 }, names: { index: 8 } }))).toEqual({ same: true });
+    expect(verifyReads(plan, reads, context({ self: { base: 11 }, names: { index: 7 } }))).toMatchObject({ same: false, index: 0 });
+    expect(plan.evaluate(context({ self: { base: 11 }, names: { index: 7 } }))).toEqual(ok({ children: [{ at: 11 }] }));
+  });
+
+  it("[READS.EQUATION] factsOf gives no static read of an equation yet, thus the free read of an equation is an exception of READS.SUBSET (K166)", () => {
+    // This test pins the gap K166. When factsOf reads the equations of a kind, it gives a static read of event.a too.
+    const machine = withTree("watch", { seen: refTo("event", "a") });
+    const doc = { type: "watch", value: { got: refTo("self", "seen") } };
+    const reads: Read[] = [];
+    expect(prepare(machine, doc).evaluate(context({ event: { a: 1 } }), { reads })).toEqual(ok({ got: 1 }));
+    expect(reads.filter((read) => read.free).map((read) => read.path)).toEqual([["self"], ["event", "a"]]);
+    expect(factsOf(machine, doc).reads.map((read) => read.path)).toEqual([["self"], ["self", "seen"]]);
   });
 
   it("[RUN.AGREES-READS] agreeRun finds a definition that reads another list, and it compares no read when the plan keeps each root", async () => {
@@ -1004,6 +1055,182 @@ describe("the reads of a run", () => {
     expect(outcome).toMatchObject({ ok: true });
     expect(outcome).not.toHaveProperty("reads");
   });
+});
+
+/*
+ * Trees with equations (K165). Each group of documents gets a machine with two tree kinds, and their equations are
+ * generated documents. The equations give the attributes e, d, c and f. A part of a node reads only from self. An
+ * equation also reads the event, its names, the capabilities and the world. Thus each free read other than the whole
+ * root self comes from an equation.
+ */
+
+/** The steps of a path from self: the attributes, the parts, and the steps to a parent or a child. */
+const TREE_STEPS: readonly (readonly Key[])[] = [["e"], ["d"], ["c"], ["f"], ["width"], ["parent", "e"], ["parent", "d"], ["children", 0, "f"], ["children", 1, "c"], ["x"]];
+
+/** The steps of a path from self that resolve in most trees of the corpus. */
+const SAFE_STEPS: readonly (readonly Key[])[] = [["e"], ["c"], ["width"], ["e"], ["c"]];
+
+/** This function gives a reference document from a root. */
+function pathTo(root: string, ...keys: readonly Key[]): Json {
+  return { type: "ref", value: [root, ...keys] as Json };
+}
+
+/**
+ * This function gives a generated equation: numbers, sums and choices over paths from self, the event, the names of
+ * the equation, the capabilities and the world. A few paths do not resolve.
+ */
+function equationTerm(rng: Random, names: readonly string[], depth: number): Json {
+  const roll = rng.int(depth > 0 ? 12 : 8);
+  if (roll < 2) return rng.pick([0, 1, 2, -1]);
+  if (roll < 4) return pathTo("event", ...(rng.chance(0.75) ? ["a"] : rng.pick<readonly Key[]>([["b"], ["x", "a"], ["b", 0]])));
+  if (roll === 4) return pathTo("self", ...rng.pick(rng.chance(0.5) ? SAFE_STEPS : TREE_STEPS));
+  if (roll === 5 && names.length > 0) return pathTo("names", rng.pick(names));
+  if (roll === 6 && rng.chance(0.3)) return rng.chance(0.5) ? pathTo("caps", 0) : pathTo("world", "kinds", "node", "pure");
+  if (roll < 8) return { type: "number", value: rng.pick([1, 3]) };
+  if (roll < 11) return { type: "add", value: [equationTerm(rng, names, depth - 1), equationTerm(rng, names, depth - 1)] };
+  const test = { type: "greater", value: [equationTerm(rng, names, depth - 1), 1] };
+  return { type: "if", value: { test, then: equationTerm(rng, names, depth - 1), else: equationTerm(rng, names, depth - 1) } };
+}
+
+/** This function gives a generated part of a node: a number, a path from self, or a sum. */
+function treePart(rng: Random, depth: number): Json {
+  const roll = rng.int(depth > 0 ? 6 : 5);
+  if (roll === 0) return rng.pick([1, 2, "1"]);
+  if (roll < 5) return pathTo("self", ...rng.pick(rng.chance(0.8) ? SAFE_STEPS : TREE_STEPS));
+  return { type: "add", value: [treePart(rng, depth - 1), treePart(rng, depth - 1)] };
+}
+
+/** This function gives a generated tree of nodes of the kinds node and leaf. */
+function treeDoc(rng: Random, depth: number): Json {
+  const value: Record<string, Json> = { width: treePart(rng, 1) };
+  if (rng.chance(0.5)) value["x"] = treePart(rng, 1);
+  if (depth > 0 && rng.chance(0.75)) value["children"] = { type: "list", value: Array.from({ length: 1 + rng.int(2) }, () => treeDoc(rng, depth - 1)) };
+  return { type: rng.chance(0.6) ? "node" : "leaf", value };
+}
+
+/** The number of documents for each machine of the corpus. */
+const EQUATION_GROUP = 10;
+
+/** This function gives a tree kind with generated equations for each rung of the ladder (TREE.LADDER). */
+function equationKind(seed: number): Kind {
+  const rng = random(seed);
+  const term = (names: readonly string[]): Json => equationTerm(rng, names, 2);
+  const equations: Record<string, Json> = {};
+  equations["e"] = term([]);
+  const down: Record<string, Json> = {};
+  if (rng.chance(0.7)) down["d"] = term(["child", "index", "prev"]);
+  const attributes: Record<string, AttributeDeclaration> = {};
+  attributes["c"] = { copy: true, default: term([]) };
+  if (rng.chance(0.7)) attributes["f"] = { fold: { unit: term([]), combine: term(["acc", "item"]) } };
+  return {
+    verbs: { eval: "tree.node" },
+    parts: { shape: "record", fields: ["width", "children", "x"], of: "number" },
+    caps: [{ rule: "mask" }],
+    pure: true,
+    lazy: [{}],
+    reads: ["self"],
+    tree: { equations, down, attributes },
+  };
+}
+
+/** This function gives the machine of a group of the corpus: the standard machine with the kinds node and leaf. */
+function equationMachine(group: number): Machine {
+  const seed = SEED * 7_919 + group;
+  const kinds = { ...STD_MACHINE.world.kinds, node: equationKind(seed * 2), leaf: equationKind(seed * 2 + 1) };
+  return { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds } };
+}
+
+/** The contexts of the corpus: events with the fields that the equations read, and a self above the tree. */
+const EQUATION_CONTEXTS: readonly Context[] = [
+  context({ names: names(), caps: ["log"], self, event: { a: 1, b: 2, x: { a: 2 } } }),
+  context({ names: names(), event: { a: 3, b: [1, 2] } }),
+  CONTEXTS[2] as Context,
+];
+
+/** This function gives a new context with one change: a field of the event, a name or the self above the tree. */
+function changedContext(ctx: Context, rng: ReturnType<typeof random>): Context {
+  const event = typeof ctx.event === "object" && ctx.event !== null ? (ctx.event as Readonly<Record<string, unknown>>) : {};
+  const roll = rng.int(4);
+  if (roll === 0) return { ...ctx, event: { ...event, a: rng.pick<unknown>([1, 3, 4, "a"]) } };
+  if (roll === 1) return { ...ctx, event: { ...event, b: rng.pick<unknown>([2, 5, [1, 2]]) } };
+  if (roll === 2) return { ...ctx, names: { ...ctx.names, a: rng.pick([1, 2]) } };
+  return { ...ctx, self: rng.pick<unknown>([self, parent, { a: 1 }]) };
+}
+
+/** What the corpus of trees with equations found. */
+interface EquationOutcome {
+  readonly findings: readonly Finding[];
+  /** The verifications that kept an old result, while a new evaluation gave another result (READS.SOUND). */
+  readonly stale: readonly string[];
+  readonly counts: Readonly<Record<string, number>>;
+}
+
+/** This function evaluates the corpus of trees with equations in each tier, and verifies the reads of each plan. */
+async function harnessEquations(total: number): Promise<EquationOutcome> {
+  const findings: Finding[] = [];
+  const stale: string[] = [];
+  const counts: Record<string, number> = { docs: 0, value: 0, reads: 0, equationReads: 0, same: 0, changed: 0 };
+  const add = (name: string, by = 1): void => {
+    counts[name] = (counts[name] ?? 0) + by;
+  };
+  let machine = equationMachine(0);
+  for (let index = 0; index < total; index += 1) {
+    if (index % EQUATION_GROUP === 0) machine = equationMachine(index / EQUATION_GROUP);
+    const seed = SEED * 1_000_003 + index;
+    const doc = treeDoc(random(seed), 2);
+    const ctx = EQUATION_CONTEXTS[index % EQUATION_CONTEXTS.length] as Context;
+    add("docs");
+    const evaluated = agree(machine, doc, ctx, { strict: true });
+    if (!evaluated.ok) {
+      findings.push({ seed, reason: evaluated.reason, doc, plan: evaluated.plan, other: evaluated.other, tier: evaluated.tier });
+      continue;
+    }
+    const outcome = await agreeRun(machine, doc, ctx, { strict: true, perform: waitingHost });
+    if (!outcome.ok) {
+      findings.push({ seed, reason: outcome.reason, doc, plan: outcome.plan, other: outcome.other, tier: outcome.tier });
+      continue;
+    }
+    if (outcome.result.ok) add("value");
+    add("reads", outcome.reads?.length ?? 0);
+    // A part reads only from self, thus each other free read comes from an equation.
+    add("equationReads", outcome.reads?.filter((read) => read.path[0] !== "self").length ?? 0);
+
+    // READS.SOUND: when the reads of the plan verify in a new context, a new evaluation gives the old result.
+    if (!factsOf(machine, doc).pure) continue;
+    const plan = prepare(machine, doc);
+    const reads: Read[] = [];
+    const before = plan.evaluate(ctx, { reads });
+    if (!sameResult(before, plan.evaluate(ctx))) continue;
+    const rng = random(seed * 3 + 1);
+    for (let turn = 0; turn < 3; turn += 1) {
+      const next = changedContext(ctx, rng);
+      if (!verifyReads(plan, reads, next).same) {
+        add("changed");
+        continue;
+      }
+      add("same");
+      const after = plan.evaluate(next);
+      if (!sameResult(before, after)) {
+        const kinds = { node: machine.world.kinds["node"], leaf: machine.world.kinds["leaf"] };
+        stale.push(`seed ${seed}: ${show(before)} and then ${show(after)}\n  doc ${show(doc)}\n  kinds ${show(kinds)}`);
+      }
+    }
+  }
+  return { findings, stale, counts };
+}
+
+describe("one meaning of trees with equations", () => {
+  it("[RUN.AGREES-EQUATIONS] generated trees with generated equations agree in agree and agreeRun with their free reads, and verifyReads keeps no stale result", async () => {
+    const outcome = await harnessEquations(COUNT);
+    const counts = outcome.counts;
+    expect(report(outcome.findings), show(counts)).toEqual([]);
+    expect(outcome.stale.slice(0, 3), show(counts)).toEqual([]);
+    // The corpus reaches values, free reads of equations, and verifications that keep and that discard a result.
+    expect(counts["value"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 12);
+    expect(counts["equationReads"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
+    expect(counts["same"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 4);
+    expect(counts["changed"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
+  }, 300_000);
 });
 
 describe("the disagreements that the harness found", () => {
