@@ -229,7 +229,8 @@ export interface ReplayErrorJson {
   readonly exception?: ReplayExceptionJson;
   /**
    * The JSON form of a cause without a term document that is a list or a plain record with an exception at some depth
-   * (RUN.REPLAY-CAUSE-PARTS, D87). It is a list of parts or the part `record`. The index 0 of `loop` is its first exception.
+   * (RUN.REPLAY-CAUSE-PARTS, D87). It is a list of parts, the part `record` or the part `share`. The index 0 of `loop` is its
+   * first exception, and the index 0 of `share` is its first list or record.
    */
   readonly causeParts?: ReplayCausePartsJson;
   /** The names of the items of `causeParts` without a form, for example `cause.send`. This list is only a note. */
@@ -238,9 +239,9 @@ export interface ReplayErrorJson {
 
 /**
  * The JSON form of a cause without a term document that is a list or a plain record with an exception at some depth
- * (D87). It is a list of parts or the part `record`, as a field in `parts` (D82).
+ * (D87). It is a list of parts, the part `record` or the part `share`, as a field in `parts` (D82, D88).
  */
-export type ReplayCausePartsJson = readonly ReplayPartsJson[] | { readonly record: Readonly<Record<string, ReplayPartsJson>> };
+export type ReplayCausePartsJson = readonly ReplayPartsJson[] | { readonly record: Readonly<Record<string, ReplayPartsJson>> } | { readonly share: number };
 
 /**
  * The JSON form of an exception (RUN.REPLAY-CAUSES, D76). The exceptions of an error and of their causes are a chain.
@@ -255,7 +256,8 @@ export interface ReplayExceptionJson {
   /**
    * The own enumerable fields without a term document that are an exception, a list or a plain record (RUN.REPLAY-FIELDS,
    * D78, D82). An example is a list `errors` on an `Error`. A list is a list of parts, and a record is the part `record`.
-   * Each exception in them has the rule of a cause. A container without a form in it is a name in `dropped`.
+   * Each exception in them has the rule of a cause. A container without a form in it is a name in `dropped`. A container
+   * that an earlier place holds is the part `share` (D88).
    */
   readonly parts?: Readonly<Record<string, ReplayPartsJson>>;
   /**
@@ -283,16 +285,20 @@ export interface ReplayExceptionJson {
 }
 
 /**
- * The JSON form of one value of a field in `parts` or `hidden` (D77, D78, D82). It is a term document, an exception, the
- * index of an earlier exception, or a record of parts. The walk is depth first: the fields in `parts` in their order, the
- * hidden fields, then the cause. The mark `dropped` keeps the place of an item of a list without a form, and `decodeLog`
- * gives a hole there.
+ * The JSON form of one value of a field in `parts` or `hidden` (D77, D78, D82). It is a term document, an exception, a
+ * loop, a record of parts, or a share (D88). The walk is depth
+ * first: the fields in `parts` in their order, the hidden fields, then the cause. The mark `dropped` keeps the place of
+ * an item of a list without a form, and `decodeLog` gives a hole there.
+ *
+ * The part `share` is a list or a record of parts that an earlier place of the walk holds (RUN.REPLAY-SHARED, D88). Its
+ * index counts the lists and the records of parts in the order of the walk. Thus `decodeLog` gives one object for both places.
  */
 export type ReplayPartJson =
   | { readonly value: Json }
   | { readonly exception: ReplayExceptionJson }
   | { readonly loop: number }
   | { readonly record: Readonly<Record<string, ReplayPartsJson>> }
+  | { readonly share: number }
   | { readonly dropped: true };
 
 /**
@@ -337,10 +343,16 @@ const HIDDEN: readonly string[] = /* @__PURE__ */ Object.freeze(["errors", "erro
 const MISSING: unique symbol = /* @__PURE__ */ Symbol("missing");
 
 /**
- * The form of one value in the walk of `causeJson`. It is a term document, a loop, a later exception or a later
- * container. A value without a form keeps its name for `dropped`.
+ * The form of one value in the walk of `causeJson`. It is a term document, a loop, a later exception, a later container
+ * or an earlier container (D88). A value without a form keeps its name for `dropped`.
  */
-type Part = { readonly value: Json } | { readonly loop: number } | { readonly node: number } | { readonly holder: number } | { readonly none: string };
+type Part =
+  | { readonly value: Json }
+  | { readonly loop: number }
+  | { readonly node: number }
+  | { readonly holder: number }
+  | { readonly same: number; readonly name: string }
+  | { readonly none: string };
 
 /** One exception of the walk of `causeJson`, before its JSON form. */
 interface ExceptionNode {
@@ -360,16 +372,10 @@ interface Holder {
   readonly name: string;
   readonly list: boolean;
   /** The value `true` marks a hidden list of a standard class. It keeps its marks also without a form (D78). */
-  readonly keep: boolean;
+  keep: boolean;
   /** The keys of a record in the order of the keys. A list has no keys. */
   readonly keys: readonly string[];
   readonly slots: Part[];
-}
-
-/** The containers on the way from a field of an exception to a value. A container on the way again is a cycle. */
-interface Way {
-  readonly value: object;
-  readonly up: Way | undefined;
 }
 
 /** One value of an exception that the walk of `causeJson` writes next, and the place for its form. */
@@ -381,7 +387,8 @@ interface ExceptionTask {
   readonly tried: boolean;
   /** The value `false` marks a cause. A cause is a container only when it holds an exception at some depth (D87). */
   readonly nest: boolean;
-  readonly way: Way | undefined;
+  /** The value `true` marks a hidden list of a standard class. It is always a container of parts (D77). */
+  readonly keep: boolean;
   readonly put: (part: Part) => void;
 }
 
@@ -445,7 +452,7 @@ interface CauseJson {
 function causeOf(built: Built): CauseJson {
   const form = built.form;
   if (form === undefined) return { names: built.names };
-  if (Array.isArray(form) || "record" in form) return { link: { causeParts: form as ReplayCausePartsJson }, names: built.names };
+  if (Array.isArray(form) || "record" in form || "share" in form) return { link: { causeParts: form as ReplayCausePartsJson }, names: built.names };
   return { link: "value" in form ? { cause: form.value } : (form as { readonly exception: ReplayExceptionJson } | { readonly loop: number }), names: built.names };
 }
 
@@ -468,12 +475,6 @@ function readField(value: object, key: string | number): unknown {
   }
 }
 
-/** This function tells if a container is on a way. */
-function onWay(way: Way | undefined, value: object): boolean {
-  for (let at = way; at !== undefined; at = at.up) if (at.value === value) return true;
-  return false;
-}
-
 /** This function gives the forms of the parts with a form, with their keys, in the order of the keys. */
 function keptOf(keys: readonly string[], built: readonly Built[]): [string, ReplayPartsJson][] {
   const kept: [string, ReplayPartsJson][] = [];
@@ -492,24 +493,28 @@ function keptOf(keys: readonly string[], built: readonly Built[]): [string, Repl
  * The walk gives each exception an index in the order of a depth-first walk. It takes the fields in `parts` in the
  * order of their keys, the hidden fields in the order of `HIDDEN`, then the cause (D78). A list or a plain record
  * without a term document is a container of parts, with its items in their order (D82). A cause is a container only
- * when it holds an exception (D87). A value that is an earlier exception of the walk is its index in `loop` (D77). The
- * walk is a loop, thus a long chain does not overflow the stack.
+ * when it holds an exception (D87). A value that is an earlier exception of the walk is its index in `loop` (D77).
+ *
+ * A container that an earlier place holds is its index in `share`, also a container that holds itself (D88). The walk is
+ * a loop, thus a long chain does not overflow the stack.
  */
 function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson {
   // The nodes and the containers in the order of the walk. Each item of a node or of a container comes later.
   const items: (ExceptionNode | Holder)[] = [];
   const index = new Map<unknown, number>();
+  // The place in `items` of each container of the walk (D88).
+  const holders = new Map<object, number>();
   const tasks: ExceptionTask[] = [];
   const later = (children: readonly ExceptionTask[]): void => {
     for (let place = children.length - 1; place >= 0; place -= 1) tasks.push(children[place] as ExceptionTask);
   };
-  const hold = (name: string, value: object, keep: boolean, way: Way | undefined, children: ExceptionTask[]): number => {
+  const hold = (name: string, value: object, keep: boolean, children: ExceptionTask[]): number => {
     const at = items.length;
+    holders.set(value, at);
     const list = Array.isArray(value);
     const keys = list ? [] : Object.keys(value);
     const slots: Part[] = [];
     items.push({ name, list, keep, keys, slots });
-    const inner: Way = { value, up: way };
     const size = list ? (value as readonly unknown[]).length : keys.length;
     for (let place = 0; place < size; place += 1) {
       const key = list ? place : (keys[place] as string);
@@ -517,7 +522,7 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
       const put = (part: Part): void => {
         slots[place] = part;
       };
-      children.push({ value: item, name: `${name}.${key}`, tried: false, nest: true, way: inner, put });
+      children.push({ value: item, name: `${name}.${key}`, tried: false, nest: true, keep: false, put });
     }
     return at;
   };
@@ -542,28 +547,24 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
       const put = (part: Part): void => {
         node.parts[place] = part;
       };
-      children.push({ value, name: key, tried: true, nest: true, way: undefined, put });
+      children.push({ value, name: key, tried: true, nest: true, keep: false, put });
     }
     for (const key of HIDDEN) {
       if (Object.getOwnPropertyDescriptor(current, key)?.enumerable !== false) continue;
       const place = node.hiddenKeys.length;
       node.hiddenKeys.push(key);
       const value = readField(current, key);
-      // A hidden list is always a list of parts, as in D77, also when `encodeValue` writes it.
-      if (Array.isArray(value)) {
-        node.hidden[place] = { holder: hold(key, value, true, undefined, children) };
-        continue;
-      }
       const put = (part: Part): void => {
         node.hidden[place] = part;
       };
-      children.push({ value, name: key, tried: false, nest: true, way: undefined, put });
+      // A hidden list is always a list of parts, as in D77, also when `encodeValue` writes it.
+      children.push({ value, name: key, tried: false, nest: true, keep: Array.isArray(value), put });
     }
     if (Object.hasOwn(current, "cause")) {
       const put = (part: Part): void => {
         node.cause = part;
       };
-      children.push({ value: current.cause, name: "cause", tried: false, nest: false, way: undefined, put });
+      children.push({ value: current.cause, name: "cause", tried: false, nest: false, keep: false, put });
     }
     later(children);
     return at;
@@ -574,7 +575,7 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
     name: "cause",
     tried: true,
     nest: false,
-    way: undefined,
+    keep: false,
     put: (part) => {
       top = part;
     },
@@ -590,33 +591,44 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
       task.put({ loop });
       continue;
     }
-    const term = task.tried ? undefined : termOrNothing(machine, value);
+    const term = task.tried || task.keep ? undefined : termOrNothing(machine, value);
     if (term !== undefined) task.put({ value: term });
     else if (value instanceof Error) task.put({ node: open(value) });
-    else if ((Array.isArray(value) || isRecord(value)) && !onWay(task.way, value) && (task.nest || holdsException(value))) {
-      const children: ExceptionTask[] = [];
-      task.put({ holder: hold(task.name, value, false, task.way, children) });
-      later(children);
+    else if ((Array.isArray(value) || isRecord(value)) && (task.nest || holdsException(value))) {
+      const held = holders.get(value);
+      if (held === undefined) {
+        const children: ExceptionTask[] = [];
+        task.put({ holder: hold(task.name, value, task.keep, children) });
+        later(children);
+      } else {
+        // A container that an earlier place holds, also a container that holds itself, is a share (D88).
+        if (task.keep) (items[held] as Holder).keep = true;
+        task.put({ same: held, name: task.name });
+      }
     } else task.put({ none: task.name });
   }
+  const { formed, shares } = formsOf(items);
   // Each item of a node or of a container comes later than its owner, thus the forms grow from the last to the first.
   const forms: (ReplayExceptionJson | Built)[] = [];
   const builtOf = (part: Part): Built => {
     if ("none" in part) return { names: [part.none] };
     if ("node" in part) return { form: { exception: forms[part.node] as ReplayExceptionJson }, names: [] };
     if ("holder" in part) return forms[part.holder] as Built;
+    // A share of a container without a form has no form either, thus its name stands for it.
+    if ("same" in part) return formed[part.same] === true ? { form: { share: shares[part.same] as number }, names: [] } : { names: [part.name] };
     return { form: part, names: [] };
   };
   for (let at = items.length - 1; at >= 0; at -= 1) {
     const item = items[at] as ExceptionNode | Holder;
     if ("slots" in item) {
-      const built = Array.from(item.slots, builtOf);
       // A container without a form in it has no form, thus its name stands for each of its items (D82).
-      if (!item.keep && built.every((part) => part.form === undefined)) forms[at] = { names: [item.name] };
-      else {
-        const form = item.list ? built.map((part) => part.form ?? { dropped: true as const }) : { record: Object.fromEntries(keptOf(item.keys, built)) };
-        forms[at] = { form, names: built.flatMap((part) => part.names) };
+      if (formed[at] !== true) {
+        forms[at] = { names: [item.name] };
+        continue;
       }
+      const built = Array.from(item.slots, builtOf);
+      const form = item.list ? built.map((part) => part.form ?? { dropped: true as const }) : { record: Object.fromEntries(keptOf(item.keys, built)) };
+      forms[at] = { form, names: built.flatMap((part) => part.names) };
       continue;
     }
     const { head, keys, parts, hiddenKeys, hidden, cause } = item;
@@ -636,6 +648,52 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
     };
   }
   return causeOf(builtOf(top));
+}
+
+/**
+ * This function tells which containers of the walk of `causeJson` get a form, and it gives each such container its
+ * index for `share` (D88). A container gets a form when it is a hidden list, or when an item has a form. A share has
+ * the form of its container. Thus a cycle of containers without another form has no form. The index counts the
+ * containers with a form in the order of the walk, as `decodeLog` meets them.
+ */
+function formsOf(items: readonly (ExceptionNode | Holder)[]): { readonly formed: readonly boolean[]; readonly shares: readonly number[] } {
+  const formed: boolean[] = [];
+  // The containers that get a form when the container of the key gets one.
+  const users = new Map<number, number[]>();
+  const work: number[] = [];
+  for (let at = 0; at < items.length; at += 1) {
+    const item = items[at] as ExceptionNode | Holder;
+    if (!("slots" in item)) continue;
+    let seed = item.keep;
+    for (const part of item.slots) {
+      const on = "holder" in part ? part.holder : "same" in part ? part.same : undefined;
+      if (on === undefined) seed ||= !("none" in part);
+      else {
+        const list = users.get(on);
+        if (list === undefined) users.set(on, [at]);
+        else list.push(at);
+      }
+    }
+    if (seed) {
+      formed[at] = true;
+      work.push(at);
+    }
+  }
+  for (let at = work.pop(); at !== undefined; at = work.pop()) {
+    for (const user of users.get(at) ?? []) {
+      if (formed[user] === true) continue;
+      formed[user] = true;
+      work.push(user);
+    }
+  }
+  const shares: number[] = [];
+  let count = 0;
+  for (let at = 0; at < items.length; at += 1) {
+    if (formed[at] !== true) continue;
+    shares[at] = count;
+    count += 1;
+  }
+  return { formed, shares };
 }
 
 /** This function gives the message of an exception, or a short text for another value. */
@@ -685,6 +743,8 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   (RUN.REPLAY-FIELDS, D78, D82). An item of a list without a form is the mark `dropped` at its place.
  * - A cause without a term document that is a list or a plain record with an exception is in `causeParts`
  *   (RUN.REPLAY-CAUSE-PARTS, D87). The rule is the same for the cause of an exception and of an error value.
+ * - A list or a record of parts that an earlier place of one error holds is the part `share` with its index
+ *   (RUN.REPLAY-SHARED, D88). This rule also covers a container that holds itself.
  * - An outcome that the log does not have stays absent.
  *
  * @param machine - The machine of the run, or only its domains.
@@ -787,8 +847,8 @@ function readError(kit: Machine, data: unknown, place: readonly Key[]): Result<E
 /** One part of the JSON form of a cause that the walk of `readCause` reads next, and the place for its value. */
 interface ReadTask {
   /**
-   * The field of the part: `value` or `cause` for a term document, `exception`, `loop`, `record` or `dropped`. The
-   * kind `list` is a list of parts.
+   * The field of the part: `value` or `cause` for a term document, `exception`, `loop`, `record`, `share` or `dropped`.
+   * The kind `list` is a list of parts.
    */
   readonly kind: string;
   readonly data: unknown;
@@ -799,11 +859,13 @@ interface ReadTask {
 /**
  * This function reads the JSON form of a cause again: an exception in `exception`, or a container in `causeParts`
  * (RUN.REPLAY-CAUSES, RUN.REPLAY-HIDDEN, RUN.REPLAY-FIELDS, D87). The walk has the order of `causeJson`, thus a loop
- * gives the same exception. A list or a record of parts gives a new list or plain record (D82). The walk is a loop, thus
- * a long chain does not overflow the stack.
+ * gives the same exception. A list or a record of parts gives a new list or plain record (D82). A share gives the same
+ * list or record as its earlier place (D88). The walk is a loop, thus a long chain does not overflow the stack.
  */
 function readCause(kit: Machine, kind: string, data: unknown, place: readonly Key[]): Result<unknown> {
   const chain: Error[] = [];
+  // The lists and the records of parts in the order of the walk, for the part share (D88).
+  const held: object[] = [];
   const tasks: ReadTask[] = [];
   const open = (at: unknown, where: readonly Key[]): Result<Error> => {
     if (!isRecord(at) || typeof at["name"] !== "string" || typeof at["message"] !== "string" || !Object.keys(at).every(exceptionField)) {
@@ -880,8 +942,13 @@ function readCause(kit: Machine, kind: string, data: unknown, place: readonly Ke
       task.put(chain[part]);
       continue;
     }
+    if (kind === "share") {
+      if (typeof part !== "number" || !Number.isInteger(part) || part < 0 || part >= held.length) return bad(where, "a share is the index of a list or a record of parts of the walk until this one.");
+      task.put(held[part]);
+      continue;
+    }
     if (kind === "list" || kind === "record") {
-      const items = kind === "list" ? listTasks(part, where, task.put) : recordTasks(part, where, task.put);
+      const items = kind === "list" ? listTasks(part, where, held, task.put) : recordTasks(part, where, held, task.put);
       if (!items.ok) return items;
       for (let index = items.value.length - 1; index >= 0; index -= 1) tasks.push(items.value[index] as ReadTask);
       continue;
@@ -895,13 +962,14 @@ function readCause(kit: Machine, kind: string, data: unknown, place: readonly Ke
 
 /**
  * This function reads the field of a cause: `cause`, `exception`, `loop` or `causeParts`. A value of `causeParts` is a
- * list of parts or the part `record`, and no other part (D87).
+ * list of parts, the part `record` or the part `share`, and no other part (D87, D88).
  */
 function linkTask(kind: string, data: unknown, where: readonly Key[], put: (value: unknown) => void): Result<ReadTask> {
   if (kind !== "causeParts") return ok({ kind, data, where, put });
   if (Array.isArray(data)) return ok({ kind: "list", data, where, put });
-  if (isRecord(data) && Object.keys(data).length === 1 && Object.hasOwn(data, "record")) return ok({ kind: "record", data: data["record"], where: [...where, "record"], put });
-  return bad(where, "a cause of parts is a list of parts or the part record.");
+  const key = isRecord(data) && Object.keys(data).length === 1 ? Object.keys(data)[0] : undefined;
+  if (isRecord(data) && (key === "record" || key === "share")) return ok({ kind: key, data: data[key], where: [...where, key], put });
+  return bad(where, "a cause of parts is a list of parts, the part record or the part share.");
 }
 
 /**
@@ -914,12 +982,13 @@ function slotTask(data: unknown, where: readonly Key[], item: boolean, put: (val
 
 /**
  * This function gives a list of parts its length at once, and it gives the tasks of its items. Thus the mark `dropped`
- * leaves a hole at its place, and each later item keeps its index (D78).
+ * leaves a hole at its place, and each later item keeps its index (D78). The list goes in `held` for a share (D88).
  */
-function listTasks(data: unknown, where: readonly Key[], put: (value: unknown) => void): Result<ReadTask[]> {
+function listTasks(data: unknown, where: readonly Key[], held: object[], put: (value: unknown) => void): Result<ReadTask[]> {
   const items = data as readonly unknown[];
   const list: unknown[] = [];
   list.length = items.length;
+  held.push(list);
   put(list);
   const tasks: ReadTask[] = [];
   for (let item = 0; item < items.length; item += 1) {
@@ -934,11 +1003,13 @@ function listTasks(data: unknown, where: readonly Key[], put: (value: unknown) =
 
 /**
  * This function gives a record of parts a new plain record (D82). It gives the tasks of its fields in the order of
- * the keys. Each key gets its place at once, thus the record keeps the order of the keys.
+ * the keys. Each key gets its place at once, thus the record keeps the order of the keys. The record goes in `held`
+ * for a share (D88).
  */
-function recordTasks(data: unknown, where: readonly Key[], put: (value: unknown) => void): Result<ReadTask[]> {
+function recordTasks(data: unknown, where: readonly Key[], held: object[], put: (value: unknown) => void): Result<ReadTask[]> {
   if (!isRecord(data)) return bad(where, "a record of parts is a record.");
   const record: Record<string, unknown> = {};
+  held.push(record);
   put(record);
   const tasks: ReadTask[] = [];
   for (const key of Object.keys(data)) {
@@ -954,15 +1025,15 @@ function recordTasks(data: unknown, where: readonly Key[], put: (value: unknown)
 }
 
 /**
- * This function reads one part: a record with only one of the fields `value`, `exception`, `loop` and `record`. An item
- * of a list can also be the mark `{ "dropped": true }`.
+ * This function reads one part: a record with only one of the fields `value`, `exception`, `loop`, `record` and
+ * `share`. An item of a list can also be the mark `{ "dropped": true }`.
  */
 function partTask(data: unknown, where: readonly Key[], item: boolean, put: (value: unknown) => void): Result<ReadTask> {
   const keys = isRecord(data) ? Object.keys(data) : [];
   const kind = keys[0];
   const mark = kind === "dropped" && item && isRecord(data) && data[kind] === true;
   if (!isRecord(data) || keys.length !== 1 || kind === undefined || !(PARTS.includes(kind) || mark)) {
-    return bad(where, "a field of parts is a part or a list of parts. A part has only one of the fields value, exception, loop and record, or an item is the mark dropped.");
+    return bad(where, "a field of parts is a part or a list of parts. A part has only one of the fields value, exception, loop, record and share, or an item is the mark dropped.");
   }
   return ok({ kind, data: data[kind], where: [...where, kind], put });
 }
@@ -971,7 +1042,7 @@ function partTask(data: unknown, where: readonly Key[], item: boolean, put: (val
 const LINKS: readonly string[] = /* @__PURE__ */ Object.freeze(["cause", "exception", "loop", "causeParts"]);
 
 /** The fields of the JSON form of a part of a field in `parts` or `hidden`. */
-const PARTS: readonly string[] = /* @__PURE__ */ Object.freeze(["value", "exception", "loop", "record"]);
+const PARTS: readonly string[] = /* @__PURE__ */ Object.freeze(["value", "exception", "loop", "record", "share"]);
 
 /** This function reads the JSON form of one effect again. */
 function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<ReplayEntry> {
@@ -1002,7 +1073,8 @@ function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<R
  * This function reads the JSON form of a log again (RUN.REPLAY-JSON). It reads each term document with the formula kit
  * and the domains of the machine. A cause in the field `exception` becomes an exception with that name and message.
  * The exception gets its fields and the chain of its causes again, also a cycle (RUN.REPLAY-CAUSES). A list gets a
- * hole at the place of the mark `dropped`, thus each later item keeps its index (D78).
+ * hole at the place of the mark `dropped`, thus each later item keeps its index (D78). Each share of a list or a record
+ * gives the same object (RUN.REPLAY-SHARED).
  *
  * @param machine - The machine of the run, or only its domains.
  * @param data - The JSON form, for example from `JSON.parse` of a golden file.
