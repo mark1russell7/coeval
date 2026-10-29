@@ -13,6 +13,9 @@
  * only that the copies give the same results. The workflow `bench.yml` runs it in CI, because a shared machine gives
  * unreliable numbers.
  *
+ * The workflow starts the script in two jobs, thus on two runners (K167, D71). With `BENCH_JSON`, the script also
+ * writes its table as JSON to that file, and `merge.ts` gives the verdict of the two runs. `BENCH_RUN` names the run.
+ *
  * Why new processes and flags (K101). V8 compiles hot code on background threads, and its garbage collector sizes the
  * heap from measured times. Thus two compilations of the same code can differ in speed by 10 % or more. Before K101,
  * the two copies ran in one process: each copy kept one compilation for all its rounds, and the two copies shared one
@@ -25,11 +28,12 @@
  */
 import { build, type Plugin } from "esbuild";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpus, tmpdir } from "node:os";
 import { join, resolve as resolveFile } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Measured } from "./cases.ts";
+import type { BenchCase, BenchRun } from "./merge.ts";
 
 /** The rounds. A local smoke test can make them small, for example `BENCH_ROUNDS=1 BENCH_SAMPLES=1`. */
 const ROUNDS = Number(process.env["BENCH_ROUNDS"] ?? 12);
@@ -101,7 +105,12 @@ async function main(): Promise<void> {
       (runs[which] as Measured[][]).push(measureCopy(copies[which] as string, counts));
     }
   }
+  const run = process.env["BENCH_RUN"] ?? "1";
+  // On Linux, Node reads the model of the CPU from /proc/cpuinfo.
+  const cpu = cpus()[0]?.model.trim() ?? "an unknown CPU";
+  const cases: BenchCase[] = [];
   const lines: string[] = [
+    `Run ${run} on ${cpu}.`,
     `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the base, a second copy of the base and the head each run in a new process.`,
     "The change compares the head with the base of the same round. The noise (A/A) compares the two copies of the base.",
     "A change that is not clearly larger than the noise of its case is noise.",
@@ -116,17 +125,26 @@ async function main(): Promise<void> {
     const results = new Set([item.result, ...[...base, ...again, ...head].map((measured) => measured.result)]);
     if (results.size !== 1) {
       mismatch = true;
-      lines.push(`| ${item.name} | different results: ${[...results].join(" and ")} | | | |`);
+      const different = [...results].join(" and ");
+      cases.push({ name: item.name, baseNs: 0, headNs: 0, change: 0, noise: 0, different });
+      lines.push(`| ${item.name} | different results: ${different} | | | |`);
       return;
     }
     const ratio = (copy: readonly Measured[]): number => median(copy.map((measured, round) => measured.ns / (base[round] as Measured).ns));
-    const ns = (copy: readonly Measured[]): string => median(copy.map((measured) => measured.ns)).toFixed(1);
-    lines.push(`| ${item.name} | ${ns(base)} | ${ns(head)} | ${percent(ratio(head))} | ${percent(ratio(again))} |`);
+    const ns = (copy: readonly Measured[]): number => median(copy.map((measured) => measured.ns));
+    const [baseNs, headNs, change, noise] = [ns(base), ns(head), ratio(head), ratio(again)];
+    cases.push({ name: item.name, baseNs, headNs, change: (change - 1) * 100, noise: (noise - 1) * 100 });
+    lines.push(`| ${item.name} | ${baseNs.toFixed(1)} | ${headNs.toFixed(1)} | ${percent(change)} | ${percent(noise)} |`);
   });
   const text = lines.join("\n");
   console.log(text);
   const summary = process.env["GITHUB_STEP_SUMMARY"];
-  if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths\n\n${text}\n`);
+  if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths (run ${run})\n\n${text}\n`);
+  const json = process.env["BENCH_JSON"];
+  if (json !== undefined && json !== "") {
+    const record: BenchRun = { run, cpu, node: process.version, rounds: ROUNDS, cases };
+    writeFileSync(json, `${JSON.stringify(record, null, 2)}\n`);
+  }
   if (mismatch) process.exitCode = 1;
 }
 
