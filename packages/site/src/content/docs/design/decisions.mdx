@@ -90,6 +90,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D80 | `extendDomain` keeps the codec of a domain, thus a member keeps its document. A merge compares the codecs, and two different codecs for one name are a conflict. |
 | D81 | A profile with its own `truthy` declares the type of a truth in `truthType`. Then `check` needs that type at a test of `if` and at each term of `and` and `or`. |
 | D82 | A list field and a plain record field of an exception without a term document keep each part with a form. A record is the part `record`, and an exception in it has the rule of a cause. |
+| D83 | The kernel keeps the code of D82. PLAN.FOLD is 1.7% slower in two runs, because the bench loads the larger `replay.ts` with the whole kernel. The fold does not use it. |
 
 ## Open
 
