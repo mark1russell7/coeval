@@ -286,9 +286,11 @@ function generatedHost(effect: Effect): unknown {
     if (effect.payload === "a" && count > 1) throw Object.assign(new TypeError("The host refuses a late a.", { cause: new Error("The queue is full.") }), { code: "ELATE" });
     if (effect.payload === "c" && count > 1) throw new AggregateError([new Error("The first try failed."), new RangeError("The second try failed.")], "Each try of c failed.");
     // An enumerable list of exceptions with an item without a form in the middle, and a record with an exception (RUN.REPLAY-FIELDS).
+    // The field again shares the record of detail (RUN.REPLAY-SHARED).
     if (effect.payload === "c" && count === 1) {
       const errors = [new Error("The first try failed."), () => 1, new RangeError("The third try failed.")];
-      throw Object.assign(new Error("Each try of c failed."), { errors, detail: { inner: new Error("The queue is full."), tries: [1, () => 1] } });
+      const detail = { inner: new Error("The queue is full."), tries: [1, () => 1] };
+      throw Object.assign(new Error("Each try of c failed."), { errors, detail, again: detail });
     }
     if (typeof effect.payload === "number") return -effect.payload;
     return effect.kind === "write" ? { stored: effect.address } : [effect.address, effect.payload];
@@ -442,6 +444,7 @@ describe("the JSON form of a log", () => {
     let parts = 0;
     let marks = 0;
     let records = 0;
+    let shares = 0;
     let special = 0;
     for (let seed = 1; seed <= total; seed += 1) {
       const doc = generate(dated.world, {
@@ -481,6 +484,7 @@ describe("the JSON form of a log", () => {
       if (text.includes('"parts"')) parts += 1;
       if (text.includes('"dropped":true')) marks += 1;
       if (text.includes('"record":{')) records += 1;
+      if (text.includes('"share":')) shares += 1;
       if (text.includes('"ext"')) special += 1;
       const back = decodeLog(dated, JSON.parse(text));
       if (!back.ok) {
@@ -495,7 +499,7 @@ describe("the JSON form of a log", () => {
     expect(bad.slice(0, 3)).toEqual([]);
     expect(written + refused).toBe(total);
     // The corpus reaches each part of the form.
-    for (const [name, count] of Object.entries({ written, refused, reordered, exceptions, chains, hidden, parts, marks, records, special })) expect(count, name).toBeGreaterThan(0);
+    for (const [name, count] of Object.entries({ written, refused, reordered, exceptions, chains, hidden, parts, marks, records, shares, special })) expect(count, name).toBeGreaterThan(0);
   });
 });
 
@@ -970,7 +974,7 @@ describe("the enumerable fields of an exception that hold exceptions in the JSON
     });
   });
 
-  it("[RUN.REPLAY-FIELDS] an exception in a nested record that is the outer exception is a loop, a cycle of records is a name in dropped, and a shared record keeps its loops", () => {
+  it("[RUN.REPLAY-FIELDS] an exception in a nested record that is the outer exception is a loop, a cycle of records is a share, and a shared record is a share", () => {
     const outer = new Error("outer");
     const ring: Record<string, unknown> = { error: new Error("in the ring") };
     ring["self"] = ring;
@@ -982,22 +986,22 @@ describe("the enumerable fields of an exception that hold exceptions in the JSON
       message: "outer",
       parts: {
         context: { record: { owner: { loop: 0 }, deep: { record: { list: [{ loop: 0 }] } } } },
-        ring: { record: { error: { exception: { name: "Error", message: "in the ring" } } } },
+        ring: { record: { error: { exception: { name: "Error", message: "in the ring" } }, self: { share: 3 } } },
         a: { record: { error: { exception: { name: "TypeError", message: "shared" } } } },
-        b: { record: { error: { loop: 2 } } },
+        b: { share: 4 },
       },
-      dropped: ["ring.self"],
     });
     const back = decodedCause(json) as Error & {
       readonly context: { readonly owner: unknown; readonly deep: { readonly list: unknown[] } };
+      readonly ring: { readonly self: unknown };
       readonly a: { readonly error: Error };
       readonly b: { readonly error: Error };
     };
     expect(back.context.owner).toBe(back);
     expect(back.context.deep.list[0]).toBe(back);
-    expect(back.b.error).toBe(back.a.error);
-    // A record of the decoded log is a new record, thus a shared record becomes two records with the same exception.
-    expect(back.b).not.toBe(back.a);
+    // Since D88, a shared record and a cycle of records decode as one record (RUN.REPLAY-SHARED).
+    expect(back.b).toBe(back.a);
+    expect(back.ring.self).toBe(back.ring);
     // A long chain of causes in records does not overflow the stack.
     let long = new Error("0");
     for (let index = 1; index < 2000; index += 1) long = Object.assign(new Error(String(index)), { wrap: { inner: long } });
@@ -1105,7 +1109,7 @@ describe("a cause that is a list or a record with an exception in the JSON form"
     expect(again.ok && exceptionOf(encodeLog(dated, again.value))).toEqual(kept);
   });
 
-  it("[RUN.REPLAY-CAUSE-PARTS] a cause record that holds the exception itself is a loop, a cycle of records ends in dropped, and a long chain does not overflow", () => {
+  it("[RUN.REPLAY-CAUSE-PARTS] a cause record that holds the exception itself is a loop, a cycle of records is a share, and a long chain does not overflow", () => {
     const self = new Error("loop");
     self.cause = { inner: self, list: [self] };
     expect(exceptionOf(encodeLog(dated, failedWith(self)))).toEqual({ name: "Error", message: "loop", causeParts: { record: { inner: { loop: 0 }, list: [{ loop: 0 }] } } });
@@ -1117,8 +1121,7 @@ describe("a cause that is a list or a record with an exception in the JSON form"
     expect(exceptionOf(encodeLog(dated, failedWith(new Error("ring", { cause: ring }))))).toEqual({
       name: "Error",
       message: "ring",
-      dropped: ["cause.self"],
-      causeParts: { record: { error: { exception: { name: "Error", message: "in the ring" } } } },
+      causeParts: { record: { error: { exception: { name: "Error", message: "in the ring" } }, self: { share: 0 } } },
     });
     // Two exceptions whose causes are records that hold each other.
     const a = new Error("a");
@@ -1147,11 +1150,12 @@ describe("a cause that is a list or a record with an exception in the JSON form"
     expect(errorOf(list)).toEqual({
       code: "#CALC!",
       reason: "The host failed.",
-      causeParts: [{ exception: { name: "TypeError", message: "The socket closed." } }, { dropped: true }, { loop: 0 }, { dropped: true }],
-      dropped: ["cause.1", "cause.3"],
+      causeParts: [{ exception: { name: "TypeError", message: "The socket closed." } }, { dropped: true }, { loop: 0 }, { share: 0 }],
+      dropped: ["cause.1"],
     });
     const items = decodedCause(list) as unknown[];
     expect(items[2]).toBe(items[0]);
+    expect(items[3]).toBe(items);
     expect(items.length).toBe(4);
     expect(Object.hasOwn(items, 1)).toBe(false);
     const again = decodeLog(dated, JSON.parse(JSON.stringify(list)));
@@ -1185,6 +1189,185 @@ describe("a cause that is a list or a record with an exception in the JSON form"
     expect(thrown({ name: "E", message: "m", causeParts: [{ loop: 1 }] })).toEqual([...at, "exception", "causeParts", 0, "loop"]);
     expect(thrown({ name: "E", message: "m", causeParts: { exception: { name: "F", message: "n" } } })).toEqual([...at, "exception", "causeParts"]);
     expect(thrown({ name: "E", message: "m", causeParts: [], loop: 0 })).toEqual([...at, "exception"]);
+  });
+});
+
+describe("a list or a record that two places of an exception share in the JSON form", () => {
+  it("[RUN.REPLAY-SHARED] a record that two fields share is the record at the first place and a share at the later place, and decodeLog gives one record", () => {
+    const shared = { inner: new TypeError("The socket closed."), code: 7 };
+    const json = encodeLog(dated, failedWith(Object.assign(new Error("both"), { a: shared, b: shared })));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "both",
+      parts: { a: { record: { inner: { exception: { name: "TypeError", message: "The socket closed." } }, code: { value: 7 } } }, b: { share: 0 } },
+    });
+    const back = decodedCause(json) as Error & { readonly a: { readonly inner: Error; readonly code: number }; readonly b: unknown };
+    expect(back.b).toBe(back.a);
+    expect(back.a.inner instanceof TypeError && back.a.code).toBe(7);
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(again.ok && encodeLog(dated, again.value)).toEqual(json);
+    // A share reaches over the chain: a field of an inner exception shares the record of a field of the outer exception.
+    const context = { request: new Error("The request failed.") };
+    const chain = Object.assign(new Error("outer", { cause: Object.assign(new Error("inner"), { context }) }), { context });
+    const form = encodeLog(dated, failedWith(chain));
+    expect(exceptionOf(form)).toEqual({
+      name: "Error",
+      message: "outer",
+      parts: { context: { record: { request: { exception: { name: "Error", message: "The request failed." } } } } },
+      exception: { name: "Error", message: "inner", parts: { context: { share: 0 } } },
+    });
+    const read = decodedCause(form) as Error & { readonly context: unknown; readonly cause: { readonly context: unknown } };
+    expect(read.cause.context).toBe(read.context);
+  });
+
+  it("[RUN.REPLAY-SHARED] a shared list is a share, and a hidden list that a field shares keeps its marks", () => {
+    const tries = [new Error("one"), 2, () => 1];
+    const json = encodeLog(dated, failedWith(Object.assign(new Error("tries"), { first: tries, again: [tries, tries] })));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "tries",
+      parts: { first: [{ exception: { name: "Error", message: "one" } }, { value: 2 }, { dropped: true }], again: [{ share: 0 }, { share: 0 }] },
+      dropped: ["first.2"],
+    });
+    const back = decodedCause(json) as Error & { readonly first: unknown[]; readonly again: unknown[] };
+    expect(back.again[0]).toBe(back.first);
+    expect(back.again[1]).toBe(back.first);
+    expect([back.first.length, Object.hasOwn(back.first, 2)]).toEqual([3, false]);
+    // A hidden list keeps its marks also without a form (D78). Thus the field that shares it gets the marks too.
+    const handlers = [() => 1];
+    const all = new AggregateError([], "all");
+    Object.defineProperty(all, "errors", { value: handlers, writable: true, enumerable: false, configurable: true });
+    const hidden = encodeLog(dated, failedWith(Object.assign(all, { handlers })));
+    expect(exceptionOf(hidden)).toEqual({ name: "AggregateError", message: "all", parts: { handlers: [{ dropped: true }] }, dropped: ["handlers.0"], hidden: { errors: { share: 0 } } });
+    const read = decodedCause(hidden) as AggregateError & { readonly handlers: unknown };
+    expect(read.errors).toBe(read.handlers);
+    expect(Object.getOwnPropertyDescriptor(read, "errors")).toMatchObject({ enumerable: false });
+  });
+
+  it("[RUN.REPLAY-SHARED] a record that a field and the cause share is causeParts with a share, also for an error value", () => {
+    const context = { inner: new RangeError("far") };
+    const json = encodeLog(dated, failedWith(Object.assign(new Error("outer", { cause: context }), { context })));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "outer",
+      parts: { context: { record: { inner: { exception: { name: "RangeError", message: "far" } } } } },
+      causeParts: { share: 0 },
+    });
+    const back = decodedCause(json) as Error & { readonly context: unknown };
+    expect(back.cause).toBe(back.context);
+    expect(Object.getOwnPropertyDescriptor(back, "cause")).toMatchObject({ enumerable: false });
+    // The cause of an error value is the first container of its walk, thus a later place shares it with the index 0.
+    const outer = Object.assign(new Error("outer"), { context });
+    context.inner = Object.assign(new RangeError("far"), { outer }) as RangeError;
+    const value = encodeLog(dated, failedWith(context));
+    expect(errorOf(value)).toEqual({
+      code: "#CALC!",
+      reason: "The host failed.",
+      causeParts: { record: { inner: { exception: { name: "RangeError", message: "far", parts: { outer: { exception: { name: "Error", message: "outer", parts: { context: { share: 0 } } } } } } } } },
+    });
+    const cause = decodedCause(value) as { readonly inner: { readonly outer: { readonly context: unknown } } };
+    expect(cause.inner.outer.context).toBe(cause);
+    // A cause without an exception keeps its rule (D87, K189), also when a field shares it.
+    const plain = { code: 7, send: () => 1 };
+    expect(exceptionOf(encodeLog(dated, failedWith(Object.assign(new Error("plain", { cause: plain }), { plain }))))).toEqual({
+      name: "Error",
+      message: "plain",
+      parts: { plain: { record: { code: { value: 7 } } } },
+      dropped: ["plain.send", "cause"],
+    });
+  });
+
+  it("[RUN.REPLAY-SHARED] a shared record inside a shared record keeps each share, and the index counts the lists and the records in the order of the walk", () => {
+    const leaf = { error: new Error("leaf") };
+    const box = { leaf, again: leaf, list: [leaf] };
+    const json = encodeLog(dated, failedWith(Object.assign(new Error("boxes"), { a: box, b: box, c: leaf })));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "boxes",
+      parts: { a: { record: { leaf: { record: { error: { exception: { name: "Error", message: "leaf" } } } }, again: { share: 1 }, list: [{ share: 1 }] } }, b: { share: 0 }, c: { share: 1 } },
+    });
+    const back = decodedCause(json) as Error & { readonly a: { readonly leaf: unknown; readonly again: unknown; readonly list: unknown[] }; readonly b: unknown; readonly c: unknown };
+    expect(back.b).toBe(back.a);
+    expect(back.a.again).toBe(back.a.leaf);
+    expect(back.a.list[0]).toBe(back.a.leaf);
+    expect(back.c).toBe(back.a.leaf);
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(again.ok && encodeLog(dated, again.value)).toEqual(json);
+  });
+
+  it("[RUN.REPLAY-SHARED] a record or a list that holds itself is a share, and a cycle without another form stays one name in dropped", () => {
+    const ring: Record<string, unknown> = { error: new Error("in the ring") };
+    ring["self"] = ring;
+    const list: unknown[] = [new Error("in the list")];
+    list.push(list);
+    const json = encodeLog(dated, failedWith(Object.assign(new Error("cycles"), { ring, list })));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "cycles",
+      parts: { ring: { record: { error: { exception: { name: "Error", message: "in the ring" } }, self: { share: 0 } } }, list: [{ exception: { name: "Error", message: "in the list" } }, { share: 1 }] },
+    });
+    const back = decodedCause(json) as Error & { readonly ring: { readonly self: unknown }; readonly list: unknown[] };
+    expect(back.ring.self).toBe(back.ring);
+    expect(back.list[1]).toBe(back.list);
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(again.ok && encodeLog(dated, again.value)).toEqual(json);
+    // A cycle without another form has no form, thus its first name stands for it. A later share of it is its own name.
+    const empty: Record<string, unknown> = { send: () => 1 };
+    empty["self"] = empty;
+    expect(exceptionOf(encodeLog(dated, failedWith(Object.assign(new Error("empty"), { empty, other: empty }))))).toEqual({ name: "Error", message: "empty", dropped: ["empty", "other"] });
+  });
+
+  it("[RUN.REPLAY-SHARED] an old log without a share decodes as before, a term document stays a copy, and decodeLog gives #VALUE! at a bad share", () => {
+    // The form of D82 for a shared record: two records with the same exception.
+    const old = {
+      version: 1,
+      effects: [
+        {
+          address: "0#0",
+          kind: "log",
+          payload: "x",
+          outcome: {
+            ok: false,
+            error: {
+              code: "#CALC!",
+              reason: "r",
+              exception: { name: "Error", message: "old", parts: { a: { record: { error: { exception: { name: "Error", message: "shared" } } } }, b: { record: { error: { loop: 1 } } } } },
+            },
+          },
+          waited: false,
+        },
+      ],
+      settles: [],
+    };
+    const back = decodeLog(dated, old);
+    if (!back.ok) throw new Error(back.error.reason);
+    const cause = (back.value.effects[0]?.outcome as { readonly error: { readonly cause: { readonly a: { readonly error: unknown }; readonly b: { readonly error: unknown } } } }).error.cause;
+    expect(cause.b).not.toBe(cause.a);
+    expect(cause.b.error).toBe(cause.a.error);
+    expect(encodeLog(dated, back.value)).toEqual(old);
+    // A record that encodeValue writes is a term document in fields, thus each place gets a copy (D88 Limits).
+    const plain = { code: 7 };
+    const copies = encodeLog(dated, failedWith(Object.assign(new Error("copies"), { a: plain, b: plain })));
+    expect(exceptionOf(copies)).toEqual({ name: "Error", message: "copies", fields: { a: { code: 7 }, b: { code: 7 } } });
+    const read = decodedCause(copies) as { readonly a: unknown; readonly b: unknown };
+    expect(read.b).not.toBe(read.a);
+    const placeOf = (error: unknown): unknown => {
+      const decoded = decodeLog(dated, { ...old, effects: [{ ...old.effects[0], outcome: { ok: false, error } }] });
+      return decoded.ok ? "read" : decoded.error.place;
+    };
+    const at = ["effects", 0, "outcome", "error"];
+    const base = { code: "#X", reason: "r" };
+    const thrown = (exception: unknown): unknown => placeOf({ ...base, exception });
+    expect(thrown({ name: "E", message: "m", parts: { a: [{ value: 1 }], b: { share: 0 } } })).toBe("read");
+    expect(thrown({ name: "E", message: "m", parts: { a: { record: { b: [{ share: 1 }] } } } })).toBe("read");
+    expect(thrown({ name: "E", message: "m", parts: { a: { share: 0 } } })).toEqual([...at, "exception", "parts", "a", "share"]);
+    expect(thrown({ name: "E", message: "m", parts: { a: [{ value: 1 }], b: { share: 1 } } })).toEqual([...at, "exception", "parts", "b", "share"]);
+    expect(thrown({ name: "E", message: "m", parts: { a: [{ value: 1 }], b: { share: -1 } } })).toEqual([...at, "exception", "parts", "b", "share"]);
+    expect(thrown({ name: "E", message: "m", parts: { a: [{ value: 1 }], b: { share: "0" } } })).toEqual([...at, "exception", "parts", "b", "share"]);
+    expect(thrown({ name: "E", message: "m", parts: { a: [{ value: 1 }] }, causeParts: { share: 0 } })).toBe("read");
+    expect(thrown({ name: "E", message: "m", causeParts: { share: 0, record: {} } })).toEqual([...at, "exception", "causeParts"]);
+    // The cause of an error value has no earlier container.
+    expect(placeOf({ ...base, causeParts: { share: 0 } })).toEqual([...at, "causeParts", "share"]);
   });
 });
 

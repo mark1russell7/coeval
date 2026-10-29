@@ -95,6 +95,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D85 | A domain declares its covers in `covers`, thus `number` fits the union of `neg` and `nonneg` when the two domains under it cover it. `fits` trusts each cover, as it trusts `values`. |
 | D86 | `conforms` tests the declared truth of a profile. The own `truthy` must give `true` or `false` for each member of `truthType`, from the lists `values` or from the palette. |
 | D87 | A cause that is a list or a plain record with an exception is `causeParts`, with the part rule of D82. The rule is the same for an exception and an error value, and a refusal becomes a value. |
+| D88 | A list or a record that two places of one error share is the part `share` with its index in the order of the walk. `decodeLog` gives one object for both places, also for a container that holds itself. |
 
 ## Open
 
