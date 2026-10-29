@@ -2131,3 +2131,16 @@ Two other sites still read `undefined` as a missing field. The first is the code
 
 - The `has` of a walker input asks the ladder again. A host thing or a code of a kind thus answers the step two times.
 - A navigator with `adopt` gives a walker `adopt(undefined)` for a field that holds `undefined`. An adopted value that is not `undefined` hides the case from `deref`, and `has` still tells it.
+- The kernel keeps the functions of the walker input for the last navigator (K170). That memo holds one navigator until a walk with another navigator.
+
+**Measured (K170).** The bench of PR #134 gave the reference with a step document +3.4% and +5.1%, slower in both runs (workflow 40814361607). Each walk made the new function `has` next to `deref`. Since K170, `walkSteps` keeps `deref` and `has` of the last navigator, thus a walk with the same navigator makes no new function.
+
+A cell gives the change of the reference with a step document in the two runs, with the CPU of each run.
+
+| Head | Base | Step document | Verdicts | Run |
+| --- | --- | ---: | --- | --- |
+| K43 | b8348c8 (before K43) | +1.1% (9V45), +4.4% (7763) | 7 mixed, 9 in bound | 40815013060 |
+| K43 and K170 | K43 | -12.4% (7763), +1.4% (9V45) | 5 mixed, 9 in bound, 1 slower, 1 faster | 40814779647 |
+| K43 and K170 | b8348c8 (before K43) | -6.7% (7763), +2.4% (9V45) | 4 mixed, 12 in bound | 40815011341 |
+
+The kernel keeps K170. Against the kernel before K43, no case is slower. The one slower case against K43 is a reference through an envelope, +2.0% and +4.3%. K170 does not change the code of that case. Against the kernel before K43, that case gives -1.9% and +4.8%, thus it is mixed.
