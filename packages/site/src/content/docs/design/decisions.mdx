@@ -70,6 +70,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D60 | The option `fixed` of `prepare` declares names whose values stay the same. A pure part that reads only fixed names folds, and each evaluation compares the values with `Object.is`. Another value gets the code without the fold. |
 | D61 | The playground reads and writes its text with `SITE_SYNTAX`, a profile of the site world. A bad text keeps the last good document and marks its span. C17 splits, and C17b waits on C11. |
 | D62 | A profile names a bind symbol in `header.bind`, thus `total = 2 + 3` gives a document the header name `total`. A call form can have a name with dots, for example `math.product`. Six programs of the playground round-trip. |
+| D63 | A call form names the way that its arguments make the value. `text("big")` writes a data envelope, and `panel(width: 300)` writes a record kind. A step of a path in parentheses is a document. Each program of the playground round-trips. |
 
 ## Open
 

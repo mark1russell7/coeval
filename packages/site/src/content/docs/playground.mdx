@@ -25,5 +25,8 @@ The text pane shows the document as a formula, for example `2 + 3 * 4`. Change t
 - A text with a problem does not change the picture. The pane shows the message and marks the problem in the text.
 - A document can have no text. The pane then tells which part has no text form, and why. The cards still work.
 - The text has the operators `+`, `*` and `>`, and the forms `if`, `list`, `seq`, `pure`, `log` and `write`. A bare name, for example `price`, reads a name of the context.
+- The text `a = 1 + 2` gives a step the name `a`. The form `math.product` writes the alias of `multiply`.
+- A data envelope has a form with one literal, for example `text("big")`. A node of a tree has a key for each field, for example `panel(width: 300)`.
+- A step of a path in parentheses is a document, for example `self.parent.(nearest(type: "panel")).width`.
 
 The JSON under the picture is the document. Change it, and the picture changes.

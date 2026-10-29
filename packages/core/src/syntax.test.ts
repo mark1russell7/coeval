@@ -99,6 +99,25 @@ const PATHS: SyntaxProfile = {
   },
 };
 
+/**
+ * The standard profile with the forms of D63: the data envelopes `text`, `number` and `bool` with one literal, the
+ * record kind `panel` with its fields, the construct `record` with each key, and the step `nearest`.
+ */
+const RECORDS: SyntaxProfile = {
+  ...STD_SYNTAX,
+  calls: {
+    forms: [
+      ...(STD_SYNTAX.calls?.forms ?? []),
+      { name: "text", kind: "text", args: "literal" },
+      { name: "number", kind: "number", args: "literal" },
+      { name: "bool", kind: "bool", args: "literal" },
+      { name: "panel", kind: "panel", args: "named", fields: ["width", "height", "children"] },
+      { name: "record", kind: "record", args: "named" },
+      { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
+    ],
+  },
+};
+
 const NUMBERS: Readonly<Record<string, Json>> = {
   nan: { type: ["ext", "number"], value: "NaN" },
   inf: { type: ["ext", "number"], value: "Infinity" },
@@ -245,6 +264,94 @@ describe("the syntax kit", () => {
     expect(() => parse(withForm(ALGEBRA, "math.product"), "1")).toThrow(TypeError);
   });
 
+  it("[SYNTAX.DATA] a form with the arguments literal writes and reads a data envelope with one literal", () => {
+    expect(doc(RECORDS, 'if(x > 10, text("big"), list(number(-2.5), bool(false), text("")))')).toEqual({
+      type: "if",
+      value: { test: op("gt", x, 10), then: { type: "text", value: "big" }, else: { type: "list", value: [{ type: "number", value: -2.5 }, { type: "bool", value: false }, { type: "text", value: "" }] } },
+    });
+    expect(doc(RECORDS, "number((7))")).toEqual({ type: "number", value: 7 });
+    expect(doc(RECORDS, "text(null)")).toEqual({ type: "text", value: null });
+    expect(text(RECORDS, { type: "text", value: 'a"b' })).toBe('text("a\\"b")');
+    expect(text(RECORDS, { type: "number", value: 1e21 })).toBe("number(1e+21)");
+    expect(text(RECORDS, op("add", { type: "number", value: -3 }, 1))).toBe("number(-3) + 1");
+    // The bare literal keeps its text, thus each text of before reads as before.
+    expect(doc(RECORDS, '"big"')).toBe("big");
+    // The argument is one literal that JSON writes: not a document, not two literals, not NaN or -0.
+    for (const source of ["text(x)", "text()", 'text("a", "b")', "number(NaN)", "number(-0)", "text(a = 1)", "number(1 + 2)"]) {
+      expect(issue(RECORDS, source), source).toMatchObject({ offset: 0, length: source.length, message: `The form ${source.slice(0, source.indexOf("("))} takes one literal that JSON writes.` });
+    }
+    // A value that is not such a literal has no text, and a profile without texts has no text for a text.
+    for (const value of [{ a: 1 }, [1], Number.NaN, -0, op("add", 1, 2), undefined]) {
+      expect(print(RECORDS, { type: "number", value }), String(value)).toMatchObject({ ok: false, error: { code: "#VALUE!", reason: "This syntax has no text for the kind number." } });
+    }
+    const noStrings: SyntaxProfile = { ...ALGEBRA, calls: { forms: [{ name: "text", kind: "text", args: "literal" }] } };
+    expect(print(noStrings, { type: "text", value: "a" })).toMatchObject({ ok: false });
+    expect(text(noStrings, { type: "text", value: 4 })).toBe("text(4)");
+    // A literal form takes no fields and no min.
+    expect(() => parse({ calls: { forms: [{ name: "t", kind: "t", args: "literal", fields: ["a"] }] } }, "1")).toThrow(TypeError);
+    expect(() => parse({ calls: { forms: [{ name: "t", kind: "t", args: "literal", min: 1 }] } }, "1")).toThrow(TypeError);
+    expect(() => parse({ calls: { forms: [{ name: "t", kind: "t", args: "fields" }] } }, "1")).toThrow(TypeError);
+    expect(() => parse({ calls: { forms: [{ name: "t", kind: "t", args: "list", fields: ["a"] }] } }, "1")).toThrow(TypeError);
+    expect(() => parse({ calls: { forms: [{ name: "t", kind: "t", args: "other" as "list" }] } }, "1")).toThrow(TypeError);
+  });
+
+  it("[SYNTAX.RECORD] a form with the arguments named writes and reads a record of parts with a key for each argument", () => {
+    const tree: Json = {
+      type: "panel",
+      value: { width: 300, children: { type: "list", value: [{ type: "panel", value: { children: { type: "list", value: [] }, width: op("add", ref("self", "parent", "width"), -20) } }] } },
+    };
+    const source = "panel(width: 300, children: list(panel(children: list(), width: self.parent.width + -20)))";
+    expect(doc(RECORDS, source)).toEqual(tree);
+    expect(text(RECORDS, tree)).toBe(source);
+    // The construct record permits each key. A key in backticks, a reserved word and __proto__ are keys.
+    const fields: Record<string, Json> = { if: 1, "a b": x, "": { type: "text", value: "t" }, not: op("not", y) };
+    Object.defineProperty(fields, "__proto__", { value: 2, enumerable: true, writable: true, configurable: true });
+    const record: Json = { type: "record", value: fields };
+    const written = 'record(if: 1, `a b`: x, ``: text("t"), not: not y, __proto__: 2)';
+    expect(text(RECORDS, record)).toBe(written);
+    const back = doc(RECORDS, written);
+    expect(docEquals(back, record)).toBe(true);
+    expect(Object.hasOwn((back as { value: object }).value, "__proto__")).toBe(true);
+    expect(doc(RECORDS, "record()")).toEqual({ type: "record", value: {} });
+    expect(doc(RECORDS, "record(a: b = 1, c : x + 1)")).toEqual({ type: "record", value: { a: { type: "lit", value: 1, name: "b" }, c: op("add", x, 1) } });
+    // A key is a name and a ":". A form with fields permits only those keys, each one time.
+    expect(issue(RECORDS, "panel(300)")).toEqual({ offset: 6, length: 3, message: 'Each argument of the form panel is a key, a ":" and a document.' });
+    expect(issue(RECORDS, "panel(width 300)")).toEqual({ offset: 6, length: 5, message: 'Each argument of the form panel is a key, a ":" and a document.' });
+    expect(issue(RECORDS, "panel(depth: 1)")).toEqual({ offset: 6, length: 5, message: "The form panel has no field depth." });
+    expect(issue(RECORDS, "panel(width: 1, width: 2)")).toEqual({ offset: 16, length: 5, message: "The form panel has the field width two times." });
+    expect(issue(RECORDS, "panel(width: 1")).toMatchObject({ offset: 5, length: 1, message: "A closing parenthesis is missing." });
+    // A value that is not a record, or a record with another key, has no text.
+    expect(print(RECORDS, { type: "panel", value: [1] })).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the kind panel." } });
+    expect(print(RECORDS, { type: "panel", value: { depth: 1 } })).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the kind panel." } });
+    expect(print(RECORDS, { type: "panel" })).toMatchObject({ ok: false });
+    expect(print(RECORDS, { type: "panel", value: { width: [1] } })).toMatchObject({ ok: false, error: { place: ["width"] } });
+    // A named form takes no min. A profile with the operator ":" reads a named form, because each argument has a key.
+    expect(() => parse({ calls: { forms: [{ name: "p", kind: "p", args: "named", min: 1 }] } }, "1")).toThrow(TypeError);
+    const sheet: SyntaxProfile = { ...SHEET, calls: { forms: [{ name: "BOX", kind: "box", args: "named" }] } };
+    expect(doc(sheet, "BOX(area: A1:B2)")).toEqual({ type: "box", value: { area: op("range", ref("world", "A1"), ref("world", "B2")) } });
+    expect(doc(sheet, "SUM(a:b)")).toEqual(op("SUM", op("range", ref("names", "a"), ref("names", "b"))));
+    // The verb format writes a named form, and each field gives its text through the ladder.
+    const machine = mergeMachines(formulaMachine({}), syntaxFormat(RECORDS));
+    expect(prepare(machine, { type: "record", value: { a: op("add", 1, x) } }, { declaredType: "lit", verb: "format" }).evaluate()).toEqual(ok("record(a: 1 + x)"));
+  });
+
+  it("[SYNTAX.STEP] a step of a path in parentheses is a document, and print writes a step document in parentheses", () => {
+    const nearest: Json = { type: "nearest", value: { type: "panel" } };
+    expect(doc(RECORDS, 'self.parent.(nearest(type: "panel")).width')).toEqual(ref("self", "parent", nearest, "width"));
+    expect(text(RECORDS, ref("self", "parent", nearest, "width"))).toBe('self.parent.(nearest(type: "panel")).width');
+    expect(doc(STD_SYNTAX, "x . (y + 1) . 0")).toEqual(ref("names", "x", op("add", y, 1), 0));
+    expect(text(STD_SYNTAX, ref("names", "x", op("add", y, 1), 0))).toBe("x.(y + 1).0");
+    expect(text(STD_SYNTAX, ref("world", { type: "lit", value: 1, name: "a" }))).toBe("world.(a = 1)");
+    expect(doc(STD_SYNTAX, "world.(a = 1)")).toEqual(ref("world", { type: "lit", value: 1, name: "a" }));
+    // A literal in parentheses is the plain step, thus print writes the plain step.
+    expect(doc(STD_SYNTAX, 'x.(1).("a b")')).toEqual(ref("names", "x", 1, "a b"));
+    // A path with a step document is not the name of a call, and the first key after a bare root is a name.
+    expect(issue(STD_SYNTAX, "x.(y)(1)")).toEqual({ offset: 0, length: 5, message: "Each key of the name of a call is a plain name." });
+    expect(print(STD_SYNTAX, ref("names", op("add", 1, 2)))).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the path of the reference." } });
+    expect(print(STD_SYNTAX, ref("self", { type: "let", value: {} }))).toMatchObject({ ok: false, error: { place: [1] } });
+    expect(issue(STD_SYNTAX, "x.(y")).toMatchObject({ message: "A closing parenthesis is missing." });
+  });
+
   it("[SYNTAX.ROUNDTRIP] parse(print(doc)) gives each generated document of a profile again", () => {
     const bad: string[] = [];
     for (const [name, gen] of Object.entries(GENERATORS)) {
@@ -270,6 +377,12 @@ interface Generator {
   readonly calls: readonly string[];
   /** The header names that the generator gives some documents. Without them, no document has a name. */
   readonly names?: readonly string[];
+  /** The literals of the forms with the arguments `literal` (D63). */
+  readonly data?: readonly Json[];
+  /** The keys of a form `named` without fields (D63). */
+  readonly keys?: readonly string[];
+  /** `true` gives some references a step document (SYNTAX.STEP). */
+  readonly steps?: boolean;
 }
 
 const GENERATORS: Readonly<Record<string, Generator>> = {
@@ -294,6 +407,15 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     leaves: [0, 4, 1.5, -2, NUMBERS["nzero"] as Json, ref("world", "gap"), ref("world", "pad_x"), ref("world", "min")],
     calls: ["min", "max", "floor"],
   },
+  records: {
+    profile: RECORDS,
+    leaves: [0, -3, 1e21, true, null, "a\"b", NUMBERS["nzero"] as Json, x, ref("self", "parent", "width"), ref("names", "panel")],
+    calls: ["f", "math.max"],
+    names: ["a", "if", "a b", ""],
+    data: ["", "big", 'a"b`', 0, -3, 2.5, 1e21, true, false, null],
+    keys: ["a", "if", "not", "self", "type", "a b", "", "`", "0", "__proto__"],
+    steps: true,
+  },
 };
 
 function kindType(kind: string): Json {
@@ -317,7 +439,7 @@ function generateDoc(gen: Generator, rng: Random, depth: number): Json {
 function generateBare(gen: Generator, rng: Random, depth: number): Json {
   const choice = depth > 3 ? 0 : rng.int(5);
   const terms = (count: number): Json[] => Array.from({ length: count }, () => generateDoc(gen, rng, depth + 1));
-  if (choice <= 1) return pick(rng, gen.leaves);
+  if (choice <= 1) return gen.steps === true && rng.int(3) === 0 ? stepRef(gen, rng, depth) : pick(rng, gen.leaves);
   if (choice <= 3) {
     const op = pick(rng, gen.profile.operators ?? []);
     const count = op.fixity !== "infix" ? 1 : op.assoc === "flat" ? 2 + rng.int(2) : 2;
@@ -326,6 +448,8 @@ function generateBare(gen: Generator, rng: Random, depth: number): Json {
   const forms = gen.profile.calls?.forms ?? [];
   if (forms.length > 0 && rng.int(2) === 0) {
     const form = pick(rng, forms);
+    if (form.args === "literal") return { type: kindType(form.kind), value: pick(rng, gen.data ?? [0]) };
+    if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? []) };
     const fields = form.fields;
     if (fields === undefined) return { type: kindType(form.kind), value: terms(rng.int(4)) };
     const min = form.min ?? fields.length;
@@ -335,4 +459,22 @@ function generateBare(gen: Generator, rng: Random, depth: number): Json {
   }
   const name = pick(rng, gen.calls);
   return { type: ["ops", ...name.split(".")], value: terms(name === "floor" || name === "neg" ? 1 : 1 + rng.int(3)) };
+}
+
+/** This function builds the record of a form `named`: some of the keys, in a random order, each with a document. */
+function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly string[]): Json {
+  const value: Record<string, Json> = {};
+  const left = [...keys];
+  for (let count = rng.int(left.length + 1); count > 0; count -= 1) {
+    const [key] = left.splice(rng.int(left.length), 1) as [string];
+    Object.defineProperty(value, key, { value: generateDoc(gen, rng, depth + 1), enumerable: true, writable: true, configurable: true });
+  }
+  return value;
+}
+
+/** This function builds a reference from `self` with a step document, for example the step `nearest` of a tree. */
+function stepRef(gen: Generator, rng: Random, depth: number): Json {
+  const made = generateDoc(gen, rng, depth + 1);
+  const step = typeof made === "object" && made !== null && !Array.isArray(made) ? made : { type: "nearest", value: { type: "panel" } };
+  return ref("self", "parent", step, ...(rng.int(2) === 0 ? ["width"] : []));
 }

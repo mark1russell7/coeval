@@ -1,23 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { STD_CAPS, STD_EVALUATORS, STD_RUNNERS, STD_WALKERS, STD_WORLD, evaluate, makeContext, type Json, type Machine } from "@mark1russell7/coeval";
-import { PROGRAMS } from "./programs.ts";
+import { PROGRAMS, VALUES } from "./programs.ts";
 import { docText, markIssue, readText } from "./syntax.ts";
 
 const MACHINE: Machine = { world: STD_WORLD, evaluators: STD_EVALUATORS, runners: STD_RUNNERS, walkers: STD_WALKERS };
 
 /**
  * The programs that the profile of the site cannot write, with the reason and the place. Each one is a gap of the
- * printer of the kernel (D61, D62). A fix of the kernel changes this list. K158 holds the data envelope of `choice`,
- * and K160 holds the record kind of `tree`.
+ * printer of the kernel (D61, D62). A fix of the kernel changes this list. Since D63, each program prints, thus the
+ * list is empty.
  */
-const NO_TEXT: Readonly<Record<string, { readonly reason: string; readonly place: readonly string[] }>> = {
-  choice: { reason: "This syntax has no text for the kind text.", place: ["then"] },
-  tree: { reason: "This syntax has no text for the kind panel.", place: [] },
-};
+const NO_TEXT: Readonly<Record<string, { readonly reason: string; readonly place: readonly string[] }>> = {};
 
-/** The text of each program that prints (D62). The test reads each text back to the same document. */
+/** The text of each program that prints (D62, D63). The test reads each text back to the same document. */
 const TEXT: Readonly<Record<string, string>> = {
   add: "2 + 3 * 4",
+  choice: 'if(size > 10, text("big"), log("small"))',
+  tree: 'panel(width: 300, children: list(box(width: self.parent.width + -20, children: list(box(width: self.parent.(nearest(type: "panel")).width)))))',
   names: "seq(a = 1 + 2, b = a * 10, log(b))",
   effects: 'seq(log("start"), total = write("total", 2 + 3), log(total))',
   pure: 'pure(log("hello"))',
@@ -56,6 +55,22 @@ describe("the text of the playground (C17)", () => {
     const alias = readText("math.product(6, 7)");
     if (!alias.ok) throw new Error(alias.issues[0]?.message);
     expect(evaluate(MACHINE, alias.doc as Json, makeContext({}, STD_CAPS)).result).toEqual({ ok: true, value: 42 });
+  });
+
+  it("writes each data envelope as a form with one literal, and evaluates the text of a choice (D63)", () => {
+    expect(VALUES.map((value) => docText(value))).toEqual([
+      { ok: true, text: "number(42)" },
+      { ok: true, text: 'text("Notes")' },
+      { ok: true, text: "bool(true)" },
+      { ok: true, text: "list(1, 2, 3)" },
+    ]);
+    for (const value of VALUES) {
+      const text = docText(value);
+      if (text.ok) expect(readText(text.text)).toEqual({ ok: true, doc: value });
+    }
+    const choice = readText('if(size > 10, text("big"), log("small"))');
+    if (!choice.ok) throw new Error(choice.issues[0]?.message);
+    expect(evaluate(MACHINE, choice.doc as Json, makeContext({ size: 12 }, STD_CAPS)).result).toEqual({ ok: true, value: "big" });
   });
 
   it("gives an issue with a span for a bad text, and no document", () => {

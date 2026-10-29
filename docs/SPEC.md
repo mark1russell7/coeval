@@ -440,10 +440,13 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | SYNTAX.PARSE | `parse(profile, text)` gives a document of the formula kit. The precedence and the grouping of each operator decide the tree. A literal that JSON cannot write uses `ext.number` or `ext.undefined`. |
 | SYNTAX.SPAN | A bad text gives an issue with a 0-based offset, a length and a message. `parse` does not throw for a bad text. |
 | SYNTAX.PRINT | `print(profile, doc)` writes the fewest parentheses that keep the tree. A document without a text form gives `#VALUE!` at its place. `syntaxFormat` adds the printer as the default of the verb `format`, and an own entry of a part still wins. |
-| SYNTAX.ROUNDTRIP | `parse(profile, print(profile, doc))` gives `doc` again for each document that the profile writes. A property test examines generated documents of three profiles. |
+| SYNTAX.ROUNDTRIP | `parse(profile, print(profile, doc))` gives `doc` again for each document that the profile writes. A property test examines generated documents of five profiles. |
 | SYNTAX.PROFILE | A profile describes the syntax of another language, for example a spreadsheet with `A1`, `&`, `^` and `<>`, or an algebra with named knobs and only `min`, `max` and `floor`. A profile with two readings of one symbol throws a `TypeError`. |
 | SYNTAX.HEADER | A profile with the bind symbol `header.bind` reads `name = expr` as `expr` with the header `name` (D62). A bare literal goes into `lit`. `print` writes the name and puts parentheses around a named term of an operator. A longer operator that starts with the symbol wins. A symbol that an infix or a postfix operator reads throws a `TypeError`. Without the symbol, a name has no text. The own entries have no text in each profile. |
 | SYNTAX.FORM-PATH | A call form can have plain names with dots between them, for example `math.product` (D62). The parser matches the full name of a call against the forms, and `print` writes it. A name with dots and no `(` stays a reference. |
+| SYNTAX.DATA | A call form with `args: "literal"` takes one literal that JSON writes, and the literal is the value of its document (D63). Thus `text("big")` is `{ type: "text", value: "big" }`. A document, `NaN`, `-0` or a second argument gives an issue. A bare literal keeps its text. |
+| SYNTAX.RECORD | A call form with `args: "named"` reads each argument as a key, a `:` and a document, and its value is a record (D63). Thus `panel(width: 300)` is `{ type: "panel", value: { width: 300 } }`. The field `fields` of the form limits the keys. A key is a plain name or a name in backticks. A second key with the same name gives an issue. |
+| SYNTAX.STEP | A step of a path in parentheses after a dot is a document, for example `self.parent.(nearest(type: "panel")).width` (D63). `print` writes a step that is an envelope in parentheses. A path with a step document is not the name of a call. |
 
 ## Conformance
 
