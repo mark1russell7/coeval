@@ -267,9 +267,10 @@ describe("value types and value domains", () => {
     expect(fits({ fn: ["whole"], to: "number" }, { fn: ["number"], to: "number" }, DOMAINS)).toBe(false);
     expect(fits({ fn: ["number", "number"], to: "number" }, { fn: ["number"], to: "number" })).toBe(false);
     expect(fits({ fn: [], to: "number" }, { list: "number" })).toBe(false);
-    // The relation is sound, not complete: an open record does not split its finite field over a union (K178).
+    // An open record splits its finite field over a union (K178, D84). A record does not split over a record.
     const split: ValueType = { union: [{ record: { a: { one: [true] } } }, { record: { a: { one: [false] } } }] };
-    expect(fits({ record: { a: "bool" } }, split)).toBe(false);
+    expect(fits({ record: { a: "bool" } }, split)).toBe(true);
+    expect(fits({ record: { a: "number" } }, split)).toBe(false);
   });
 
   it("[TYPE.FITS] never is the bottom: it fits each type, and only an empty type fits it", () => {
@@ -343,6 +344,53 @@ describe("value types and value domains", () => {
     expect(join("bool", { one: [true, false] })).toEqual({ one: [true, false] });
     expect(join({ one: [true, false] }, "bool")).toBe("bool");
     expect(join({ one: [true] }, { one: [false] })).toEqual({ one: [true, false] });
+  });
+
+  it("[TYPE.FITS-FINITE] an open record splits a field with few members over a union of records (D84)", () => {
+    const bool: (value: boolean) => ValueType = (value) => ({ one: [value] });
+    // The example of K178: each value of the field a gives a record, and each record fits a member of the union.
+    const byA: ValueType = { union: [{ record: { a: bool(true) } }, { record: { a: bool(false) } }] };
+    expect(fits({ record: { a: "bool" } }, byA)).toBe(true);
+    expect(fits({ record: { a: "bool", b: "number" } }, byA)).toBe(true);
+    expect(fits({ record: { a: "bool" } }, { union: [{ record: { a: bool(true) } }, { record: { b: "number" } }] })).toBe(false);
+    // A two-field split: the split of a does not give a fit, thus each record of the split splits b.
+    const both: ValueType = {
+      union: [{ record: { a: bool(true), b: "null" } }, { record: { a: bool(false), b: "null" } }, { record: { a: "bool", b: bool(true) } }, { record: { a: "bool", b: bool(false) } }],
+    };
+    const two: ValueType = { record: { a: "bool", b: { union: ["null", "bool"] } } };
+    expect(fits(two, both)).toBe(true);
+    expect(fits(two, { union: (both as { union: ValueType[] }).union.slice(0, 3) })).toBe(false);
+    // An optional field gives a record without the field too. Thus the union needs a member for the absent case.
+    const optionalA: ValueType = { record: { a: "bool" }, optional: ["a"] };
+    expect(fits(optionalA, { union: [...(byA as { union: ValueType[] }).union, { record: { a: "never" }, optional: ["a"] }] })).toBe(true);
+    expect(fits(optionalA, { union: [{ record: { a: bool(true) }, optional: ["a"] }, { record: { a: bool(false) } }] })).toBe(true);
+    expect(fits(optionalA, byA)).toBe(false);
+    // The other fields of an open record stop the fit: a member of the union that holds only known fields refuses them.
+    expect(fits({ record: { a: "bool" } }, { union: [{ record: { a: bool(true) }, closed: true }, { record: { a: bool(false) } }] })).toBe(false);
+    expect(fits({ record: { a: "bool", b: "text" } }, { union: [{ record: { a: bool(true), b: "number" } }, { record: { a: bool(false) } }] })).toBe(false);
+    // An open record does not split over a `one`: its other fields hold each value.
+    expect(fits({ record: { a: "bool" } }, { one: [{ a: true }, { a: false }] })).toBe(false);
+    // A closed and an open record: the closed record fits each member, the open record fits only the open members.
+    const mixed: ValueType = { union: [{ record: { a: bool(true) }, closed: true }, { record: { a: bool(false) } }] };
+    expect(fits({ record: { a: "bool" }, closed: true }, mixed)).toBe(true);
+    expect(fits({ record: { a: "bool" } }, mixed)).toBe(false);
+    expect(fits({ union: [{ record: { a: "bool" }, closed: true }, { record: { a: bool(false), b: "text" } }] }, mixed)).toBe(true);
+    // A closed record with more than 64 members splits too. Each record of the split gets the finite rule.
+    const seven = Object.fromEntries(["a", "b", "c", "d", "e", "f", "g"].map((key) => [key, "bool"])) as Record<string, ValueType>;
+    const wide: ValueType = { record: seven, closed: true };
+    expect(fits(wide, { union: [{ record: { ...seven, a: bool(true) }, closed: true }, { record: { ...seven, a: bool(false) }, closed: true }] })).toBe(true);
+    expect(fits(wide, { union: [{ record: { ...seven, a: bool(true) }, closed: true }, { record: { ...seven, a: bool(false), g: bool(true) }, closed: true }] })).toBe(false);
+    // A split builds at most 64 records. Seven fields against a union of each member need 254 records, thus the rule refuses.
+    const eachMember = (keys: readonly string[]): ValueType => {
+      const members: ValueType[] = [];
+      for (let bits = 0; bits < 2 ** keys.length; bits += 1) members.push({ record: Object.fromEntries(keys.map((key, index) => [key, bool(((bits >> index) & 1) === 1)])) });
+      return { union: members };
+    };
+    expect(fits({ record: seven }, eachMember(Object.keys(seven)))).toBe(false);
+    expect(fits({ record: { a: "bool", b: "bool", c: "bool" } }, eachMember(["a", "b", "c"]))).toBe(true);
+    // The gradual rule of unknown does not change: a field of unknown does not split, and unknown in found fits.
+    expect(fits({ record: { a: "unknown" } }, byA)).toBe(true);
+    expect(fits({ record: { a: "bool", b: "unknown" } }, { union: [{ record: { a: bool(true), b: "number" } }, { record: { a: bool(false), b: "text" } }] })).toBe(true);
   });
 
   it("[TYPE.FITS-FINITE] a merge compares the values of two domains, and extendDomain keeps them", () => {
@@ -424,6 +472,64 @@ describe("value types and value domains", () => {
     expect(pairs).toBeGreaterThan(10000);
     expect(finite).toBeGreaterThan(350);
     expect(checked).toBeGreaterThan(25000);
+  });
+
+  it("[TYPE.FITS-SOUND] a sampled member of an open record with finite fields is a member of each union of records that it fits (D84)", () => {
+    const domains: Readonly<Record<string, Domain>> = {
+      ...DOMAINS,
+      align: { is: (value) => value === "left" || value === "right", values: ["left", "right", "up"], under: ["text"] },
+      on: { is: (value) => value === true, under: ["bool"] },
+    };
+    const samples: Readonly<Record<string, readonly unknown[]>> = { ...BASE_SAMPLES, align: ["left", "right"], on: [true] };
+    const leaves: readonly ValueType[] = ["null", "bool", "on", "align", "undefined", { one: [true] }, { one: [false] }, { one: ["left"] }, { one: [null, 1] }];
+    const wide: readonly ValueType[] = [...leaves, "number", "text", { union: ["bool", "null"] }, { list: "bool" }];
+    const fieldOf = (rng: Random, from: readonly ValueType[]): ValueType => (rng.chance(0.2) ? { union: [rng.pick(from), rng.pick(from)] } : rng.pick(from));
+    const recordOf = (rng: Random, from: readonly ValueType[], open: number): ValueType => {
+      const names = ["a", "b", "c"].filter((_, index) => index < 2 || rng.chance(0.3)).filter(() => rng.chance(0.8));
+      const record: Record<string, ValueType> = {};
+      for (const name of names) record[name] = fieldOf(rng, from);
+      const optional = names.filter(() => rng.chance(0.25));
+      return { record, ...(optional.length > 0 ? { optional } : {}), ...(rng.chance(open) ? {} : { closed: true }) };
+    };
+    const rng = random(84);
+    const founds: ValueType[] = Array.from({ length: 120 }, () => recordOf(rng, leaves, 0.75));
+    const unions: ValueType[] = Array.from({ length: 100 }, () => ({ union: Array.from({ length: 1 + rng.int(4) }, () => recordOf(rng, wide, 0.7)) }));
+    // A union of the split of a found record by one field, with a wider type for some fields, gives more pairs that fit.
+    for (const found of founds.slice(0, 60)) {
+      const { record, optional = [], closed } = found as { record: Record<string, ValueType>; optional?: readonly string[]; closed?: boolean };
+      const keys = Object.keys(record);
+      if (keys.length === 0) continue;
+      const key = rng.pick(keys);
+      const parts = Array.from({ length: 1 + rng.int(3) }, () => {
+        const fields: Record<string, ValueType> = { ...record, [key]: rng.pick(leaves) };
+        for (const name of keys) if (name !== key && rng.chance(0.3)) fields[name] = rng.pick(wide);
+        const kept = optional.filter((name) => name !== key || rng.chance(0.5));
+        return { record: fields, ...(kept.length > 0 ? { optional: kept } : {}), ...(closed === true && rng.chance(0.5) ? { closed: true } : {}) };
+      });
+      unions.push({ union: parts });
+    }
+    let pairs = 0;
+    let split = 0;
+    let checked = 0;
+    for (const found of founds) {
+      const members = Array.from({ length: 8 }, () => sampleOf(rng, found, samples)).filter((value) => value !== NONE);
+      for (const value of members) expect(member(value, found, domains), `${JSON.stringify(value)} in ${JSON.stringify(found)}`).toBe(true);
+      for (const expected of unions) {
+        if (!fits(found, expected, domains)) continue;
+        pairs += 1;
+        // A pair fits by the split when no member of the union alone takes the record, and the record is open.
+        if ((found as { closed?: boolean }).closed !== true && !(expected as { union: ValueType[] }).union.some((each) => fits(found, each, domains))) split += 1;
+        for (const value of members) {
+          checked += 1;
+          if (!member(value, expected, domains)) expect.fail(`${JSON.stringify(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+        }
+      }
+    }
+    // The corpus holds 120 records, 159 unions and 19080 pairs. A split without the absent case of an optional field fails here.
+    expect(founds.length * unions.length).toBe(19080);
+    expect(pairs).toBeGreaterThan(2000);
+    expect(split).toBeGreaterThan(50);
+    expect(checked).toBeGreaterThan(15000);
   });
 
   it("[TYPE.FITS] fits is reflexive, and transitive for generated types without unknown", () => {
