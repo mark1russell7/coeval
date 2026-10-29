@@ -2643,3 +2643,45 @@ A third corpus of TYPE.FITS-SOUND has 160 types and 25600 pairs over a language 
 
 - A container cause without an exception keeps the short rule. Thus the cause `{ code: 7, send: () => 1 }` of an exception loses `code`. The row K189 keeps this idea.
 - `decodeLog` gives two records for a record that a field and the cause share, as in D82. The row K183 keeps this idea. Since D87, one read walk serves each cause, thus K183 changes one place.
+
+## D88 (2026-10-29): a list or a record that two places of an error share is the part `share`
+
+**Context.** K183, found by K177 (D82 Limits). Since D82, a list and a record of an exception keep their parts. A container that two fields share got a form at each place. Thus `decodeLog` gave two records, and only the exceptions in them stayed the same by `loop`. A container that holds itself was a cycle and a name in `dropped`, for example `ring.self` or `cause.self`.
+
+**Decision.**
+
+- A list or a record of parts that an earlier place of the walk holds is the new part `{ "share": n }` (RUN.REPLAY-SHARED). The walk is the one walk of an error value: its parts, its hidden fields, its causes and its chain.
+- The index `n` counts the lists and the records of parts in the order of the walk. The count starts at 0 for each error value, as the count of `loop` does. `decodeLog` meets the containers in the same order, thus each share gives the same object.
+- A container that holds itself is a share too. The walk gives a container its index before its items, thus a share to an outer container is exact. The walk does not need the test of D82 for a container on the way.
+- `causeParts` also takes the part `share`, for a cause that a field holds. The walk takes the cause last, thus the field has the record, and the cause has the share.
+- A hidden list keeps its marks also without a form (D78). When a field and a hidden list share a list, the field gets the marks, and the hidden list is the share.
+- A container without a form in it stays one name in `dropped` (D82). A share of it is the name of its own place. A cycle without another form also has no form.
+- A share replaces a container only where the walk makes a container. A term document stays a term document, and a cause without an exception keeps its rule (D87).
+- The form stays at the version 1. The part `share` is optional, and an old log decodes as before: each record of parts gives a new record.
+
+**Rejected.**
+
+- An index in `loop` for a container too. A `loop` is the index of an exception, and an old log reads each `loop` as that index. One count for both kinds changes each `loop` of a log with containers.
+- A path to the first place, for example `["parts", "a"]`. A path is longer, and it changes when a key of an earlier field changes. An index has the rule of `loop`.
+- A field `id` on each record of parts. It adds a field to each container, also to a container at one place. Most containers have one place.
+- A share for a term document. `encodeValue` has no identity for a value (D40), and a reader of `fields` then needs a second rule. The row K190 keeps this idea.
+- A share only for a cycle, and a copy for a container that two places share. Both are the same fact of the host: one object at two places.
+- A cycle as a name in `dropped`, as in D82. The share keeps the cycle exact with one number, as `loop` does for a cycle of causes.
+
+**Why.** `loop` already keeps one exception at more than one place. A share gives the containers the same rule, thus `decodeLog` gives the same graph of objects as the host. The walks of D87 serve each cause, thus one change of `causeJson` and `readCause` covers each place.
+
+**Public types.** `ReplayPartJson` and `ReplayCausePartsJson` get the member `{ share }`. A switch over the parts sees a new case. The form of a shared or a cyclic container changes. `encodeLog` and `decodeLog` are not in a release before 0.17.0. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** Three tests change.
+
+- RUN.REPLAY-FIELDS, a nested record: before, `ring.self` was a name in `dropped`, and `b` was a second record with a `loop`. Since D88, `ring.self` is `{ share: 3 }`, and `b` is `{ share: 4 }`. `decodeLog` gives `b` as the record of `a`.
+- RUN.REPLAY-CAUSE-PARTS, a cycle of records: before, `cause.self` was a name in `dropped`. Since D88, it is `{ share: 0 }`.
+- RUN.REPLAY-CAUSE-PARTS, a list cause of an error value that holds itself: before, its last item was a mark, and `cause.3` was in `dropped`. Since D88, the item is `{ share: 0 }`.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception is a `TypeError` without fields.
+
+**Limits.**
+
+- `encodeValue` writes a list or a record without an exception and without a function as a term document. Two places that share it give two copies. The row K190 keeps this idea.
+- A cause without an exception keeps its rule, also when a field shares it. K189 gives such a cause a form, and the share then follows.
+- A share counts in one error value. Two effects of a log that share a container give two objects.
