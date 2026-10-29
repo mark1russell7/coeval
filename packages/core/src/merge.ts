@@ -89,10 +89,11 @@ function same(a: unknown, b: unknown): boolean {
 
 /**
  * Two domains are the same when they are one object. They are also the same when they have the same test `is`,
- * parents, summary and steps. Thus two languages that give one test under one name give one domain.
+ * parents, summary, steps and list of values. Thus two languages that give one test under one name give one domain.
  */
 function sameDomain(a: Domain, b: Domain): boolean {
-  return a === b || (a.is === b.is && same(a.under ?? [], b.under ?? []) && a.summary === b.summary && same(a.steps ?? {}, b.steps ?? {}));
+  if (a === b) return true;
+  return a.is === b.is && same(a.under ?? [], b.under ?? []) && a.summary === b.summary && same(a.steps ?? {}, b.steps ?? {}) && same(a.values ?? null, b.values ?? null);
 }
 
 /** What `extendDomain` adds to a domain: more parents, and the types of more steps. */
@@ -106,8 +107,8 @@ export interface DomainExtension {
 /**
  * This function makes a part of a merge that adds parents or steps to a domain of an earlier part (TYPE.PARENTS). An
  * example is a domain of another language. The part reads the domain from the merge before it (`prev`). It gives a
- * copy with the same test and summary, and it names `["domains", name]` in `replaces` (D17). A domain of the kernel
- * that the earlier parts do not name comes from `STD_DOMAINS`.
+ * copy with the same test, summary and list of values, and it names `["domains", name]` in `replaces` (D17). A
+ * domain of the kernel that the earlier parts do not name comes from `STD_DOMAINS`.
  *
  * A new parent adds its test to the domain (TYPE.MEMBER). Thus `fits` stays sound, but a value that fails the test of
  * the parent is no longer a member. The language that adds the parent keeps the signatures of the other language
@@ -130,6 +131,8 @@ export function extendDomain(name: string, more: DomainExtension): (prev: Machin
       ...(under.length === 0 ? {} : { under }),
       ...(found.summary === undefined ? {} : { summary: found.summary }),
       ...(Object.keys(steps).length === 0 ? {} : { steps }),
+      // A new parent only adds a test, thus the list of values stays complete (TYPE.FITS-FINITE).
+      ...(found.values === undefined ? {} : { values: found.values }),
     };
     const domains: Record<string, Domain> = {};
     setOwn(domains, name, domain);
