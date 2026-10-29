@@ -1380,7 +1380,7 @@ The design calls are the reading of a run in the reference, the host of each tie
 
 **Why.** The replay fixes the order of the waits from the plan. A tier that settles a wait in another order gets `#REPLAY!` or a different list of settled waits. `agreeRun` names the first such wait. A mutant definition of `all` that waits one more time gives that finding, also when its result and its effects agree.
 
-**Limits.** `agreeRun` does not compare the reads of a run. A payload with a closure gives a false `#REPLAY!`, because the replayer compares payloads by identity. The second tier of a language (`other`) is not in the runs.
+**Limits.** `agreeRun` does not compare the reads of a run. D67 adds it. A payload with a closure gives a false `#REPLAY!`, because the replayer compares payloads by identity. The second tier of a language (`other`) is not in the runs.
 
 ## D56 (2026-10-28): a closure keeps a read of each path that its body can read, and a closure without static reads keeps each whole root
 
@@ -1804,3 +1804,32 @@ The field of the root costs most. Without it, PLAN.FOLD and PLAN.FIXED are 8% to
 **Limits.** A host list with the same entries in another order is another epoch. A kept context gets `#CAP!` there, but the reference permits the effect. Some cases of a reference are 3% to 5% slower than `main`. The bench of PR #126 gives a reference of five steps +3.4%, the formula with a list of reads +2.7% and PLAN.PATH +4.7%.
 
 The variant without an epoch gave such changes too, for example +4.6% for five steps. Two other variants of `readable` and `rootContext` gave 5% to 47% in some of these cases. Thus such a case reacts strongly to the form of this code, and K164 examines it.
+
+## D67 (2026-10-29): the reference records the reads of a run, and `agreeRun` compares the free reads with the plan
+
+**Context.** K155, from K46 (D55). `agreeRun` compared the results, the effects and the order of the waits. It did not compare the reads of a run. The reference had no record of reads.
+
+A closure of `fn` evaluated without a hook for its reads, and an equation of a tree evaluated in a nested reference. The design calls are what a read is in the comparison, and how closures and equations reach the record.
+
+**Decision.**
+
+- `reference` and `referenceRun` take a list `reads` (REF.READS). Each resolution of a document gives one read: the path, what it reached and the mark `free`. The reference finds `free` from the rule READS.FREE.
+- Each part of a closure keeps the state of its evaluation. Thus a call of a closure records the reads of its body in the same list.
+- An equation of a tree evaluates in the state of the record of its tree. Thus its reads go in the list of the outer evaluation.
+- A reference through a name whose binding failed reads that name, in the reference too (READS.RECORD).
+- `agreeRun` compares the free reads of the plan and of the reference run, in their order (RUN.AGREES-READS). It compares the path, and what the read reached by the rules of the results. A difference has its own reason, for example `The free read 0 is ["names","a"] in the plan, and ["names","b"] in the tier.`
+- A kept read does not compare. It is the bound of the plan for the later reads of a closure, and the reference has no such bound.
+- When the plan keeps each root (READS.KEPT), it does not know its reads, and no read compares.
+- Another replay of the plan records the reads of the plan. Thus the recording of the plan keeps its folds (PLAN.FOLD).
+- The result of an agreement gives the reads that compared, as `reads`. The harness of runs asserts that each configuration compares some reads.
+
+**Rejected.**
+
+- A comparison of the reads in `agree`. The harness of runs covers each configuration of the evaluations, thus a second comparison finds nothing new.
+- A comparison of the reads that are not free. A read in a closure or in a kind depends on the order of the evaluation in each tier. Only a free read decides if a kept result stays valid.
+- Kept reads in the reference. The reference has no static reads of a closure, and a copy of `factsOf` makes the reference depend on the plan.
+- The reads of the recording of the plan. A list of reads stops the folds, thus the recording does not test them.
+
+**Why.** A plan keeps a result for the free reads of its list (`verifyReads`). A read that the plan does not record keeps a stale result. The reference reads the rules from SPEC, thus a missing read shows as a difference of the lists.
+
+**Limits.** An equation of a tree evaluates in a nested plan without the list of reads (READS.EQUATION). Thus the plan records no read of an equation. A free read in an equation gives a difference in `agreeRun`, and `verifyReads` keeps a stale result. A test pins the case, and K165 keeps the work. The generated documents of the harness have no equations.
