@@ -962,8 +962,12 @@ describe("the enumerable fields of an exception that hold exceptions in the JSON
       message: "The block failed.",
       hidden: { error: { record: { inner: { exception: { name: "TypeError", message: "The socket closed.", fields: { errno: -111 } } } } }, suppressed: { value: "first" } },
     });
-    // A cause is a term document, an exception or a loop. A record cause with an exception stays a name in dropped.
-    expect(exceptionOf(encodeLog(dated, failedWith(new Error("cause", { cause: { inner } }))))).toEqual({ name: "Error", message: "cause", dropped: ["cause"] });
+    // A record cause with an exception gets the same rule in causeParts (D87, RUN.REPLAY-CAUSE-PARTS).
+    expect(exceptionOf(encodeLog(dated, failedWith(new Error("cause", { cause: { inner } }))))).toEqual({
+      name: "Error",
+      message: "cause",
+      causeParts: { record: { inner: { exception: { name: "TypeError", message: "The socket closed.", fields: { errno: -111 } } } } },
+    });
   });
 
   it("[RUN.REPLAY-FIELDS] an exception in a nested record that is the outer exception is a loop, a cycle of records is a name in dropped, and a shared record keeps its loops", () => {
@@ -1043,7 +1047,145 @@ describe("the enumerable fields of an exception that hold exceptions in the JSON
     const decoded = proto.ok && proto.value.effects[0]?.outcome?.ok === false ? (proto.value.effects[0].outcome.error.cause as { readonly a: object }).a : undefined;
     expect(decoded !== undefined && Object.hasOwn(decoded, "__proto__") && Object.getPrototypeOf(decoded)).toBe(Object.prototype);
   });
+});
 
+/** This function gives the JSON form of the error of the first effect of a log. */
+function errorOf(json: ReplayLogJson): unknown {
+  const outcome = json.effects[0]?.outcome;
+  return outcome?.ok === false ? outcome.error : undefined;
+}
+
+describe("a cause that is a list or a record with an exception in the JSON form", () => {
+  it("[RUN.REPLAY-CAUSE-PARTS] a record cause with an exception is causeParts, and decodeLog gives a plain record as the cause that is not enumerable", () => {
+    const inner = Object.assign(new TypeError("The socket closed."), { errno: -111 });
+    const json = encodeLog(dated, failedWith(new Error("outer", { cause: { inner } })));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "outer",
+      causeParts: { record: { inner: { exception: { name: "TypeError", message: "The socket closed.", fields: { errno: -111 } } } } },
+    });
+    const back = decodedCause(json) as Error & { readonly cause: { readonly inner: Error & { readonly errno?: unknown } } };
+    expect(Object.keys(back)).toEqual([]);
+    expect(Object.getOwnPropertyDescriptor(back, "cause")).toMatchObject({ enumerable: false });
+    expect(Object.getPrototypeOf(back.cause)).toBe(Object.prototype);
+    expect(Object.keys(back.cause)).toEqual(["inner"]);
+    expect(back.cause.inner instanceof TypeError && back.cause.inner.errno).toBe(-111);
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(again.ok && encodeLog(dated, again.value)).toEqual(json);
+  });
+
+  it("[RUN.REPLAY-CAUSE-PARTS] a list cause keeps each item at its place, and a nested record cause keeps its loops and its names in dropped", () => {
+    const list = encodeLog(dated, failedWith(Object.assign(new Error("tries", { cause: [new Error("one"), 2, () => 1, new RangeError("three")] }), { send: () => 1 })));
+    expect(exceptionOf(list)).toEqual({
+      name: "Error",
+      message: "tries",
+      dropped: ["send", "cause.2"],
+      causeParts: [{ exception: { name: "Error", message: "one" } }, { value: 2 }, { dropped: true }, { exception: { name: "RangeError", message: "three" } }],
+    });
+    const tries = (decodedCause(list) as Error).cause as unknown[];
+    expect(tries.length).toBe(4);
+    expect(Object.hasOwn(tries, 2)).toBe(false);
+    expect(tries[3] instanceof RangeError && tries[1]).toBe(2);
+    // The walk takes the items of a nested record in the order of their keys, thus a later item loops to an earlier exception.
+    const first = new Error("first");
+    const nested = new Error("nested", { cause: { request: { id: 7, errors: [first, { again: first }] }, send: () => 1 } });
+    const json = encodeLog(dated, failedWith(nested));
+    expect(exceptionOf(json)).toEqual({
+      name: "Error",
+      message: "nested",
+      dropped: ["cause.send"],
+      causeParts: { record: { request: { record: { id: { value: 7 }, errors: [{ exception: { name: "Error", message: "first" } }, { record: { again: { loop: 1 } } }] } } } },
+    });
+    const back = (decodedCause(json) as Error).cause as { readonly request: { readonly id: number; readonly errors: [Error, { readonly again: Error }] } };
+    expect(back.request.id).toBe(7);
+    expect(back.request.errors[1].again).toBe(back.request.errors[0]);
+    // decodeLog does not give a dropped item back, thus a new recording has no name for it (D76).
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    const { dropped: _, ...kept } = exceptionOf(json) as { readonly dropped: unknown };
+    expect(again.ok && exceptionOf(encodeLog(dated, again.value))).toEqual(kept);
+  });
+
+  it("[RUN.REPLAY-CAUSE-PARTS] a cause record that holds the exception itself is a loop, a cycle of records ends in dropped, and a long chain does not overflow", () => {
+    const self = new Error("loop");
+    self.cause = { inner: self, list: [self] };
+    expect(exceptionOf(encodeLog(dated, failedWith(self)))).toEqual({ name: "Error", message: "loop", causeParts: { record: { inner: { loop: 0 }, list: [{ loop: 0 }] } } });
+    const back = decodedCause(encodeLog(dated, failedWith(self))) as Error & { readonly cause: { readonly inner: unknown; readonly list: unknown[] } };
+    expect(back.cause.inner).toBe(back);
+    expect(back.cause.list[0]).toBe(back);
+    const ring: Record<string, unknown> = { error: new Error("in the ring") };
+    ring["self"] = ring;
+    expect(exceptionOf(encodeLog(dated, failedWith(new Error("ring", { cause: ring }))))).toEqual({
+      name: "Error",
+      message: "ring",
+      dropped: ["cause.self"],
+      causeParts: { record: { error: { exception: { name: "Error", message: "in the ring" } } } },
+    });
+    // Two exceptions whose causes are records that hold each other.
+    const a = new Error("a");
+    const b = new Error("b", { cause: { inner: a } });
+    a.cause = { inner: b };
+    const pair = decodedCause(encodeLog(dated, failedWith(a))) as Error & { readonly cause: { readonly inner: Error & { readonly cause: { readonly inner: unknown } } } };
+    expect(pair.cause.inner.message).toBe("b");
+    expect(pair.cause.inner.cause.inner).toBe(pair);
+    let long = new Error("0");
+    for (let index = 1; index < 2000; index += 1) long = new Error(String(index), { cause: { inner: long } });
+    let depth = 0;
+    for (let at: unknown = decodedCauseOf(encodeLog(dated, failedWith(long))); at instanceof Error; at = (at.cause as { readonly inner?: unknown } | undefined)?.inner) depth += 1;
+    expect(depth).toBe(2000);
+  });
+
+  it("[RUN.REPLAY-CAUSE-PARTS] an error value with a list or a record cause with an exception is causeParts, not a refusal", () => {
+    const inner = new TypeError("The socket closed.");
+    const json = encodeLog(dated, failedWith({ inner }));
+    expect(errorOf(json)).toEqual({ code: "#CALC!", reason: "The host failed.", causeParts: { record: { inner: { exception: { name: "TypeError", message: "The socket closed." } } } } });
+    const cause = decodedCause(json) as { readonly inner: Error };
+    expect(cause.inner instanceof TypeError && cause.inner.message).toBe("The socket closed.");
+    // The index 0 of a loop is the first exception of the cause, because the error value is not an exception.
+    const ring: unknown[] = [inner, () => 1, inner];
+    ring.push(ring);
+    const list = encodeLog(dated, failedWith(ring));
+    expect(errorOf(list)).toEqual({
+      code: "#CALC!",
+      reason: "The host failed.",
+      causeParts: [{ exception: { name: "TypeError", message: "The socket closed." } }, { dropped: true }, { loop: 0 }, { dropped: true }],
+      dropped: ["cause.1", "cause.3"],
+    });
+    const items = decodedCause(list) as unknown[];
+    expect(items[2]).toBe(items[0]);
+    expect(items.length).toBe(4);
+    expect(Object.hasOwn(items, 1)).toBe(false);
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(list)));
+    expect(again.ok && encodeLog(dated, again.value)).toEqual(list);
+  });
+
+  it("[RUN.REPLAY-CAUSE-PARTS] a cause without an exception keeps its rule, and decodeLog gives #VALUE! at a bad field of causeParts", () => {
+    // An exception: a cause without a form is the name cause in dropped. An error value: such a cause is a refusal.
+    expect(exceptionOf(encodeLog(dated, failedWith(new Error("plain", { cause: { send: () => 1, code: 7 } }))))).toEqual({ name: "Error", message: "plain", dropped: ["cause"] });
+    expect(() => encodeLog(dated, failedWith({ send: () => 1, code: 7 }))).toThrow(/^encodeLog cannot write the cause of the outcome of the effect log at the address 0#0/);
+    expect(() => encodeLog(dated, failedWith([new Map()]))).toThrow(TypeError);
+    // A cause that encodeValue writes stays a term document.
+    expect(errorOf(encodeLog(dated, failedWith({ why: [1, 2] })))).toEqual({ code: "#CALC!", reason: "The host failed.", cause: { why: [1, 2] } });
+    const good = encodeLog(dated, failedWith({ inner: new Error("e") }));
+    const placeOf = (error: unknown): unknown => {
+      const read = decodeLog(dated, { ...good, effects: [{ ...good.effects[0], outcome: { ok: false, error } }] });
+      return read.ok ? "read" : read.error.place;
+    };
+    const at = ["effects", 0, "outcome", "error"];
+    const base = { code: "#X", reason: "r" };
+    expect(placeOf({ ...base, causeParts: [{ value: 1 }, [{ dropped: true }]], dropped: ["cause.1.0"] })).toBe("read");
+    expect(placeOf({ ...base, causeParts: { value: 1 } })).toEqual([...at, "causeParts"]);
+    expect(placeOf({ ...base, causeParts: { record: { a: { value: 1 } }, more: 1 } })).toEqual([...at, "causeParts"]);
+    expect(placeOf({ ...base, causeParts: { record: { a: { dropped: true } } } })).toEqual([...at, "causeParts", "record", "a"]);
+    expect(placeOf({ ...base, causeParts: [{ loop: 0 }] })).toEqual([...at, "causeParts", 0, "loop"]);
+    expect(placeOf({ ...base, causeParts: [], cause: 1 })).toEqual(at);
+    expect(placeOf({ ...base, dropped: [1] })).toEqual([...at, "dropped"]);
+    expect(placeOf({ ...base, loop: 0 })).toEqual(at);
+    const thrown = (exception: unknown): unknown => placeOf({ ...base, exception });
+    expect(thrown({ name: "E", message: "m", causeParts: { record: { a: { loop: 0 } } } })).toBe("read");
+    expect(thrown({ name: "E", message: "m", causeParts: [{ loop: 1 }] })).toEqual([...at, "exception", "causeParts", 0, "loop"]);
+    expect(thrown({ name: "E", message: "m", causeParts: { exception: { name: "F", message: "n" } } })).toEqual([...at, "exception", "causeParts"]);
+    expect(thrown({ name: "E", message: "m", causeParts: [], loop: 0 })).toEqual([...at, "exception"]);
+  });
 });
 
 /** This function gives the cause of the outcome of the first effect of a JSON form, without a JSON text. */

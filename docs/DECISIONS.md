@@ -2606,3 +2606,40 @@ A third corpus of TYPE.FITS-SOUND has 160 types and 25600 pairs over a language 
 
 - The palette has few values. A `truthType` without `values`, for example `number`, gets only the samples `1` and `2`. K188 adds samples of a domain.
 - An evaluator of a language that replaces `formula.if` gets no check, because the kit did not make it.
+
+## D87 (2026-10-29): a cause that is a list or a record with an exception gets the part rule in `causeParts`
+
+**Context.** K182, found by K177 (D82 Limits). Since D82, a list field and a record field of an exception keep their parts. A cause had no such rule. Thus the cause `{ inner: error }` of an exception was the name `cause` in `dropped`. The same cause of an error value was a refusal of `encodeLog`.
+
+**Decision.**
+
+- A cause can be a list or a plain record with an exception at some depth and without a term document. It is then the new field `causeParts` (RUN.REPLAY-CAUSE-PARTS).
+- The value of `causeParts` is a list of parts or the part `record`, as a field in `parts` (D82). The new type `ReplayCausePartsJson` is this value.
+- The rule is the same for the cause of an exception and of an error value. `ReplayExceptionJson.causeParts` and `ReplayErrorJson.causeParts` are optional.
+- An item without a form has the name `cause`, a dot and its key or index, for example `cause.send`. An exception keeps the name in its `dropped`. An error value gets the optional list `dropped` for it.
+- Each exception in the cause has the rule of a cause, also a `loop`. The walk takes the cause after `parts` and `hidden`, as in D78. A cause of an error value has no outer exception, thus its first exception has the index 0.
+- A record in the cause that holds the exception itself is a `loop`. A record that is again on its way is a cycle and a name in `dropped`, as in D82. Thus each walk ends.
+- A cause without an exception keeps its rule. A cause of an exception without a form is the name `cause` in `dropped`. Such a cause of an error value is a refusal (D75).
+- `decodeLog` gives a new list or plain record as the cause. The cause of an exception stays a field that is not enumerable.
+- One walk writes each cause without a term document, and one walk reads it. Thus the error value and the exception share the code.
+- The form stays at the version 1. The new fields are optional, and an old log decodes as before.
+
+**Rejected.**
+
+- A part in the field `cause`. `cause` holds a term document, and a JSON list or the record `{ "record": ... }` is also a term document. A reader then cannot tell the two forms apart.
+- A part in the field `exception`. It holds the form of an exception, and a list there gives two shapes to one field.
+- The cause in `parts` with the key `cause`. A field of `parts` is enumerable, and the cause is not. `decodeLog` then needs a rule for one key.
+- The rule of D82 for each container cause, also without an exception. Then a cause of an error value without a term document is not a refusal, and D75 keeps that refusal. The row K189 keeps the idea for the cause of an exception.
+
+**Why.** The cause holds the same facts as a field of D82, thus it gets the same part rule. A field of its own keeps the term document in `cause` exact and each old log readable. One walk for both causes keeps one order and one rule for `loop`.
+
+**Public types.** `ReplayExceptionJson.causeParts`, `ReplayErrorJson.causeParts` and `ReplayErrorJson.dropped` are new optional fields, and `ReplayCausePartsJson` is a new type. A refusal of `encodeLog` becomes a value. `encodeLog` and `decodeLog` are not in a release before 0.17.0. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** One test of RUN.REPLAY-FIELDS changes. Before, the cause `{ inner }` of an exception was the name `cause` in `dropped`. Since D87, it is `causeParts` with the part `record`.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception is a `TypeError` without a cause.
+
+**Limits.**
+
+- A container cause without an exception keeps the short rule. Thus the cause `{ code: 7, send: () => 1 }` of an exception loses `code`. The row K189 keeps this idea.
+- `decodeLog` gives two records for a record that a field and the cause share, as in D82. The row K183 keeps this idea. Since D87, one read walk serves each cause, thus K183 changes one place.
