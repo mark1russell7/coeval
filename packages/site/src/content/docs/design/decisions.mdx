@@ -86,6 +86,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D76 | `agreeRun` uses one replayer for its tiers. The JSON form of an exception keeps its own fields and its chain of causes, also a cycle, at the version 1. |
 | D77 | The JSON form of an exception keeps the hidden fields of the standard classes, for example `errors` of an `AggregateError`. An exception in them has the rule of a cause. |
 | D78 | An enumerable field of an exception that holds an exception gets parts in `parts`, with the rule of a cause. An item of a list without a form keeps its place with a mark. |
+| D79 | `fits` tests each member of a type with at most 64 members, thus `bool` fits `{ "one": [true, false] }`. A domain declares its full list of members in `values`. |
 
 ## Open
 
