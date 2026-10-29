@@ -77,6 +77,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D67 | The reference records the reads of a run. `agreeRun` compares the free reads of the plan and of the reference, in their order. The plan records no read of an equation of a tree (K165). |
 | D68 | An equation of a tree records its reads in the list of the evaluation that made the node. Thus `verifyReads` and a schedule see a change of the event that an equation reads. A read from `self` or from a name of the equation is not free. |
 | D69 | `factsOf` gives the static reads of the equations of a tree kind, at the first document of the kind. Thus a free read of an equation has a static read, and a schedule gets a lazy edge for it. |
+| D70 | The kernel keeps the code of D66. Two reference cases are 3% to 5% slower in two runs. No variant of a part gives that time back without a larger cost elsewhere. |
 
 ## Open
 
