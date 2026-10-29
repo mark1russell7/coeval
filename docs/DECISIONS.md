@@ -1760,3 +1760,45 @@ The whole text `42` gave `#PART?` too. A named literal `a = 1` got the kind `lit
 - `list(null)` still gives `#PART?`, because `STD_WORLD` has no kind for `null`.
 - `syntaxFormat` writes a data envelope as the whole text with its form, for example `number(1)`. `parse` reads the same document.
 - The generator `world` of the round trip test uses `WORLD_SYNTAX` as D64 gave it, thus it keeps its documents. The new generator `envelopes` examines the full profile.
+
+## D66 (2026-10-29): an equal list of the host is the same epoch, and the root of an evaluation has no field of the epoch
+
+**Context.** K153 and K154, from K120 (D54). The epoch of a grant was the object of the list of the host. A host that gives a new but equal list for each evaluation got `#CAP!` for a context that code kept from an earlier evaluation. The reference permits that effect.
+
+The epoch also cost time in each evaluation. The bench of PR #111 gave FORMULA.SPEED +3.1% and PLAN.FOLD +4.4%. The design calls are the rule for an equal list, the part of K120 that costs most and the form of the root.
+
+**Decision.**
+
+- Two epochs are the same when they are one list, or when the two lists are equal (CAP.EPOCH-EQUAL). Equal lists have the same length, and at each index the same text or the same keys in the same order.
+- The runtime compares the entries only when the two lists are not the same object. Thus the hot path stays one comparison of identity.
+- A wider list, a narrower list and the same entries in another order are other epochs. Thus CAP.NARROW-KEPT holds, and a list in another order stays a safe refusal.
+- The root of an evaluation keeps only its grant, without the field of the epoch. A context without the field has the epoch of its grant (`epochOf`). Each other context of the kernel writes its epoch, thus only a root has no field.
+- `rootContext` writes the field only for a context of the kernel with an epoch. An example is a kept context that a host gives as its root.
+- `readable` first tests for a context of the epoch whose grant is its own list, with two comparisons. Each other context goes to a second function, thus the hot part stays small.
+
+**Rejected.**
+
+- Equal lists as sets, or by `permits` in each direction. The hook `permits` of a machine reads the entries of the list, and it can give another answer for another order or form. Only equal entries in the same order give the same answers for each hook.
+- One interned object for each equal list of the host. It needs a table of the lists, and a lookup at each evaluation.
+- A first test of the grant only, without the epoch. It keeps the grant of some contexts of another epoch. The bench also gave FORMULA.SPEED +6.8% for it.
+- A session without the field of the epoch, or `readable` without its test. Neither part has a cost that the bench can see (below).
+
+**Why.** Equal entries in the same order give the same answer for each rule of the host. Thus the grant of a kept context permits nothing that the root does not permit. A copy of the list is the usual case of a host that makes a new list.
+
+The root is the one context that each evaluation makes. Its second field with a symbol key made the spread slower. The root has the shape of a root before K120 again.
+
+**Measured (K154).** The bench of CI compared each variant with `main` at 22d94f4. A cell gives the change and the noise (A/A) in parentheses.
+
+| Variant | FORMULA.SPEED | PLAN.FOLD | Run |
+| --- | ---: | ---: | --- |
+| The root has no field of the epoch | -2.4% (0.0%) | -9.8% (-0.1%) | 40795209555 |
+| `readable` has no test of the epoch | +0.7% (+0.5%) | -0.1% (-0.1%) | 40795212111 |
+| The session and `readable` have no epoch | -1.3% (+0.2%) | +0.2% (-0.2%) | 40795214730 |
+| No epoch, as before K120 | -1.1% (-0.5%) | -8.2% (+1.1%) | 40795217917 |
+| A move of `readable`, with the same code | +0.5% (+0.4%) | 0.0% (0.0%) | 40796640399 |
+| D66, first try | -2.4% (0.0%) | -8.6% (-0.3%) | 40796414735 |
+| D66, second try | -2.2% (-0.6%) | -8.9% (+0.3%) | 40796414735 |
+
+The field of the root costs most. Without it, PLAN.FOLD and PLAN.FIXED are 8% to 10% faster than `main`, and FORMULA.SPEED is 2% faster. The session, the test in `readable` and the test of an effect cost nothing that the bench can see.
+
+**Limits.** A host list with the same entries in another order is another epoch. A kept context gets `#CAP!` there, but the reference permits the effect. The case of a formula with a list of reads is 3% to 4% slower than `main` in both tries. Two other variants of `readable` and `rootContext` gave 5% to 47% in some cases of a reference. Thus such a case reacts strongly to the form of this code.

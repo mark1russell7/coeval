@@ -187,7 +187,7 @@ function granted(ctx: Context): Context {
 
 /**
  * This function tells if a list of capabilities is equal to the epoch of the evaluation (CAP.EPOCH-EQUAL). An equal list
- * has the same length, and at each index the same text or the same keys in the same order. The runtime calls it only
+ * has the same length, and at each index the same text or the same keys in the same order. The runtime uses it only
  * when the two lists are not the same object. Thus a host that gives a new copy of its list for each evaluation keeps
  * the grant of a kept context.
  */
@@ -227,10 +227,19 @@ function ungranted(ctx: Context, epoch: readonly Cap[]): Context {
  * The context has the meet of its list and its grant, and a context without a grant has none. Thus a read of the root
  * `caps` and a walker of a step document get the capabilities of the document from a widened context.
  * A context that the code narrowed keeps its own list. A context whose list does not change stays the same object.
+ *
  * A context of another epoch has no capabilities (CAP.NARROW-KEPT). An equal list of the host is the same epoch
- * (CAP.EPOCH-EQUAL).
+ * (CAP.EPOCH-EQUAL). The first test answers for a context of the epoch whose grant is its list, for example the root.
+ * The other contexts go to `readableOther`, thus the hot part of the function stays small (K154).
  */
 function readable(ctx: Context, epoch: readonly Cap[]): Context {
+  const grant = (ctx as Granted)[GRANT];
+  if (grant === ctx.caps && ((ctx as Granted)[EPOCH] ?? grant) === epoch) return ctx;
+  return readableOther(ctx, epoch);
+}
+
+/** This function gives the result of `readable` for each other context: a context of another epoch or a narrowed context. */
+function readableOther(ctx: Context, epoch: readonly Cap[]): Context {
   if (!inEpoch(ctx, epoch)) return ctx.caps.length === 0 ? ctx : ungranted(ctx, epoch);
   const caps = grantedCaps(ctx);
   if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
