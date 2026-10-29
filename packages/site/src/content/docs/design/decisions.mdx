@@ -75,6 +75,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D65 | A literal in a place that takes a document gets its data envelope, thus `list(1, 2)` evaluates. A profile names the places. The forms `add`, `multiply` and `greater` write an operator with one part or none, for example `add(5)`. |
 | D66 | A new list of the host with the same entries in the same order is the same epoch. The root keeps only its grant, and its grant is its epoch, thus each evaluation is faster. |
 | D67 | The reference records the reads of a run. `agreeRun` compares the free reads of the plan and of the reference, in their order. The plan records no read of an equation of a tree (K165). |
+| D68 | An equation of a tree records its reads in the list of the evaluation that made the node. Thus `verifyReads` and a schedule see a change of the event that an equation reads. A read from `self` or from a name of the equation is not free. |
 
 ## Open
 

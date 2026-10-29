@@ -1832,4 +1832,37 @@ A closure of `fn` evaluated without a hook for its reads, and an equation of a t
 
 **Why.** A plan keeps a result for the free reads of its list (`verifyReads`). A read that the plan does not record keeps a stale result. The reference reads the rules from SPEC, thus a missing read shows as a difference of the lists.
 
-**Limits.** An equation of a tree evaluates in a nested plan without the list of reads (READS.EQUATION). Thus the plan records no read of an equation. A free read in an equation gives a difference in `agreeRun`, and `verifyReads` keeps a stale result. A test pins the case, and K165 keeps the work. The generated documents of the harness have no equations.
+**Limits.** An equation of a tree evaluates in a nested plan without the list of reads (READS.EQUATION). Thus the plan records no read of an equation. A free read in an equation gives a difference in `agreeRun`, and `verifyReads` keeps a stale result. A test pins the case, and K165 keeps the work. The generated documents of the harness have no equations, and D68 removes both limits.
+
+## D68 (2026-10-29): an equation of a tree records its reads in the list of the evaluation that made the node
+
+**Context.** K165, from D67. An equation of a tree evaluated in a nested plan without the list of reads. Thus the list of the plan had no read of an equation. `agreeRun` reported a missing free read, and `verifyReads` gave `same: true` after a change of the event. A host with a cache kept a stale result.
+
+The design calls are how the reads reach the outer list, and which reads of an equation are free.
+
+**Decision.**
+
+- The evaluator of a tree node gets the runtime of its evaluation, through a key of the kernel on its input. A copy of the input with a spread keeps the key, thus a wrapper of the evaluator keeps it too.
+- `evaluateWithin` evaluates an equation in its own runtime, as before. It has no capabilities, its own epoch and no `perform`. Its reads go in the record of the outer evaluation, in the order of the demands (READS.EQUATION).
+- The rules READS.FREE and READS.KEPT compare with the root of the outer evaluation. Thus the plan gives the same reads as the reference, which shares the record of the outer evaluation since D67.
+- The rule for reads relative to the node:
+  - A read from `self` reads the node, thus it is not free.
+  - A read of a name of the equation (`child`, `index`, `prev`, `acc`, `item`) is not free when its binding is not the binding of the root.
+  - A step out of the tree reads the outer `self` through `parent`. The free read of the whole root `self` that the tree node makes covers it (TREE.SELF).
+  - A read of `caps` from an equation is free. The equation has no capabilities, thus `verifyReads` compares with the capabilities of the root. When the root has capabilities, the read changes and the node evaluates again.
+- Without a list of reads, an equation evaluates as before, with `plan.evaluate`.
+
+**Rejected.**
+
+- A field of the runtime on the public `EvalInput`. A field changes the public type of each evaluator, and only the tree node needs it.
+- An equation in the runtime of the outer evaluation. That runtime has the capabilities and the epoch of the document, and an equation has none.
+- A new list for each equation, appended after its evaluation. The free rules then compare with the root of the equation. Thus each read from `self` becomes free, and the order of the reads differs from the reference.
+- A kept read of each root that an equation reads. It discards each result after any change of a root, also a change that no equation reads.
+
+**Why.** A plan keeps a result for the free reads of its list (`verifyReads`). The reads of an equation decide the result as much as the reads of a part. The reference already records them, thus the two tiers agree on one shape.
+
+**Limits.**
+
+- `factsOf` gives no static read of an equation. Thus the free read of an equation is an exception of READS.SUBSET, and the edges of a schedule miss the reads of equations (K166).
+- A read of `caps` in an equation always changes when the root has capabilities. That is safe, but the node then evaluates again after each change of the context.
+- Each evaluator that the kernel interprets gets one more key on its input. The bench of the PR measures the cost.
