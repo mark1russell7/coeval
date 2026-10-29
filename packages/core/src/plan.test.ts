@@ -291,17 +291,20 @@ describe("capabilities", () => {
     expect(plan.evaluate(first, { effects })).toMatchObject({ ok: true });
     expect(effects.map((effect) => effect.kind)).toEqual(["log"]);
     // Before K120, each later evaluation caused the effect log with the kept context.
-    for (const later of [makeContext(), makeContext({}, ["write"]), makeContext({}, ["log"])]) {
+    for (const later of [makeContext(), makeContext({}, ["write"]), makeContext({}, ["log", "write"])]) {
       const again: Effect[] = [];
       expect(plan.evaluate(later, { effects: again }), String(later.caps)).toMatchObject(refused);
       expect(again).toEqual([]);
     }
     // The epoch is the list of the host, thus a later evaluation with the same list keeps the grant.
     expect(plan.evaluate(makeContext({ other: 1 }, logs))).toMatchObject({ ok: true });
+    // Since K153, a new list with the same entries is the same epoch (CAP.EPOCH-EQUAL). Before, it gave #CAP!.
+    expect(plan.evaluate(makeContext({}, ["log"]))).toMatchObject({ ok: true });
     // A read of the root caps through a kept context of another epoch gives no capabilities. Before K120, it gave ["log"].
     const caps = prepare(machine, { type: "peek", value: null });
     expect(caps.evaluate(first)).toEqual(ok(["log"]));
     expect(caps.evaluate(makeContext({}, ["log", "write"]))).toEqual(ok([]));
+    expect(caps.evaluate(makeContext({}, ["log"]))).toEqual(ok(["log"]));
     // Function code narrows a kept context to its document, thus it keeps the result of the reference.
     const fn = prepare(machine, { type: "keepFn", value: [log] });
     expect(fn.evaluate(makeContext({}, ["log", "write"]))).toMatchObject({ ok: true });

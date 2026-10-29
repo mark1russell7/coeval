@@ -435,7 +435,7 @@ H-CONTEXT  [CAP.NARROW, CAP.MEET, CAP.CONTRACT, CAP.ONLY, CAP.MONOTONE]
                    = Γ with caps = Γ.caps ⊓ L1 ⊓ …   for each rule only Li that covers ℓ
                    = Γ                               else
 
-H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT, CAP.MEET, CAP.NARROW-KEPT]
+H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT, CAP.MEET, CAP.NARROW-KEPT, CAP.EPOCH-EQUAL]
     in the plan, a context Γ can carry a grant g(Γ): the capabilities that the kernel gave its document
     a grant has an epoch e(Γ): the list of capabilities that the host gave the root of its evaluation
     a spread of Γ keeps g(Γ) and e(Γ), and a context that the code makes without a spread has no grant
@@ -443,8 +443,9 @@ H-GRANT  [CAP.NARROW-CODE, CAP.LATENT, CAP.CAPS-GRANT, CAP.MEET, CAP.NARROW-KEPT
         grant(Γ) = Γ                                    when g(Γ) is the same list as Γ.caps
                  = Γ with caps = [] and g = []          when Γ has no grant
                  = Γ with caps = C and g = C            else, with C = Γ.caps ⊓ g(Γ)
-    the root gets g = e = the capabilities of the host
+    the root gets g = e = the capabilities of the host, and it keeps only g: a context without e has e(Γ) = g(Γ)
     a part of a function evaluator gets g = the caps of narrow, and e = the epoch of its document
+    two epochs are the same when they are one list, or lists of the same length with the same entry at each index
     an evaluation with the epoch E reads a context with e(Γ) ≠ E as a context without a grant:
         at each effect, the kernel takes grant(Γ) when e(Γ) = E, and else Γ with caps = [] and g = []
     a resolution of each root that compiled code asks for resolves in grant(Γ), with the same rule of the epoch:
