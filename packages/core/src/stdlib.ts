@@ -17,6 +17,7 @@ import { type Cap, type HostThing, type Thing, type Walker, THING, isHostThing, 
 import type { World } from "./ladder.ts";
 import { type AttributeDeclaration, type TreeContract, equationType, lookupKind } from "./world.ts";
 import { STD_DOMAINS } from "./types.ts";
+import type { SyntaxProfile } from "./syntax.ts";
 
 /**
  * The world of the examples: small kinds for numbers, lists, conditions, names, sequences and effects.
@@ -126,6 +127,42 @@ export const STD_WORLD: World = {
   },
   defaults: { view: "view.card" },
 };
+
+/**
+ * The text syntax of the standard world (K162, D64). The syntax kit (D41) reads it, thus a host of `STD_WORLD` does
+ * not write its own profile. The operators `>`, `+` and `*` make `greater`, `add` and `multiply`. A call form makes
+ * each other kind, and `ref` uses the reference syntax of the kit.
+ *
+ * A host with more kinds spreads this profile and adds its forms to `calls.forms`. `STD_SYNTAX` stays the profile of
+ * the formula kit.
+ */
+export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
+  operators: [
+    { symbol: ">", fixity: "infix", prec: 4, assoc: "none", kind: "greater" },
+    { symbol: "+", fixity: "infix", prec: 5, assoc: "flat", kind: "add" },
+    { symbol: "*", fixity: "infix", prec: 6, assoc: "flat", kind: "multiply" },
+  ],
+  calls: {
+    ops: [],
+    forms: [
+      { name: "if", kind: "if", fields: ["test", "then", "else"], min: 2 },
+      { name: "list", kind: "list" },
+      { name: "seq", kind: "seq" },
+      { name: "pure", kind: "pure", min: 1 },
+      { name: "log", kind: "log", min: 1 },
+      { name: "write", kind: "write", fields: ["key", "value"] },
+      { name: "math.sum", kind: "math.sum" },
+      { name: "math.product", kind: "math.product" },
+      { name: "number", kind: "number", args: "literal" },
+      { name: "text", kind: "text", args: "literal" },
+      { name: "bool", kind: "bool", args: "literal" },
+      { name: "panel", kind: "panel", args: "named", fields: ["width", "height", "children"] },
+      { name: "box", kind: "box", args: "named", fields: ["width", "height", "children"] },
+      { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
+    ],
+  },
+  header: { bind: "=" },
+} satisfies SyntaxProfile);
 
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);

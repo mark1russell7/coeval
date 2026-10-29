@@ -1,39 +1,13 @@
-import { parse, print, type Json, type ParseResult, type SyntaxIssue, type SyntaxProfile } from "@mark1russell7/coeval";
+import { WORLD_SYNTAX, parse, print, type Json, type ParseResult, type SyntaxIssue, type SyntaxProfile } from "@mark1russell7/coeval";
 
 /**
- * The text syntax of the world of the site (C17, D61). The syntax kit (C15, D41) reads it. `STD_SYNTAX` writes the
- * kinds of the formula kit, but the playground evaluates the kinds of the standard world. Thus this profile names
- * those kinds: `+` is `add`, `*` is `multiply` and `>` is `greater`. The call forms make the other constructs. The
- * form `math.product` writes the alias of `multiply`, and `a = 1 + 2` gives a step the name `a` (D62).
+ * The text syntax of the world of the site (C17, D61). The site world is `STD_WORLD` and the kind `kind`. Thus this
+ * profile is `WORLD_SYNTAX`, the profile of the standard world that the kernel gives (D64). The kind `kind` has only a
+ * view, and the playground does not read it as text, thus the site adds no form.
  *
- * The text `text("big")` is a data envelope, and `panel(width: 300)` is a node of a tree with its fields (D63).
+ * A site kind with a text spreads the kernel profile and adds its form to `calls.forms`.
  */
-export const SITE_SYNTAX: SyntaxProfile = Object.freeze({
-  operators: [
-    { symbol: ">", fixity: "infix", prec: 4, assoc: "none", kind: "greater" },
-    { symbol: "+", fixity: "infix", prec: 5, assoc: "flat", kind: "add" },
-    { symbol: "*", fixity: "infix", prec: 6, assoc: "flat", kind: "multiply" },
-  ],
-  calls: {
-    ops: [],
-    forms: [
-      { name: "if", kind: "if", fields: ["test", "then", "else"], min: 2 },
-      { name: "list", kind: "list" },
-      { name: "seq", kind: "seq" },
-      { name: "pure", kind: "pure", min: 1 },
-      { name: "log", kind: "log", min: 1 },
-      { name: "write", kind: "write", fields: ["key", "value"] },
-      { name: "math.product", kind: "math.product" },
-      { name: "number", kind: "number", args: "literal" },
-      { name: "text", kind: "text", args: "literal" },
-      { name: "bool", kind: "bool", args: "literal" },
-      { name: "panel", kind: "panel", args: "named", fields: ["width", "height", "children"] },
-      { name: "box", kind: "box", args: "named", fields: ["width", "height", "children"] },
-      { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
-    ],
-  },
-  header: { bind: "=" },
-} satisfies SyntaxProfile);
+export const SITE_SYNTAX: SyntaxProfile = WORLD_SYNTAX;
 
 /** The text of a document, or the reason that the profile has no text for it. */
 export type DocText =
