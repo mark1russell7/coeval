@@ -61,8 +61,8 @@ export interface ReplayOptions {
    */
   readonly wait?: boolean;
   /**
-   * The rule of the host for a payload of the run and a payload of the log that are not the same by `Object.is`, as
-   * the rule of `sameResult`. Its `undefined` gives the rules of `docEquals`. A log from `decodeLog` holds new copies
+   * The rule of the host for two payloads that are not the same by `Object.is`: one of the run and one of the log.
+   * It works as the rule of `sameResult`. Its `undefined` gives the rules of `docEquals`. A log from `decodeLog` holds new copies
    * of the members of a domain, for example of a time. The rule tells that two such copies are the same.
    */
   readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
