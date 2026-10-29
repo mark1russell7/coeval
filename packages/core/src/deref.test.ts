@@ -29,7 +29,11 @@ import {
   type Result,
   type Thing,
   type WalkInput,
+  type Walker,
+  type DerefCode,
+  mergeMachines,
 } from "./index.ts";
+import { compilePath } from "./deref.ts";
 
 const run = (doc: Json, names: Record<string, Json> = {}) => evaluate(STD_MACHINE, doc, makeContext(names, STD_CAPS));
 
@@ -106,6 +110,71 @@ describe("resolve", () => {
 
   it("[WORLD.WALK] walks the world, and follows an alias of a namespace", () => {
     expect(resolve(STD_MACHINE, ctx, ["world", "math", "sum", "verbs", "eval"])).toMatchObject({ ok: true, thing: "math.add" });
+  });
+});
+
+describe("a field that holds undefined behind the code of a kind and in a walker", () => {
+  const fields: Record<string, unknown> = { gone: undefined, here: 1 };
+  const hasField = (key: Key): boolean => Object.hasOwn(fields, String(key));
+  const old: DerefCode = (_doc, key) => fields[String(key)];
+  const told: DerefCode = Object.assign((_doc: unknown, key: Key) => fields[String(key)], { has: (_doc: unknown, key: Key) => hasField(key) });
+  /** A walker that steps by the key of its document. It tells a field that holds undefined with `has`. */
+  const pick: Walker = ({ data, here, deref, has }) => {
+    const key = data as Key;
+    const reached = deref(here, key);
+    return reached !== undefined || has?.(here, key) === true ? { ok: true, thing: reached } : { ok: false, reason: `No field ${String(key)}.` };
+  };
+  const machine = mergeMachines(STD_MACHINE, {
+    world: { kinds: { old: { verbs: { deref: "test.old" } }, told: { verbs: { deref: "test.told" } }, pick: { verbs: { step: "test.pick" } } } },
+    derefs: { "test.old": old, "test.told": told },
+    walkers: { "test.pick": pick },
+  });
+  const oldHost: HostThing = { [THING]: true, label: "fields", deref: (key) => fields[String(key)], toJson: () => fields };
+  const toldHost: HostThing = { ...oldHost, has: hasField };
+  const ctx = context({
+    names: { old: { type: "old", value: null }, told: { type: "told", value: null }, data: { gone: undefined, here: 1 }, oldHost, toldHost },
+  });
+  const step = (key: string): Json => ({ type: "pick", value: key });
+  const holdsUndefined = (found: Resolution): boolean => found.ok && found.thing === undefined;
+  /** This function tells that the reference, a plan, a compiled path and resolve without hops give one answer. */
+  const same = (path: readonly Json[]): Resolution => {
+    const found = resolve(machine, ctx, path);
+    const quick = resolve(machine, ctx, path, { hops: false });
+    const { hops: _hops, ...answer } = found;
+    expect({ ...quick, hops: [] }).toEqual({ ...answer, hops: [] });
+    expect(compilePath(machine, path).resolve(ctx)).toEqual(quick);
+    const outcome = agree(machine, ref(...path), ctx, { strict: true });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok && found.ok) expect(outcome.result).toEqual(ok(found.thing));
+    if (outcome.ok && !found.ok) expect(outcome.result).toMatchObject({ ok: false, error: { code: found.code, reason: found.reason } });
+    return found;
+  };
+
+  it("[DEREF.KIND-UNDEFINED] the has of the code of a kind tells a field that holds undefined from a missing field", () => {
+    // A code without has keeps the old reading: undefined is a missing field.
+    expect(same(["names", "old", "gone"])).toMatchObject({ ok: false, code: "#N/A" });
+    const found = same(["names", "told", "gone"]);
+    expect(holdsUndefined(found)).toBe(true);
+    expect(found.hops.at(-1)?.by).toBe("kind");
+    expect(same(["names", "told", "nope"])).toMatchObject({ ok: false, code: "#N/A" });
+    expect(same(["names", "told", "here"])).toMatchObject({ ok: true, thing: 1 });
+    expect(evaluate(machine, ref("names", "told", "gone"), ctx).result).toEqual(ok(undefined));
+    expect(prepare(machine, ref("names", "told", "gone")).evaluate(ctx)).toEqual(ok(undefined));
+  });
+
+  it("[DEREF.WALKER-UNDEFINED] the has of the input of a walker tells a field that holds undefined from a missing field, on each rung", () => {
+    for (const name of ["told", "data", "toldHost"]) {
+      expect(holdsUndefined(same(["names", name, step("gone")]))).toBe(true);
+      expect(same(["names", name, step("nope")])).toMatchObject({ ok: false, code: "#N/A" });
+      expect(same(["names", name, step("here")])).toMatchObject({ ok: true, thing: 1 });
+    }
+    // A code of a kind and a host thing without has keep the old reading.
+    for (const name of ["old", "oldHost"]) expect(same(["names", name, step("gone")])).toMatchObject({ ok: false, code: "#N/A" });
+    // A resolution gives has with and without a record of hops.
+    const given: boolean[] = [];
+    const probe = mergeMachines(machine, { world: { kinds: { probe: { verbs: { step: "test.probe" } } } }, walkers: { "test.probe": (input: WalkInput) => (given.push(input.has !== undefined), { ok: true, thing: 1 }) } });
+    for (const hops of [true, false]) resolve(probe, ctx, ["names", "data", { type: "probe", value: null }], { hops });
+    expect(given).toEqual([true, true]);
   });
 });
 

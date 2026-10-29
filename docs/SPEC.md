@@ -104,6 +104,8 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | DEREF.HOST | A host thing answers its own steps. |
 | DEREF.PATH | A host thing can answer all the keys of a path in one call. |
 | DEREF.HOST-UNDEFINED | A host thing tells a field that holds `undefined` from a missing field. When `deref` gives `undefined`, `has` tells which it is. `resolve` gives `{ thing: undefined }` for such a field. A thing without `has` reads `undefined` as a missing field. Each node of the standard tree has `has`. |
+| DEREF.KIND-UNDEFINED | The code of a `deref` evaluator tells a field that holds `undefined` from a missing field, as a host thing does. When the code gives `undefined`, its optional `has` tells which it is. A code without `has` reads `undefined` as a missing field. A compiled path and `resolve` give the same answer. |
+| DEREF.WALKER-UNDEFINED | A walker tells a field that holds `undefined` from a missing field. Its input has `has`, which answers through the ladder of `deref`. Each resolution gives it, with and without a record of hops. A compiled path and `resolve` give the same answer. |
 | DEREF.QUICK | A resolution without hops asks a host thing for all the keys one time. The root `world` uses the same short path. |
 | DEREF.PLAIN | A plain navigation reads a value with the shape of a reference as data. |
 | DEREF.ROOTS | A navigation can close roots. A path from a closed root gives `#REF!`. |

@@ -275,9 +275,9 @@ R-MISS  [DEREF.MISS, DEREF.CODES]
     ─────────────────────────────────────
     hop(t, k, i) = err(#N/A)
 
-R-WALKER  [VERB.LADDER, DEREF.WALK-CODE]
+R-WALKER  [VERB.LADDER, DEREF.WALK-CODE, DEREF.WALKER-UNDEFINED]
     πi = s is an envelope        ladder(H, own(s), lookup(type(s)), step) = w, with H for the walkers
-    walkers(w)(data = s.value, here = t, context = Γ, deref = adopt ∘ step) = ok(u)
+    walkers(w)(data = s.value, here = t, context = Γ, deref = adopt ∘ step, has = (step ≠ miss)) = ok(u)
     ─────────────────────────────────────
     hop(t, s, i) = u
     a failure with a code c gives err(c), and a failure without a code gives err(#N/A)
@@ -298,11 +298,13 @@ S-HOST  [DEREF.HOST, DEREF.HOST-UNDEFINED, DEREF.SYMBOL]
                = undefined         when t.deref(k) is undefined and t.has(k) = true
                = miss              else
 
-S-CODE  [VERB.LADDER]
+S-CODE  [VERB.LADDER, DEREF.KIND-UNDEFINED]
     t is an envelope        the machine is not plain
     ladder(H, own(t), lookup(type(t)), deref) = n, with H for the derefs
     ─────────────────────────────────────
-    step(t, k) = derefs(n)(t, k), and miss when that is undefined
+    step(t, k) = derefs(n)(t, k)   when that is not undefined
+               = undefined         when derefs(n)(t, k) is undefined and derefs(n).has(t, k) = true
+               = miss              else
 
 S-VALUE  [VERB.LADDER]
     t is an envelope        the machine is not plain        no rung of deref answers, also after a stop

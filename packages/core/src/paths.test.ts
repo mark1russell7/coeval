@@ -3,6 +3,7 @@ import {
   type CompiledEvaluator,
   type Context,
   type DerefCode,
+  type Envelope,
   type HostThing,
   type Json,
   type Key,
@@ -19,6 +20,7 @@ import {
   evaluate,
   formulaMachine,
   isHostThing,
+  isRecord,
   ok,
   prepare,
   random,
@@ -70,20 +72,31 @@ const DEREFS: Readonly<Record<string, DerefCode>> = {
   "d.kind": (doc, key) => (calls.push(`d.kind(${String(key)})`), key === "x" ? `kind x of ${JSON.stringify(doc.value)}` : undefined),
   "d.own": (_doc, key) => (calls.push(`d.own(${String(key)})`), `own ${String(key)}`),
   "d.default": (_doc, key) => (calls.push(`d.default(${String(key)})`), key === "y" ? "default y" : undefined),
+  // A code with has gives a field that holds undefined (DEREF.KIND-UNDEFINED).
+  "d.held": Object.assign((doc: Envelope, key: Key) => (calls.push(`d.held(${String(key)})`), fieldOf(doc, key)), {
+    has: (doc: Envelope, key: Key) => (calls.push(`d.held.has(${String(key)})`), isRecord(doc.value) && Object.hasOwn(doc.value, String(key))),
+  }),
 };
 
+/** This function gives a field of the value of a document, or `undefined`. */
+function fieldOf(doc: Envelope, key: Key): unknown {
+  return isRecord(doc.value) && Object.hasOwn(doc.value, String(key)) ? (doc.value as Record<string, unknown>)[String(key)] : undefined;
+}
+
 const WALKERS: Readonly<Record<string, Walker>> = {
-  "walk.at": ({ data, here, deref }) => {
+  "walk.at": ({ data, here, deref, has }) => {
     calls.push(`walk.at(${JSON.stringify(data)})`);
     if (typeof data !== "string" && typeof data !== "number") return { ok: false, reason: "The step needs a key." };
     const reached = deref(here, data);
-    return reached === undefined ? { ok: false, reason: `No field ${String(data)}.`, code: "#REF!" } : { ok: true, thing: reached };
+    // The walker tells a field that holds undefined with has (DEREF.WALKER-UNDEFINED).
+    return reached === undefined && has?.(here, data) !== true ? { ok: false, reason: `No field ${String(data)}.`, code: "#REF!" } : { ok: true, thing: reached };
   },
   "walk.same": ({ here }) => (calls.push("walk.same"), { ok: true, thing: here }),
 };
 
 const KINDS: World["kinds"] = {
   point: { verbs: { deref: "d.kind" } },
+  held: { verbs: { deref: "d.held" } },
   flat: { verbs: {} },
   moves: { kinds: {}, fallback: { verbs: { step: "walk.at" } } },
   spot: { type: "ref", value: ["world", "point"] },
@@ -118,6 +131,7 @@ const NAMES: Readonly<Record<string, unknown>> = {
   u: undefined,
   proto: JSON.parse('{"__proto__": 5, "a": 2}') as unknown,
   p: { type: "point", value: { x: 1, y: 2 } },
+  hu: { type: "held", value: { a: 1, u: undefined } },
   q: { type: "point", value: { x: 1 }, own: { deref: "d.own" } },
   s: { type: "spot", value: { x: 3 } },
   e: { type: "flat", value: [1, 2] },
@@ -279,6 +293,27 @@ describe("compiled paths", () => {
     expect(seen).toEqual([compiled.path]);
   });
 
+  /**
+   * This function compares a compiled path with resolve without hops and with hops, and writes each difference.
+   *
+   * @returns The resolution of the compiled path, or `undefined` when a resolution threw.
+   */
+  function compare(nav: Navigator, ctx: Context, path: readonly unknown[], where: string, differences: string[]): Resolution | undefined {
+    const dynamic = traced(() => resolve(nav, ctx, path, { hops: false }));
+    const compiled = compilePath(nav, path);
+    const fast = traced(() => compiled.resolve(ctx));
+    const full = traced(() => resolve(nav, ctx, path));
+    if (typeof dynamic.found === "string" || typeof fast.found === "string" || typeof full.found === "string") {
+      if (dynamic.found !== fast.found) differences.push(`${where}: ${String(dynamic.found)} and ${String(fast.found)}`);
+      return undefined;
+    }
+    const reason = differs(dynamic.found, fast.found) ?? differs(full.found, fast.found);
+    if (reason !== undefined) differences.push(`${where}: ${reason}`);
+    if (JSON.stringify(dynamic.calls) !== JSON.stringify(fast.calls)) differences.push(`${where}: the calls ${dynamic.calls.join(" ")} and ${fast.calls.join(" ")}`);
+    if (fast.found.hops.length !== 0) differences.push(`${where}: hops`);
+    return fast.found;
+  }
+
   it("[PLAN.PATH-SAME] a compiled path gives the thing, the error, the reason and the calls of the host of resolve without hops, for random paths", () => {
     const differences: string[] = [];
     let quick = 0;
@@ -286,25 +321,36 @@ describe("compiled paths", () => {
       const path = randomPath(31_000_017 + index);
       const nav = NAVIGATORS[index % NAVIGATORS.length] as Navigator;
       const ctx = CONTEXTS[Math.floor(index / NAVIGATORS.length) % CONTEXTS.length] as Context;
-      const dynamic = traced(() => resolve(nav, ctx, path, { hops: false }));
-      const compiled = compilePath(nav, path);
-      const fast = traced(() => compiled.resolve(ctx));
-      const full = traced(() => resolve(nav, ctx, path));
-      const where = `path ${JSON.stringify(path)}, navigator ${index % NAVIGATORS.length}`;
-      if (typeof dynamic.found === "string" || typeof fast.found === "string" || typeof full.found === "string") {
-        if (dynamic.found !== fast.found) differences.push(`${where}: ${String(dynamic.found)} and ${String(fast.found)}`);
-        continue;
-      }
-      const reason = differs(dynamic.found, fast.found) ?? differs(full.found, fast.found);
-      if (reason !== undefined) differences.push(`${where}: ${reason}`);
-      if (JSON.stringify(dynamic.calls) !== JSON.stringify(fast.calls)) differences.push(`${where}: the calls ${dynamic.calls.join(" ")} and ${fast.calls.join(" ")}`);
-      if (fast.found.hops.length !== 0) differences.push(`${where}: hops`);
-      if (fast.found.ok) quick += 1;
+      const found = compare(nav, ctx, path, `path ${JSON.stringify(path)}, navigator ${index % NAVIGATORS.length}`, differences);
+      if (found?.ok === true) quick += 1;
     }
     expect(differences.slice(0, 5)).toEqual([]);
     // The paths reach values and errors in each navigator.
     expect(quick).toBeGreaterThan(COUNT / 10);
     expect(quick).toBeLessThan(COUNT - COUNT / 10);
+  });
+  it("[DEREF.KIND-UNDEFINED] [DEREF.WALKER-UNDEFINED] a compiled path and resolve agree on a field that holds undefined, in each navigator", () => {
+    const at = (key: string): Json => ({ type: ["moves", "at"], value: key });
+    const paths: readonly (readonly unknown[])[] = [
+      ["names", "hu", "u"],
+      ["names", "hu", "nope"],
+      ["names", "hu", "a"],
+      ["names", "hu", at("u")],
+      ["names", "h", at("u")],
+      ["names", "k", at("u")],
+      ["names", "x", at("nope")],
+    ];
+    const differences: string[] = [];
+    const answers: unknown[] = [];
+    for (const [index, nav] of NAVIGATORS.entries()) {
+      for (const path of paths) {
+        const found = compare(nav, CONTEXTS[0] as Context, path, `path ${JSON.stringify(path)}, navigator ${index}`, differences);
+        if (index === 1) answers.push(found === undefined ? "threw" : found.ok ? found.thing : found.code);
+      }
+    }
+    expect(differences).toEqual([]);
+    // The code of the kind and the walker tell the field that holds undefined. The thing k has no has, thus it keeps the old reading.
+    expect(answers).toEqual([undefined, "#N/A", 1, undefined, undefined, "#REF!", "#REF!"]);
   });
 });
 
