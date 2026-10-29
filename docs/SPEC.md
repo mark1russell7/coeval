@@ -489,6 +489,7 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | CONFORM.SCOPE | Code that binds another name for a part, does not bind a name of the scope rules, or hides a name of the document breaks C7. |
 | CONFORM.LOCAL | Code that gives another record for the same probe in a later call breaks the local lemma. Compiled code that disagrees with its definition for the reference breaks it too. |
 | CONFORM.PROFILE | Compiled code that reads a table whose answer changes after the compilation breaks C8. Code of an earlier compilation and new code differ on the same probe. |
+| CONFORM.TRUTH | The own `truthy` of a profile with a `truthType` gives `true` or `false` for each member, or `formula.if`, `formula.and` and `formula.or` break `truth` (D86). The members come from the lists `values`, or from the palette. A value outside the type gets no test. |
 
 ## The calculus
 

@@ -743,6 +743,8 @@ The plan reads a profile when it compiles, and the reference reads it when it ev
 
 The checks `local` and `agree` examine the premise of SIM-PLAN (CONFORM.LOCAL). `local` evaluates each probe again in another order and expects the same record. `agree` compares compiled code with its definition for the reference.
 
+The check `truth` examines the premise of TYPE.TRUTH-SOUND (CONFORM.TRUTH, D86). The own `truthy` of a formula profile gives `true` or `false` for each member of its `truthType`.
+
 ## Facts that SPEC did not state
 
 The work on the rules found six facts that the code has and `SPEC.md` did not state. Each one has a requirement ID in `SPEC.md` and a test in `semantics.test.ts`.

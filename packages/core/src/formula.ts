@@ -534,15 +534,43 @@ export function formulaEvaluators(profile: FormulaProfile = {}): Readonly<Record
   return { ...kitOf(profile).evaluators };
 }
 
+/** The declared truth of a profile: its own `truthy` and its `truthType` (D81). */
+export interface DeclaredTruth {
+  readonly truthy: (value: unknown) => boolean | undefined;
+  readonly truthType: ValueType;
+}
+
+/** The evaluators of the kit that read the truth of a value. */
+const TRUTH_READERS: readonly string[] = ["formula.if", "formula.and", "formula.or"];
+
+/** The declared truth of each evaluator of the kit that reads a truth, for `conforms` (D86). */
+const truthByCode = /* @__PURE__ */ new WeakMap<object, DeclaredTruth>();
+
+/**
+ * This function gives the declared truth of the profile of an evaluator of the kit (D86). Only `formula.if`,
+ * `formula.and` and `formula.or` of a profile with an own `truthy` and a `truthType` have one. The kernel does not
+ * export the function.
+ *
+ * @param code - The evaluator or the runner.
+ * @returns The declared truth, or `undefined`.
+ */
+export function declaredTruthOf(code: unknown): DeclaredTruth | undefined {
+  return (typeof code === "object" || typeof code === "function") && code !== null ? truthByCode.get(code) : undefined;
+}
+
 /** This function makes new evaluators of the formula kit for the fields of one profile. */
 function makeEvaluators(profile: FormulaProfile): Readonly<Record<string, Evaluator>> {
   const evaluators = formulaCode(profile);
   const types = formulaTypes(profile);
+  const { truthy, truthType } = profile;
+  const truth = truthy === undefined || truthType === undefined ? undefined : { truthy, truthType };
   const out: Record<string, Evaluator> = {};
   for (const name of Object.keys(evaluators)) {
     const evaluator = evaluators[name] as CompiledEvaluator;
     const type = Object.hasOwn(types, name) ? types[name] : undefined;
-    out[name] = Object.freeze(type === undefined ? evaluator : { compile: evaluator.compile, type });
+    const made = Object.freeze(type === undefined ? evaluator : { compile: evaluator.compile, type });
+    if (truth !== undefined && TRUTH_READERS.includes(name)) truthByCode.set(made, truth);
+    out[name] = made;
   }
   return Object.freeze(out);
 }
