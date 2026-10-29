@@ -30,7 +30,7 @@ export interface Measured {
   readonly ns: number;
 }
 
-const ref = (...path: unknown[]): unknown => ({ type: "ref", value: path });
+const ref = (...path: kernel.Json[]): kernel.Json => ({ type: "ref", value: path });
 const op = (name: string, ...args: unknown[]): unknown => ({ type: ["ops", name], value: args });
 const OPS = { add: (a: number, b: number) => a + b };
 
