@@ -702,7 +702,7 @@ describe("the hidden fields of an exception in the JSON form", () => {
     const other = Object.defineProperty(new Error("other"), "secret", { value: 1, enumerable: false });
     expect(exceptionOf(encodeLog(dated, failedWith(other)))).toEqual({ name: "Error", message: "other" });
     const plain = Object.assign(new Error("plain"), { errors: [1, 2] });
-    expect(exceptionOf(encodeLog(dated, failedWith(plain)))).toEqual({ name: "Error", message: "plain", fields: { errors: { type: "list", value: [1, 2] } } });
+    expect(exceptionOf(encodeLog(dated, failedWith(plain)))).toEqual({ name: "Error", message: "plain", fields: { errors: [1, 2] } });
   });
 
   it("[RUN.REPLAY-HIDDEN] an old log decodes as before, an AggregateError without hidden gets an empty list, and decodeLog gives #VALUE! at a bad hidden field", () => {
