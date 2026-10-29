@@ -10,8 +10,8 @@ import { formulaMachine } from "./formula.ts";
  * replayer answers each effect from the log by its address, thus a replay does no host effect. The kernel gives the
  * address and the outcome of each effect. The journal on the function `perform` carries the order of the waits.
  *
- * A log has a JSON form (REPLAY.JSON, D75). `encodeLog` writes each value through `encodeValue` (D40), and `decodeLog`
- * reads it again. Thus a test can keep a log as a golden file (REPLAY.GOLDEN).
+ * A log has a JSON form (RUN.REPLAY-JSON, D75). `encodeLog` writes each value through `encodeValue` (D40), and `decodeLog`
+ * reads it again. Thus a test can keep a log as a golden file (RUN.REPLAY-GOLDEN).
  */
 
 /** One effect of a log: its address, its request and its outcome. */
@@ -74,7 +74,7 @@ export interface ReplayOptions {
  * also keeps the order in which the waits of each `all` settle.
  *
  * The recorder gives each call of its journal to the journal of the inner function, for example of a replayer. Thus a
- * recording of a replay settles the waits in the order of the replayer, and it gives the same log (REPLAY.ORDER).
+ * recording of a replay settles the waits in the order of the replayer, and it gives the same log (RUN.REPLAY-ORDER).
  *
  * @param perform - The function of the host. Without it, each effect gives its payload, as in a run without a host.
  * @returns The function `perform` for the run, and the log.
@@ -82,7 +82,7 @@ export interface ReplayOptions {
 export function recorder(perform?: Perform): Recorder {
   const seen: { readonly effect: Effect; waited: boolean }[] = [];
   const settles: ReplaySettle[] = [];
-  // The journal of an inner replayer keeps the order of the waits, thus a recording of a replay keeps it (REPLAY.ORDER).
+  // The journal of an inner replayer keeps the order of the waits, thus a recording of a replay keeps it (RUN.REPLAY-ORDER).
   const journal = relay(perform, (all, item) => {
     settles.push({ all, item });
   });
@@ -113,7 +113,7 @@ export function recorder(perform?: Perform): Recorder {
  * recorded error comes again with its code, its reason, its place and its cause. The waits of each `all` settle in the
  * recorded order. An effect that the log does not have at its address gives `#REPLAY!` (RUN.REPLAY-MISMATCH).
  *
- * One replayer serves more than one run, also two runs at the same time (REPLAY.RUNS). The kernel tells the journal
+ * One replayer serves more than one run, also two runs at the same time (RUN.REPLAY-RUNS). The kernel tells the journal
  * the number of the waits of each `all` that settled before, thus the replayer keeps no state of a run. When the
  * recorded item of a wait does not wait in the run, that wait follows the order of the host.
  *
@@ -196,7 +196,7 @@ export function relay(perform: Perform | undefined, settled: (all: string, item:
   return { settled: tell, next: (all, waiting, before) => inner.next?.(all, waiting, before) };
 }
 
-/** The JSON form of a log (REPLAY.JSON). `encodeLog` writes it, and `decodeLog` reads it. */
+/** The JSON form of a log (RUN.REPLAY-JSON). `encodeLog` writes it, and `decodeLog` reads it. */
 export interface ReplayLogJson {
   /** The version of the form. Only the version 1 exists. */
   readonly version: 1;
@@ -265,7 +265,7 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
 }
 
 /**
- * This function writes a log as JSON (REPLAY.JSON, D75). Then `JSON.stringify` gives the text of a golden file.
+ * This function writes a log as JSON (RUN.REPLAY-JSON, D75). Then `JSON.stringify` gives the text of a golden file.
  *
  * - Each payload and each value of an outcome is a term document of `encodeValue`. Thus `NaN`, `-0` and `undefined`
  *   stay exact, and a member of a domain with a codec is `ext.domain`.
@@ -373,7 +373,7 @@ function readEntry(kit: Machine, data: unknown, place: readonly Key[]): Result<R
 }
 
 /**
- * This function reads the JSON form of a log again (REPLAY.JSON). It reads each term document with the formula kit
+ * This function reads the JSON form of a log again (RUN.REPLAY-JSON). It reads each term document with the formula kit
  * and the domains of the machine. A cause in the field `exception` becomes an exception with that name and message.
  *
  * @param machine - The machine of the run, or only its domains.

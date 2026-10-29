@@ -168,7 +168,7 @@ function after(turns: number, answer: () => unknown): Promise<unknown> {
 const turns: Perform = (effect) => after(effect.payload === "slow" ? 6 : 1, () => String(effect.payload).toUpperCase());
 
 describe("a replayer for more than one run", () => {
-  it("[REPLAY.RUNS] one replayer serves runs after each other and at the same time, and a run with a mismatch does not change the next run", async () => {
+  it("[RUN.REPLAY-RUNS] one replayer serves runs after each other and at the same time, and a run with a mismatch does not change the next run", async () => {
     const ctx = makeContext({}, STD_CAPS);
     const doc: Json = { type: "par", value: [log("slow"), log("fast")] };
     const recording = recorder(turns);
@@ -199,7 +199,7 @@ describe("a replayer for more than one run", () => {
     expect(await replays()).toEqual(expected);
   });
 
-  it("[REPLAY.RUNS] the journal of a replayer reads the count of the kernel, a call without the count keeps a place, and a recorded item that does not wait gives the order of the host", async () => {
+  it("[RUN.REPLAY-RUNS] the journal of a replayer reads the count of the kernel, a call without the count keeps a place, and a recorded item that does not wait gives the order of the host", async () => {
     const ctx = makeContext({}, STD_CAPS);
     const doc: Json = { type: "par", value: [log("slow"), log("fast")] };
     const recording = recorder(turns);
@@ -219,7 +219,7 @@ describe("a replayer for more than one run", () => {
     expect(again.log().settles).toEqual([{ all: "all0", item: 0 }]);
   });
 
-  it("[REPLAY.ORDER] a recorder over a replayer keeps the recorded order of the waits, also in nested all and with failFast", async () => {
+  it("[RUN.REPLAY-ORDER] a recorder over a replayer keeps the recorded order of the waits, also in nested all and with failFast", async () => {
     const ctx = makeContext({}, STD_CAPS);
     const docs: readonly Json[] = [
       { type: "par", value: [log("slow"), log("fast")] },
@@ -300,7 +300,7 @@ function sameRun(a: Result, b: Result): boolean {
 }
 
 describe("the JSON form of a log", () => {
-  it("[REPLAY.JSON] encodeLog writes values that JSON cannot write, errors and their causes, and decodeLog reads them again", () => {
+  it("[RUN.REPLAY-JSON] encodeLog writes values that JSON cannot write, errors and their causes, and decodeLog reads them again", () => {
     const log: ReplayLog = {
       effects: [
         { address: "0#0", kind: "log", payload: Number.NaN, outcome: ok(-0), waited: true },
@@ -362,7 +362,7 @@ describe("the JSON form of a log", () => {
     expect(encodeLog(dated, back.value)).toEqual(json);
   });
 
-  it("[REPLAY.JSON] encodeLog refuses a value without a term document with the address of its effect, and decodeLog gives #VALUE! at the first bad field", () => {
+  it("[RUN.REPLAY-JSON] encodeLog refuses a value without a term document with the address of its effect, and decodeLog gives #VALUE! at the first bad field", () => {
     const entry = (more: object): ReplayLog => ({ effects: [{ address: "0#0", kind: "log", payload: "x", waited: false, ...more }], settles: [] });
     const refusal = (log: ReplayLog): string => {
       try {
@@ -411,7 +411,7 @@ describe("the JSON form of a log", () => {
     expect(placeOf({ ...good, settles: [{ all: "all0", item: 0.5 }] })).toEqual(["#VALUE!", ["settles", 0]]);
   });
 
-  it("[REPLAY.JSON] generated runs: each log that encodeLog writes replays from its JSON text with the same result and the same log", async () => {
+  it("[RUN.REPLAY-JSON] generated runs: each log that encodeLog writes replays from its JSON text with the same result and the same log", async () => {
     const total = 300;
     const ctx = makeContext(NAMES, STD_CAPS);
     const bad: string[] = [];
@@ -494,7 +494,7 @@ const goldenHost: Perform = (effect) => {
 };
 
 describe("a golden log", () => {
-  it("[REPLAY.GOLDEN] the log of a run equals the golden file, and the golden file replays with the result of the run", async () => {
+  it("[RUN.REPLAY-GOLDEN] the log of a run equals the golden file, and the golden file replays with the result of the run", async () => {
     const ctx = makeContext({ when: new Date(Date.UTC(2026, 9, 29)) }, STD_CAPS);
     const recording = recorder(goldenHost);
     const first = await run(dated, GOLDEN_DOC, ctx, { perform: recording.perform });

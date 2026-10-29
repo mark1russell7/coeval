@@ -2144,3 +2144,54 @@ A cell gives the change of the reference with a step document in the two runs, w
 | K43 and K170 | b8348c8 (before K43) | -6.7% (7763), +2.4% (9V45) | 4 mixed, 12 in bound | 40815011341 |
 
 The kernel keeps K170. Against the kernel before K43, no case is slower. The one slower case against K43 is a reference through an envelope, +2.0% and +4.3%. K170 does not change the code of that case. Against the kernel before K43, that case gives -1.9% and +4.8%, thus it is mixed.
+
+## D75 (2026-10-29): a log has a JSON form for golden files, and one replayer serves more than one run
+
+**Context.** K44 and K45, from K11 (D19). A test could not keep a log as a file. The payloads and the values of the outcomes are host values, and the cause of an error is often an exception. `JSON.stringify` writes `NaN` as `null` and drops `undefined`, thus a written log changed without a message.
+
+A replayer kept its place in the order of the waits of each `all`. Thus each run needed a new replayer, and two runs at the same time shared one place. A recorder that wrapped a replayer put its own journal on its function. The journal of the replayer then did not reach the kernel. Thus a recording of a replay settled the waits in the order of the host.
+
+**Decision.**
+
+- `encodeLog(machine, log)` gives the JSON form of a log (RUN.REPLAY-JSON). It has the version 1, the effects and the settles. Each payload and each value of an outcome is a term document of `encodeValue` (D40).
+- Thus `NaN`, an infinity, `-0` and `undefined` stay exact. A member of a domain with a codec is `ext.domain`. A missing outcome stays absent, and an outcome of `undefined` is `ext.undefined`.
+- An error keeps its code, its reason, its place and its cause. A cause goes through `encodeValue` first. A cause that `encodeValue` cannot write and that is an exception keeps its name and its message in the field `exception`.
+- Each other value without a term document is a refusal: `encodeLog` throws a `TypeError`. The message names the field, the kind and the address of the effect. Examples are a closure, a host thing, a symbol and a `bigint` without a domain. An error with a field that the form does not have is also a refusal.
+- `decodeLog(machine, data)` reads the form again with the formula kit and the domains of the machine. It gives `#VALUE!` with the place of the first field that it cannot read. A field `exception` becomes an exception of the standard class with that name, or an `Error` with that name.
+- `ReplayOptions.equal` is the rule of the host for two payloads, as in `sameResult`. A log from `decodeLog` holds new copies of the members of a domain. The rule then tells that two copies are the same.
+- The kernel tells the journal the count of the waits of each `all` that settled before (`Journal.next`, the third parameter `before`). The plan and the reference give it. Thus a replayer keeps no state of a run, and one replayer serves more than one run, also at the same time (RUN.REPLAY-RUNS).
+- A recorded item that does not wait in the run gives no choice: that wait follows the order of the host. An effect that differs from the log gives `#REPLAY!` in its own run, and the next run replays again.
+- A call of `next` without the count comes from an older copy of the kernel. The replayer then keeps a place for each `all`, as before.
+- A recorder gives each call of its journal to the journal of the inner function, with the same helper as `agreeRun` (RUN.REPLAY-ORDER). Thus a recording of a replay gives the same log.
+- The golden file `packages/core/golden/replay.json` keeps the log of one run (RUN.REPLAY-GOLDEN). The test compares the log of the run with the file, and it replays the file. `COEVAL_GOLDEN=write` writes the file again.
+
+**The values of a log.**
+
+| Value | JSON form |
+| --- | --- |
+| JSON that `JSON.stringify` writes exactly | the value, or `lit` for a value with the shape of an envelope |
+| `NaN`, an infinity, `-0` | `ext.number` |
+| `undefined` as a value | `ext.undefined`. A missing outcome stays absent. |
+| A member of a domain with a codec, also an exception | `ext.domain` through the codec |
+| An exception without a codec, as a cause | `exception` with its name and its message |
+| A closure, a host thing, a symbol, a `Map`, a cycle, each other value | a `TypeError` that names the address |
+
+**Rejected.**
+
+- A codec hook of its own on `encodeLog`. The domains of the machine already give a codec for each host value (D40), and each language then writes a value as one document (D12).
+- A refusal of each exception. Most failed effects of a host have an exception as the cause, thus almost no log could become a file. The reason of the error already has the text of the exception.
+- The stack of an exception in the form. It changes with each build and each machine, thus a golden file does not stay the same.
+- A raw `JSON.stringify` of a log. It writes `NaN` as `null`, it drops `undefined`, and it reads a payload with the shape of an envelope as a document.
+- A key for each run, which a host gives to the replayer. The count of the kernel needs no key, and a host cannot give two runs the same key by mistake.
+- A function that starts a new run on the journal. Two runs at the same time still share one place.
+- A `#REPLAY!` for a wait that the log cannot settle. A journal gives an item, not an error. The effect that differs already gives `#REPLAY!`, and `agreeRun` compares the order of the waits (D55).
+
+**Why.** A golden file needs one exact text for one log. `encodeValue` already gives one document for each value, thus the log adds only the fields of an effect and of an error. A refusal with the address tells the author which value needs a domain with a codec. A replayer without the state of a run is a plain function of its log, thus a test or a tool can share it.
+
+**Public types.** `encodeLog`, `decodeLog`, `ReplayLogJson`, `ReplayEntryJson`, `ReplayResultJson` and `ReplayErrorJson` are new. `ReplayOptions.equal` and the third parameter of `Journal.next` are optional. An old log and an old call keep working, thus the change is a new feature: MINOR, in 0.17.0. No expected value of the core changes.
+
+**Limits.**
+
+- The form of an exception has no stack, no own fields and no cause of its own. A host that needs more gives a domain with a codec for its exceptions. The row K172 keeps the idea of a chain of causes.
+- A wait whose recorded item does not wait follows the order of the host, without a finding of its own.
+- `agreeRun` still makes one replayer for each tier. The row K171 keeps the simpler form.
