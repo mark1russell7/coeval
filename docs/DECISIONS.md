@@ -2685,3 +2685,43 @@ A third corpus of TYPE.FITS-SOUND has 160 types and 25600 pairs over a language 
 - `encodeValue` writes a list or a record without an exception and without a function as a term document. Two places that share it give two copies. The row K190 keeps this idea.
 - A cause without an exception keeps its rule, also when a field shares it. K189 gives such a cause a form, and the share then follows.
 - A share counts in one error value. Two effects of a log that share a container give two objects.
+
+## D89 (2026-10-29): a split of `fits` narrows a field of a record in a field by its path, with one budget at each depth
+
+**Context.** K185, found by K178 (D84 Limits). The split of D84 narrows only the fields of the record itself. Thus `{a: {x: bool}}` did not fit a union of `{a: {x: true}}` and `{a: {x: false}}`. Also, each split had its own bound of 64 records. A split in a field of a record of a split got a new bound, thus nested splits multiplied the work, as nested unions do.
+
+**Decision.**
+
+- A split takes a path of keys to a field (TYPE.FITS-PATH). A path goes into a field when the field is a record without a finite list. Such a record is open, or it is closed with more than 64 members.
+- The field at the end of the path has a finite list of two or more cases, as in D84. Each case gives a copy of the record with the field at the path narrowed. The other fields at each depth do not change.
+- The absent case at a depth follows D84. A closed inner record loses the field, and an open inner record gets an optional field of type `never`.
+- The order: the fields of the record first, in the order of the keys, as in D84. Then the paths of the next depth follow, in the order of the outer key and then the inner key, and so on.
+- A path does not go into a union in a field. A field of a union without a finite list does not split.
+- One budget of 64 records serves the outer split and each split inside its work, at each depth. A split in a field that the rules of the shapes start in a record of the split takes from the same budget. A larger split gives `false`.
+- The rule of `unknown` does not change. A field of type `unknown` has no list and is not a record, thus no path goes into it.
+
+**Rejected.**
+
+- A path through a union in a field. The members of such a union are types, not values. A split by types is the same idea as a split by a cover (K186), thus both get one design. The row K191 keeps it.
+- Paths first, then the fields of the record. The order of D84 then changes for each record, and a shallow split decides most fits with fewer records.
+- A depth-first order, for example `a`, `a.x`, then `b`. Each record of a split then splits the whole subtree of one field before the next field. A field of the record itself narrows more members with one split.
+- A budget for each call of `fits`. The check then makes a budget for each call, also for the many calls without a split. The budget of the outer split costs nothing on the common path, and splits beside each other add their work, they do not multiply it.
+- A larger budget. The tests need at most 62 records, and the bound of 64 keeps the worst case at the bound of D79 and D85.
+
+**Why.** Each member of the record has a value at the path, or it lacks the field. Thus it is a member of one record of the split, and each such record fits `expected`. A member that lacks a record on the path is in each record of the split. The rule is sound when `values` is complete, as in D79. The order of D84 stays a prefix of the order, thus each fit of D84 builds the same records.
+
+**The bound of D84.** Before, one call of the split rule built at most 64 records, and a split in the work of each record had its own 64. Since D89, the 64 records serve the whole outer split, at each depth. Thus a pair that needs more than 64 records in nested splits gets `false`.
+
+An example is a record with `b: bool` and five `bool` fields in `a`. Against two records for `b`, each with a union of 32 inner records in `a`, the split needs 126 records. The rule refuses it.
+
+**Soundness.** A fourth corpus of TYPE.FITS-SOUND has 120 nested records and 274 unions: 32880 pairs. The records are open and closed at each depth, with optional fields, and with inner records at two depths. More than 450 pairs fit, and more than 100 of them fit only by a path. The test finds 0 counterexamples. A split without the absent case at a depth finds a counterexample at once.
+
+**Public types.** No type changes. A check accepts some programs that it refused before. The change is a new feature: MINOR before 1.0, in 0.17.0.
+
+**Changed expected values.** No expected value of an earlier test changes. The earlier tests of the split need at most 30 records in one outer split.
+
+**Limits.**
+
+- A path does not go into a union in a field, for example `{a: {x: bool} | {y: null}}` against a union of three records (K191).
+- A split does not use a cover, also at a depth (K186).
+- Two outer splits beside each other, for example in two fields that the rules of the shapes test, each get a budget of 64 records.
