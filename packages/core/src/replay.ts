@@ -258,8 +258,8 @@ export interface ReplayExceptionJson {
 }
 
 /**
- * The JSON form of one value of a hidden field of an exception (D77): a term document, an exception, or the index of an
- * earlier exception of the walk. The walk is depth first: the hidden fields in their order, then the cause.
+ * The JSON form of one value of a hidden field (D77): a term document, an exception, or the index of an earlier
+ * exception. The walk is depth first: the hidden fields in their order, then the cause.
  */
 export type ReplayPartJson = { readonly value: Json } | { readonly exception: ReplayExceptionJson } | { readonly loop: number };
 

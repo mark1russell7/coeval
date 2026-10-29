@@ -2248,3 +2248,37 @@ The JSON form of a log kept only the name and the message of an exception. A hos
 - A log with `dropped` does not give the dropped fields back. A recording of a replay of that log thus has no list `dropped`. A host that needs these fields gives a domain with a codec for its exceptions.
 - An own field that is not enumerable is not in the form, for example the field `errors` of an `AggregateError`. The row K173 keeps this idea.
 - A cause from another realm is not an instance of `Error` there, thus it has the rule of each other value.
+
+## D77 (2026-10-29): the JSON form of an exception keeps the hidden fields of the standard classes
+
+**Context.** K173, from K172 (D76). The JSON form of an exception kept only its own enumerable fields. An `AggregateError` keeps its list `errors` in a field that is not enumerable. Thus a log lost each error of the list.
+
+**Decision.**
+
+- `ReplayExceptionJson.hidden` keeps the own fields that are not enumerable and that the standard classes define (RUN.REPLAY-HIDDEN). These are `errors` of `AggregateError`, `error` and `suppressed` of `SuppressedError`.
+- Each value of a hidden field is a part, `ReplayPartJson`. A part is a term document in `value`, an exception in `exception`, or the index of an earlier exception in `loop`.
+- A hidden field that is a list is a list of parts. A hidden field with another value is one part.
+- An exception in a hidden field has the rule of a cause. Thus an entry of `errors` that is the outer exception, or an earlier entry, is a `loop`.
+- The walk gives each exception its index in the order of a depth-first walk. It takes the hidden fields in the order of the list above, then the cause. `decodeLog` walks in the same order.
+- A hidden value without a form is a name in `dropped`, as in D76. An item of a list has the name of the field, a dot and its index, for example `errors.1`.
+- `decodeLog` gives an `AggregateError` or a `SuppressedError` for that name. It gives each hidden field as a field that is not enumerable, as the standard class does.
+- The form stays at the version 1. The field `hidden` is optional, and an old log decodes as before.
+
+**Rejected.**
+
+- Each own field that is not enumerable. An engine adds hidden fields of its own to each exception, for example `fileName` and `lineNumber`. These change with each build, as the stack does, thus a golden file does not stay the same.
+- A hidden field in `fields`. Then `decodeLog` cannot give the field back as a field that is not enumerable.
+- A term document for the full list `errors`. Then one entry without a form drops each entry.
+
+**Why.** The standard classes define a short, fixed list of hidden fields, and each holds the facts of the failure. An exception in them can loop back, thus the rule of a cause keeps the form exact.
+
+**Public types.** `ReplayPartJson` is new, and `ReplayExceptionJson.hidden` is optional. `encodeLog` and `decodeLog` are not in a release before 0.17.0, thus no released form changes. The change is a new feature: MINOR, in 0.17.0. No expected value of the core changes.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception is a `TypeError` without hidden fields.
+
+**Limits.**
+
+- An `AggregateError` always has the list `errors`. Thus a new recording of an old log of an `AggregateError` writes the empty list.
+- An item of a list without a form leaves the list. Thus the later items get a lower index. The row K175 keeps the idea of a place for it.
+- An enumerable field that holds an exception has no part rule, for example `errors` on an `Error`. It is a name in `dropped`. The row K174 keeps this idea.
+- A host without `SuppressedError` gets an `Error` with that name and the hidden fields.
