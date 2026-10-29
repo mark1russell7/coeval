@@ -2,12 +2,15 @@ import { type Json, type Key, field, isRecord } from "./doc.ts";
 import {
   type EvalInput,
   type Evaluator,
+  type InputWithRuntime,
   type Machine,
   type Plan,
   type Result,
   type RunPart,
   type Runner,
   type Steps,
+  RUNTIME,
+  evaluateWithin,
   fail,
   ok,
   planner,
@@ -281,7 +284,8 @@ interface NodeState {
    */
   read(key: string): Result | undefined;
   /**
-   * This function evaluates an equation of the kind of the node, with the node as `self` and no capabilities.
+   * This function evaluates an equation of the kind of the node, with the node as `self` and no capabilities. Its
+   * reads go in the list of the evaluation that made the node (READS.EQUATION).
    *
    * @param term - The equation.
    * @param names - The names that the equation sees.
@@ -450,6 +454,8 @@ function plainOf(value: unknown, path: Set<object>): Result {
  */
 function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined): HostThing {
   const { parts, context, kind: type, place, machine } = input;
+  // The equations evaluate in the evaluation that made the node, thus their reads go in its list (READS.EQUATION).
+  const runtime = (input as InputWithRuntime)[RUNTIME];
   const { tree, of } = contractOf(machine, input.typePath);
   const above = stateOf(outer);
   // Only a node of the same tree is a parent for the rungs `parent` and `copy`.
@@ -528,7 +534,7 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined)
     read,
     equation(term, names) {
       if (machine === undefined) return fail("#NOEVAL", "The evaluation of an equation needs the machine.");
-      return equationPlan(machine, of, term).evaluate({ ...context, names, caps: NO_CAPS, self: node });
+      return evaluateWithin(equationPlan(machine, of, term), { ...context, names, caps: NO_CAPS, self: node }, runtime);
     },
     childNames(child) {
       const children = read("children");

@@ -1071,8 +1071,11 @@ class Session implements Runtime {
     readonly perform: Perform | undefined,
     readonly signal: StopSignal | undefined,
     effects: Effect[] | undefined,
-    /** The record of the reads. Without it, a resolution records nothing. */
-    private readonly reading: Reading | undefined = undefined,
+    /**
+     * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
+     * shares the record of the evaluation around it (READS.EQUATION).
+     */
+    readonly reading: Reading | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
@@ -2173,6 +2176,36 @@ function fillOf(split: Extract<Split, { readonly ok: true }>, doc: Envelope): <P
   return (items) => (split.parts.length === 0 ? doc.value : split.fill(items));
 }
 
+/**
+ * The key of the runtime on the input of an evaluator. Only the kernel reads it. The node of a tree evaluates its
+ * equations in the evaluation of this runtime, thus their reads go in its list (READS.EQUATION). A copy of the input
+ * with a spread keeps the key.
+ */
+export const RUNTIME: unique symbol = /* @__PURE__ */ Symbol("coeval.runtime") as never;
+
+/** The input of an evaluator, with the runtime of its evaluation. */
+export interface InputWithRuntime extends EvalInput {
+  readonly [RUNTIME]?: Runtime;
+}
+
+/**
+ * This function evaluates a plan inside the evaluation of another runtime, for example an equation of a tree inside
+ * the evaluation of its tree (READS.EQUATION). The plan gets its own runtime, as in `plan.evaluate`. The reads of the
+ * plan go in the record of the reads of `outer`. The context at the root of `outer` tells which reads are free
+ * (READS.FREE). Without such a record, the function gives `plan.evaluate(context)`.
+ *
+ * @param plan - The plan.
+ * @param context - The context of the plan.
+ * @param outer - The runtime of the evaluation around the plan, or `undefined`.
+ * @returns The result.
+ */
+export function evaluateWithin(plan: Plan, context: Context, outer: Runtime | undefined): Result {
+  const reading = outer instanceof Session ? outer.reading : undefined;
+  if (reading === undefined || !(plan instanceof CompiledPlan)) return plan.evaluate(context);
+  const machine = plan.machine;
+  const ctx = rootContext(machine, context);
+  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, reading));
+}
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
   const { kind, typePath, doc, data, place, machine } = input;
@@ -2202,7 +2235,8 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
       resolve: (path, options) => rt.resolve(ctx, path, options),
       effect: (effectKind, payload) => rt.effect(ctx, effectKind, payload, place),
       fill: refill,
-    });
+      [RUNTIME]: rt,
+    } as InputWithRuntime);
   };
 }
 

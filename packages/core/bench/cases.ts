@@ -58,6 +58,23 @@ const ROW = { cells: [{ value: 0 }, { value: 1 }, { value: 2 }] };
 /** A deeply frozen configuration, as a host declares it fixed (PLAN.FIXED). */
 const CONFIG = Object.freeze({ scale: 2, rows: Object.freeze([Object.freeze({ value: 10 }), Object.freeze({ value: 20 })]) });
 
+/** This function gives the standard machine with a tree kind whose equation `seen` reads the event. */
+function treeMachine(k: Kernel): kernel.Machine {
+  const watch: kernel.Kind = {
+    verbs: { eval: "tree.node" },
+    parts: { shape: "record", fields: {}, rest: { shape: "term", of: "number" } },
+    caps: [{ rule: "mask" }],
+    pure: true,
+    lazy: [{}],
+    reads: ["self"],
+    tree: { equations: { seen: { type: "add", value: [ref("event", "a"), 1] } } },
+  };
+  return { ...k.STD_MACHINE, world: { ...k.STD_MACHINE.world, kinds: { ...k.STD_MACHINE.world.kinds, watch } } };
+}
+
+/** A node with two parts that read the attribute of the equation. */
+const TREE = { type: "watch", value: { got: ref("self", "seen"), twice: { type: "add", value: [ref("self", "seen"), ref("self", "seen")] } } };
+
 export const CASES: readonly Case[] = [
   {
     // The formula of FORMULA.SPEED: two references, two operations and a literal.
@@ -182,6 +199,24 @@ export const CASES: readonly Case[] = [
       const plan = k.prepare(k.formulaMachine({ ops: OPS, pure: ["add"] }), doc, { fixed: { names: { config: CONFIG } } });
       const ctx = k.context({ names: { config: CONFIG, x: 1 } });
       return () => plan.evaluate(ctx);
+    },
+  },
+  {
+    // A node of a tree with an equation that reads the event (READS.EQUATION).
+    name: "a tree with an equation",
+    make: (k) => {
+      const plan = k.prepare(treeMachine(k), TREE);
+      const ctx = k.context({ event: { a: 1 } });
+      return () => plan.evaluate(ctx);
+    },
+  },
+  {
+    // The same node with a list of reads: the reads of the equation go in the list too (D68).
+    name: "the same tree, with a list of reads",
+    make: (k) => {
+      const plan = k.prepare(treeMachine(k), TREE);
+      const ctx = k.context({ event: { a: 1 } });
+      return () => plan.evaluate(ctx, { reads: [] });
     },
   },
   {
