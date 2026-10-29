@@ -79,6 +79,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D69 | `factsOf` gives the static reads of the equations of a tree kind, at the first document of the kind. Thus a free read of an equation has a static read, and a schedule gets a lazy edge for it. |
 | D70 | The kernel keeps the code of D66. Two reference cases are 3% to 5% slower in two runs. No variant of a part gives that time back without a larger cost elsewhere. |
 | D71 | The bench of a pull request repeats each comparison on two runners. A case is slower or faster only when both runs are over the bound in the same direction. |
+| D72 | `pnpm typecheck` checks the bench. The test config of the core includes `bench`, and the helper `ref` of the cases gives `Json`. |
 
 ## Open
 

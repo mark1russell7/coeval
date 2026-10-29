@@ -2011,3 +2011,28 @@ The merged table had 4 cases slower, 5 faster, 5 mixed and 2 in bound. The refer
 - Two jobs do not always get two CPU models. Both runs of the bench of PR #131 had an AMD EPYC 7763.
 - A mixed case is not a result. Another dispatch can give a third run for it.
 - The reference into a host thing with `resolve` is slower in both runs against 22d94f4. D70 gave +11.1% and -2.7% for it, thus K154 can cost this case too.
+
+## D72 (2026-10-29): `pnpm typecheck` checks the bench
+
+**Context.** K168, from K167 (D71). No tsconfig included `packages/core/bench`, thus CI did not typecheck the bench. The file `cases.ts` had a type error that no check found.
+
+**Decision.**
+
+- The file `packages/core/tsconfig.test.json` includes `bench/**/*.ts`. The script `typecheck` of the core already checks this file.
+- Its `rootDir` is the root of the package. The base config gives `src`, and `tsc` refuses a file of `bench` outside that root (TS6059).
+- The helper `ref` of `cases.ts` takes and gives `Json`. Before, it gave `unknown`, and the equation of a tree kind must be `Json` (TS2322).
+- No case computes another value, thus the base and the head give the same results.
+
+**Rejected.**
+
+- A new tsconfig for the bench. The test config already has the types of Node and `allowImportingTsExtensions`, thus a second file only repeats them.
+- The option `erasableSyntaxOnly` in the test config. The source of the kernel has parameter properties, thus the option gives errors in `src`.
+- A cast at the equation. A cast hides the type of each other use of `ref`.
+
+**Why.** CI starts the bench, and a type error in it can hide a wrong case. The file `tsconfig.test.json` checks the tests, and it already has the types of Node.
+
+**Measured (K168).** Before the fix, `tsc` reported one error: TS2322 at `bench/cases.ts` line 70, column 26. After the fix, `pnpm typecheck` of the core reports no error. The package files do not include `bench`.
+
+**Limits.**
+
+- Node removes the types of `merge.ts` and `paths.ts`, but no check refuses syntax that Node cannot remove. Only a review keeps enums, namespaces and parameter properties out of `bench`.
