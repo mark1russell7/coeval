@@ -70,6 +70,7 @@ export interface Domain {
    * The covers of the domain (TYPE.FITS-COVER, D85). A cover is a list of domains under this domain, and its domains
    * together hold each member of this domain. An example is a domain of negative numbers and a domain of the other
    * numbers as a cover of `number`. `fits` reads it: a base type fits a union when each domain of a cover fits it.
+   *
    * A split of a record also narrows a field of the domain to each domain of a cover (D90).
    * The language keeps each cover true, and `fits` trusts it, as it trusts `values`. A cover that is empty, or that
    * names this domain or a name that is not under it, does not count.
@@ -597,14 +598,15 @@ function splitsOf(
   return later.length === 0 ? out : [...out, ...later];
 }
 
-/** This function tells if a cover of a domain is valid by the line rule of D85: it is not empty, and each name is a domain under the domain. */
+/** This function tells if a cover of a domain is valid by the line rule of D85. Such a cover is not empty, and each name in it is a domain under the domain. */
 function validCover(name: string, cover: unknown, domains: Readonly<Record<string, Domain>> | undefined): cover is readonly string[] {
   return Array.isArray(cover) && cover.length > 0 && (cover as readonly unknown[]).every((part) => typeof part === "string" && part !== name && lineOf(part, domains).has(name));
 }
 
 /**
- * This function gives the cover of a base type for a type split (D90): the first valid cover of the first domain of the
- * line that has one. With `own`, only the domain of the type itself counts. Each other type gives `undefined`.
+ * This function gives the cover of a base type for a type split (D90). The cover is the first valid cover of the first
+ * domain in the line with a valid cover. With `own`, only the domain of the type itself counts. Each other type gives
+ * `undefined`.
  */
 function coverOf(name: string, domains: Readonly<Record<string, Domain>> | undefined, own: boolean): readonly string[] | undefined {
   for (const each of own ? [name] : lineOf(name, domains)) {
@@ -742,8 +744,8 @@ function casesFit(
  *   finite list. Thus `{a: {x: bool}}` fits the union of `{a: {x: true}}` and `{a: {x: false}}`.
  * - A type split comes after each value split (TYPE.FITS-SPLIT-TYPE, D90). A field of a base type with a valid cover in
  *   its line splits into the domains of the first such cover. A field of a union without a finite list splits into its
- *   members. A case that does not fit splits again at its path: by its members, a cover of its own domain, its union
- *   or the paths into its fields. Thus `{a: number}` fits `{a: neg} | {a: nonneg}` when `neg` and `nonneg` cover `number`.
+ *   members. A case that does not fit splits again at its path, by the same rules. A base type there uses only a
+ *   cover of its own domain. Thus `{a: number}` fits `{a: neg} | {a: nonneg}` when `neg` and `nonneg` cover `number`.
  *
  * The relation is sound: a member of `found` is a member of `expected` when no `unknown` is in the types
  * (TYPE.FITS-SOUND). The finite rule trusts `values`, and the cover rule trusts `covers`. Thus a list without a member
