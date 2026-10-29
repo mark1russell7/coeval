@@ -1678,3 +1678,35 @@ The inner box also reads `self.parent` with the step document `{ type: "nearest"
 - `print` writes the keys in the order of the record. Two records with the same fields in another order give two texts, but `docEquals` tells that they are equal.
 - A literal form does not check the type of the literal. Thus `text(1)` reads, and its evaluation gives `#VALUE!`.
 - A step document after a bare name needs a first name, for example `x.(y)`. A path from the root `names` with a document as its first step has no text.
+
+## D64 (2026-10-29): the kernel gives the profile `WORLD_SYNTAX` of the standard world
+
+**Context.** K162, from C17. `STD_SYNTAX` writes the kinds of the formula kit, for example `ops.add`. A host of `STD_WORLD` wrote its own profile, and that profile repeated the names of the kinds.
+
+The site profile `SITE_SYNTAX` of D61 to D63 was such a profile. Each of its forms names a kind of `STD_WORLD`. The site world adds only the kind `kind`, and that kind has only a view.
+
+**Decision.**
+
+- The kernel exports `WORLD_SYNTAX`, the profile of `STD_WORLD` (SYNTAX.WORLD). It is in `stdlib.ts` next to the world, with a type import of `syntax.ts`.
+- The type import adds no import cycle. A bundle that does not use the profile drops it (PKG.PURE).
+- The operators `>`, `+` and `*` make `greater`, `add` and `multiply`. The forms are the forms of `SITE_SYNTAX`, and the profile takes `=` for a header name.
+- The new form `math.sum` writes the alias of `add`, as `math.product` writes the alias of `multiply`.
+- `SITE_SYNTAX` is `WORLD_SYNTAX`. The site adds no form, because the playground does not read the kind `kind` as text. The eight pinned texts of the playground stay the same.
+- A host with more kinds spreads the profile and adds its forms to `calls.forms`. The kernel adds no function for this.
+- A test lists each kind and each alias of `STD_WORLD`. Each one has a text by an operator, a form or the reference syntax, or a pinned reason.
+- The list of pinned reasons is empty. The kind `ref` has its text by the reference syntax, for example `self.parent.width`.
+- The round trip test generates documents of `WORLD_SYNTAX` too, thus it examines six profiles (SYNTAX.ROUNDTRIP).
+
+**Rejected.**
+
+- A change of `STD_SYNTAX`. It is the profile of the formula kit, and its `+` makes `ops.add`.
+- A function in the kernel that extends a profile. A spread of the fields already gives a new profile, and it adds no API.
+- The profile in `syntax.ts`. Then the names of the kinds are not next to the world that has them, and a change of a kind is two changes.
+- A form `add` next to the operator `+`. Then a document of `add` has two texts. K163 decides the text of an operator document with fewer than two parts.
+
+**Why.** The profile is data next to the world, thus a kind and its text change together. A host of the standard world reads and writes text without its own profile. The coverage test finds a new kind without a text.
+
+**Limits.**
+
+- An operator kind with fewer than two parts has no text, for example `{ type: "add", value: [5] }`. The alias `math.sum(5)` has a text. K163 holds the gap.
+- A bare literal in a part without a declared type still gives `#PART?`, for example in `list(1, 2)` (K159).

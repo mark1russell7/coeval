@@ -71,6 +71,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D61 | The playground reads and writes its text with `SITE_SYNTAX`, a profile of the site world. A bad text keeps the last good document and marks its span. C17 splits, and C17b waits on C11. |
 | D62 | A profile names a bind symbol in `header.bind`, thus `total = 2 + 3` gives a document the header name `total`. A call form can have a name with dots, for example `math.product`. Six programs of the playground round-trip. |
 | D63 | A call form names the way that its arguments make the value. `text("big")` writes a data envelope, and `panel(width: 300)` writes a record kind. A step of a path in parentheses is a document. Each program of the playground round-trips. |
+| D64 | The kernel gives `WORLD_SYNTAX`, the text profile of `STD_WORLD`. A test lists each kind of the world and finds its text. The site profile is that profile, and a host spreads it to add forms. |
 
 ## Open
 

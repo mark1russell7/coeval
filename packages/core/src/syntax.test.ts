@@ -3,10 +3,20 @@ import {
   type Json,
   type Random,
   type SyntaxProfile,
+  STD_CAPS,
+  STD_MACHINE,
   STD_SYNTAX,
+  STD_WORLD,
+  WORLD_SYNTAX,
+  type WorldEntry,
   docEquals,
   context,
+  evaluate,
   formulaMachine,
+  isAlias,
+  isKind,
+  isNamespace,
+  makeContext,
   mergeMachines,
   ok,
   parse,
@@ -352,6 +362,50 @@ describe("the syntax kit", () => {
     expect(issue(STD_SYNTAX, "x.(y")).toMatchObject({ message: "A closing parenthesis is missing." });
   });
 
+  it("[SYNTAX.WORLD] WORLD_SYNTAX gives a text for each kind of STD_WORLD, or the kind has a pinned reason", () => {
+    const kinds = worldKinds(STD_WORLD.kinds, []);
+    const written = new Set([...(WORLD_SYNTAX.operators ?? []).map((operator) => operator.kind), ...(WORLD_SYNTAX.calls?.forms ?? []).map((form) => form.kind)]);
+    // Each operator and each form of the profile names a kind of the world.
+    expect([...written].filter((kind) => !kinds.includes(kind))).toEqual([]);
+    // Each kind has a text by an operator, a form or the reference syntax, or a reason in the pinned lists.
+    expect(kinds.filter((kind) => !written.has(kind) && !Object.hasOwn(OTHER_TEXT, kind) && !Object.hasOwn(NO_TEXT, kind))).toEqual([]);
+    for (const kind of [...Object.keys(OTHER_TEXT), ...Object.keys(NO_TEXT)]) {
+      expect(kinds, kind).toContain(kind);
+      expect(written.has(kind), kind).toBe(false);
+    }
+    expect(Object.keys(NO_TEXT)).toEqual([]);
+    // The text of each kind reads to a document of that kind, and print writes the same text.
+    expect(Object.keys(WORLD_TEXTS).sort()).toEqual([...kinds].sort());
+    for (const [kind, source] of Object.entries(WORLD_TEXTS)) {
+      const read = doc(WORLD_SYNTAX, source);
+      const type = (read as { type?: unknown }).type;
+      expect(Array.isArray(type) ? type.join(".") : type, source).toBe(kind);
+      expect(text(WORLD_SYNTAX, read), kind).toBe(source);
+    }
+    expect(Object.isFrozen(WORLD_SYNTAX)).toBe(true);
+  });
+
+  it("[SYNTAX.WORLD] STD_MACHINE evaluates a text of WORLD_SYNTAX, and a host profile extends it with its forms", () => {
+    const run = (source: string, names: Readonly<Record<string, Json>> = {}): unknown => evaluate(STD_MACHINE, doc(WORLD_SYNTAX, source), makeContext(names, STD_CAPS)).result;
+    expect(run("seq(a = 1 + 2, b = a * 10, b)")).toEqual(ok(30));
+    expect(run('if(size > 10, text("big"), log("small"))', { size: 12 })).toEqual(ok("big"));
+    expect(run("math.sum(2, 3) * math.product(6, 7)")).toEqual(ok(210));
+    // The profile of the formula kit is another language: it reads + as ops.add.
+    expect(doc(STD_SYNTAX, "1 + 2")).toEqual(op("add", 1, 2));
+    expect(doc(WORLD_SYNTAX, "1 + 2")).toEqual({ type: "add", value: [1, 2] });
+    // The profile has no call of an operation, thus a name that no form has gives an issue.
+    expect(issue(WORLD_SYNTAX, "max(1, 2)")).toMatchObject({ offset: 0 });
+    // A host with one more kind spreads the profile and adds its form.
+    const host: SyntaxProfile = {
+      ...WORLD_SYNTAX,
+      calls: { ...WORLD_SYNTAX.calls, forms: [...(WORLD_SYNTAX.calls?.forms ?? []), { name: "card", kind: "card", args: "named", fields: ["title"] }] },
+    };
+    expect(doc(host, 'card(title: text("a"))')).toEqual({ type: "card", value: { title: { type: "text", value: "a" } } });
+    expect(doc(host, "2 + 3")).toEqual({ type: "add", value: [2, 3] });
+    expect(parse(WORLD_SYNTAX, 'card(title: text("a"))').ok).toBe(false);
+    expect(issue(host, "max(1, 2)")).toMatchObject({ offset: 0 });
+  });
+
   it("[SYNTAX.ROUNDTRIP] parse(print(doc)) gives each generated document of a profile again", () => {
     const bad: string[] = [];
     for (const [name, gen] of Object.entries(GENERATORS)) {
@@ -369,6 +423,49 @@ describe("the syntax kit", () => {
     expect(bad.slice(0, 3)).toEqual([]);
   });
 });
+
+/**
+ * The kinds of `STD_WORLD` that have a text by another rule of the profile than an operator or a form, with the rule.
+ */
+const OTHER_TEXT: Readonly<Record<string, string>> = {
+  ref: "The reference syntax of the kit writes a path, for example self.parent.width.",
+};
+
+/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. The list is empty. */
+const NO_TEXT: Readonly<Record<string, string>> = {};
+
+/** One text for each kind of `STD_WORLD`, in the profile `WORLD_SYNTAX`. */
+const WORLD_TEXTS: Readonly<Record<string, string>> = {
+  number: "number(42)",
+  text: 'text("big")',
+  bool: "bool(true)",
+  add: "1 + 2 + 3",
+  multiply: "6 * 7",
+  greater: "size > 10",
+  list: "list(1, x)",
+  if: 'if(size > 10, text("big"), log("small"))',
+  ref: "self.parent.width",
+  nearest: 'nearest(type: "panel")',
+  panel: "panel(width: 300, children: list(box(width: self.parent.width + -20)))",
+  box: "box(height: 20)",
+  "math.sum": "math.sum(1, 2)",
+  "math.product": "math.product(6, 7)",
+  seq: "seq(a = 1 + 2, b = a * 10, log(b))",
+  pure: 'pure(log("hello"))',
+  log: 'log("start")',
+  write: 'write("total", 2 + 3)',
+};
+
+/** This function lists the kinds and the aliases of a world, with dots between the keys of a namespace. */
+function worldKinds(entries: Readonly<Record<string, WorldEntry>>, path: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const [key, entry] of Object.entries(entries)) {
+    const name = [...path, key];
+    if (isKind(entry) || isAlias(entry)) out.push(name.join("."));
+    else if (isNamespace(entry)) out.push(...worldKinds(entry.kinds, name));
+  }
+  return out;
+}
 
 /** The parts of a generator of documents for one profile. */
 interface Generator {
@@ -416,6 +513,14 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     keys: ["a", "if", "not", "self", "type", "a b", "", "`", "0", "__proto__"],
     steps: true,
   },
+  world: {
+    profile: WORLD_SYNTAX,
+    leaves: [0, -3, 2.5, 1e21, true, false, null, "", 'a"b', x, ref("self", "parent", "width"), ref("names", "math", "sum"), ref("world", "add")],
+    calls: [],
+    names: ["a", "total", "if", "a b"],
+    data: ["", "big", 'a"b', 0, -3, 2.5, true, false, null],
+    steps: true,
+  },
 };
 
 function kindType(kind: string): Json {
@@ -446,12 +551,13 @@ function generateBare(gen: Generator, rng: Random, depth: number): Json {
     return { type: kindType(op.kind), value: terms(count) };
   }
   const forms = gen.profile.calls?.forms ?? [];
-  if (forms.length > 0 && rng.int(2) === 0) {
+  if (forms.length > 0 && (gen.calls.length === 0 || rng.int(2) === 0)) {
     const form = pick(rng, forms);
     if (form.args === "literal") return { type: kindType(form.kind), value: pick(rng, gen.data ?? [0]) };
     if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? []) };
     const fields = form.fields;
-    if (fields === undefined) return { type: kindType(form.kind), value: terms(rng.int(4)) };
+    const least = form.min ?? 0;
+    if (fields === undefined) return { type: kindType(form.kind), value: terms(least + rng.int(4 - least)) };
     const min = form.min ?? fields.length;
     const value: Record<string, Json> = {};
     for (const key of fields.slice(0, min + rng.int(fields.length - min + 1))) value[key] = generateDoc(gen, rng, depth + 1);

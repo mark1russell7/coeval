@@ -174,6 +174,7 @@ export {
   STD_RUNNERS,
   STD_WALKERS,
   STD_WORLD,
+  WORLD_SYNTAX,
   attributeTrace,
   nearestWalker,
   placeOf,
