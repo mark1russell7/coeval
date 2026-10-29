@@ -1,8 +1,8 @@
-import { type Envelope, type Json, type Key, isEnvelope, isRecord, typeName } from "./doc.ts";
+import { type Envelope, type Json, type Key, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { ask } from "./ladder.ts";
 import { type AttributeDeclaration, type CapsRule, type Kind, type TreeContract, equationType, lookupKind } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
-import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
+import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, ROOTS, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
 import { type AttributeRung, STD_EVALUATORS } from "./stdlib.ts";
 import { type EvalError, type Failed, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
 import {
@@ -14,6 +14,7 @@ import {
   type Machine,
   type Part,
   type Perform,
+  type Read,
   type RunFn,
   type RunInput,
   type RunPart,
@@ -23,6 +24,7 @@ import {
   makeContext,
   permits,
   placeText,
+  reachedOf,
   waitedReason,
 } from "./evaluate.ts";
 import { type FormulaProfile, type OpFn, Held, STD_EXT } from "./formula.ts";
@@ -57,6 +59,12 @@ export interface ReferenceOptions {
    * each verb by the same rules (VERB.AGREE).
    */
   readonly verb?: string;
+  /**
+   * A list that gets each read of a resolution, in its order (REF.READS). A read has the shape of a read of a plan:
+   * the path, what it reached and the mark `free`. The reads of a closure and of an equation of a tree go in the
+   * same list. The reference adds no kept reads, because it has no static reads of a closure.
+   */
+  readonly reads?: Read[];
 }
 
 /** The options of a run of the reference: the options of an evaluation, with the host and a signal (REF.RUN). */
@@ -80,6 +88,13 @@ interface Scope {
   alls: number;
 }
 
+/** The record of the reads of one evaluation of the reference (REF.READS). */
+interface Reading {
+  readonly list: Read[];
+  /** The context at the root of the evaluation. A free read reads this context. */
+  readonly root: Context;
+}
+
 /** The state of one evaluation of the reference. */
 interface Env {
   readonly machine: Machine;
@@ -95,6 +110,8 @@ interface Env {
   readonly verb: string;
   /** The scope of the code that evaluates at this time. `all` changes it for each item. */
   scope: Scope;
+  /** The record of the reads. A nested evaluation for an equation of a tree keeps the record of its tree. */
+  readonly reading: Reading | undefined;
 }
 
 /** The code that answers a document: a function evaluator, a runner, or a gap of the reference. */
@@ -219,6 +236,44 @@ function partAt(seen: Seen, at: At, slot: PartSlot, given: Context | undefined):
 function resolveFully(machine: Machine, ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
   const found = resolve(machine, ctx, path, { hops: true });
   return options?.hops === true ? found : { ...found, hops: [] };
+}
+
+/** The text that names a resolution in the error of an exception of the host (READS.RECORD). */
+const READ_FAILED = "the resolution of a path";
+
+/**
+ * This function resolves a path for a document, and records the read when the evaluation has a list (REF.READS,
+ * READS.RECORD). An exception of the host gives the error value of the read, and the exception goes on.
+ */
+function readAt(env: Env, ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
+  const reading = env.reading;
+  if (reading === undefined) return resolveFully(env.machine, ctx, path, options);
+  const free = freeIn(reading.root, ctx, path);
+  let found: Resolution;
+  try {
+    found = resolveFully(env.machine, ctx, path, options);
+  } catch (error) {
+    reading.list.push({ path, reached: thrown(error, READ_FAILED), free });
+    throw error;
+  }
+  reading.list.push(options?.hops === true ? { path, reached: reachedOf(found), free, hops: found.hops } : { path, reached: reachedOf(found), free });
+  return found;
+}
+
+/**
+ * This function tells if a read reads the context at the root of the evaluation (READS.FREE). The reference reads
+ * the rule from SPEC. A name that a kind binds, a `self` that a kind sets and a path without a root are not free. A
+ * name that a kind does not bind keeps its value from the root.
+ */
+function freeIn(root: Context, ctx: Context, path: readonly unknown[]): boolean {
+  const head = path[0];
+  if (head === "self") return Object.is(ctx.self, root.self);
+  if (head !== "names") return typeof head === "string" && (ROOTS as readonly string[]).includes(head);
+  const name = path[1];
+  if (ctx.names === root.names || !isKey(name)) return true;
+  const key = String(name);
+  const bound = Object.hasOwn(ctx.names, key);
+  return bound === Object.hasOwn(root.names, key) && (!bound || Object.is(ctx.names[key], root.names[key]));
 }
 
 /**
@@ -385,7 +440,7 @@ function evalInput(env: Env, seen: Seen, at: At): EvalInput {
     place: at.place,
     machine: env.machine,
     ...(at.address ? { address: true } : {}),
-    resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
+    resolve: (path, options) => readAt(env, at.ctx, path, options),
     effect: (kind, payload) => causeFromEvaluator(env, at.ctx, kind, payload, at.place),
     fill,
   };
@@ -413,7 +468,7 @@ function runInput(env: Env, seen: Seen, at: At): RunInput {
     context: at.ctx,
     place: at.place,
     machine: env.machine,
-    resolve: (path, options) => resolveFully(env.machine, at.ctx, path, options),
+    resolve: (path, options) => readAt(env, at.ctx, path, options),
     effect: (kind, payload) => causeAndWait(env, at.ctx, kind, payload, at.place),
     all: (list, options) => together(env, list, options),
     fill,
@@ -543,9 +598,18 @@ function* together(env: Env, list: readonly RunPart[], options: AllOptions = {})
  * @returns The result.
  */
 export function reference(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceOptions = {}): Result {
-  const env = envOf(machine, options, false);
+  return evaluateRoot(machine, doc, context, options, undefined);
+}
+
+/**
+ * This function evaluates a document from its root. An equation of a tree gives the record of its tree. Thus the
+ * reads of the equation go in the list of the outer evaluation (REF.READS).
+ */
+function evaluateRoot(machine: Machine, doc: unknown, context: Context, options: ReferenceOptions, outer: Reading | undefined): Result {
+  const at = rootAt(machine, doc, context, options);
+  const env = envOf(machine, options, false, at.ctx, outer);
   try {
-    return within(env, () => evaluateAt(env, rootAt(machine, doc, context, options)));
+    return within(env, () => evaluateAt(env, at));
   } catch (error) {
     return placed(thrown(error, "the reference"), []);
   }
@@ -567,13 +631,17 @@ export function reference(machine: Machine, doc: unknown, context: Context = mak
  * @returns The result, when the run ends.
  */
 export function referenceRun(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceRunOptions = {}): Promise<Result> {
-  const env = envOf(machine, options, true);
-  const steps = stepsAt(env, rootAt(machine, doc, context, options));
+  const at = rootAt(machine, doc, context, options);
+  const env = envOf(machine, options, true, at.ctx, undefined);
+  const steps = stepsAt(env, at);
   return driveRun(env, steps, options.signal).catch((error: unknown) => placed(thrown(error, "the reference"), []));
 }
 
-/** This function makes the state of the reference for one evaluation or one run. */
-function envOf(machine: Machine, options: ReferenceOptions, running: boolean): Env {
+/**
+ * This function makes the state of the reference for one evaluation or one run. The record of the reads comes from
+ * the evaluation around it, or from the list of the options.
+ */
+function envOf(machine: Machine, options: ReferenceOptions, running: boolean, root: Context, outer: Reading | undefined): Env {
   const perform = options.perform;
   return {
     machine,
@@ -585,6 +653,7 @@ function envOf(machine: Machine, options: ReferenceOptions, running: boolean): E
     running,
     verb: options.verb ?? "eval",
     scope: { prefix: "", counts: new Map(), alls: 0 },
+    reading: outer ?? (options.reads === undefined ? undefined : { list: options.reads, root }),
   };
 }
 
@@ -698,13 +767,14 @@ function refNodeOf(thing: unknown): RefNode | undefined {
 
 /**
  * TREE.LADDER: an equation of the kind of a node evaluates in the reference. It gets the node as `self`, the names of
- * its rung and no capabilities. A bare equation gets the type `of` of the parts of the kind.
+ * its rung and no capabilities. A bare equation gets the type `of` of the parts of the kind. The reads of the
+ * equation go in the record of the evaluation that made the node (REF.READS).
  */
 function equationOf(node: RefNode, term: Json, names: Readonly<Record<string, unknown>>): Result {
   const env = node.env;
   if (env === undefined) return fail("#NOEVAL", "The evaluation of an equation needs the machine.");
   const ctx: Context = { ...node.ctx, names, caps: [], self: node.thing };
-  return reference(env.machine, term, ctx, { definitions: env.definitions, ...(node.of === undefined ? {} : { declaredType: node.of }) });
+  return evaluateRoot(env.machine, term, ctx, { definitions: env.definitions, ...(node.of === undefined ? {} : { declaredType: node.of }) }, env.reading);
 }
 
 function termIn<T>(table: Readonly<Record<string, T>> | undefined, name: string): T | undefined {
@@ -960,7 +1030,11 @@ export function formulaDefinitions(profile: FormulaProfile = {}): Definitions {
     // FORMULA.LET: a path through a name whose binding failed gives the error of the binding.
     const head = path[0] === "names" && typeof path[1] === "string" ? path[1] : undefined;
     const bound = head === undefined ? undefined : own(context.names, head);
-    if (bound instanceof Held) return { ok: false, error: bound.error };
+    if (bound instanceof Held) {
+      // The result comes from the binding of the name, thus the name is a read (READS.RECORD).
+      walk(["names", head]);
+      return { ok: false, error: bound.error };
+    }
     const found = walk(steps);
     if (!found.ok) return fail(found.code, found.reason);
     // FORMULA.ADDRESS: an address gives what the path reaches.

@@ -9,14 +9,17 @@ import {
   type Definitions,
   type Effect,
   type EvalError,
+  type EvalFn,
   type FormulaProfile,
   type GenerateOptions,
   type HostThing,
   type Json,
   type Key,
+  type Kind,
   type Machine,
   type MachinePart,
   type Perform,
+  type Read,
   type Result,
   type Runtime,
   type Steps,
@@ -53,10 +56,12 @@ import {
   reference,
   referenceRun,
   replayer,
+  resolve,
   run,
   sameValue,
   typeName,
   typesOf,
+  verifyReads,
   walk,
 } from "./index.ts";
 
@@ -663,20 +668,32 @@ const RUN_OPTIONS: Omit<GenerateOptions, "seed"> = {
   },
 };
 
-/** The configurations of the harness of runs: each configuration of the evaluations, and runs that wait under `all`. */
-const RUN_CONFIGS: readonly Config[] = [...CONFIGS, {
-  name: "standard, runs that wait under all",
-  machine: running,
-  options: RUN_OPTIONS,
-  agree: { strict: true },
-  contexts: [CONTEXTS[0] as Context, CONTEXTS[0] as Context, CONTEXTS[2] as Context],
-}];
+/**
+ * The strict profile with pure operations. A closure of a pure document keeps only its static reads (READS.CLOSURE),
+ * thus the plan knows the reads of such a run, and `agreeRun` compares them (RUN.AGREES-READS).
+ */
+const PURE_STRICT: FormulaProfile = { ...STRICT, pure: ["add", "neg", "pair", "math.max", "apply", "map", "keys"] };
+
+/** The configurations of the harness of runs: each configuration of the evaluations, runs that wait under `all`, and pure closures. */
+const RUN_CONFIGS: readonly Config[] = [
+  ...CONFIGS,
+  {
+    name: "standard, runs that wait under all",
+    machine: running,
+    options: RUN_OPTIONS,
+    agree: { strict: true },
+    contexts: [CONTEXTS[0] as Context, CONTEXTS[0] as Context, CONTEXTS[2] as Context],
+  },
+  formulaConfig("formula, pure operations", PURE_STRICT),
+];
 
 /** What the harness of runs found, and the number of documents whose waits settled out of their order. */
 interface RunOutcome {
   readonly findings: readonly Finding[];
   readonly codes: ReadonlyMap<string, number>;
   readonly reordered: number;
+  /** The number of free reads that `agreeRun` compared (RUN.AGREES-READS). */
+  readonly reads: number;
 }
 
 /** This function gives the options of `agreeRun` for a configuration. Without a mock, the host waits. */
@@ -696,6 +713,7 @@ async function harnessRun(config: Config, total: number): Promise<RunOutcome> {
   const options = runOptions(config);
   const declared = config.agree.declaredType === undefined ? {} : { declaredType: config.agree.declaredType };
   let reordered = 0;
+  let reads = 0;
   for (let index = 0; index < total; index += 1) {
     const seed = SEED * 1_000_003 + index;
     const doc = generate(config.machine.world, { ...config.options, seed });
@@ -707,12 +725,13 @@ async function harnessRun(config: Config, total: number): Promise<RunOutcome> {
       continue;
     }
     count(codes, outcome.result.ok ? "value" : outcome.result.error.code);
+    reads += outcome.reads?.length ?? 0;
     const recording = recorder(options.perform);
     await prepare(config.machine, doc, declared).run(ctx, { perform: recording.perform });
     config.agree.observe?.();
     if (reorders(recording.log().settles)) reordered += 1;
   }
-  return { findings, codes, reordered };
+  return { findings, codes, reordered, reads };
 }
 
 const outcomes = new Map<string, Outcome>();
@@ -802,6 +821,8 @@ describe("one meaning of runs", () => {
       expect(report(outcome.findings), `results ${show(Object.fromEntries(outcome.codes))}`).toEqual([]);
       // Some runs that wait settle the waits of an all out of their order. The test of the mutant below checks that order.
       if (config.options === RUN_OPTIONS) expect(outcome.reordered, `results ${show(Object.fromEntries(outcome.codes))}`).toBeGreaterThan(0);
+      // The reference run and the plan give the same free reads (RUN.AGREES-READS), thus the comparison is not empty.
+      expect(outcome.reads, config.name).toBeGreaterThan(0);
     }, 300_000);
   }
 
@@ -843,6 +864,145 @@ describe("one meaning of runs", () => {
     const failing = { type: "both", value: [{ type: "seq", value: [{ type: "log", value: ["a"] }, { type: "log", value: ["c"] }] }, { type: "log", value: ["b"] }, { type: "log", value: ["d"] }] };
     const refuse: Perform = (effect) => (effect.payload === "b" ? Promise.reject(new Failure({ code: "#MOCK", reason: "No b." })) : host(effect));
     expect(await agreeRun(waiting, failing, ctx, { strict: true, perform: refuse })).toMatchObject({ ok: true, result: ok(["#ABORT", "#MOCK", "#ABORT"]) });
+  });
+});
+
+/* The reads of a run (REF.READS, RUN.AGREES-READS). */
+
+const refTo = (...steps: Json[]): Json => ({ type: "ref", value: steps });
+const strictMachine = formulaMachine(PURE_STRICT);
+const strictDefinitions = formulaDefinitions(PURE_STRICT);
+
+/** This function gives the reads without the kept reads, as the path, what it reached and the mark free. */
+function resolved(reads: readonly Read[]): readonly unknown[] {
+  return reads.filter((read) => read.kept !== true).map((read) => [read.path, read.reached, read.free]);
+}
+
+/** A kind of the decorated tree with the equations of the argument: each field is an attribute, and a bare field is a number. */
+function treeKind(equations: Readonly<Record<string, Json>>): Kind {
+  return {
+    verbs: { eval: "tree.node" },
+    parts: { shape: "record", fields: {}, rest: { shape: "term", of: "number" } },
+    caps: [{ rule: "mask" }],
+    pure: true,
+    lazy: [{}],
+    reads: ["self"],
+    tree: { equations },
+  };
+}
+
+function withTree(name: string, equations: Readonly<Record<string, Json>>): Machine {
+  return { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, [name]: treeKind(equations) } } };
+}
+
+describe("the reads of a run", () => {
+  it("[REF.READS] the reference records each read in the shape of the plan, and a call of a closure records the reads of its body", async () => {
+    // The closure reads the name a at each call. The plan also adds a kept read of the closure, and the reference adds none.
+    const closure = { type: "fn", value: { params: ["v"], body: { type: ["ops", "add"], value: [refTo("names", "v"), refTo("names", "a")] } } };
+    const mapped = { type: ["ops", "map"], value: [closure, refTo("names", "list")] };
+    const ctx = context({ names: { a: 1, list: [1, 2] } });
+    const ofReference: Read[] = [];
+    const ofPlan: Read[] = [];
+    expect(await referenceRun(strictMachine, mapped, ctx, { definitions: strictDefinitions, reads: ofReference })).toEqual(ok([2, 3]));
+    expect(await prepare(strictMachine, mapped).run(ctx, { reads: ofPlan })).toEqual(ok([2, 3]));
+    expect(resolved(ofReference)).toEqual(resolved(ofPlan));
+    expect(resolved(ofReference)).toEqual([
+      [["names", "list"], ok([1, 2]), true],
+      [["names", "v"], ok(1), false],
+      [["names", "a"], ok(1), true],
+      [["names", "v"], ok(2), false],
+      [["names", "a"], ok(1), true],
+    ]);
+    expect(ofPlan.filter((read) => read.kept === true).map((read) => read.path)).toEqual([["names", "a"]]);
+    expect(ofReference.some((read) => read.kept === true)).toBe(false);
+    // An evaluation of the reference gives the same list.
+    const ofEvaluation: Read[] = [];
+    expect(reference(strictMachine, mapped, ctx, { definitions: strictDefinitions, reads: ofEvaluation })).toEqual(ok([2, 3]));
+    expect(resolved(ofEvaluation)).toEqual(resolved(ofReference));
+    const agreed = await agreeRun(strictMachine, mapped, ctx, { strict: true, definitions: strictDefinitions });
+    expect(agreed).toMatchObject({ ok: true, result: ok([2, 3]) });
+    expect(agreed.ok ? agreed.reads?.map((read) => read.path) : undefined).toEqual([["names", "list"], ["names", "a"], ["names", "a"]]);
+    // A reference through a name whose binding failed reads that name, in the reference too (READS.RECORD).
+    const held = { type: "let", value: { bind: { k: { type: ["ops", "boom"], value: [] } }, body: refTo("names", "k") } };
+    const heldReference: Read[] = [];
+    const heldPlan: Read[] = [];
+    await referenceRun(strictMachine, held, ctx, { definitions: strictDefinitions, reads: heldReference });
+    await prepare(strictMachine, held).run(ctx, { reads: heldPlan });
+    expect(heldReference.map((read) => [read.path, read.free])).toEqual([[["names", "k"], false]]);
+    expect(heldReference.map((read) => read.path)).toEqual(heldPlan.map((read) => read.path));
+  });
+
+  it("[REF.READS] an equation of a tree records its reads in the list of the evaluation that made the node", async () => {
+    const machine = withTree("sized", { area: { type: "add", value: [refTo("self", "width"), refTo("self", "width")] } });
+    const doc = { type: "sized", value: { width: 3, total: refTo("self", "area") } };
+    const ctx = context({});
+    const ofReference: Read[] = [];
+    const ofPlan: Read[] = [];
+    expect(await referenceRun(machine, doc, ctx, { reads: ofReference })).toEqual(ok({ width: 3, total: 6 }));
+    expect(await prepare(machine, doc).run(ctx, { reads: ofPlan })).toEqual(ok({ width: 3, total: 6 }));
+    // The equation reads the node as self, thus its reads are not free. The plan does not record them (READS.EQUATION).
+    expect(ofReference.map((read) => [read.path, read.free])).toEqual([
+      [["self"], true],
+      [["self", "width"], false],
+      [["self", "width"], false],
+      [["self", "area"], false],
+    ]);
+    expect(ofPlan.map((read) => [read.path, read.free])).toEqual([
+      [["self"], true],
+      [["self", "area"], false],
+    ]);
+    expect(await agreeRun(machine, doc, ctx, { strict: true })).toMatchObject({ ok: true, reads: [{ path: ["self"], free: true }] });
+  });
+
+  it("[READS.EQUATION] an equation of a tree records no read in the plan, thus agreeRun reports its free read, and verifyReads keeps a stale result (K165)", async () => {
+    const machine = withTree("watch", { seen: refTo("event", "a") });
+    const doc = { type: "watch", value: { got: refTo("self", "seen") } };
+    const before = context({ event: { a: 1 } });
+    const after = context({ event: { a: 2 } });
+    expect(await agreeRun(machine, doc, before, { strict: true })).toMatchObject({
+      ok: false,
+      tier: "reference",
+      plan: ok({ got: 1 }),
+      other: ok({ got: 1 }),
+      reason: 'The free read 1 is no read in the plan, and ["event","a"] in the tier.',
+    });
+    const plan = prepare(machine, doc);
+    const reads: Read[] = [];
+    expect(plan.evaluate(before, { reads })).toEqual(ok({ got: 1 }));
+    // The list has no read of event, thus the old result stays, and a new evaluation gives another result.
+    expect(verifyReads(plan, reads, after)).toEqual({ same: true });
+    expect(plan.evaluate(after)).toEqual(ok({ got: 2 }));
+  });
+
+  it("[RUN.AGREES-READS] agreeRun finds a definition that reads another list, and it compares no read when the plan keeps each root", async () => {
+    const ctx = context({ names: { a: 1, b: 2 } });
+    const doc = { type: "list", value: [refTo("names", "a"), refTo("names", "b")] };
+    const options: AgreeRunOptions = { strict: true, definitions: strictDefinitions };
+    expect(await agreeRun(strictMachine, doc, ctx, options)).toMatchObject({ ok: true, result: ok([1, 2]), reads: [{ path: ["names", "a"] }, { path: ["names", "b"] }] });
+    // A definition of ref that reads one more name gives the same result and the same effects, and another list of reads.
+    const plain = strictDefinitions.evaluators?.["formula.ref"] as EvalFn;
+    const more: Definitions = { evaluators: { ...strictDefinitions.evaluators, "formula.ref": (input) => (input.resolve(["names", "b"]), plain(input)) } };
+    expect(await agreeRun(strictMachine, doc, ctx, { ...options, definitions: more })).toMatchObject({
+      ok: false,
+      tier: "reference",
+      plan: ok([1, 2]),
+      other: ok([1, 2]),
+      reason: 'The free read 0 is ["names","a"] in the plan, and ["names","b"] in the tier.',
+    });
+    // A definition that resolves outside its input records no read.
+    const fewer: Definitions = {
+      evaluators: { ...strictDefinitions.evaluators, "formula.ref": (input) => plain({ ...input, resolve: (path, given) => resolve(strictMachine, input.context, path, given) }) },
+    };
+    expect(await agreeRun(strictMachine, doc, ctx, { ...options, definitions: fewer })).toMatchObject({
+      ok: false,
+      reason: 'The free read 0 is ["names","a"] in the plan, and no read in the tier.',
+    });
+    // A closure whose body is not pure keeps each root (READS.KEPT). Then the plan does not know its reads, and no read compares.
+    const lambda = { type: "fn", value: { params: ["v"], body: { type: ["ops", "add"], value: [refTo("names", "v"), { type: ["ext", "count"], value: null }] } } };
+    const unknown = { type: "list", value: [lambda, refTo("names", "a")] };
+    const outcome = await agreeRun(strictMachine, unknown, ctx, { ...options, definitions: more });
+    expect(outcome).toMatchObject({ ok: true });
+    expect(outcome).not.toHaveProperty("reads");
   });
 });
 

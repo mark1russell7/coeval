@@ -1,7 +1,7 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
-import type { Context } from "./deref.ts";
+import { type Context, isHostThing } from "./deref.ts";
 import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
-import { type Effect, type Journal, type Machine, type Perform, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
+import { type Effect, type Journal, type Machine, type Perform, type Read, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
 import { Held, isClosure } from "./formula.ts";
 import { type Definitions, reference, referenceRun } from "./reference.ts";
 import { type ReplaySettle, recorder, replayer } from "./replay.ts";
@@ -91,7 +91,16 @@ const DEFAULT_TIERS: readonly Exclude<Tier, "other">[] = /* @__PURE__ */ Object.
 
 /** The outcome of `agree`: the result of the plan, or the first tier that disagrees with it. */
 export type Agreement =
-  | { readonly ok: true; readonly result: Result; readonly effects: readonly Effect[] }
+  | {
+      readonly ok: true;
+      readonly result: Result;
+      readonly effects: readonly Effect[];
+      /**
+       * The free reads of the plan that `agreeRun` compared with the reference run (RUN.AGREES-READS). It is absent
+       * when no read compared, for example in `agree`.
+       */
+      readonly reads?: readonly Read[];
+    }
   | {
       readonly ok: false;
       readonly tier: Tier;
@@ -367,6 +376,87 @@ function settlesDiffer(a: readonly ReplaySettle[], b: readonly ReplaySettle[]): 
   return undefined;
 }
 
+/** The roots beside `self` that a value without static reads keeps whole (READS.KEPT). */
+const KEPT_ROOTS: readonly string[] = /* @__PURE__ */ Object.freeze(["names", "world", "event", "caps"]);
+
+/**
+ * This function tells if the plan does not know the reads of a run. A value without static reads keeps each root
+ * (READS.KEPT), thus the list holds a kept read of each whole root.
+ */
+function readsUnknown(reads: readonly Read[]): boolean {
+  return KEPT_ROOTS.every((root) => reads.some((read) => read.kept === true && read.path.length === 1 && read.path[0] === root));
+}
+
+/**
+ * This function gives the reads that `agreeRun` compares: the free reads of the resolutions (RUN.AGREES-READS). A
+ * kept read is the bound of the plan for the later reads of a value, and the reference has no such bound.
+ */
+function resolutions(reads: readonly Read[]): readonly Read[] {
+  return reads.filter((read) => read.free && read.kept !== true);
+}
+
+function pathText(path: readonly unknown[] | undefined): string {
+  if (path === undefined) return "no read";
+  try {
+    return JSON.stringify(path);
+  } catch {
+    return path.map(String).join(", ");
+  }
+}
+
+/**
+ * This function gives the rule of a comparison of reads. The rule of the caller answers first. Each tier makes its
+ * own nodes of a tree and its own adopted things. Thus two host things are the same when they have the same label,
+ * and they are nodes or have the same JSON object.
+ */
+function sameThing(equal: AgreeOptions["equal"]): (a: unknown, b: unknown) => boolean | undefined {
+  return (a, b) => {
+    const told = equal?.(a, b);
+    if (told !== undefined) return told;
+    if (!isHostThing(a) || !isHostThing(b)) return undefined;
+    if (a.label !== b.label) return false;
+    if (a.label.startsWith("node ")) return true;
+    try {
+      return Object.is(a.toJson(), b.toJson());
+    } catch {
+      return false;
+    }
+  };
+}
+
+/** This function gives the difference of what two reads reached, or `undefined` when they agree. */
+function reachedDiffers(a: Result, b: Result, equal: (a: unknown, b: unknown) => boolean | undefined, strict: boolean): string | undefined {
+  if (a.ok && b.ok) return sameValue(a.value, b.value, equal) ? undefined : "The read reaches another value in the tier.";
+  if (!a.ok && !b.ok) {
+    if (a.error.code !== b.error.code) return `The read gives ${a.error.code} in the plan, and ${b.error.code} in the tier.`;
+    return strict && a.error.reason !== b.error.reason ? `The read gives ${a.error.code} with another reason in the tier: "${b.error.reason}" for "${a.error.reason}".` : undefined;
+  }
+  if (!b.ok) return `The read reaches a value in the plan, and ${b.error.code} in the tier.`;
+  return `The read gives ${(a as { readonly error: EvalError }).error.code} in the plan, and a value in the tier.`;
+}
+
+/**
+ * This function gives the first difference of the reads of the plan and of a tier, or `undefined` when they agree
+ * (RUN.AGREES-READS). Only the free reads of the resolutions compare, in their order. When the plan does not know its
+ * reads, the function compares nothing.
+ */
+function readsDiffer(plan: readonly Read[], tier: readonly Read[], options: AgreeOptions): string | undefined {
+  if (readsUnknown(plan)) return undefined;
+  const a = resolutions(plan);
+  const b = resolutions(tier);
+  const equal = sameThing(options.equal);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const x = a[index];
+    const y = b[index];
+    if (x === undefined || y === undefined || !sameValue(x.path, y.path, equal)) {
+      return `The free read ${index} is ${pathText(x?.path)} in the plan, and ${pathText(y?.path)} in the tier.`;
+    }
+    const why = reachedDiffers(x.reached, y.reached, equal, options.strict === true);
+    if (why !== undefined) return `The free read ${index} of ${pathText(x.path)} differs. ${why}`;
+  }
+  return undefined;
+}
+
 /**
  * This function compares the run of a document in a plan with its run in other tiers (RUN.AGREES). First the plan
  * starts the run with a recorder around the host. Then each tier replays the log of that run. These tiers are the
@@ -374,6 +464,10 @@ function settlesDiffer(a: readonly ReplaySettle[], b: readonly ReplaySettle[]): 
  *
  * The rules of `agree` compare the results and the effects, with their addresses and outcomes. A tier must also
  * settle the waits of each `all` in the order of the plan, thus a replay keeps the order of the waits.
+ *
+ * The reference run must also give the free reads of the plan, in their order (RUN.AGREES-READS). Another replay of
+ * the plan records these reads. A kept read does not compare. When the plan keeps each root, its reads are not known,
+ * and no read compares.
  *
  * @param machine - The world, the evaluators and the runners.
  * @param doc - The document.
@@ -396,6 +490,9 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
   const result = await plan.run(context, { perform: first.perform });
   const saw = observe?.();
   const log = recording.log();
+  // The reads of the plan come from another replay, thus the run of the plan above keeps its folds (PLAN.FOLD).
+  let planReads: readonly Read[] | undefined;
+  let compared: readonly Read[] | undefined;
 
   for (const tier of options.tiers ?? DEFAULT_TIERS) {
     // A run has no tier with fixed names (PLAN.FIXED).
@@ -403,8 +500,10 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
     const replay = watched(replayer(log));
     const host = { perform: replay.perform };
     let other: Result;
+    let tierReads: Read[] | undefined;
     if (tier === "reference") {
-      other = await referenceRun(machine, doc, context, { ...declared, ...host, ...(options.definitions === undefined ? {} : { definitions: options.definitions }) });
+      tierReads = [];
+      other = await referenceRun(machine, doc, context, { ...declared, ...host, reads: tierReads, ...(options.definitions === undefined ? {} : { definitions: options.definitions }) });
     } else if (tier === "traced") {
       other = (await run(machine, doc, context, { ...declared, ...host })).result;
     } else if (tier === "folds") {
@@ -416,12 +515,23 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
     const compareCalls = observe !== undefined && tier !== "folds";
     const calls = observe?.();
     if (overflowed(result) || overflowed(other)) continue;
-    const why =
+    let why =
       resultDiffers(result, other, options) ??
       effectsDiffer(first.effects, replay.effects, options) ??
       settlesDiffer(first.settles, replay.settles) ??
       (compareCalls && !sameValue(saw, calls, options.equal) ? "The host saw other calls in the tier." : undefined);
+    if (why === undefined && tierReads !== undefined) {
+      if (planReads === undefined) {
+        const reads: Read[] = [];
+        await plan.run(context, { perform: replayer(log), reads });
+        // The calls of this replay are not a tier, thus the next tier compares only its own calls.
+        observe?.();
+        planReads = reads;
+      }
+      why = readsDiffer(planReads, tierReads, options);
+      if (why === undefined && !readsUnknown(planReads)) compared = resolutions(planReads);
+    }
     if (why !== undefined) return { ok: false, tier, plan: result, other, reason: why };
   }
-  return { ok: true, result, effects: first.effects };
+  return compared === undefined ? { ok: true, result, effects: first.effects } : { ok: true, result, effects: first.effects, reads: compared };
 }
