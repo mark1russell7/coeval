@@ -283,6 +283,7 @@ export {
 export { type GraphCycle, type GraphEdge, type GraphNode, type GraphOptions, type NodeGraph, components, cycles, heights, necessary, nodeLayers } from "./graph.ts";
 export {
   type Recorder,
+  type ReplayCausePartsJson,
   type ReplayEntry,
   type ReplayEntryJson,
   type ReplayErrorJson,
