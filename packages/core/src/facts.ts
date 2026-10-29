@@ -1,10 +1,10 @@
 import { type Json, type Key, isEnvelope, isKey } from "./doc.ts";
-import { type Kind, type LazyRule, type Side, type World, lookupKind } from "./world.ts";
+import { type Kind, type LazyRule, type Side, type World, equationType, lookupKind } from "./world.ts";
 import { answerOf } from "./ladder.ts";
 import { pathMatches, splitParts } from "./parts.ts";
 import { type Root, ROOTS, isRef } from "./deref.ts";
 import type { Machine } from "./evaluate.ts";
-import { type DocVisit, declaredEffects, walk } from "./static.ts";
+import { type DocVisit, type WalkOptions, declaredEffects, equationsOf, walk } from "./static.ts";
 
 /**
  * One read of a document: a free reference, with its marks (FACTS.READS). A plan resolves the path of the reference
@@ -27,9 +27,12 @@ export interface StaticRead {
   readonly address: boolean;
   /** The path of the reference: its root and its steps. */
   readonly path: readonly Json[];
-  /** The keys from the root document to the reference document, through the parts. */
+  /**
+   * The keys from the root document to the reference document, through the parts. A read of an equation has the
+   * place of the first document of its tree kind (FACTS.EQUATIONS).
+   */
   readonly place: readonly Key[];
-  /** The keys from the root JSON value to the reference document. */
+  /** The keys from the root JSON value to the reference document, or to the document of the kind for an equation. */
   readonly at: readonly Key[];
 }
 
@@ -151,9 +154,11 @@ function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean
  *
  * - `reads`: each free reference, with the root and the keys of its path. A read under a lazy part has the mark
  *   `lazy`, for example a read in a branch of `if`. A read after a step document has `exact: false`. A kind that
- *   declares `reads` adds a read of each of its roots at each document of the kind.
+ *   declares `reads` adds a read of each of its roots at each document of the kind. The first document of a tree
+ *   kind also gets the lazy reads of the equations of its kind (FACTS.EQUATIONS). A read from `self` or from a name
+ *   of a rung is not one of them, because it is not free (READS.EQUATION).
  * - `side` and `effects`: from the contract of each kind.
- * - `pure`: each kind declares `pure`, and the document has no effect and is not volatile.
+ * - `pure`: each kind declares `pure`, also in an equation, and the document has no effect and is not volatile.
  * - `volatile`: a kind, an operation or a step document declares `volatile`, or the host marks a read.
  *
  * The hook `facts` of the machine answers for a name that a fallback kind covers, for example an operation. Its
@@ -177,7 +182,6 @@ function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean
 export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = {}): DocFacts {
   const world = machine.world;
   const hook = machine.facts;
-  const verb = options.verb ?? "eval";
   const reads: StaticRead[] = [];
   const effects: string[] = [];
   const above = new Map<DocVisit, Above>();
@@ -185,82 +189,113 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
   let pure = true;
   let volatile = false;
   let size = 0;
+  // The tree kinds whose equations the facts walked. The first document of each such kind gets their reads (FACTS.EQUATIONS).
+  let seen: Set<Kind> | undefined;
   const note = (isPure: boolean | undefined, isVolatile: boolean | undefined): void => {
     if (isPure !== true) pure = false;
     if (isVolatile === true) volatile = true;
   };
-  walk(
-    world,
-    doc,
-    (v) => {
-      size += 1;
-      const up = v.parent === undefined ? undefined : above.get(v.parent);
-      const lazy = up !== undefined && v.parent !== undefined && (up.lazy || partLazy(up, v.parent, v.slot));
-      const kind = v.kind;
-      if (kind === undefined) {
-        // A kind that the world does not have gives #KIND?, and the walk does not visit its value.
-        pure = false;
-        above.set(v, { lazy, rules: undefined });
-        return undefined;
-      }
-      const code = codeOf(world, v.declared ? undefined : v.doc.own, kind, verb, "eval");
-      const answer = code.name === undefined ? undefined : hook?.(v.typePath ?? [], code.name);
-      let roots: readonly Root[] | undefined;
-      if (code.described) {
-        note(answer?.pure ?? kind.pure, answer?.volatile ?? kind.volatile);
-        above.set(v, { lazy, rules: answer?.lazy ?? kind.lazy });
-        roots = answer?.reads ?? kind.reads;
-      } else {
-        // The contract of the kind does not describe this code. Only the hook can.
-        note(answer?.pure, answer?.volatile);
-        above.set(v, { lazy, rules: answer?.lazy ?? EACH });
-        roots = answer?.reads;
-      }
-      // The code of the kind resolves each of these roots as a whole, at the place of its document (FACTS.KIND-READS).
-      for (const root of roots ?? NONE) {
-        const read: StaticRead = { root, keys: NONE, exact: true, lazy, address: false, path: [root], place: tight(v.place), at: tight(v.at) };
-        reads.push(read);
-        if (options.volatile?.(read) === true) volatile = true;
-      }
-      if (kind.side === "run") side = "run";
-      // check and effectsOf read the declared effects with the same function (D27).
-      for (const keys of declaredEffects(v)) {
-        const text = keys.join(".");
-        if (!effects.includes(text)) effects.push(text);
-      }
-      if (!isRef(v.doc)) return undefined;
-      const path = v.doc.value;
-      const root = path[0];
-      if (typeof root !== "string" || !(ROOTS as readonly string[]).includes(root)) return undefined;
-      let exact = true;
-      const keys: Key[] = [];
-      for (let index = 1; index < path.length; index += 1) {
-        const step = path[index];
-        if (exact && isKey(step)) {
-          keys.push(step);
-          continue;
-        }
-        exact = false;
-        // A step document runs the walker that the ladder finds for the verb step.
-        const found = isEnvelope(step) ? lookupKind(world, step.type) : undefined;
-        if (found?.ok !== true) {
+  const add = (read: StaticRead): void => {
+    reads.push(read);
+    if (options.volatile?.(read) === true) volatile = true;
+  };
+  /**
+   * This function walks a document. Without `node`, it walks the document of the facts. With `node`, it walks an
+   * equation of a tree kind, and each read gets the place of that node: the first document of the kind.
+   */
+  const scan = (term: unknown, walkOptions: WalkOptions, verb: string, node: DocVisit | undefined): void => {
+    walk(
+      world,
+      term,
+      (v) => {
+        if (node === undefined) size += 1;
+        const up = v.parent === undefined ? undefined : above.get(v.parent);
+        // An equation evaluates only when a demand reaches its attribute, thus each read of an equation is lazy (TREE.LAZY).
+        const lazy = node !== undefined || (up !== undefined && v.parent !== undefined && (up.lazy || partLazy(up, v.parent, v.slot)));
+        const place = node ?? v;
+        const kind = v.kind;
+        if (kind === undefined) {
+          // A kind that the world does not have gives #KIND?, and the walk does not visit its value.
           pure = false;
-          continue;
+          above.set(v, { lazy, rules: undefined });
+          return undefined;
         }
-        const walker = codeOf(world, (step as { readonly own?: Readonly<Record<string, string>> }).own, found.kind, "step", "step");
-        const stepAnswer = walker.name === undefined ? undefined : hook?.(found.path, walker.name);
-        if (walker.described) note(stepAnswer?.pure ?? found.kind.pure, stepAnswer?.volatile ?? found.kind.volatile);
-        else note(stepAnswer?.pure, stepAnswer?.volatile);
-      }
-      const first = path[1];
-      // A reference to a name that a kind around it binds reads inside the document: it is not a read.
-      if (root === "names" && isKey(first) && v.names.has(String(first))) return undefined;
-      const read: StaticRead = { root: root as Root, keys: tight(keys), exact, lazy, address: v.address === true, path, place: tight(v.place), at: tight(v.at) };
-      reads.push(read);
-      if (options.volatile?.(read) === true) volatile = true;
-      return undefined;
-    },
-    options.declaredType === undefined ? {} : { declaredType: options.declaredType },
-  );
+        const code = codeOf(world, v.declared ? undefined : v.doc.own, kind, verb, "eval");
+        const answer = code.name === undefined ? undefined : hook?.(v.typePath ?? [], code.name);
+        let roots: readonly Root[] | undefined;
+        if (code.described) {
+          note(answer?.pure ?? kind.pure, answer?.volatile ?? kind.volatile);
+          above.set(v, { lazy, rules: answer?.lazy ?? kind.lazy });
+          roots = answer?.reads ?? kind.reads;
+        } else {
+          // The contract of the kind does not describe this code. Only the hook can.
+          note(answer?.pure, answer?.volatile);
+          above.set(v, { lazy, rules: answer?.lazy ?? EACH });
+          roots = answer?.reads;
+        }
+        // The code of the kind resolves each of these roots as a whole, at the place of its document (FACTS.KIND-READS).
+        for (const root of roots ?? NONE) {
+          // In an equation, the root self is the node, thus its read is not free (READS.EQUATION).
+          if (node !== undefined && root === "self") continue;
+          add({ root, keys: NONE, exact: true, lazy, address: false, path: [root], place: tight(place.place), at: tight(place.at) });
+        }
+        // An equation evaluates without capabilities, thus an effect in it never reaches the host. It is still not pure.
+        if (kind.side === "run") {
+          if (node === undefined) side = "run";
+          else pure = false;
+        }
+        // check and effectsOf read the declared effects with the same function (D27).
+        for (const keys of declaredEffects(v)) {
+          if (node !== undefined) {
+            pure = false;
+            continue;
+          }
+          const text = keys.join(".");
+          if (!effects.includes(text)) effects.push(text);
+        }
+        // The equations of a tree kind are code of the kind. The first document of the kind gets their reads (FACTS.EQUATIONS).
+        if (kind.tree !== undefined && !(seen ??= new Set()).has(kind)) {
+          seen.add(kind);
+          const of = equationType(kind);
+          for (const { term: equation, names } of equationsOf(kind)) scan(equation, of === undefined ? { names } : { names, declaredType: of }, "eval", place);
+        }
+        if (!isRef(v.doc)) return undefined;
+        const path = v.doc.value;
+        const root = path[0];
+        if (typeof root !== "string" || !(ROOTS as readonly string[]).includes(root)) return undefined;
+        // In an equation, the root self is the node, thus its read is not free. A step out of the tree reads the outer
+        // self through the node, and the read of the whole root self that the tree node makes covers it (TREE.SELF).
+        if (node !== undefined && root === "self") return undefined;
+        let exact = true;
+        const keys: Key[] = [];
+        for (let index = 1; index < path.length; index += 1) {
+          const step = path[index];
+          if (exact && isKey(step)) {
+            keys.push(step);
+            continue;
+          }
+          exact = false;
+          // A step document runs the walker that the ladder finds for the verb step.
+          const found = isEnvelope(step) ? lookupKind(world, step.type) : undefined;
+          if (found?.ok !== true) {
+            pure = false;
+            continue;
+          }
+          const walker = codeOf(world, (step as { readonly own?: Readonly<Record<string, string>> }).own, found.kind, "step", "step");
+          const stepAnswer = walker.name === undefined ? undefined : hook?.(found.path, walker.name);
+          if (walker.described) note(stepAnswer?.pure ?? found.kind.pure, stepAnswer?.volatile ?? found.kind.volatile);
+          else note(stepAnswer?.pure, stepAnswer?.volatile);
+        }
+        const first = path[1];
+        // A reference to a name that a kind around it binds reads inside the document: it is not a read. The names of
+        // an equation are names that its rung binds (TREE.DOWN, TREE.FOLD).
+        if (root === "names" && isKey(first) && v.names.has(String(first))) return undefined;
+        add({ root: root as Root, keys: tight(keys), exact, lazy, address: v.address === true, path, place: tight(place.place), at: tight(place.at) });
+        return undefined;
+      },
+      walkOptions,
+    );
+  };
+  scan(doc, options.declaredType === undefined ? {} : { declaredType: options.declaredType }, options.verb ?? "eval", undefined);
   return { reads: tight(reads), side, effects: tight(effects), pure: pure && !volatile && effects.length === 0 && side === "derive", volatile, size };
 }

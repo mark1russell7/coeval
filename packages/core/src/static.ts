@@ -619,9 +619,9 @@ const FOLD_NAMES: readonly string[] = /* @__PURE__ */ Object.freeze(["acc", "ite
 
 /**
  * This function gives each equation of the tree contract of a kind, with the names that it sees (D42). An equation of
- * `equations`, a `unit` and a `default` see no names.
+ * `equations`, a `unit` and a `default` see no names. `check` and `factsOf` read the equations with this one function.
  */
-function equationsOf(kind: Kind): readonly { readonly label: string; readonly term: Json; readonly names: readonly string[] }[] {
+export function equationsOf(kind: Kind): readonly { readonly label: string; readonly term: Json; readonly names: readonly string[] }[] {
   const tree = kind.tree;
   if (tree === undefined) return [];
   const out: { readonly label: string; readonly term: Json; readonly names: readonly string[] }[] = [];

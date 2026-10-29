@@ -24,6 +24,7 @@ import {
   isHostThing,
   jsTruthy,
   ok,
+  random,
   sameResult,
   schedule,
   typesOf,
@@ -406,6 +407,60 @@ describe("the interface of a schedule", () => {
     const outcome = agreeSchedule(schedule, { machines: [machine, { ...machine }], wire, wired: 0.5, count: COUNT / 2, steps: STEPS, equal });
     expect(told(outcome)).toEqual([]);
     expect(outcome.counts.compared).toBeGreaterThan(COUNT * 2);
+  });
+
+  it("[SCHED.EDGES] a node whose equation reads another node has a lazy edge to it, and a change of that node evaluates only the two nodes again", () => {
+    // Before K166, factsOf gave no read of an equation, thus the node t had no edge.
+    const machine = treeMachine({ seen: { type: "add", value: [ref("world", "a"), 1] } });
+    const s = schedule(machine, { context: context({ names: { x: 1, y: 1 } }) });
+    s.set("a", ref("names", "x"));
+    s.set("b", ref("names", "y"));
+    s.set("t", { type: "watch", value: { got: ref("self", "seen") } });
+    s.set("u", { type: "add", value: [ref("world", "b"), 1] });
+    expect(s.graph().get("t")?.edges.map((edge) => [edge.to, edge.field, edge.lazy])).toEqual([["a", [], true]]);
+    expect(cycles(s.graph())).toEqual([]);
+    expect([s.read("t"), s.read("u")]).toEqual([ok({ got: 2 }), ok(2)]);
+    // A change of the node a evaluates a and t again. The nodes b and u verify their reads, and they keep their results.
+    let counts = s.counts;
+    s.changeData(context({ names: { x: 5, y: 1 } }));
+    expect([s.read("t"), s.read("u")]).toEqual([ok({ got: 6 }), ok(2)]);
+    expect(s.counts.evaluations - counts.evaluations).toBe(2);
+    expect(s.counts.reuses - counts.reuses).toBe(2);
+    // A change of the node b evaluates b and u again, and t keeps its result.
+    counts = s.counts;
+    s.changeData(context({ names: { x: 5, y: 3 } }));
+    expect([s.read("t"), s.read("u")]).toEqual([ok({ got: 6 }), ok(4)]);
+    expect(s.counts.evaluations - counts.evaluations).toBe(2);
+    expect(s.counts.reuses - counts.reuses).toBe(2);
+    // An equation that reads its own node makes a static cycle. The lazy edge makes it a cycle that is not certain.
+    s.set("v", { type: "watch", value: { got: ref("self", "seen") } });
+    s.set("a", ref("world", "v"));
+    expect(cycles(s.graph())).toEqual([{ nodes: ["a", "v"], certain: false }]);
+    expect(s.read("v")).toEqual(cycle("v"));
+  });
+
+  it("[SCHED.EQUATION] agreeSchedule finds no stale answer for nodes of tree kinds whose generated equations read other nodes", () => {
+    const nodes = ["p", "q", "r", "s", "t"];
+    const term = (rng: Random, depth: number): Json => {
+      const roll = rng.int(depth > 0 ? 9 : 6);
+      if (roll === 0) return rng.pick([0, 1, 2]);
+      if (roll < 3) return ref("world", rng.pick(nodes));
+      if (roll === 3) return ref("names", rng.pick(["a", "n"]));
+      if (roll === 4) return ref("self", "width");
+      if (roll === 5) return ref("world", rng.pick(nodes), "got");
+      if (roll < 8) return { type: "add", value: [term(rng, depth - 1), term(rng, depth - 1)] };
+      return { type: "if", value: { test: term(rng, depth - 1), then: term(rng, depth - 1), else: term(rng, depth - 1) } };
+    };
+    // Each machine has other equations. The command of a new machine takes the next one.
+    const machines = [11, 12, 13].map((seed) => {
+      const rng = random(seed);
+      return treeMachine({ seen: term(rng, 2), twice: { type: "add", value: [term(rng, 1), ref("self", "seen")] } });
+    });
+    const wire = (rng: Random, node: () => Json): unknown => ({ type: "watch", value: { width: rng.chance(0.5) ? node() : 1, got: ref("self", rng.pick(["seen", "twice"])) } });
+    const outcome = agreeSchedule(schedule, { machines, wire, wired: 0.6, count: COUNT / 2, steps: STEPS, equal });
+    expect(told(outcome)).toEqual([]);
+    expect(outcome.counts.compared).toBeGreaterThan(COUNT * 2);
+    expect(outcome.counts.values).toBeGreaterThan(COUNT / 2);
   });
 
   it("[SCHED.CYCLE] each node of a cycle gives #CYCLE! with its name and no place, in each order of demands, and a reader gets the error at its reference", () => {

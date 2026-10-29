@@ -11,6 +11,7 @@ import {
   type Effect,
   type EvalError,
   type EvalFn,
+  type Evaluator,
   type FormulaProfile,
   type GenerateOptions,
   type HostThing,
@@ -24,6 +25,7 @@ import {
   type Read,
   type Result,
   type Runtime,
+  type StaticRead,
   type Steps,
   type TierInput,
   type TierResult,
@@ -1015,14 +1017,35 @@ describe("the reads of a run", () => {
     expect(plan.evaluate(context({ self: { base: 11 }, names: { index: 7 } }))).toEqual(ok({ children: [{ at: 11 }] }));
   });
 
-  it("[READS.EQUATION] factsOf gives no static read of an equation yet, thus the free read of an equation is an exception of READS.SUBSET (K166)", () => {
-    // This test pins the gap K166. When factsOf reads the equations of a kind, it gives a static read of event.a too.
+  it("[FACTS.EQUATIONS] factsOf gives the static reads of the equations of a tree kind, thus the free read of an equation has a static read (READS.SUBSET, K166)", () => {
+    // Before K166, factsOf gave only [["self"], ["self", "seen"]], and the free read event.a had no static read.
     const machine = withTree("watch", { seen: refTo("event", "a") });
     const doc = { type: "watch", value: { got: refTo("self", "seen") } };
     const reads: Read[] = [];
     expect(prepare(machine, doc).evaluate(context({ event: { a: 1 } }), { reads })).toEqual(ok({ got: 1 }));
     expect(reads.filter((read) => read.free).map((read) => read.path)).toEqual([["self"], ["event", "a"]]);
-    expect(factsOf(machine, doc).reads.map((read) => read.path)).toEqual([["self"], ["self", "seen"]]);
+    const facts = factsOf(machine, doc);
+    expect(facts.reads.map((read) => read.path)).toEqual([["self"], ["event", "a"], ["self", "seen"]]);
+    // The read of the equation is lazy, and it has the place of the document of the kind.
+    expect(facts.reads[1]).toMatchObject({ root: "event", keys: ["a"], exact: true, lazy: true, place: [], at: [] });
+    expect(facts.pure).toBe(true);
+  });
+
+  it("[FACTS.EQUATIONS] a closure whose body holds a tree node keeps the reads of the equations, thus verifyReads sees a change of the event (READS.CLOSURE)", () => {
+    const evaluator = (STD_MACHINE.evaluators as Readonly<Record<string, Evaluator>>)["tree.node"] as Evaluator;
+    const machine: Machine = { ...strictMachine, world: { ...strictMachine.world, kinds: { ...strictMachine.world.kinds, watch: treeKind({ seen: refTo("event", "a") }) } }, evaluators: { ...strictMachine.evaluators, "tree.node": evaluator } };
+    const doc = { type: "fn", value: { params: [], body: { type: "watch", value: { got: refTo("self", "seen") } } } };
+    const plan = prepare(machine, doc);
+    const reads: Read[] = [];
+    const before = context({ event: { a: 1, b: 1 } });
+    expect(plan.evaluate(before, { reads }).ok).toBe(true);
+    // Before K166, the closure kept only the root self, and a change of event.a kept the old closure.
+    expect(reads.map((read) => [read.path, read.kept])).toEqual([
+      [["self"], true],
+      [["event", "a"], true],
+    ]);
+    expect(verifyReads(plan, reads, context({ event: { a: 2, b: 1 } }))).toMatchObject({ same: false, index: 1 });
+    expect(verifyReads(plan, reads, context({ event: { a: 1, b: 2 } }))).toEqual({ same: true });
   });
 
   it("[RUN.AGREES-READS] agreeRun finds a definition that reads another list, and it compares no read when the plan keeps each root", async () => {
@@ -1162,14 +1185,24 @@ interface EquationOutcome {
   readonly findings: readonly Finding[];
   /** The verifications that kept an old result, while a new evaluation gave another result (READS.SOUND). */
   readonly stale: readonly string[];
+  /** The free reads of a plan that no static read of `factsOf` covers (READS.SUBSET). */
+  readonly uncovered: readonly string[];
   readonly counts: Readonly<Record<string, number>>;
+}
+
+/** This function tells if a static read covers the path of a read: the same root, and its keys start the path. */
+function covers(read: StaticRead, path: readonly unknown[]): boolean {
+  if (read.root !== path[0]) return false;
+  if (read.exact && path.length !== read.keys.length + 1) return false;
+  return read.keys.every((key, index) => path[index + 1] === key);
 }
 
 /** This function evaluates the corpus of trees with equations in each tier, and verifies the reads of each plan. */
 async function harnessEquations(total: number): Promise<EquationOutcome> {
   const findings: Finding[] = [];
   const stale: string[] = [];
-  const counts: Record<string, number> = { docs: 0, value: 0, reads: 0, equationReads: 0, same: 0, changed: 0 };
+  const uncovered: string[] = [];
+  const counts: Record<string, number> = { docs: 0, value: 0, reads: 0, equationReads: 0, covered: 0, same: 0, changed: 0 };
   const add = (name: string, by = 1): void => {
     counts[name] = (counts[name] ?? 0) + by;
   };
@@ -1195,11 +1228,24 @@ async function harnessEquations(total: number): Promise<EquationOutcome> {
     // A part reads only from self, thus each other free read comes from an equation.
     add("equationReads", outcome.reads?.filter((read) => read.path[0] !== "self").length ?? 0);
 
-    // READS.SOUND: when the reads of the plan verify in a new context, a new evaluation gives the old result.
-    if (!factsOf(machine, doc).pure) continue;
+    // READS.SUBSET: each free read of the plan has a static read of factsOf that covers it, also a read of an equation (K166).
+    const facts = factsOf(machine, doc);
     const plan = prepare(machine, doc);
     const reads: Read[] = [];
     const before = plan.evaluate(ctx, { reads });
+    for (const read of reads) {
+      if (!read.free || read.kept === true) continue;
+      if (facts.reads.some((fact) => covers(fact, read.path))) {
+        if (read.path[0] !== "self") add("covered");
+        continue;
+      }
+      uncovered.push(`seed ${seed}: ${show(read.path)}
+  doc ${show(doc)}
+  kinds ${show({ node: machine.world.kinds["node"], leaf: machine.world.kinds["leaf"] })}`);
+    }
+
+    // READS.SOUND: when the reads of the plan verify in a new context, a new evaluation gives the old result.
+    if (!facts.pure) continue;
     if (!sameResult(before, plan.evaluate(ctx))) continue;
     const rng = random(seed * 3 + 1);
     for (let turn = 0; turn < 3; turn += 1) {
@@ -1216,18 +1262,20 @@ async function harnessEquations(total: number): Promise<EquationOutcome> {
       }
     }
   }
-  return { findings, stale, counts };
+  return { findings, stale, uncovered, counts };
 }
 
 describe("one meaning of trees with equations", () => {
-  it("[RUN.AGREES-EQUATIONS] generated trees with generated equations agree in agree and agreeRun with their free reads, and verifyReads keeps no stale result", async () => {
+  it("[RUN.AGREES-EQUATIONS] generated trees with generated equations agree in agree and agreeRun with their free reads, factsOf covers each free read, and verifyReads keeps no stale result", async () => {
     const outcome = await harnessEquations(COUNT);
     const counts = outcome.counts;
     expect(report(outcome.findings), show(counts)).toEqual([]);
     expect(outcome.stale.slice(0, 3), show(counts)).toEqual([]);
-    // The corpus reaches values, free reads of equations, and verifications that keep and that discard a result.
+    expect(outcome.uncovered.slice(0, 3), show(counts)).toEqual([]);
+    // The corpus reaches values, free reads of equations with their static reads, and verifications that keep and that discard a result.
     expect(counts["value"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 12);
     expect(counts["equationReads"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
+    expect(counts["covered"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
     expect(counts["same"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 4);
     expect(counts["changed"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
   }, 300_000);
