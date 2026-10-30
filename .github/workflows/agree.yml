@@ -15,12 +15,18 @@ on:
 permissions:
   contents: read
 
+# The account runs at most 20 jobs at one time. A newer run cancels an older run, and at most 3 parts run at one time.
+concurrency:
+  group: agree-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   agree:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         part: [1, 2, 3, 4]
     steps:
