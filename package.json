@@ -12,9 +12,11 @@
     "template": "template repo",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
-    "lint:ste": "ste-lint"
+    "lint:ste": "ste-lint",
+    "check:conventions": "conventions check"
   },
   "devDependencies": {
+    "@mark1russell7/conventions": "^0.5.0",
     "@mark1russell7/cue": "^1.0.2",
     "@mark1russell7/ste-lint": "^0.1.1",
     "@mark1russell7/template-cli": "^0.1.0",
