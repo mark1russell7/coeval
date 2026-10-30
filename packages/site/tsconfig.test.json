@@ -16,6 +16,7 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "vitest.config.ts",
+    "astro.config.ts",
     ".astro/types.d.ts"
   ],
   "exclude": [
