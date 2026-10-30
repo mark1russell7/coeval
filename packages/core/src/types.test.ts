@@ -1062,7 +1062,12 @@ describe("value types and value domains", () => {
     expect(falseCovers(COVERED, COVER_SAMPLES)).toEqual([]);
     const run = splitCorpus(COVERED);
     expect(run.bad).toEqual([]);
-    expect({ total: run.total, pairs: run.pairs, split: run.split, cover: run.cover, checked: run.checked }).toEqual({ total: 0, pairs: 0, split: 0, cover: 0, checked: 0 });
+    // The corpus holds 120 records, 244 unions and 29280 pairs. The counts pin the corpus: a change to the generator shows here.
+    expect(run.total).toBe(29280);
+    expect(run.pairs).toBe(1176);
+    expect(run.split).toBe(374);
+    expect(run.cover).toBe(144);
+    expect(run.checked).toBe(11760);
     // A false cover: neg and zero do not hold 1.5. The corpus then finds a counterexample.
     const wrong: Readonly<Record<string, Domain>> = { ...COVERED, number: { ...(COVERED["number"] as Domain), covers: [["neg", "zero"]] } };
     expect(splitCorpus(wrong).bad.length).toBeGreaterThan(0);

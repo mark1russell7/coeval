@@ -2751,7 +2751,7 @@ An example is a record with `b: bool` and five `bool` fields in `a`. Against two
 
 **Why.** A cover holds each member of its domain, and a union holds each member of its members. Thus each member of the record is a member of one record of a type split. A domain of a cover of a parent holds more members than the field, thus the split stays sound. The rule is sound when `values` and `covers` are true, as in D79 and D85.
 
-**Soundness.** A fifth corpus of TYPE.FITS-SOUND holds 120 records with covered fields, union fields and inner records. Its unions hold the type splits of each record by the covers of the language, at one or two paths. The corpus has more than 20000 pairs, and more than 100 of them fit. More than 40 pairs fit only by a split, and more than 20 fit only by a cover.
+**Soundness.** A fifth corpus of TYPE.FITS-SOUND holds 120 records with covered fields, union fields and inner records. Its unions hold the type splits of each record by the covers of the language, at one or two paths. The corpus has more than 20000 pairs, and more than 100 of them fit. More than 40 pairs fit only by a split, and more than 20 fit only by a cover. Since K193, the test pins the exact counts: 29280 pairs, 1176 fits, 374 split fits, 144 cover fits and 11760 checked members.
 
 The test finds 0 counterexamples. The same corpus with a false cover of `number` finds counterexamples at once.
 
