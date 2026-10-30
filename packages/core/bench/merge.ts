@@ -69,7 +69,10 @@ function cells(item: BenchCase | undefined): string {
 }
 
 function read(file: string | undefined): BenchRun | undefined {
-  if (file === undefined || !existsSync(file)) return undefined;
+  if (file === undefined || !existsSync(file)) {
+    console.error(`::error::The run file ${file ?? "(none)"} is missing.`);
+    return undefined;
+  }
   return JSON.parse(readFileSync(file, "utf8")) as BenchRun;
 }
 
@@ -101,7 +104,14 @@ function main(): void {
   console.log(text);
   const summary = process.env["GITHUB_STEP_SUMMARY"];
   if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths: the verdict of two runs\n\n${text}\n`);
-  if (runs.includes(undefined) || counts.has("different results")) process.exitCode = 1;
+  const short = runs.flatMap((run, index) =>
+    run !== undefined && (run.cases.length === 0 || run.cases.length < names.length)
+      ? [`${files[index] ?? `run ${String(index + 1)}`} has ${String(run.cases.length)} of ${String(names.length)} cases.`]
+      : [],
+  );
+  for (const line of short) console.error(`::error::${line}`);
+  if (names.length === 0) console.error("::error::The two run files have no cases.");
+  if (runs.includes(undefined) || short.length > 0 || names.length === 0 || counts.has("different results")) process.exitCode = 1;
 }
 
 main();

@@ -14,7 +14,9 @@
   },
   "include": [
     "src/**/*",
-    "bench/**/*.ts"
+    "bench/**/*.ts",
+    "tsdown.config.ts",
+    "vitest.config.ts"
   ],
   "exclude": []
 }
