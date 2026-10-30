@@ -3,7 +3,7 @@ import react from "@astrojs/react";
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 
-const base = process.env.SITE_BASE ?? "/coeval";
+const base = process.env["SITE_BASE"] ?? "/coeval";
 
 export default defineConfig({
   site: "https://mark1russell7.github.io",
