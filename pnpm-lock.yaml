@@ -171,7 +171,7 @@ importers:
         version: 0.7.0
       '@mark1russell7/cue':
         specifier: ^1.0.2
-        version: 1.0.2
+        version: 1.1.0
       '@mark1russell7/ste-lint':
         specifier: ^0.1.1
         version: 0.1.1
@@ -195,7 +195,7 @@ importers:
     devDependencies:
       '@mark1russell7/cue':
         specifier: ^1.0.2
-        version: 1.0.2
+        version: 1.1.0
       '@types/node':
         specifier: ^26.6.4
         version: 26.6.5
@@ -238,7 +238,7 @@ importers:
     devDependencies:
       '@mark1russell7/cue':
         specifier: ^1.0.2
-        version: 1.0.2
+        version: 1.1.0
       '@types/node':
         specifier: ^26.6.4
         version: 26.6.5
@@ -835,8 +835,8 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
-  '@mark1russell7/cue@1.0.2':
-    resolution: {integrity: sha512-ketUJQeJ4eLSmw0X3NpWrGHxXVg30MpMfw/wYdzlpwf7J94BQmmOM80VuGL4OPC4tXczmTj5LWxNdM7NoQKgeA==}
+  '@mark1russell7/cue@1.1.0':
+    resolution: {integrity: sha512-R9pjuWNFqd/LSfOI8uY7w8E2Dri8UQFGLodBuV4d2E0pwzWM5ISVXWVhC7+aYgrR1GXSMzbyo5ZLWvqyQCwdIg==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -2951,7 +2951,7 @@ snapshots:
 
   '@mark1russell7/conventions@0.7.0': {}
 
-  '@mark1russell7/cue@1.0.2': {}
+  '@mark1russell7/cue@1.1.0': {}
 
   '@mark1russell7/ste-lint@0.1.1':
     dependencies:
