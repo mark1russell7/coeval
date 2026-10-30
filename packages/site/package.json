@@ -10,7 +10,7 @@
     "preview": "astro preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+    "typecheck": "tsc -p tsconfig.json && astro sync && tsc -p tsconfig.test.json"
   },
   "devDependencies": {
     "@mark1russell7/cue": "^1.0.2",

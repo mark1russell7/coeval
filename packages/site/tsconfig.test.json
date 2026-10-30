@@ -14,11 +14,11 @@
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "vitest.config.ts",
+    ".astro/types.d.ts"
   ],
   "exclude": [
-    "src/content.config.ts",
-    "dist",
-    ".astro"
+    "dist"
   ]
 }
