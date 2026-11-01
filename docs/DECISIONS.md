@@ -2767,3 +2767,24 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - A split uses one cover of a field. Thus `{a: number}` does not fit `{a: lo} | {a: hi}` when `neg` and `nonneg` are the first cover of `number` (K192).
 - A cover of a parent gives cases with more members than the field. Such a case fits less often than a cover of the domain of the field.
 - Two outer splits beside each other each get a budget of 64 records, as in D89.
+
+## D91 (2026-11-01): a run gives the host no effect that its parent cannot wait for
+
+**Context.** K202, from the change audit of 2026-11-01. D38 drives a runner under an evaluator in a run, and its effects go to `perform`. A host that waits does the effect at once. Then the drive drops the promise and gives `#CALC!`. Thus the effect happened, and the run lost its answer. A retry after the `#CALC!` did the effect again.
+
+**Decision.**
+
+- In a run, an effect under a drive without a wait does not go to `perform` (RUN.HELD). The effect keeps the outcome `#CALC!`.
+- The effect stops the drive. Thus the runner gives the `#CALC!` of the check with the option `run`, at its place and with its reason.
+- The plan and the reference count the active drives without a wait. The count is not in the public types.
+- A runner under an evaluator without effects still runs (D38). A branch with an effect that does not run does not stop the drive.
+- RUN.SAME gets a condition: no runner under an evaluator causes an effect.
+
+**Rejected.**
+
+- Option A: keep D38. A host answers at once or with a promise, and only the call tells which. Thus each effect that waits is lost after the host did it.
+- Option B: keep the answer of the promise for the effect when it settles. The run still gives `#CALC!`, and a retry still does the effect again.
+
+**Public types.** No type changes. A run of `add[1, log[x]]` with a host that answers at once gives `#CALC!`, not the answer of the host. The change is a fix: PATCH before 1.0.
+
+**Changed expected values.** RUN.NESTED-WAIT: the effect has the outcome `#CALC!`, not `undefined`. RUN.DRIVE-NESTED: a host that answers at once gives the `#CALC!` of a host that waits.

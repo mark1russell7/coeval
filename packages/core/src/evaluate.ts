@@ -1053,6 +1053,11 @@ class Session implements Runtime {
   private list: Effect[] | undefined;
   tick = 0;
   nextId = 0;
+  /**
+   * The count of the drives without a wait that are active at this time. In a run, an effect under such a drive does
+   * not reach the host (RUN.HELD).
+   */
+  held = 0;
   current: Building | undefined;
   readonly holder: Building | undefined;
   /**
@@ -1265,6 +1270,13 @@ class Session implements Runtime {
     if ("ok" in made) return made;
     const perform = this.perform;
     if (!this.running || perform === undefined) return this.answer(made, place);
+    if (this.held > 0) {
+      // The parent cannot wait for the answer of the host, thus the host does not get the effect (RUN.HELD).
+      made.outcome = fail("#CALC!", heldReason(made.kind), { place });
+      // The drive stops at this wait, and gives the #CALC! of the runner.
+      yield HELD;
+      return made.outcome;
+    }
     let done: unknown;
     try {
       done = perform(made);
@@ -1451,6 +1463,21 @@ function holderNode(): Building {
 export function waitedReason(kindText: string): string {
   return `${kindText} waits for effects, and its parent cannot wait. Give the parent a runner.`;
 }
+
+/**
+ * This function gives the reason of an effect that a run does not give to the host: the parent of its runner cannot
+ * wait (RUN.HELD). The plan and the reference give the same reason.
+ *
+ * @param kind - The kind of the effect.
+ * @returns The reason.
+ */
+export function heldReason(kind: Cap): string {
+  const text = typeof kind === "string" ? kind : kind.join(".");
+  return `The parent of the runner cannot wait, thus the host does not get the effect ${text}.`;
+}
+
+/** The wait of an effect that a run does not give to the host. A drive without a wait stops at it (RUN.HELD). */
+const HELD: Promise<unknown> = /* @__PURE__ */ Promise.resolve(undefined);
 
 /** This function drives steps that cannot wait. A step that waits stops the steps, and gives `#CALC!`. */
 function drive(steps: Steps, kindText: string): Result {
@@ -2148,10 +2175,19 @@ function placedRun(inner: RunCode, place: readonly Key[], name: string): RunCode
 /**
  * This function gives the code of a runner under a parent that cannot wait: its steps, driven without a wait. An
  * evaluation and a run both drive them (RUN.DRIVE-NESTED). Only a step that really waits gives `#CALC!`, at the place
- * of the runner, where the error started (RUN.WAIT).
+ * of the runner, where the error started (RUN.WAIT). In a run, an effect under the runner does not reach the host,
+ * because the parent cannot wait for its answer (RUN.HELD).
  */
 function runnerCode(run: RunCode, place: readonly Key[], kindText: string): Code {
-  return (ctx, rt) => placed(drive(run(ctx, rt), kindText), place);
+  return (ctx, rt) => {
+    if (!rt.running || !(rt instanceof Session)) return placed(drive(run(ctx, rt), kindText), place);
+    rt.held += 1;
+    try {
+      return placed(drive(run(ctx, rt), kindText), place);
+    } finally {
+      rt.held -= 1;
+    }
+  };
 }
 
 /**
