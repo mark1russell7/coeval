@@ -701,7 +701,7 @@ ALL  [RUN.ALL, RUN.FAIL-FAST, RUN.REPLAY]
     all gives the results in the order of the items
 ```
 
-Three things make the handlers differ: an effect of an evaluator (X-NEEDS-RUNNER), a promise of `perform`, and an effect under a runner whose parent cannot wait (RUN.HELD, K202). A runner under an evaluator without such an effect does not make them differ (K110). Thus one meaning holds with these conditions:
+Three things make the handlers differ. These are an effect of an evaluator (X-NEEDS-RUNNER), a promise of `perform`, and an effect under a drive (RUN.HELD, K202). A runner under an evaluator without such an effect does not make them differ (K110). Thus one meaning holds with these conditions:
 
 ```text
 RUN-SAME  [RUN.SAME, RUN.MOCK, RUN.DRIVE-NESTED, RUN.HELD]
