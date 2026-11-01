@@ -4,6 +4,7 @@ description: A kind of the run side causes effects. The effects happen in the wr
 tableOfContents: false
 ---
 
+import EffectsDiagram from "../../../components/EffectsDiagram.tsx";
 import GlyphKey from "../../../components/GlyphKey.tsx";
 import Explorer from "../../../glyphs/Explorer.tsx";
 import { EFFECTS, PURE } from "../../../lib/programs.ts";
@@ -46,3 +47,7 @@ The pictures on this page are evaluations. An evaluation records each effect, an
 A test can give an evaluation a mock `perform`. Its answer becomes the result of the effect, without a promise. Each effect keeps a fixed address and its outcome, thus a host can record a run and replay it (decision D19).
 
 A kind that holds effects has a runner. The same runner serves the evaluation and the run, thus the picture of an evaluation shows exactly what a run does. A run waits only when the host waits. Before that, it goes on at once.
+
+A runner can wait for the host only when its parent can wait. In a run, an effect under a parent that cannot wait does not go to the host (decision D91). The effect keeps the outcome `#CALC!`, and the runner gives `#CALC!`. Pick a program and a host. The kernel does a run of the program, and the diagram shows each call of `perform`.
+
+<EffectsDiagram client:visible />
