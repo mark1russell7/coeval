@@ -1,4 +1,4 @@
-import { STD_CAPS, STD_MACHINE, check, makeContext, run, type Effect, type Issue, type Json, type Result } from "@mark1russell7/coeval";
+import { STD_CAPS, STD_MACHINE, check, kindOf, makeContext, run, type Effect, type Issue, type Json, type Result } from "@mark1russell7/coeval";
 
 /** A program of the effects diagram: a document with effects, and its short text for a reader. */
 export interface EffectProgram {
@@ -119,13 +119,15 @@ export async function runWithHost(program: EffectProgram, host: HostKind): Promi
 }
 
 /**
- * This function tells if a kind has a runner in the machine of the diagram. A runner can wait for the host.
+ * This function tells if the kind of a type has a runner in the machine of the diagram. A runner can wait for the host.
+ * The world gives the evaluator of the kind, and the machine keys its runners by that evaluator.
  *
- * @param kind - The kind.
+ * @param kind - The type of the document.
  * @returns `true` when the kind has a runner.
  */
 export function isRunner(kind: string): boolean {
-  return Object.hasOwn(STD_MACHINE.runners ?? {}, kind);
+  const evaluator = kindOf(STD_MACHINE.world, kind)?.verbs["eval"];
+  return evaluator !== undefined && Object.hasOwn(STD_MACHINE.runners ?? {}, evaluator);
 }
 
 /**
