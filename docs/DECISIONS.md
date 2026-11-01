@@ -2788,3 +2788,17 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 **Public types.** No type changes. A run of `add[1, log[x]]` with a host that answers at once gives `#CALC!`, not the answer of the host. The change is a fix: PATCH before 1.0.
 
 **Changed expected values.** RUN.NESTED-WAIT: the effect has the outcome `#CALC!`, not `undefined`. RUN.DRIVE-NESTED: a host that answers at once gives the `#CALC!` of a host that waits.
+
+## D92 (2026-11-01): the release age exclude names packages, not scopes
+
+**Context.** K203, from the change audit of 2026-11-01. `pnpm-workspace.yaml` removed the release age check of pnpm for all of `@mark1russell7/*` and `@procedures/*`. A stolen token of one of these scopes can publish a bad version, and an update installs it at once.
+
+**Decision.**
+
+- The exclude names the four own packages that this repository uses: `conventions`, `cue`, `ste-lint` and `template-cli`.
+- Each other package keeps the release age check. This repository uses no package of `@procedures`.
+- A new own dependency gets a line in the exclude only when its updates cannot wait for the check.
+
+**Rejected.** (A) No exclude. Then a fix of `conventions` waits a full day before a repository can use it. (B) The two scopes, as before. They expose each package of the scopes, also the packages that this repository does not use.
+
+**Public types.** No change.

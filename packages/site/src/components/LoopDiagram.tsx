@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { durable, evaluate, makeContext, type Durable, type DurableCounts, type Json } from "@mark1russell7/coeval";
 import { SITE_MACHINE } from "../glyphs/Explorer.tsx";
 import { useReducedMotion } from "../lib/motion.ts";
+import { createSequence, type Sequence, type Step } from "../lib/sequence.ts";
 
 type Phase = "idle" | "event" | "run1" | "run2" | "run3" | "store" | "derive" | "view";
 
@@ -108,34 +109,25 @@ export default function LoopDiagram() {
   const [runs, setRuns] = useState(0);
   const [pass, setPass] = useState(0);
   const [source, setSource] = useState<"click" | "tab" | undefined>(undefined);
-  const timers = useRef<number[]>([]);
+  // The kernel computes each new store at once, thus the next click starts from it, not from the store on the view.
+  const latest = useRef({ store: initial.store, pass: 0 });
+  const sequence = useRef<Sequence<Phase> | undefined>(undefined);
+  sequence.current ??= createSequence<Phase>(
+    { start: (run, delay) => window.setTimeout(run, delay), stop: (id) => window.clearTimeout(id) },
+    setPhase,
+    "idle",
+  );
 
-  useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
+  useEffect(() => () => sequence.current?.stop(), []);
 
-  const play = (steps: readonly (readonly [Phase, () => void])[]): void => {
-    timers.current.forEach((timer) => window.clearTimeout(timer));
-    timers.current = [];
-    if (reduced) {
-      for (const [, effect] of steps) effect();
-      setPhase("idle");
-      return;
-    }
-    steps.forEach(([next, effect], index) => {
-      timers.current.push(
-        window.setTimeout(() => {
-          setPhase(next);
-          effect();
-        }, index * 650),
-      );
-    });
-    timers.current.push(window.setTimeout(() => setPhase("idle"), steps.length * 650 + 400));
-  };
+  const play = (steps: readonly Step<Phase>[]): void => sequence.current?.play(steps, reduced);
 
   const nothing = (): void => undefined;
 
   /** The kernel computes the new values at once. The phases only show the steps one by one. */
-  const deriveSteps = (next: Store): readonly (readonly [Phase, () => void])[] => {
-    const nextPass = pass + 1;
+  const deriveSteps = (next: Store): readonly Step<Phase>[] => {
+    const nextPass = latest.current.pass + 1;
+    latest.current = { store: next, pass: nextPass };
     const derived = deriveAll(cache, next, rotated(nextPass));
     const nextCounts = { ...cache.counts };
     return [
@@ -152,15 +144,16 @@ export default function LoopDiagram() {
   };
 
   const click = (): void => {
-    const next = runOnce(store);
+    const next = runOnce(latest.current.store);
     setSource("click");
     play([["event", nothing], ["run1", nothing], ["run2", nothing], ["run3", () => setRuns((count) => count + 1)], ...deriveSteps(next)]);
   };
 
   const otherTab = (): void => {
-    const total = store.total >= 6 ? 3 : store.total + 1;
+    const now = latest.current.store;
+    const total = now.total >= 6 ? 3 : now.total + 1;
     setSource("tab");
-    play(deriveSteps({ total, done: Math.min(store.done, total) }));
+    play(deriveSteps({ total, done: Math.min(now.done, total) }));
   };
 
   const runLit = (index: number): boolean =>

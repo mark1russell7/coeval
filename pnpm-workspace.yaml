@@ -6,7 +6,10 @@ packages:
 allowBuilds:
   esbuild: true
 
-# Our own packages: the release train updates them, so the release age check of pnpm does not apply to them.
+# The own packages that this repository uses: the release train updates them, so the release age check of pnpm does
+# not apply to them. Each other package keeps the check (D92).
 minimumReleaseAgeExclude:
-  - "@mark1russell7/*"
-  - "@procedures/*"
+  - "@mark1russell7/conventions"
+  - "@mark1russell7/cue"
+  - "@mark1russell7/ste-lint"
+  - "@mark1russell7/template-cli"
