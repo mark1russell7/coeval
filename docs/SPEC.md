@@ -495,6 +495,7 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | CONFORM.LOCAL | Code that gives another record for the same probe in a later call breaks the local lemma. Compiled code that disagrees with its definition for the reference breaks it too. |
 | CONFORM.PROFILE | Compiled code that reads a table whose answer changes after the compilation breaks C8. Code of an earlier compilation and new code differ on the same probe. |
 | CONFORM.TRUTH | The own `truthy` of a profile with a `truthType` gives `true` or `false` for each member, or `formula.if`, `formula.and` and `formula.or` break `truth` (D86). The members come from the lists `values`, or from the palette. A value outside the type gets no test. |
+| CONFORM.COVER | Each sample of a covered domain of the machine is in one domain of each valid cover, or each evaluator and each runner breaks `cover` (D94). The samples come from the list `values`, or from the palette. A cover that does not count by the line rule of D85 gets no test. |
 
 ## The calculus
 

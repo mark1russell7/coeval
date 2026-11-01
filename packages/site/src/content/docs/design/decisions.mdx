@@ -98,6 +98,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D88 | A list or a record that two places of one error share is the part `share` with its index in the order of the walk. `decodeLog` gives one object for both places, also for a container that holds itself. |
 | D89 | A split of `fits` also narrows a field of a record in a field by its path, thus `{a: {x: bool}}` fits a record for `true` or a record for `false` at `a.x`. One budget of 64 records serves a split at each depth. |
 | D90 | A split of `fits` also narrows a field to each domain of a cover or each member of a union. Thus `{a: number}` fits a union of `{a: neg}` and `{a: nonneg}` when the two domains cover `number`. |
+| D94 | `conforms` tests the covers of a machine from samples. A sample of a covered domain that no domain of a cover holds is a finding of the check `cover`. |
 
 ## Open
 

@@ -73,7 +73,7 @@ export interface Domain {
    *
    * A split of a record also narrows a field of the domain to each domain of a cover (D90).
    * The language keeps each cover true, and `fits` trusts it, as it trusts `values`. A cover that is empty, or that
-   * names this domain or a name that is not under it, does not count.
+   * names this domain or a name that is not under it, does not count. `conforms` tests each cover from samples (D94).
    */
   readonly covers?: readonly (readonly string[])[];
 }
@@ -430,6 +430,42 @@ function membersAt(type: unknown, domains: Readonly<Record<string, Domain>> | un
  */
 export function membersOf(type: ValueType, domains: Readonly<Record<string, Domain>> | undefined, samples: readonly unknown[]): readonly unknown[] {
   return membersAt(type, domains, samples, 0);
+}
+
+/** A false cover that a sample shows (D94): a member of a covered domain that no domain of the cover holds. */
+export interface FalseCover {
+  /** The name of the covered domain. */
+  readonly domain: string;
+  /** The cover: the names of its domains. */
+  readonly cover: readonly string[];
+  /** The sample. It is a member of the covered domain. */
+  readonly value: unknown;
+}
+
+/**
+ * This function finds the false covers of a language from samples (D94). A cover is false when a sample of the covered
+ * domain is in no domain of the cover. The function tests each valid cover of each domain of the table. It ignores a
+ * cover that does not count by the line rule of D85, because `fits` ignores it too. It also ignores a sample outside
+ * the covered domain. `conforms` and a test of `fits` use the function. The kernel does not export it.
+ *
+ * @param domains - The domains of the language, by their names.
+ * @param samples - The samples of each covered domain, by the name of the domain.
+ * @returns Each sample that breaks a cover, in the order of the domains, the covers and the samples.
+ */
+export function falseCovers(domains: Readonly<Record<string, Domain>>, samples: Readonly<Record<string, readonly unknown[]>>): readonly FalseCover[] {
+  const out: FalseCover[] = [];
+  for (const [name, domain] of Object.entries(domains)) {
+    const covers: unknown = domain.covers;
+    if (!Array.isArray(covers)) continue;
+    const values = (Object.hasOwn(samples, name) ? samples[name] : undefined) ?? [];
+    for (const cover of covers as readonly unknown[]) {
+      if (!validCover(name, cover, domains)) continue;
+      for (const value of values) {
+        if (member(value, name, domains) && !cover.some((part) => member(value, part, domains))) out.push({ domain: name, cover, value });
+      }
+    }
+  }
+  return out;
 }
 
 /** This function holds the rules of the shapes of `fits`: base types, lists, records and functions. */

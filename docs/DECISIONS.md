@@ -2817,3 +2817,35 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 **Rejected.** (A) Keep D92. The release train undoes it. (B) No exclude. Then a fix of an own package waits a full day before a repository can use it.
 
 **Public types.** No change.
+
+## D94 (2026-11-01): `conforms` tests the covers of a machine from samples
+
+**Context.** K187, found by K179 (D85 Limits). `fits` trusts each cover of a domain. A new parent of a domain in a cover can make the cover false, and no check found it. A test helper of `types.test.ts` found a false cover from samples, but `conforms` did not use it.
+
+**Decision.**
+
+- `conforms` gets the check `cover` (CONFORM.COVER). Each sample of a covered domain must be in one domain of each cover of the domain.
+- The new obligation `cover` holds the finding. A false cover is a false promise of the language, not a fault of `truthy`, thus it does not reuse `truth`.
+- The samples of a domain come from its list `values` (D79). A domain without such a list gets the values of the palette that are its members, as in D86.
+- A cover that does not count by the line rule of D85 gets no test, because `fits` ignores it. A sample outside the covered domain gets no test either.
+- Each evaluator and each runner gets the check, because the check of types trusts a cover for each program.
+- The finding names the sample, the covered domain and the cover. Its probe gives the sample to each part of the first probe document, as for `truth`.
+- The function `falseCovers` of `types.ts` does the test. `conforms` and the tests of `fits` use it. The kernel does not export it, as `membersOf`.
+
+**Rejected.**
+
+- The obligation `truth` for a false cover. A finding of `truth` then has two causes, and a reader cannot tell them apart.
+- A new function next to `conforms` for the covers. A language already tests its code with `conforms`, and D86 rejected such a function too.
+- A check of the covers in `mergeMachines` or in `extendDomain`. These functions have no samples, and a merge then gets slower for each language.
+- A second sampler in `conform.ts`. The helper of `types.test.ts` already holds the test, thus the kernel moves it and keeps one copy.
+
+**Why.** A cover is a promise of the language, as `truthType` is. `conforms` already tests such promises from samples. Thus a new parent that makes a cover false gives a finding before a check of types trusts it.
+
+**Public types.** `Obligation` gets the value `cover`. A switch over the obligations sees a new case. The change is a new feature: MINOR before 1.0.
+
+**Changed expected values.** No result of `conforms` for an existing machine or test changes. No such machine declares a cover. The new tests are in `conform.test.ts`. `types.test.ts` uses the kernel function, and its findings are records, not texts.
+
+**Limits.**
+
+- The palette has few values. A domain without `values`, for example `number`, gets only the samples `1` and `2`. K188 adds samples of a domain.
+- The check reports the first false cover only, as each check of `conforms` reports its first finding.
