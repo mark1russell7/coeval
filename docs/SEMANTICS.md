@@ -675,12 +675,12 @@ X-NEEDS-RUNNER  [RUN.NEEDS-RUNNER]
     the handler run:
         an effect of an evaluator                        ⇒  err(#CALC!, ρ), before X-CAP
 
-DRIVE  [RUN.WAIT, RUN.EVAL, RUN.DRIVE-NESTED, RUN.NESTED-WAIT]
+DRIVE  [RUN.WAIT, RUN.EVAL, RUN.DRIVE-NESTED, RUN.NESTED-WAIT, RUN.HELD]
     drive(done(r)) = r
     drive(wait(p, k)) = err(#CALC!), and the steps stop
     both handlers drive the code of a runner document under an evaluator, by the rule E-RUNNER
-    in a run, its effects go to perform, and a promise of perform reaches drive as a wait
-    the effect of that wait gets no outcome
+    in a run, an effect under drive does not go to perform: its outcome is err(#CALC!, ρ)
+    the effect reaches drive as a wait, thus drive gives the #CALC! of the runner
 
 WAIT  [RUN.SEQ, RUN.EAGER]
     run(done(r)) = r
@@ -701,11 +701,12 @@ ALL  [RUN.ALL, RUN.FAIL-FAST, RUN.REPLAY]
     all gives the results in the order of the items
 ```
 
-Only two things make the handlers differ: an effect of an evaluator (X-NEEDS-RUNNER), and a promise of `perform`. A runner under an evaluator does not make them differ (K110). Thus one meaning holds without a condition of the check:
+Three things make the handlers differ. These are an effect of an evaluator (X-NEEDS-RUNNER), a promise of `perform`, and an effect under a drive (RUN.HELD, K202). A runner under an evaluator without such an effect does not make them differ (K110). Thus one meaning holds with these conditions:
 
 ```text
-RUN-SAME  [RUN.SAME, RUN.MOCK, RUN.DRIVE-NESTED]
+RUN-SAME  [RUN.SAME, RUN.MOCK, RUN.DRIVE-NESTED, RUN.HELD]
     no evaluator of d causes an effect      the code of M keeps C2 and C6
+    no runner of d under an evaluator causes an effect
     perform answers each effect at once, with the answers of the mock
     ─────────────────────────────────────
     run(M, d, Γ, perform) and evaluate(M, d, Γ, mock) give the same result
@@ -755,7 +756,7 @@ The work on the rules found six facts that the code has and `SPEC.md` did not st
 | One lookup follows at most 32 aliases. A longer chain gives no kind, thus a document of that type gives `#KIND?`. The reason of the lookup is `too-long`, not `cycle` (DEREF.CHAIN-REASON). | K-ALIAS-LIMIT | WORLD.ALIAS-LIMIT |
 | A reference in the data resolves in the context of its reader. | C-REF | DEREF.READER |
 | Each call of a handle is a new evaluation. The part evaluates again, and its effects happen again. | H-SEAL | EVAL.BY-NAME |
-| In a run, an effect of an evaluator gives `#CALC!` at once, also without a wait. A runner under an evaluator starts, and only a real wait fails. | X-NEEDS-RUNNER, DRIVE | RUN.NEEDS-RUNNER, RUN.DRIVE-NESTED |
+| In a run, an effect of an evaluator gives `#CALC!` at once, also without a wait. A runner under an evaluator starts, and only a wait fails. Its effects do not reach the host. | X-NEEDS-RUNNER, DRIVE | RUN.NEEDS-RUNNER, RUN.DRIVE-NESTED, RUN.HELD |
 | A step that is not a key, and not a document of a kind with the verb `step`, gives `#STEP?`. | R-NO-WALKER | DEREF.NO-WALKER |
 
 Two rows of `SPEC.md` got a condition. EVAL.SEALED holds for code that keeps C5. RUN.SAME holds when no evaluator causes an effect and the host answers at once.

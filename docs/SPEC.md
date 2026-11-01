@@ -225,6 +225,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.PURE | The kind `pure` refuses an effect, also in a run. |
 | RUN.SAME | A run gives the same result as an evaluation with the same `perform`, when the host answers each effect at once and no evaluator causes an effect. Thus a document without effects runs to the result of its evaluation. |
 | RUN.NESTED-WAIT | A step that waits inside a part that cannot wait gives `#CALC!`. |
+| RUN.HELD | In a run, an effect under a runner whose parent cannot wait does not reach the host. The effect keeps `#CALC!`. |
 | RUN.NEEDS-RUNNER | In a run, an effect of an evaluator gives `#CALC!` before the test of its capability, also when the host does not wait. |
 | RUN.DRIVE-NESTED | A run drives a runner under an evaluator without a wait, as an evaluation does. Only a step that really waits gives `#CALC!`. A branch that does not run does not wait. |
 | RUN.WAIT | A part that waits under an evaluator gives `#CALC!`. The error has the place of the part. |

@@ -21,6 +21,7 @@ import {
   type Steps,
   type StopSignal,
   JOURNAL,
+  heldReason,
   makeContext,
   permits,
   placeText,
@@ -110,6 +111,8 @@ interface Env {
   readonly verb: string;
   /** The scope of the code that evaluates at this time. `all` changes it for each item. */
   scope: Scope;
+  /** The count of the drives without a wait that are active. In a run, an effect under one does not reach the host (RUN.HELD). */
+  held: number;
   /** The record of the reads. A nested evaluation for an equation of a tree keeps the record of its tree. */
   readonly reading: Reading | undefined;
 }
@@ -309,6 +312,12 @@ function* causeAndWait(env: Env, ctx: Context, kind: Cap, payload: unknown, plac
   if ("ok" in effect) return effect;
   const perform = env.perform;
   if (perform === undefined) return (effect.outcome = ok(payload));
+  if (env.held > 0) {
+    // The parent cannot wait for the answer of the host, thus the host does not get the effect (RUN.HELD).
+    effect.outcome = fail("#CALC!", heldReason(kind), { place });
+    yield Promise.resolve(undefined);
+    return effect.outcome;
+  }
   let given: unknown;
   try {
     given = perform(effect);
@@ -382,7 +391,16 @@ function evaluateSeen(env: Env, seen: Seen, at: At): Result {
   const { chosen } = seen;
   const { place } = at;
   if ("gap" in chosen) return fail("#NOEVAL", chosen.gap, { place });
-  if ("runner" in chosen) return drive(runSeen(env, seen, at, chosen.runner), place, seen.kindText);
+  if ("runner" in chosen) {
+    if (!env.running) return drive(runSeen(env, seen, at, chosen.runner), place, seen.kindText);
+    // In a run, an effect under this drive does not reach the host (RUN.HELD).
+    env.held += 1;
+    try {
+      return drive(runSeen(env, seen, at, chosen.runner), place, seen.kindText);
+    } finally {
+      env.held -= 1;
+    }
+  }
   const input = evalInput(env, seen, at);
   try {
     return placed(chosen.evaluator(input), place);
@@ -655,6 +673,7 @@ function envOf(machine: Machine, options: ReferenceOptions, running: boolean, ro
     running,
     verb: options.verb ?? "eval",
     scope: { prefix: "", counts: new Map(), alls: 0 },
+    held: 0,
     reading: outer ?? (options.reads === undefined ? undefined : { list: options.reads, root }),
   };
 }

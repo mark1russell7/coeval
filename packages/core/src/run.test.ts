@@ -12,16 +12,19 @@ import {
   check,
   effectsOf,
   evaluate,
+  fail,
   generate,
   makeContext,
   ok,
   permits,
   prepare,
   reference,
+  referenceRun,
   run,
   sameResult,
   typesOf,
 } from "./index.ts";
+import { heldReason } from "./evaluate.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 
@@ -112,8 +115,8 @@ describe("a run", () => {
     const doc: Json = { type: "add", value: [1, { type: "log", value: ["x"] }] };
     const out = await run(STD_MACHINE, doc, makeContext({}, STD_CAPS), { perform: () => Promise.resolve(2) });
     expect(out.result).toMatchObject({ ok: false, error: { code: "#CALC!", place: [1] } });
-    // The host started the effect, and the run did not wait for it. Thus the effect has no outcome (RUN.OUTCOME).
-    expect(out.effects.map((effect) => [effect.kind, effect.outcome])).toEqual([["log", undefined]]);
+    // The host does not get the effect, thus the effect keeps the #CALC! of the run (RUN.HELD).
+    expect(out.effects.map((effect) => [effect.kind, effect.outcome])).toEqual([["log", fail("#CALC!", heldReason("log"), { place: [1] })]]);
   });
 
   it("[RUN.DRIVE-NESTED] a run drives a runner under an evaluator, and only a real wait gives #CALC!", async () => {
@@ -135,10 +138,40 @@ describe("a run", () => {
     const issues = check(STD_MACHINE, outer(false), { run: true });
     expect(issues).toEqual([{ code: "#CALC!", place: ["test", 0], reason: "if waits for effects, and its parent cannot wait. Give the parent a runner.", at: ["value", "test", "value", 0] }]);
     expect(waited.result).toEqual({ ok: false, error: expect.objectContaining({ code: "#CALC!", place: ["test", 0], reason: issues[0]?.reason }) });
-    // A host that answers at once does not wait, thus the run gives the result of the evaluation with the same mock.
+    // A host that answers at once does not get the effect either, because the parent cannot wait (RUN.HELD).
     const answers = (): string => "done";
     const atOnce = await run(STD_MACHINE, outer(false), ctx, { perform: answers });
-    expect(atOnce.result).toEqual(evaluate(STD_MACHINE, outer(false), ctx, { perform: answers }).result);
+    expect(atOnce.result).toEqual(waited.result);
+  });
+
+  it("[RUN.HELD] in a run, an effect under a parent that cannot wait does not reach the host, and keeps #CALC!", async () => {
+    const ctx = makeContext({}, STD_CAPS);
+    const doc: Json = { type: "add", value: [1, { type: "log", value: ["x"] }] };
+    const reason = check(STD_MACHINE, doc, { run: true })[0]?.reason ?? "";
+    // Before K202, the host did the effect, and the run lost its answer: a retry did the effect again.
+    for (const answer of [(): unknown => Promise.resolve("done"), (): unknown => "done"]) {
+      const performed: unknown[] = [];
+      const perform = (effect: Effect): unknown => {
+        performed.push(effect.payload);
+        return answer();
+      };
+      const done = await run(STD_MACHINE, doc, ctx, { perform });
+      expect(performed).toEqual([]);
+      expect(done.result).toEqual(fail("#CALC!", reason, { place: [1] }));
+      expect(done.effects.map((effect) => effect.outcome)).toEqual([fail("#CALC!", heldReason("log"), { place: [1] })]);
+      expect(await referenceRun(STD_MACHINE, doc, ctx, { perform })).toEqual(done.result);
+      expect(performed).toEqual([]);
+    }
+    // The same runner at the root can wait, thus the host gets its effect.
+    const performed: unknown[] = [];
+    const root = await run(STD_MACHINE, { type: "log", value: ["x"] }, ctx, {
+      perform: (effect) => {
+        performed.push(effect.payload);
+        return Promise.resolve("done");
+      },
+    });
+    expect(root.result.ok).toBe(true);
+    expect(performed).toHaveLength(1);
   });
 });
 
