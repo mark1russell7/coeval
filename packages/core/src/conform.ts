@@ -33,7 +33,7 @@ import { type Definitions, STD_DEFINITIONS } from "./reference.ts";
 import { STD_EVALUATORS } from "./stdlib.ts";
 import { sameValue } from "./agree.ts";
 import { declaredTruthOf } from "./formula.ts";
-import { membersOf, typeIssues, typeText } from "./types.ts";
+import { falseCovers, membersOf, typeIssues, typeText } from "./types.ts";
 import { type Random, random } from "./generate.ts";
 import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effectsOfVerb, isKind, isNamespace, lookupKind } from "./world.ts";
 
@@ -60,8 +60,10 @@ import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effe
  * - `agree`: compiled code gives the result of its definition for the reference interpreter.
  * - `truth`: the own `truthy` of a formula profile gives `true` or `false` for each member of its `truthType` (D86).
  *   Only `formula.if`, `formula.and` and `formula.or` of the formula kit get this check.
+ * - `cover`: each sample of a covered domain of the machine is in one domain of each cover of the domain (D94). Each
+ *   evaluator and each runner gets this check, because `fits` trusts the covers for each program.
  */
-export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "truth";
+export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "truth" | "cover";
 
 /** The probe of a finding: the document, the result of each probe part, the capabilities and the handler. */
 export interface ConformProbe {
@@ -136,7 +138,7 @@ export interface ConformOptions {
 }
 
 /** The order of the obligations in the list of findings. */
-const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree", "truth"];
+const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree", "truth", "cover"];
 
 /** A function in the results of the probe parts. It gives the count of its arguments. */
 const PROBE_FN = (...args: readonly unknown[]): number => args.length;
@@ -1058,6 +1060,27 @@ function checkTruth(env: Env, code: unknown, probe: (value: unknown) => ConformP
 }
 
 /**
+ * This function checks the covers of the domains of the machine from samples (D94). Each sample of a covered domain
+ * must be in one domain of each valid cover. The samples of a domain come from its list `values`. A domain without
+ * that list gets the results of the palette that are its members, as for the check `truth`.
+ */
+function checkCovers(env: Env, probe: (value: unknown) => ConformProbe): void {
+  const domains = env.machine.domains;
+  if (domains === undefined) return;
+  const palette = env.results.flatMap((result) => (result.ok ? [result.value] : []));
+  const samples: Record<string, readonly unknown[]> = {};
+  for (const [name, domain] of Object.entries(domains)) if (domain.covers !== undefined) samples[name] = membersOf(name, domains, palette);
+  const found = falseCovers(domains, samples)[0];
+  if (found === undefined) return;
+  report(
+    env,
+    "cover",
+    `The member ${valueText(found.value)} of the domain ${found.domain} is in no domain of its cover ${found.cover.join(", ")}. The check of types trusts the cover, thus it is unsound for ${found.domain}.`,
+    () => probe(found.value),
+  );
+}
+
+/**
  * This function examines one evaluator or runner of a machine against the obligations of host code (K92, D36). It
  * starts the code directly, without the kernel, with probe parts and a probe runtime. It generates probe documents from
  * the contract of each kind that names the code, and it gives the probe parts chosen and random results.
@@ -1067,7 +1090,8 @@ function checkTruth(env: Env, code: unknown, probe: (value: unknown) => ConformP
  * compiled code with its definition. The finding of an obligation names the first probe that breaks it. An empty list
  * means that each probe conforms.
  *
- * The check `truth` tests the declared truth of a formula profile (D86).
+ * The check `truth` tests the declared truth of a formula profile (D86). The check `cover` tests the covers of the
+ * domains of the machine from samples (D94).
  *
  * @param machine - The machine with the code and the world of the kinds.
  * @param name - The name of the evaluator or of the runner. A runner wins over an evaluator of the same name.
@@ -1110,11 +1134,12 @@ export function conforms(machine: Machine, name: string, options: ConformOptions
       examine(env, sample, contract);
     }
   }
-  // A probe of the truth gives the member to each part of the first probe document.
-  checkTruth(env, code, (value) =>
+  // A probe of the truth or of a cover gives the value to each part of the first probe document.
+  const probeWith = (value: unknown): ConformProbe =>
     first === undefined
       ? { type: typeName(types[0] as TypeRef), doc: { type: types[0] as TypeRef, value: null }, results: {}, waits: [], caps: NO_CAPS, running: runner }
-      : probeOf(first, { results: first.split.parts.map(() => ok(value)), waits: [], caps: NO_CAPS, running: runner }),
-  );
+      : probeOf(first, { results: first.split.parts.map(() => ok(value)), waits: [], caps: NO_CAPS, running: runner });
+  checkTruth(env, code, probeWith);
+  checkCovers(env, probeWith);
   return ORDER.filter((obligation) => env.found.has(obligation)).map((obligation) => env.found.get(obligation) as Finding);
 }

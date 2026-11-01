@@ -3,6 +3,7 @@ import {
   type CompiledEvaluator,
   type CompiledRunner,
   type Context,
+  type Domain,
   type EvalFn,
   type Finding,
   type FormulaProfile,
@@ -12,6 +13,7 @@ import {
   type RunFn,
   type Walker,
   Held,
+  STD_DOMAINS,
   STD_MACHINE,
   conforms,
   fail,
@@ -520,6 +522,43 @@ describe("the declared truth of a profile", () => {
     const machine = formulaMachine(profile);
     expect(obligations(conforms(machine, "formula.list", formulaOptions("formula.list", profile)))).not.toContain("truth");
     expect(obligations(conforms(machine, "formula.if", formulaOptions("formula.if", profile)))).toContain("truth");
+  });
+});
+
+describe("the covers of a machine", () => {
+  /** The domains of a language whose domains neg and nonneg cover number (D85). */
+  const COVERED: Readonly<Record<string, Domain>> = {
+    number: { ...(STD_DOMAINS["number"] as Domain), covers: [["neg", "nonneg"]] },
+    neg: { is: (value) => (value as number) < 0, under: ["number"], summary: "A negative number." },
+    nonneg: { is: (value) => !((value as number) < 0), under: ["number"], summary: "A number that is not negative." },
+  };
+  const withDomains = (domains: Readonly<Record<string, Domain>>): Machine => ({ ...STD_MACHINE, domains });
+
+  it("[CONFORM.COVER] a machine whose covers hold each sample conforms, and a cover that does not count gets no test", () => {
+    expect(conforms(withDomains(COVERED), "math.add")).toEqual([]);
+    // The option results adds samples: 0, -3 and 1.5 are each in neg or in nonneg.
+    expect(obligations(conforms(withDomains(COVERED), "math.add", { results: [ok(0), ok(-3), ok(1.5), ok("a")] }))).not.toContain("cover");
+    // An empty cover, a cover with the domain itself and a cover with a name outside the line do not count (D85).
+    const ignored: Readonly<Record<string, Domain>> = { ...COVERED, number: { ...(STD_DOMAINS["number"] as Domain), covers: [[], ["number"], ["neg", "text"]] } };
+    expect(conforms(withDomains(ignored), "math.add")).toEqual([]);
+  });
+
+  it("[CONFORM.COVER] a new parent of a domain in a cover breaks the cover, and the finding names the sample", () => {
+    // The new parent small of nonneg holds no number from 2 on. Then neither neg nor nonneg holds the sample 2.
+    const small: Domain = { is: (value) => (value as number) < 2, under: ["number"], summary: "A number below 2." };
+    const machine = withDomains({ ...COVERED, small, nonneg: { ...(COVERED["nonneg"] as Domain), under: ["number", "small"] } });
+    const found = conforms(machine, "math.add");
+    expect(obligations(found)).toEqual(["cover"]);
+    expect(found[0]?.reason).toBe("The member 2 of the domain number is in no domain of its cover neg, nonneg. The check of types trusts the cover, thus it is unsound for number.");
+    // The probe gives the sample to each part of the first probe document.
+    expect(Object.values(found[0]?.probe.results ?? {})).toContainEqual(ok(2));
+    // Each evaluator of the machine gets the check, because the check of types trusts the cover for each program.
+    expect(obligations(conforms(machine, "data.number"))).toEqual(["cover"]);
+    // A domain with a list values gives each value as a sample, also a value outside the palette.
+    const level: Domain = { is: (value) => value === "low" || value === "mid" || value === "high", under: ["text"], values: ["low", "mid", "high"], covers: [["low", "high"]] };
+    const low: Domain = { is: (value) => value === "low", under: ["level"] };
+    const high: Domain = { is: (value) => value === "high", under: ["level"] };
+    expect(conforms(withDomains({ level, low, high }), "math.add")[0]?.reason).toContain('The member "mid" of the domain level is in no domain of its cover low, high.');
   });
 });
 

@@ -746,6 +746,8 @@ The checks `local` and `agree` examine the premise of SIM-PLAN (CONFORM.LOCAL). 
 
 The check `truth` examines the premise of TYPE.TRUTH-SOUND (CONFORM.TRUTH, D86). The own `truthy` of a formula profile gives `true` or `false` for each member of its `truthType`.
 
+The check `cover` examines the premise of TYPE.FITS-COVER (CONFORM.COVER, D94). Each sample of a covered domain is in one domain of each cover of the domain.
+
 ## Facts that SPEC did not state
 
 The work on the rules found six facts that the code has and `SPEC.md` did not state. Each one has a requirement ID in `SPEC.md` and a test in `semantics.test.ts`.

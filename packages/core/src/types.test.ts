@@ -19,6 +19,8 @@ import {
   typeIssues,
   typeText,
 } from "./index.ts";
+// The kernel does not export falseCovers. `conforms` uses it too (D94).
+import { falseCovers } from "./types.ts";
 
 /** The domains of a small language: refinements of numbers, a unit of length and a color. */
 const isColor = (value: unknown): boolean => typeof value === "string" && /^#[0-9a-f]{6}$/.test(value);
@@ -172,20 +174,6 @@ const COVER_SAMPLES: Readonly<Record<string, readonly unknown[]>> = {
   empty: [""],
   filled: ["a", "#00ff00"],
 };
-
-/**
- * This function finds the false covers of a language from samples: each sample of a covered domain that no domain of
- * the cover holds. A test helper uses it, because `fits` trusts the covers.
- */
-function falseCovers(domains: Readonly<Record<string, Domain>>, samples: Readonly<Record<string, readonly unknown[]>>): readonly string[] {
-  const out: string[] = [];
-  for (const [name, domain] of Object.entries(domains)) {
-    for (const cover of domain.covers ?? []) {
-      for (const value of samples[name] ?? []) if (!cover.some((part) => member(value, part, domains))) out.push(`${name}: ${String(value)} is in no domain of ${cover.join(", ")}`);
-    }
-  }
-  return out;
-}
 
 /**
  * This function tests a seeded corpus of records with covered fields and union fields over a language (D90). The
