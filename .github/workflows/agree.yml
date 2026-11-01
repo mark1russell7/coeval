@@ -5,7 +5,7 @@ name: One meaning
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "46 3 * * *"
   workflow_dispatch:
     inputs:
       count:
@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 
-# The account runs at most 20 jobs at one time. A newer run cancels an older run, and at most 3 parts run at one time.
+# The account runs at most 40 jobs at one time. A newer run cancels an older run, and at most 3 parts run at one time.
 concurrency:
   group: agree-${{ github.ref }}
   cancel-in-progress: true
