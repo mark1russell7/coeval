@@ -2802,3 +2802,18 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 **Rejected.** (A) No exclude. Then a fix of `conventions` waits a full day before a repository can use it. (B) The two scopes, as before. They expose each package of the scopes, also the packages that this repository does not use.
 
 **Public types.** No change.
+
+## D93 (2026-11-01): the release age exclude keeps the two own scopes
+
+**Context.** K205. D92 named four own packages in the release age exclude. The release train writes the two scope patterns into each repository, and it removes narrower entries. Thus D92 gets a settings PR that undoes it.
+
+**Decision.**
+
+- The exclude keeps `@mark1russell7/*` and `@procedures/*`. This decision reverts D92.
+- OIDC trusted publishing with provenance covers a stolen-token publish of an own package.
+- The template adds the pnpm setting `trustPolicy: no-downgrade`. It refuses a version with less trust evidence than an earlier version.
+- The audit finding about the exclude is a policy decision, not a defect.
+
+**Rejected.** (A) Keep D92. The release train undoes it. (B) No exclude. Then a fix of an own package waits a full day before a repository can use it.
+
+**Public types.** No change.
