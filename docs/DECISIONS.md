@@ -2857,7 +2857,8 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 **Decision.**
 
 - A unit test does not measure wall-clock time. The limits of STATIC.LINEAR (5000 ms), PLAN.COMPILE-SPEED (2000 ms) and FORMULA.SPEED (2000 ms) go. The tests keep their results.
-- The bench measures the three times. FORMULA.SPEED and PLAN.COMPILE-SPEED were bench cases already. The case `STATIC.LINEAR refsOf of a document 1000 levels deep` is new. A sample has at least 1000 calls, thus the case walks 1000 levels, not 100000.
+- The bench measures FORMULA.SPEED and PLAN.COMPILE-SPEED. Both were bench cases already.
+- The claim of STATIC.LINEAR is linear time. One walk gives no ratio, thus K208 compares the times of N and 2N levels in one process.
 - The abort test of RUN.FAIL-FAST checks that the results come before the slow effect finishes. The 150 ms limit goes.
 - The workflow `measure` runs PLAN.LEAN and WORLD.LAWS on 5 runners and prints the values. The limit of PLAN.LEAN is the worst value times 1.1.
 - The seeds of WORLD.LAWS are fixed, thus its counts are the same in each run. The test pins them exactly.
@@ -2868,6 +2869,7 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 - A time limit from 5 runs in the unit tests. The tests share one process with other files, and the A/A noise of such a measure is not well inside a limit.
 - A gate on the bench. The bench verdict reports and does not block a merge (D50, D70).
+- A bench case of a deep walk. A sample has at least 1000 calls, and a walk of 1000 levels took 3.7 ms. Thus each bench job went past its 10 minutes.
 
 **Why.** A guessed limit fails at random, or it does not fail at any time. A derived limit fails when the value really changes.
 
