@@ -31,6 +31,8 @@ export type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<str
  * - `lazy`: the operations that evaluate their arguments themselves.
  * - `ext`: the extensions of the namespace `ext`, by their name. The kit has `ext.undefined`, `ext.number` and
  *   `ext.domain`.
+ * - `extTypes`: the value type of each extension of `ext`, by its name, for a check of types (TYPE.EXT, D103). An
+ *   extension without an entry gives `unknown` (TYPE.GRADUAL). An entry for a standard extension has no effect.
  * - `truthy`: the truth of a value for `if`, `and` and `or`. `undefined` is an error `#VALUE!`. The default
  *   accepts only `true` and `false`.
  * - `truthType`: the value type of a truth for the own `truthy`, for a check of types (TYPE.TRUTH, D81). A test of
@@ -54,12 +56,13 @@ export type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<str
  *
  * A check of types trusts the signatures. Each operation must give a member of the result of each signature that
  * its arguments match. The hook `check` must keep each result in that type. The function `truthy` must give a truth
- * for each member of `truthType`.
+ * for each member of `truthType`. Each extension must give a member of its type in `extTypes`.
  */
 export interface FormulaProfile {
   readonly ops?: Readonly<Record<string, OpFn>> | ((name: string) => OpFn | undefined);
   readonly lazy?: Readonly<Record<string, LazyOp>>;
   readonly ext?: Readonly<Record<string, ExtFn>>;
+  readonly extTypes?: Readonly<Record<string, ValueType>>;
   readonly truthy?: (value: unknown) => boolean | undefined;
   readonly truthType?: ValueType;
   readonly otherwise?: unknown;
@@ -272,7 +275,7 @@ function paramsOf(value: unknown): readonly string[] {
 /**
  * This function makes the type rules of the formula kit for one profile (TYPE.SYNTH, D25). Each evaluator of the kit
  * holds its rule. The rules read the rules of the profile that change a type: `truthy`, `truthType`, `logic`,
- * `otherwise`, `omit` and `sigs`.
+ * `otherwise`, `omit`, `sigs` and `extTypes`.
  */
 function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule>> {
   // The default truth needs a truth value. An own truth needs its declared type, or nothing without a declaration (D81).
@@ -510,7 +513,14 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
       synth: (input) => {
         const name = nameOf(input);
         const own = profile.ext !== undefined && Object.hasOwn(profile.ext, name);
-        if (own) return "unknown";
+        if (own) {
+          // The declared type is a contract. A type with a problem gives unknown, thus one problem gives one issue (D103).
+          const types = profile.extTypes;
+          const declared = types !== undefined && Object.hasOwn(types, name) ? types[name] : undefined;
+          if (declared === undefined) return "unknown";
+          const type = input.contract(declared, `type of ext.${name} in extTypes`);
+          return typeIssues(type, input.machine.domains).length > 0 ? "unknown" : type;
+        }
         // The standard extensions give the values that JSON cannot write, thus each has a base type (D48).
         if (name === "undefined") return "undefined";
         if (name === "number") return "number";
@@ -580,6 +590,7 @@ const PROFILE_KEYS = /* @__PURE__ */ Object.freeze([
   "ops",
   "lazy",
   "ext",
+  "extTypes",
   "truthy",
   "truthType",
   "otherwise",
