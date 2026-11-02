@@ -3264,3 +3264,43 @@ The output changes for a caller. A shared list or record with a term document is
 - A cause of an error value without an exception that holds itself stays a refusal (D87). `encodeValue` cannot write a cycle, and D87 gives a form only to a cause with an exception.
 - The first walk reads each field of an exception, also of an exception that a domain holds. A container in it can then be a container of parts without a share. `decodeLog` gives the same value.
 - A share counts in one error value, as in D88. Two effects of a log that share a container give two objects.
+
+## D102 (2026-11-02): a split of `fits` tries each valid cover of a field
+
+**Context.** K192, found by K186 (D90 Limits). Since D90, a type split of a field of a base type uses only the first valid cover of its line. Thus `{a: number}` did not fit a union of `{a: lo}` and `{a: hi}` when `lo` and `hi` are the second cover of `number`. The cover rule of D85 already tests each cover of a base type alone.
+
+**Decision.**
+
+- A cover split holds each valid cover of its field (TYPE.FITS-SPLIT-COVERS). The order is the order of the line of D90, then the order of the covers of each domain.
+- The split tries the covers in this order. The first cover whose records all fit gives `true`. When no cover fits, the split gives `false`.
+- A case that splits again at its path tries each valid cover of its own domain in the same way. The covers of its parents stay out, as in D90.
+- Each record of each try costs one record of the shared budget of D89. A failed try does not give its records back.
+- A field with one valid cover splits as in D90. The value splits, the union splits and the order of the splits do not change.
+
+**Rejected.**
+
+- A budget for each try. Then a field with many covers multiplies the work, and nested cover splits multiply it again. D89 removed that.
+- A failed try that gives its records back. Then the work grows with the count of covers, and 64 records are no longer its bound.
+- Only the covers of the first domain of the line with a valid cover. A cover of a parent can fit when each cover of the domain fails.
+- A choice of the best cover before the split. That choice needs a measure of each cover, and the first cover that fits is enough.
+
+**Why.** Each valid cover holds each member of its domain (D85). Thus each cover gives a sound split, and one cover whose records fit is enough. The first cover comes first, thus each fit of D90 builds the same records in the same order. A failed try only uses the budget.
+
+**Soundness.** The corpus of type splits of D90 keeps its exact counts: 29280 pairs, 1176 fits, 374 split fits, 144 cover fits and 11760 checked members. Since D102, a field of `nonneg` in the corpus has two covers in its line. No pair of the corpus needs the second cover. The tests of TYPE.FITS-SPLIT-COVERS examine a second cover, a case with two covers of its own domain and pairs that no cover fits.
+
+**Public types.** None. No type changes and no export goes. The TSDoc of `fits` tells the new rule.
+
+The behavior changes for a caller. `fits` gives `true` for some pairs that gave `false` before. In such a pair, a field of the record has more than one valid cover in its line. Only a later cover fits the union. Thus a check accepts some programs that it refused before.
+
+**Changed expected values.** One test changes.
+
+- TYPE.FITS-SPLIT-TYPE, "a split uses the valid covers of the line, and ignores an invalid cover": before, `{a: number}` did not fit `{a: lo} | {a: hi}` when `lo` and `hi` are the second cover of `number`. Since D102, it fits (K192). The title of the test lost the word "first".
+
+**CI.** The concurrency group of `agree.yml` names the event since K192: `agree-${{ github.event_name }}-${{ github.ref }}`. A dispatch takes its own count of documents, thus it does not cancel a run of the schedule. The row K196 tells this too.
+
+**Limits.**
+
+- The cost bound: each try of a cover costs at least one record, because a valid cover is not empty. Thus a split tries at most 64 covers, and all tries together build at most 64 records.
+- A failed try of a large cover uses the budget of the next covers. A first cover of 40 domains that fails at its last domain leaves 24 records for the second cover.
+- The split lists each valid cover of the line before the first try. A language with many covers pays for this list at each covered field, also when the first cover fits.
+- Two outer splits beside each other each get a budget of 64 records, as in D89.

@@ -1038,7 +1038,7 @@ describe("value types and value domains", () => {
     expect(fits(of("unknown"), halves, COVERED)).toBe(true);
   });
 
-  it("[TYPE.FITS-SPLIT-TYPE] a split uses the first valid cover of the line, and ignores an invalid cover", () => {
+  it("[TYPE.FITS-SPLIT-TYPE] a split uses the valid covers of the line, and ignores an invalid cover", () => {
     const of = (a: ValueType): ValueType => ({ record: { a } });
     const withCover = (covers: readonly (readonly string[])[], more: Readonly<Record<string, Domain>> = {}): Readonly<Record<string, Domain>> => ({
       ...COVERED,
@@ -1051,12 +1051,12 @@ describe("value types and value domains", () => {
     expect(fits(of("number"), halves, withCover([["neg", "ghost"], ["neg", "nonneg"]]))).toBe(true);
     // A cover of a parent serves a field of a domain under it: whole is under number.
     expect(fits(of("whole"), halves, COVERED)).toBe(true);
-    // Only the first valid cover splits a field. The cover rule of a base type alone tests each cover.
+    // The cover rule of a base type alone tests each cover. Since D102, a split also tries each cover (TYPE.FITS-SPLIT-COVERS).
     const lo: Domain = { is: (value) => (value as number) < 1, under: ["number"] };
     const hi: Domain = { is: (value) => !((value as number) < 1), under: ["number"] };
     const two = withCover([["neg", "nonneg"], ["lo", "hi"]], { lo, hi });
     expect(fits("number", { union: ["lo", "hi"] }, two)).toBe(true);
-    expect(fits(of("number"), { union: [of("lo"), of("hi")] }, two)).toBe(false);
+    expect(fits(of("number"), { union: [of("lo"), of("hi")] }, two)).toBe(true);
     expect(fits(of("number"), { union: [of("lo"), of("hi")] }, withCover([["lo", "hi"]], { lo, hi }))).toBe(true);
     // A cycle of covers ends: each domain is under the other, and each covers the other.
     const cycle: Readonly<Record<string, Domain>> = {
@@ -1064,6 +1064,45 @@ describe("value types and value domains", () => {
       b: { is: (value) => typeof value === "number", under: ["a"], covers: [["a"]] },
     };
     expect(fits(of("a"), { union: [of("text")] }, cycle)).toBe(false);
+  });
+
+  it("[TYPE.FITS-SPLIT-COVERS] a split tries each valid cover of a field: {a: number} fits {a: lo} | {a: hi} with the second cover, and before D102 it did not fit (K192)", () => {
+    const of = (a: ValueType): ValueType => ({ record: { a } });
+    const lo: Domain = { is: (value) => (value as number) < 1, under: ["number"] };
+    const hi: Domain = { is: (value) => !((value as number) < 1), under: ["number"] };
+    const two: Readonly<Record<string, Domain>> = { ...COVERED, lo, hi, number: { ...(STD_DOMAINS["number"] as Domain), covers: [["neg", "nonneg"], ["lo", "hi"]] } };
+    // The example of K192: lo and hi are the second cover of number. Before D102, the split used only neg and nonneg, and fits gave false.
+    expect(fits(of("number"), { union: [of("lo"), of("hi")] }, two)).toBe(true);
+    // The first cover still fits first, thus each fit of D90 builds the same records.
+    expect(fits(of("number"), { union: [of("neg"), of("nonneg")] }, two)).toBe(true);
+    // No cover fits: neg and nonneg do not fit lo or nonneg, and hi does not fit them either. The finding stays false.
+    expect(fits(of("number"), { union: [of("lo"), of("nonneg")] }, two)).toBe(false);
+    expect(fits(of("number"), { union: [of("neg"), of("hi")] }, two)).toBe(false);
+    // A case that splits again also tries each cover of its own domain: zero and plus fail, small and large fit.
+    const small: Domain = { is: (value) => (value as number) < 1, under: ["nonneg"] };
+    const large: Domain = { is: (value) => !((value as number) < 1), under: ["nonneg"] };
+    const again: Readonly<Record<string, Domain>> = { ...COVERED, small, large, nonneg: { ...(COVERED["nonneg"] as Domain), covers: [["zero", "plus"], ["small", "large"]] } };
+    expect(fits(of("number"), { union: [of("neg"), of("small"), of("large")] }, again)).toBe(true);
+    expect(fits(of("number"), { union: [of("neg"), of("small"), of("plus")] }, again)).toBe(false);
+  });
+
+  it("[TYPE.FITS-SPLIT-COVERS] the failed tries of covers take from the one budget of 64 records", () => {
+    const of = (a: ValueType): ValueType => ({ record: { a } });
+    // The first cover has 40 domains w0 to w39, and the union lacks w39. Thus the first try builds 40 records and fails.
+    const wide = (second: number): Readonly<Record<string, Domain>> => {
+      const first = Array.from({ length: 40 }, (_, index) => `w${index}`);
+      const rest = Array.from({ length: second }, (_, index) => `v${index}`);
+      const out: Record<string, Domain> = { wide: { is: (value) => typeof value === "number", covers: [first, rest] } };
+      for (let index = 0; index < 40; index += 1) out[`w${index}`] = { is: (value) => value === index, under: ["wide"], values: [index] };
+      for (let index = 0; index < second; index += 1) out[`v${index}`] = { is: (value) => value === 100 + index, under: ["wide"], values: [100 + index] };
+      return out;
+    };
+    const union = (second: number): ValueType => ({
+      union: [...Array.from({ length: 39 }, (_, index) => of({ one: [index] })), ...Array.from({ length: second }, (_, index) => of({ one: [100 + index] }))],
+    });
+    // 40 records for the failed try and 24 for the second cover: 64 records. A second cover of 25 needs 65 records.
+    expect(fits(of("wide"), union(24), wide(24))).toBe(true);
+    expect(fits(of("wide"), union(25), wide(25))).toBe(false);
   });
 
   it("[TYPE.FITS-SPLIT-TYPE] a union in a field splits into its members, and a path goes on into a member (K191)", () => {
