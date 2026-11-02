@@ -1162,9 +1162,8 @@ describe("a cause that is a list or a record with an exception in the JSON form"
     expect(again.ok && encodeLog(dated, again.value)).toEqual(list);
   });
 
-  it("[RUN.REPLAY-CAUSE-PARTS] a cause without an exception keeps its rule, and decodeLog gives #VALUE! at a bad field of causeParts", () => {
-    // An exception: a cause without a form is the name cause in dropped. An error value: such a cause is a refusal.
-    expect(exceptionOf(encodeLog(dated, failedWith(new Error("plain", { cause: { send: () => 1, code: 7 } }))))).toEqual({ name: "Error", message: "plain", dropped: ["cause"] });
+  it("[RUN.REPLAY-CAUSE-PARTS] a cause of an error value without an exception keeps its refusal, and decodeLog gives #VALUE! at a bad field of causeParts", () => {
+    // Such a cause of an exception keeps each item with a form since D100 (RUN.REPLAY-CAUSE-ITEMS). An error value refuses it.
     expect(() => encodeLog(dated, failedWith({ send: () => 1, code: 7 }))).toThrow(/^encodeLog cannot write the cause of the outcome of the effect log at the address 0#0/);
     expect(() => encodeLog(dated, failedWith([new Map()]))).toThrow(TypeError);
     // A cause that encodeValue writes stays a term document.
@@ -1189,6 +1188,34 @@ describe("a cause that is a list or a record with an exception in the JSON form"
     expect(thrown({ name: "E", message: "m", causeParts: [{ loop: 1 }] })).toEqual([...at, "exception", "causeParts", 0, "loop"]);
     expect(thrown({ name: "E", message: "m", causeParts: { exception: { name: "F", message: "n" } } })).toEqual([...at, "exception", "causeParts"]);
     expect(thrown({ name: "E", message: "m", causeParts: [], loop: 0 })).toEqual([...at, "exception"]);
+  });
+
+  it("[RUN.REPLAY-CAUSE-ITEMS] a list or a record cause of an exception without an exception keeps each item with a form, and dropped names each other item by its path", () => {
+    const json = encodeLog(dated, failedWith(new Error("plain", { cause: { code: 7, send: () => 1 } })));
+    expect(exceptionOf(json)).toEqual({ name: "Error", message: "plain", dropped: ["cause.send"], causeParts: { record: { code: { value: 7 } } } });
+    const back = decodedCause(json) as Error & { readonly cause: { readonly code: number } };
+    expect(Object.getOwnPropertyDescriptor(back, "cause")).toMatchObject({ enumerable: false });
+    expect(Object.getPrototypeOf(back.cause)).toBe(Object.prototype);
+    expect(back.cause).toEqual({ code: 7 });
+    // The decoded cause has a term document, thus a new recording writes it in cause (D100 Limits).
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(again.ok && exceptionOf(encodeLog(dated, again.value))).toEqual({ name: "Error", message: "plain", cause: { code: 7 } });
+    // A list cause keeps each item at its place, and an item without a form is the mark.
+    const list = encodeLog(dated, failedWith(new Error("tries", { cause: [7, () => 1] })));
+    expect(exceptionOf(list)).toEqual({ name: "Error", message: "tries", dropped: ["cause.1"], causeParts: [{ value: 7 }, { dropped: true }] });
+    const items = (decodedCause(list) as Error).cause as unknown[];
+    expect([items.length, items[0], Object.hasOwn(items, 1)]).toEqual([2, 7, false]);
+    // A nested item without a form has its full path. A sparse list keeps its hole as a mark.
+    const nested = encodeLog(dated, failedWith(new Error("nested", { cause: { request: { id: 7, send: () => 1 }, at: [1, , 2] } })));
+    expect(exceptionOf(nested)).toEqual({
+      name: "Error",
+      message: "nested",
+      dropped: ["cause.request.send", "cause.at.1"],
+      causeParts: { record: { request: { record: { id: { value: 7 } } }, at: [{ value: 1 }, { dropped: true }, { value: 2 }] } },
+    });
+    // A container without a form in it stays the name cause in dropped, and an error value keeps its refusal (D87).
+    expect(exceptionOf(encodeLog(dated, failedWith(new Error("none", { cause: { send: () => 1, big: 1n } }))))).toEqual({ name: "Error", message: "none", dropped: ["cause"] });
+    expect(() => encodeLog(dated, failedWith({ code: 7, send: () => 1 }))).toThrow(TypeError);
   });
 });
 
@@ -1267,13 +1294,14 @@ describe("a list or a record that two places of an exception share in the JSON f
     });
     const cause = decodedCause(value) as { readonly inner: { readonly outer: { readonly context: unknown } } };
     expect(cause.inner.outer.context).toBe(cause);
-    // A cause without an exception keeps its rule (D87, K189), also when a field shares it.
+    // A cause without an exception keeps each item with a form since D100, thus a cause that a field shares is a share.
     const plain = { code: 7, send: () => 1 };
     expect(exceptionOf(encodeLog(dated, failedWith(Object.assign(new Error("plain", { cause: plain }), { plain }))))).toEqual({
       name: "Error",
       message: "plain",
       parts: { plain: { record: { code: { value: 7 } } } },
-      dropped: ["plain.send", "cause"],
+      dropped: ["plain.send"],
+      causeParts: { share: 0 },
     });
   });
 

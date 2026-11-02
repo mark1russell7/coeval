@@ -3183,3 +3183,42 @@ The bench runs the `cases.ts` and the `paths.ts` of the head with both kernels. 
 - Only `number` gets samples. The domain `text` has no sample `""`, thus the empty text gets no test.
 - The checks C1 to C8 do not read `samples`. A probe part gives only the results of the palette.
 - The check reads each list of samples in full. A long list makes each check `truth` and `cover` slower.
+
+## D100 (2026-11-02): a cause of an exception that is a list or a record keeps each item with a form
+
+**Context.** K189, found by K182 (D87 Limits). Since D87, a cause that is a list or a record with an exception is `causeParts`. A container cause without an exception kept the short rule of D76. Thus the cause `{ code: 7, send: () => 1 }` of an exception was the name `cause` in `dropped`, and `code` was lost.
+
+**Decision.**
+
+- The cause of an exception gets the rule of a field of D82 (RUN.REPLAY-CAUSE-ITEMS). A list or a plain record without a term document is a container of parts, also without an exception.
+- The container goes in `causeParts`, as in D87. An item without a form is a name in `dropped` with its path, for example `cause.send` or `cause.request.send`.
+- An item of a list without a form is the mark `{ "dropped": true }` at its place, as in D78. A hole of a sparse list also gets the mark.
+- A container without a form in it stays the name `cause` in `dropped`, as in D82. An example is `{ send: () => 1 }`.
+- A cause that a field shares is the part `share`, as D88 Limits tell.
+- The cause of an error value keeps its rule (D87). A container cause without an exception is a refusal of `encodeLog`, as in D75.
+- `decodeLog` does not change. It gives a new list or plain record as the cause, as in D87.
+- The form stays at the version 1. No new field comes, and an old log decodes as before.
+
+**Rejected.**
+
+- The same rule for the cause of an error value. D87 keeps the refusal of D75 for it, and a refusal tells the host of a value without a form.
+- A field of its own for such a cause, for example `causeItems`. `causeParts` already holds a list of parts and the part `record`, thus one field keeps one rule.
+- A term document of the items with a form in `cause`. Then a reader cannot tell a full cause from a part of a cause.
+
+**Why.** A cause holds the same facts as a field, thus it gets the same part rule at each depth. The walk already had the rule. Only the mark of the cause of an exception changes.
+
+**Public types.** None. No type changes and no export goes. The TSDoc of `ReplayExceptionJson.causeParts` tells the new case.
+
+The output changes for a caller. A container cause of an exception with an item with a form is `causeParts`, not the name `cause` in `dropped`. A container cause that a field shares is the part `share`. The release 0.17.0 gives the old form.
+
+**Changed expected values.** Two tests change.
+
+- RUN.REPLAY-CAUSE-PARTS: before, the cause `{ send: () => 1, code: 7 }` of an exception was the name `cause` in `dropped`. This assertion moves to RUN.REPLAY-CAUSE-ITEMS. Since D100, its value is `causeParts` with the record `code`, and `dropped` holds `cause.send`. The test gets the name "a cause of an error value without an exception keeps its refusal".
+- RUN.REPLAY-SHARED, a record that a field and the cause share: before, `dropped` held `plain.send` and `cause`. Since D100, the cause is `{ share: 0 }`, and `dropped` holds only `plain.send`.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception is a `TypeError` without a cause.
+
+**Limits.**
+
+- `decodeLog` gives the cause `{ code: 7 }`, and `encodeValue` writes it. Thus a new recording of the decoded log writes it in `cause`, not in `causeParts`. A field of D82 has the same limit.
+- A cause of an error value without an exception stays a refusal (D87).
