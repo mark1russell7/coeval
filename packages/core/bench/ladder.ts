@@ -44,6 +44,8 @@ interface WalkRun {
 /** The measures of one run. */
 interface LadderRun {
   readonly run: string;
+  /** The id and the attempt of the CI run, when a CI run made it. */
+  readonly ci?: string | undefined;
   readonly cpu: string;
   readonly node: string;
   readonly levels: readonly number[];
@@ -205,6 +207,7 @@ async function measure(): Promise<void> {
   });
   const run: LadderRun = {
     run: process.env["LADDER_RUN"] ?? "1",
+    ci: process.env["GITHUB_RUN_ID"] === undefined ? undefined : `${process.env["GITHUB_RUN_ID"]}/${process.env["GITHUB_RUN_ATTEMPT"] ?? "1"}`,
     cpu: cpus()[0]?.model.trim() ?? "an unknown CPU",
     node: process.version,
     levels,
@@ -232,44 +235,67 @@ async function measure(): Promise<void> {
     );
   }
   writeSummary(lines);
-  process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", run: run.run, levels, rounds, seconds: run.seconds, walks: measures })}\n`);
+  process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", run: run.run, ci: run.ci, levels, rounds, seconds: run.seconds, walks: measures })}\n`);
   const out = process.env["LADDER_JSON"];
   if (out !== undefined && out !== "") writeFileSync(out, `${JSON.stringify(run)}\n`);
 }
 
-/** This function pools the rounds of some runs and gives the verdict of each walk. */
+/** This function tells if a run counts: the A/A band of each walk contains 1. Else the run measured the runner. */
+function counts(run: LadderRun): boolean {
+  return run.walks.every((walk) => quantile(walk.aa, 0.05) <= 1 && quantile(walk.aa, 0.95) >= 1);
+}
+
+/** This function gives the name of a run: its CI run id and attempt, and its place in the matrix. */
+function runName(run: LadderRun): string {
+  return run.ci === undefined ? run.run : `${run.ci} (${run.run})`;
+}
+
+/** This function pools the rounds of the runs that count and gives the verdict of each walk. */
 function merge(files: readonly string[]): void {
   if (files.length === 0) throw new Error("Give the JSON files of the runs.");
-  const runs = files.map((file) => JSON.parse(readFileSync(file, "utf8")) as LadderRun);
-  const names = runs[0]?.walks.map((walk) => walk.name) ?? [];
+  const all = files.map((file) => JSON.parse(readFileSync(file, "utf8")) as LadderRun);
+  const runs = all.filter(counts);
+  const names = all[0]?.walks.map((walk) => walk.name) ?? [];
   const lines = [
-    `### Ladder verdict of ${runs.length} runs`,
+    `### Ladder verdict of ${runs.length} counted runs of ${all.length}`,
     "",
-    `Levels ${runs[0]?.levels.join(", ")}. The runs took ${runs.map((run) => `${run.seconds} s`).join(", ")}.`,
-    "The pooled interval is the 5th to the 95th percentile of the slopes of all rounds of all runs. The verdict reads it.",
-    `The interval of the runs is the mean of the medians of the runs, plus or minus t times the standard error (90 %).`,
+    `Levels ${all[0]?.levels.join(", ")}. A run counts only when the A/A band of each walk contains 1.0. The band is the 5th to the 95th percentile of the rounds.`,
+    "",
+    `| Run | CPU | Time (s) | ${names.map((name) => `A/A band of \`${name}\``).join(" | ")} | Counts |`,
+    `| --- | --- | ---: | ${names.map(() => "---:").join(" | ")} | --- |`,
+  ];
+  for (const run of all) {
+    const bands = run.walks.map((walk) => `${quantile(walk.aa, 0.05).toFixed(3)} to ${quantile(walk.aa, 0.95).toFixed(3)}`);
+    lines.push(`| ${runName(run)} | ${run.cpu} | ${run.seconds} | ${bands.join(" | ")} | ${counts(run) ? "yes" : "no: replace it"} |`);
+  }
+  lines.push(
+    "",
+    "The pooled interval is the 5th to the 95th percentile of the slopes of all rounds of the counted runs. The verdict reads it.",
+    "The interval of the runs is the mean of the medians of the counted runs, plus or minus t times the standard error (90 %).",
     `The claim is linear when the pooled interval contains 1.0 and its upper end is less than ${UPPER}.`,
     "",
-    "| Walk | Slope of each run | Pooled slope | Pooled 90 % interval | Interval of the runs | A/A ratio of each run | Pooled A/A (90 %) | Verdict |",
-    "| --- | --- | ---: | ---: | ---: | --- | ---: | --- |",
-  ];
+    "| Walk | Slope of each counted run | Pooled slope | Pooled 90 % interval | Interval of the runs | Pooled A/A (90 %) | Verdict |",
+    "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+  );
   const measures: Record<string, unknown>[] = [];
   for (const name of names) {
     const of = runs.map((run) => {
       const walk = run.walks.find((item) => item.name === name);
-      if (walk === undefined) throw new Error(`The run ${run.run} has no walk ${name}.`);
+      if (walk === undefined) throw new Error(`The run ${runName(run)} has no walk ${name}.`);
       return walk;
     });
+    if (of.length === 0) continue;
     const pooled = summarize({ slopes: of.flatMap((walk) => walk.slopes), aa: of.flatMap((walk) => walk.aa) });
     const medians = of.map((walk) => median(walk.slopes));
     const { mean, half } = meanInterval(medians);
     measures.push({ walk: name, ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half) });
     lines.push(
-      `| \`${name}\` | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${of.map((walk) => median(walk.aa).toFixed(3)).join(", ")} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
+      `| \`${name}\` | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
   }
   writeSummary(lines);
-  process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", runs: runs.length, walks: measures })}\n`);
+  const excluded = all.filter((run) => !counts(run)).map(runName);
+  process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", counted: runs.map(runName), excluded, walks: measures })}\n`);
 }
 
 if (process.argv[2] === "merge") merge(process.argv.slice(3));
