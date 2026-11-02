@@ -2852,7 +2852,7 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 ## D95 (2026-11-02): each numeric limit of a unit test is derived, or goes
 
-**Context.** K200. The gate rule of 2026-10-30 says that a limit comes from 5 or more CI runs: the worst value times 1.1, with the noise of an A/A comparison well inside. Six limits of the unit tests were guesses.
+**Context.** K200. The gate rule of 2026-10-30 says that a limit comes from 5 or more CI runs. The limit is the worst value times 1.1, and the A/A noise is well inside it. Six limits of the unit tests were guesses.
 
 **Decision.**
 
@@ -2867,6 +2867,6 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - A time limit from 5 runs in the unit tests. The tests share one process with other files, and the A/A noise of such a measure is not well inside a limit.
 - A gate on the bench. The bench verdict reports and does not block a merge (D50, D70).
 
-**Why.** A guessed limit fails at random or never fails. A derived limit fails when the value really changes.
+**Why.** A guessed limit fails at random, or it does not fail at any time. A derived limit fails when the value really changes.
 
 **Changed expected values.** No result of the kernel changes. The tests lose their time limits, PLAN.LEAN gets a new limit, and WORLD.LAWS gets exact counts.
