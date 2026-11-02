@@ -1,5 +1,5 @@
 # The measures that derive the limits of the unit tests (K200, D95): the same test on 5 runners.
-# A limit is the worst value of the 5 runs times 1.1. A seeded count is the same in each run, thus a test pins it.
+# A limit is the worst value of the runs plus the spread of the values. A seeded count is the same in each run, thus a test pins it.
 # Each job prints its values in its log and in its summary. A local machine is shared, thus the measures run here.
 name: Measure
 
