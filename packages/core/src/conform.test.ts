@@ -504,11 +504,30 @@ describe("the declared truth of a profile", () => {
   });
 
   it("[CONFORM.TRUTH] a truth type without a list of values tests the members of the results of the palette, and the option results adds samples", () => {
+    const noFive = (value: unknown): boolean | undefined => (value === 5 ? undefined : numberTruthy(value));
+    // The default palette and the samples of number do not hold 5 (D99).
+    expect(truthOf({ ops: OPS, truthy: noFive, truthType: "number" })).toEqual([undefined, undefined, undefined]);
+    const found = truthOf({ ops: OPS, truthy: noFive, truthType: "number" }, {}, [ok(5), ok(1), ok(true)]);
+    for (const finding of found) expect(finding?.reason).toContain("gives no truth for the member 5 of the truth type number");
+  });
+
+  it("[CONFORM.SAMPLES] the check truth of number reads the samples 0 and -1 of the domain, after the results of the palette", () => {
+    const read: unknown[] = [];
+    const recording = (value: unknown): boolean | undefined => {
+      read.push(value);
+      return numberTruthy(value);
+    };
+    expect(truthOf({ ops: OPS, truthy: recording, truthType: "number" })).toEqual([undefined, undefined, undefined]);
+    // The palette holds the numbers 1 and 2. The samples of number add 0 and -1.
+    expect(read).toEqual(expect.arrayContaining([1, 2, 0, -1]));
     const noZero = (value: unknown): boolean | undefined => (value === 0 ? undefined : numberTruthy(value));
-    // The default palette has the numbers 1 and 2, not 0.
-    expect(truthOf({ ops: OPS, truthy: noZero, truthType: "number" })).toEqual([undefined, undefined, undefined]);
-    const found = truthOf({ ops: OPS, truthy: noZero, truthType: "number" }, {}, [ok(0), ok(1), ok(true)]);
-    for (const finding of found) expect(finding?.reason).toContain("gives no truth for the member 0 of the truth type number");
+    for (const finding of truthOf({ ops: OPS, truthy: noZero, truthType: "number" })) expect(finding?.reason).toContain("gives no truth for the member 0 of the truth type number");
+    const positive = (value: unknown): boolean | undefined => ((value as number) < 0 ? undefined : numberTruthy(value));
+    for (const finding of truthOf({ ops: OPS, truthy: positive, truthType: "number" })) expect(finding?.reason).toContain("gives no truth for the member -1 of the truth type number");
+    // A domain of the language gives its own samples. A sample outside the truth type does not count.
+    const level: Domain = { is: (value) => typeof value === "string" && value.length > 0, under: ["text"], samples: ["low", 7] };
+    const onlyA = (value: unknown): boolean | undefined => (value === "a" ? true : undefined);
+    for (const finding of truthOf({ ops: OPS, truthy: onlyA, truthType: "level" }, { domains: { level } })) expect(finding?.reason).toContain('gives no truth for the member "low" of the truth type level');
   });
 
   it("[CONFORM.TRUTH] a standard profile, an own truthy without a truth type, a bad truth type and the other evaluators get no check", () => {
@@ -559,6 +578,22 @@ describe("the covers of a machine", () => {
     const low: Domain = { is: (value) => value === "low", under: ["level"] };
     const high: Domain = { is: (value) => value === "high", under: ["level"] };
     expect(conforms(withDomains({ level, low, high }), "math.add")[0]?.reason).toContain('The member "mid" of the domain level is in no domain of its cover low, high.');
+  });
+
+  it("[CONFORM.SAMPLES] the check cover reads the samples of the domains, thus a cover without 0 or -1 of number breaks cover", () => {
+    // The palette has no 0, but the samples of number hold it. Neither neg nor plus holds 0.
+    const plus: Domain = { is: (value) => (value as number) > 0, under: ["number"], summary: "A number over 0." };
+    const noZero = withDomains({ ...COVERED, plus, number: { ...(STD_DOMAINS["number"] as Domain), covers: [["neg", "plus"]] } });
+    expect(conforms(noZero, "math.add")[0]?.reason).toBe("The member 0 of the domain number is in no domain of its cover neg, plus. The check of types trusts the cover, thus it is unsound for number.");
+    const notNeg: Domain = { is: (value) => (value as number) >= 0, under: ["number"], summary: "A number that is 0 or more." };
+    const noMinus = withDomains({ ...COVERED, notNeg, number: { ...(STD_DOMAINS["number"] as Domain), covers: [["notNeg"]] } });
+    expect(conforms(noMinus, "math.add")[0]?.reason).toContain("The member -1 of the domain number is in no domain of its cover notNeg.");
+    // A domain of the language gives samples to the domain over it: -0.5 of half is in no domain of the cover.
+    const half: Domain = { is: (value) => value === -0.5, under: ["number"], samples: [-0.5] };
+    const below: Domain = { is: (value) => (value as number) <= -1, under: ["number"] };
+    const atLeast: Domain = { is: (value) => (value as number) >= 0, under: ["number"] };
+    const machine = withDomains({ half, below, atLeast, number: { ...(STD_DOMAINS["number"] as Domain), covers: [["below", "atLeast"]] } });
+    expect(conforms(machine, "math.add")[0]?.reason).toContain("The member -0.5 of the domain number is in no domain of its cover below, atLeast.");
   });
 });
 

@@ -1034,7 +1034,8 @@ function examine(env: Env, sample: Sample, contract: Contract): void {
 /**
  * This function checks the declared truth of a profile (D86). The function `truthy` must give `true` or `false` for
  * each member of `truthType`, and it must not throw. The members come from the lists `values` of the domains of the
- * type. A type without such a list gets the values of the results of the palette that are its members.
+ * type. A type without such a list gets its members from the results of the palette and from the samples of the
+ * domains (D99).
  */
 function checkTruth(env: Env, code: unknown, probe: (value: unknown) => ConformProbe): void {
   const truth = declaredTruthOf(code);
@@ -1062,7 +1063,7 @@ function checkTruth(env: Env, code: unknown, probe: (value: unknown) => ConformP
 /**
  * This function checks the covers of the domains of the machine from samples (D94). Each sample of a covered domain
  * must be in one domain of each valid cover. The samples of a domain come from its list `values`. A domain without
- * that list gets the results of the palette that are its members, as for the check `truth`.
+ * that list gets its members from the palette and from the samples of the domains, as for the check `truth`.
  */
 function checkCovers(env: Env, probe: (value: unknown) => ConformProbe): void {
   const domains = env.machine.domains;

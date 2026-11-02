@@ -67,6 +67,12 @@ export interface Domain {
    */
   readonly values?: readonly unknown[];
   /**
+   * Some members of the domain for the tests of `conforms`, for example `0` and `-1` of `number` (D99). The checks
+   * `truth` and `cover` add the samples of each domain to the palette. A sample that fails a test of a type does not
+   * count. The list is not a full list of the members, thus `fits` does not read it.
+   */
+  readonly samples?: readonly unknown[];
+  /**
    * The covers of the domain (TYPE.FITS-COVER, D85). A cover is a list of domains under this domain, and its domains
    * together hold each member of this domain. An example is a domain of negative numbers and a domain of the other
    * numbers as a cover of `number`. `fits` reads it: a base type fits a union when each domain of a cover fits it.
@@ -115,7 +121,7 @@ export const STD_DOMAINS: Readonly<Record<string, Domain>> = {
   // JSON has no undefined, thus a document holds it as ext.undefined (D48). The domain has no codec: the codec of values writes undefined first.
   undefined: { is: (value) => value === undefined, values: [undefined], summary: "The value undefined. A document holds it as the extension ext.undefined." },
   bool: { is: (value) => typeof value === "boolean", values: [true, false], summary: "A truth value: true or false." },
-  number: { is: (value) => typeof value === "number", summary: "A number of the host, also NaN, an infinity and -0." },
+  number: { is: (value) => typeof value === "number", samples: [0, -1], summary: "A number of the host, also NaN, an infinity and -0." },
   text: { is: (value) => typeof value === "string", summary: "A text." },
 };
 
@@ -421,7 +427,8 @@ function membersAt(type: unknown, domains: Readonly<Record<string, Domain>> | un
 /**
  * This function gives members of a type for a test of a declaration (D86). A type with at most 64 members gives each
  * member, from the lists `values` of its domains (TYPE.FITS-FINITE). A union gives the members of each of its types.
- * Each other type gives the samples that are its members. The kernel does not export the function.
+ * Each other type gives the samples that are its members. The samples of the domains come after the given samples (D99).
+ * The kernel does not export the function.
  *
  * @param type - The type.
  * @param domains - The domains of the machine.
@@ -429,7 +436,22 @@ function membersAt(type: unknown, domains: Readonly<Record<string, Domain>> | un
  * @returns Distinct members of the type.
  */
 export function membersOf(type: ValueType, domains: Readonly<Record<string, Domain>> | undefined, samples: readonly unknown[]): readonly unknown[] {
-  return membersAt(type, domains, samples, 0);
+  return membersAt(type, domains, withDomainSamples(samples, domains), 0);
+}
+
+/**
+ * This function adds the samples of the domains to a palette (D99). It reads the list `samples` of each domain of the
+ * table and of each standard domain that the table does not replace. The result holds each value one time.
+ */
+function withDomainSamples(palette: readonly unknown[], domains: Readonly<Record<string, Domain>> | undefined): readonly unknown[] {
+  const out: unknown[] = [];
+  for (const value of palette) addValue(out, value);
+  const names = new Set([...Object.keys(STD_DOMAINS), ...(domains === undefined ? [] : Object.keys(domains))]);
+  for (const name of names) {
+    const samples: unknown = domainOf(name, domains)?.samples;
+    if (Array.isArray(samples)) for (const value of samples as readonly unknown[]) addValue(out, value);
+  }
+  return out;
 }
 
 /** A false cover that a sample shows (D94): a member of a covered domain that no domain of the cover holds. */
@@ -446,7 +468,10 @@ export interface FalseCover {
  * This function finds the false covers of a language from samples (D94). A cover is false when a sample of the covered
  * domain is in no domain of the cover. The function tests each valid cover of each domain of the table. It ignores a
  * cover that does not count by the line rule of D85, because `fits` ignores it too. It also ignores a sample outside
- * the covered domain. `conforms` and a test of `fits` use the function. The kernel does not export it.
+ * the covered domain.
+ *
+ * The samples of the domains come after the given samples (D99). `conforms` and a test of `fits` use the function. The
+ * kernel does not export it.
  *
  * @param domains - The domains of the language, by their names.
  * @param samples - The samples of each covered domain, by the name of the domain.
@@ -457,7 +482,7 @@ export function falseCovers(domains: Readonly<Record<string, Domain>>, samples: 
   for (const [name, domain] of Object.entries(domains)) {
     const covers: unknown = domain.covers;
     if (!Array.isArray(covers)) continue;
-    const values = (Object.hasOwn(samples, name) ? samples[name] : undefined) ?? [];
+    const values = withDomainSamples((Object.hasOwn(samples, name) ? samples[name] : undefined) ?? [], domains);
     for (const cover of covers as readonly unknown[]) {
       if (!validCover(name, cover, domains)) continue;
       for (const value of values) {
