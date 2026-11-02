@@ -11,6 +11,7 @@
  * caches or its heap.
  */
 import * as kernel from "../src/index.ts";
+import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
 type Kernel = typeof kernel;
 
@@ -242,11 +243,6 @@ export const CASES: readonly Case[] = [
     },
   },
 ];
-
-/** The time of one sample, and the samples of each case in one process. The first samples only warm up the code. */
-const TARGET_MS = Number(process.env["BENCH_MS"] ?? 25);
-const WARMUP = Number(process.env["BENCH_WARMUP"] ?? 3);
-const SAMPLES = Number(process.env["BENCH_SAMPLES"] ?? 5);
 
 /** This function gives the number of calls that take approximately the target time. */
 export function calibrate(fn: () => unknown): number {

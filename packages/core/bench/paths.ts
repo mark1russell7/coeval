@@ -39,7 +39,8 @@ import { cpus, tmpdir } from "node:os";
 import { join, resolve as resolveFile } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Measured } from "./cases.ts";
-import type { BenchCase, BenchRun } from "./merge.ts";
+import type { BenchCase, BenchMode, BenchRun } from "./merge.ts";
+import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
 /** The rounds. A local smoke test can make them small, for example `BENCH_ROUNDS=1 BENCH_SAMPLES=1`. */
 const ROUNDS = Number(process.env["BENCH_ROUNDS"] ?? 12);
@@ -137,10 +138,12 @@ async function main(): Promise<void> {
   const run = process.env["BENCH_RUN"] ?? "1";
   // On Linux, Node reads the model of the CPU from /proc/cpuinfo.
   const cpu = cpus()[0]?.model.trim() ?? "an unknown CPU";
+  const mode: BenchMode = { flags: FLAGS, warmup: WARMUP, samples: SAMPLES, sampleMs: TARGET_MS, together: TOGETHER };
   const cases: BenchCase[] = [];
   const lines: string[] = [
     `Run ${run} on ${cpu}.`,
     `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the base, a second copy of the base and the head each run in new processes.`,
+    `Each process gives ${WARMUP} warmup and ${SAMPLES} counted samples of ${TARGET_MS} ms for each case.`,
     `Each case runs alone in its own processes (D98), except the ${TOGETHER.length} cases of \`TOGETHER\`, which run in one process, in order.`,
     "The change compares the head with the base of the same round. The noise (A/A) compares the two copies of the base.",
     "A change that is not clearly larger than the noise of its case is noise.",
@@ -172,7 +175,7 @@ async function main(): Promise<void> {
   if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths (run ${run})\n\n${text}\n`);
   const json = process.env["BENCH_JSON"];
   if (json !== undefined && json !== "") {
-    const record: BenchRun = { run, cpu, node: process.version, rounds: ROUNDS, cases };
+    const record: BenchRun = { run, cpu, node: process.version, rounds: ROUNDS, mode, cases };
     writeFileSync(json, `${JSON.stringify(record, null, 2)}\n`);
   }
   if (mismatch) process.exitCode = 1;

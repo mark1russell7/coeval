@@ -15,7 +15,8 @@
  * The script uses only the modules of Node, and Node removes its types. Thus the job does not install the packages.
  * The script fails when a run is absent or when a run found different results.
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /** The measurement of one case in one run. The change and the noise are percents. */
 export interface BenchCase {
@@ -28,12 +29,25 @@ export interface BenchCase {
   readonly different?: string;
 }
 
+/** The mode of one run: the flags of V8, the samples of each process and the cases that share a process (K199). */
+export interface BenchMode {
+  readonly flags: readonly string[];
+  readonly warmup: number;
+  readonly samples: number;
+  /** The time of one sample in milliseconds. */
+  readonly sampleMs: number;
+  /** The cases that run together in one process, in order. Each other case runs alone in its own processes (D98). */
+  readonly together: readonly string[];
+}
+
 /** The table of one run of `paths.ts`. */
 export interface BenchRun {
   readonly run: string;
   readonly cpu: string;
   readonly node: string;
   readonly rounds: number;
+  /** The mode of the run. A record from before K199 has no mode. */
+  readonly mode?: BenchMode;
   readonly cases: readonly BenchCase[];
 }
 
@@ -76,15 +90,25 @@ function read(file: string | undefined): BenchRun | undefined {
   return JSON.parse(readFileSync(file, "utf8")) as BenchRun;
 }
 
+/** This function gives the line of one run in the verdict: its runner, its Node, its rounds and its mode (K199). */
+export function describeRun(run: BenchRun | undefined, index: number): string {
+  if (run === undefined) return `Run ${String(index + 1)} gave no table.`;
+  const head = `Run ${run.run}: ${run.cpu}, Node ${run.node}, ${String(run.rounds)} rounds.`;
+  const mode = run.mode;
+  if (mode === undefined) return `${head} The record names no mode.`;
+  const flags = mode.flags.length > 0 ? `\`${mode.flags.join(" ")}\`` : "no flags";
+  const samples = `${String(mode.warmup)} warmup and ${String(mode.samples)} counted samples of ${String(mode.sampleMs)} ms`;
+  const together = mode.together.length > 0 ? `the ${String(mode.together.length)} cases ${mode.together.join(", ")} share one process` : "each case runs in its own processes";
+  return `${head} Mode: ${flags}, ${samples} in each process, ${together}.`;
+}
+
 function main(): void {
   const files = process.argv.slice(2);
   const runs = [read(files[0]), read(files[1])];
   const names: string[] = [];
   for (const run of runs) for (const item of run?.cases ?? []) if (!names.includes(item.name)) names.push(item.name);
-  const describe = (run: BenchRun | undefined, index: number): string =>
-    run === undefined ? `Run ${String(index + 1)} gave no table.` : `Run ${run.run}: ${run.cpu}, Node ${run.node}, ${String(run.rounds)} rounds.`;
   const lines: string[] = [
-    ...runs.map(describe),
+    ...runs.map(describeRun),
     "",
     "A case is slower or faster only when both runs are over the bound in the same direction.",
     `The bound of a run is ${String(FLOOR)} % or two times the noise (A/A) of the case, whichever is larger.`,
@@ -114,4 +138,5 @@ function main(): void {
   if (runs.includes(undefined) || short.length > 0 || names.length === 0 || counts.has("different results")) process.exitCode = 1;
 }
 
-main();
+// A test imports `describeRun`, and only a start of this file gives the verdict.
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) main();
