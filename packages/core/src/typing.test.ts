@@ -381,55 +381,59 @@ describe("signatures and the check of types", () => {
     expect(issues).toBeGreaterThan(COUNT / 4);
   });
 
-  it("[TYPE.SOUND] a generated document that checks with no issue evaluates to a member of its synthesized type", () => {
-    const profiles: readonly (readonly [string, FormulaProfile])[] = [
-      ["strict", { ops: GUARDED, sigs: SIGS }],
-      [
-        "loose",
-        {
-          ops: GUARDED,
-          sigs: SIGS,
-          truthy: jsTruthy,
-          logic: "value",
-          otherwise: "none",
-          omit: (error) => error.code === "#CALC!",
-          check: (value) => (typeof value === "number" && !Number.isFinite(value) ? fail("#NUM!", "The number is not finite.") : undefined),
-        },
-      ],
-    ];
-    for (const [name, profile] of profiles) {
-      const machine = formulaMachine(profile);
-      const rng = random(SEED);
-      let accepted = 0;
-      let precise = 0;
-      let nodes = 0;
-      for (let index = 0; index < 2 * COUNT; index += 1) {
-        // The even documents come from the contracts (generate), and the odd documents from the signatures.
-        const doc = index % 2 === 0 ? generate(machine.world, { ...OPTIONS, seed: SEED * 1_000_003 + index }) : typedDoc(rng, "any", 4, []);
-        const typing = typeCheck(machine, doc);
-        if (typing.issues.length > 0) continue;
-        const result = prepare(machine, doc).evaluate();
-        if (!result.ok) continue;
-        accepted += 1;
-        if (typing.type !== "unknown") precise += 1;
-        expect(member(result.value, typing.type, machine.domains), `${name}: ${JSON.stringify(doc)} gives ${JSON.stringify(result.value)}, not a member of ${typeText(typing.type)}`).toBe(true);
-        // Each value of the trace is a member of the type of its place too. A body of fn evaluates at each call.
-        const types = new Map(typing.places.map((item) => [JSON.stringify(item.place.map(String)), item.type]));
-        const stack: TraceNode[] = [evaluate(machine, doc).trace];
-        while (stack.length > 0) {
-          const node = stack.pop() as TraceNode;
-          stack.push(...node.children);
-          const type = types.get(JSON.stringify(node.path));
-          if (!node.result.ok || type === undefined) continue;
-          nodes += 1;
-          expect(member(node.result.value, type, machine.domains), `${name}: at ${node.path.join(".")} of ${JSON.stringify(doc)}, ${JSON.stringify(node.result.value)} is not a member of ${typeText(type)}`).toBe(true);
-        }
+  // Each profile is one test (K206). With COEVAL_AGREE_COUNT 2000, the two profiles in one test took 5.4 s on a slow runner.
+  // A test of one profile has the same documents and the same checks.
+  const soundProfiles: readonly (readonly [string, FormulaProfile])[] = [
+    ["strict", { ops: GUARDED, sigs: SIGS }],
+    [
+      "loose",
+      {
+        ops: GUARDED,
+        sigs: SIGS,
+        truthy: jsTruthy,
+        logic: "value",
+        otherwise: "none",
+        omit: (error) => error.code === "#CALC!",
+        check: (value) => (typeof value === "number" && !Number.isFinite(value) ? fail("#NUM!", "The number is not finite.") : undefined),
+      },
+    ],
+  ];
+  const sound = (name: string, profile: FormulaProfile): void => {
+    const machine = formulaMachine(profile);
+    const rng = random(SEED);
+    let accepted = 0;
+    let precise = 0;
+    let nodes = 0;
+    for (let index = 0; index < 2 * COUNT; index += 1) {
+      // The even documents come from the contracts (generate), and the odd documents from the signatures.
+      const doc = index % 2 === 0 ? generate(machine.world, { ...OPTIONS, seed: SEED * 1_000_003 + index }) : typedDoc(rng, "any", 4, []);
+      const typing = typeCheck(machine, doc);
+      if (typing.issues.length > 0) continue;
+      const result = prepare(machine, doc).evaluate();
+      if (!result.ok) continue;
+      accepted += 1;
+      if (typing.type !== "unknown") precise += 1;
+      expect(member(result.value, typing.type, machine.domains), `${name}: ${JSON.stringify(doc)} gives ${JSON.stringify(result.value)}, not a member of ${typeText(typing.type)}`).toBe(true);
+      // Each value of the trace is a member of the type of its place too. A body of fn evaluates at each call.
+      const types = new Map(typing.places.map((item) => [JSON.stringify(item.place.map(String)), item.type]));
+      const stack: TraceNode[] = [evaluate(machine, doc).trace];
+      while (stack.length > 0) {
+        const node = stack.pop() as TraceNode;
+        stack.push(...node.children);
+        const type = types.get(JSON.stringify(node.path));
+        if (!node.result.ok || type === undefined) continue;
+        nodes += 1;
+        expect(member(node.result.value, type, machine.domains), `${name}: at ${node.path.join(".")} of ${JSON.stringify(doc)}, ${JSON.stringify(node.result.value)} is not a member of ${typeText(type)}`).toBe(true);
       }
-      expect(accepted, name).toBeGreaterThan(COUNT / 2);
-      expect(precise, name).toBeGreaterThan(COUNT / 4);
-      expect(nodes, name).toBeGreaterThan(3 * COUNT);
     }
-  });
+    expect(accepted, name).toBeGreaterThan(COUNT / 2);
+    expect(precise, name).toBeGreaterThan(COUNT / 4);
+    expect(nodes, name).toBeGreaterThan(3 * COUNT);
+  };
+
+  it("[TYPE.SOUND] a generated document that checks with no issue evaluates to a member of its synthesized type, with the strict profile", () => sound(...soundProfiles[0]!));
+
+  it("[TYPE.SOUND] a generated document that checks with no issue evaluates to a member of its synthesized type, with the loose profile", () => sound(...soundProfiles[1]!));
 });
 
 /** The value types of the typed documents: the base types of the language, a list, a record, a function, or each value. */
