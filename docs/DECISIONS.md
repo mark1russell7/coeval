@@ -2862,6 +2862,8 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - The workflow `measure` runs PLAN.LEAN and WORLD.LAWS on 5 runners and prints the values. The limit of PLAN.LEAN is the worst value times 1.1.
 - The seeds of WORLD.LAWS are fixed, thus its counts are the same in each run. The test pins them exactly.
 
+**Measures (2026-11-02).** PLAN.LEAN gave 401.5, 401.6, 402.2, 402.3 and 402.9 bytes on 5 runners, a spread of 0.4 %. The limit is 444 bytes. WORLD.LAWS gave 313 merges of worlds and 180 merges of machines in each run.
+
 **Rejected.**
 
 - A time limit from 5 runs in the unit tests. The tests share one process with other files, and the A/A noise of such a measure is not well inside a limit.
@@ -2869,4 +2871,4 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 **Why.** A guessed limit fails at random, or it does not fail at any time. A derived limit fails when the value really changes.
 
-**Changed expected values.** No result of the kernel changes. The tests lose their time limits, PLAN.LEAN gets a new limit, and WORLD.LAWS gets exact counts.
+**Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 444 bytes, and WORLD.LAWS gets exact counts.

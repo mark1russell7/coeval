@@ -229,9 +229,8 @@ describe("the laws of the merge", () => {
     laws("worlds", randomWorld, (...parts) => mergeWorlds(...parts), docEquals);
     laws("machines", randomMachine, (...parts) => mergeMachines(...parts), sameMachine);
     if (process.env["COEVAL_MEASURE"] !== undefined) console.log(`MEASURE ${JSON.stringify({ id: "WORLD.LAWS", ...counts })}`);
-    // The pools give both merges that succeed and merges with conflicts.
-    for (const name of ["worlds", "machines"]) expect(counts[name], name).toBeGreaterThan(100);
-    for (const name of ["worlds", "machines"]) expect(counts[name], name).toBeLessThan(1400);
+    // The seeds are fixed, thus the counts are exact (K200, D95). Of 1500 merges each, some succeed and the others have conflicts.
+    expect(counts).toEqual({ worlds: 313, machines: 180 });
   });
 });
 
