@@ -2850,6 +2850,31 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - The palette has few values. A domain without `values`, for example `number`, gets only the samples `1` and `2`. K188 adds samples of a domain.
 - The check reports the first false cover only, as each check of `conforms` reports its first finding.
 
+## D95 (2026-11-02): each numeric limit of a unit test is derived, or goes
+
+**Context.** K200. The gate rule of 2026-10-30 says that a limit comes from 5 or more CI runs. The limit is the worst value times 1.1, and the A/A noise is well inside it. Six limits of the unit tests were guesses.
+
+**Decision.**
+
+- A unit test does not measure wall-clock time. The limits of STATIC.LINEAR (5000 ms), PLAN.COMPILE-SPEED (2000 ms) and FORMULA.SPEED (2000 ms) go. The tests keep their results.
+- The bench measures FORMULA.SPEED and PLAN.COMPILE-SPEED. Both were bench cases already.
+- The claim of STATIC.LINEAR is linear time. One walk gives no ratio, thus K208 compares the times of N and 2N levels in one process.
+- The abort test of RUN.FAIL-FAST checks that the results come before the slow effect finishes. The 150 ms limit goes.
+- The workflow `measure` runs PLAN.LEAN and WORLD.LAWS on 5 runners and prints the values. The limit of PLAN.LEAN is the worst value times 1.1.
+- The seeds of WORLD.LAWS are fixed, thus its counts are the same in each run. The test pins them exactly.
+
+**Measures (2026-11-02).** PLAN.LEAN gave 401.5, 401.6, 402.2, 402.3 and 402.9 bytes on 5 runners, a spread of 0.4 %. The limit is 444 bytes. WORLD.LAWS gave 313 merges of worlds and 180 merges of machines in each run.
+
+**Rejected.**
+
+- A time limit from 5 runs in the unit tests. The tests share one process with other files, and the A/A noise of such a measure is not well inside a limit.
+- A gate on the bench. The bench verdict reports and does not block a merge (D50, D70).
+- A bench case of a deep walk. A sample has at least 1000 calls, and a walk of 1000 levels took 3.7 ms. Thus each bench job went past its 10 minutes.
+
+**Why.** A guessed limit fails at random, or it does not fail at any time. A derived limit fails when the value really changes.
+
+**Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 444 bytes, and WORLD.LAWS gets exact counts.
+
 ## D96 (2026-11-02): a seeded property test splits its corpus into parts of a fixed size, and CI checks the share of the timeout
 
 **Context.** K206 and K207. CI runs the property tests of `packages/core` with `COEVAL_AGREE_COUNT` 2000 and the fixed seed 1. Thus each test does fixed work. On a slow runner, TYPE.SOUND took 5.4 s, over the timeout of 5 s. On main, ten tests took 2.0 s to 3.7 s. A slow runner doubles such a time.

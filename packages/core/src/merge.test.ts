@@ -205,6 +205,7 @@ function sameOutcome<T>(a: Outcome<T>, b: Outcome<T>, equal: (x: T, y: T) => boo
 
 describe("the laws of the merge", () => {
   it("[WORLD.LAWS] without replaces, a merge of worlds or of machines is commutative, associative and idempotent", () => {
+    const counts: Record<string, number> = {};
     const laws = <T extends object>(name: string, make: (rng: Random) => T, merge: (...parts: T[]) => T, equal: (x: T, y: T) => boolean): void => {
       let merged = 0;
       for (let seed = 0; seed < 1500; seed += 1) {
@@ -223,12 +224,13 @@ describe("the laws of the merge", () => {
         expect(equal(merge(a, a), merge(a)) && equal(merge(a), a), `${name}, seed ${seed}: idempotence`).toBe(true);
         if (flat.ok) merged += 1;
       }
-      // The pools give both merges that succeed and merges with conflicts.
-      expect(merged, name).toBeGreaterThan(100);
-      expect(merged, name).toBeLessThan(1400);
+      counts[name] = merged;
     };
     laws("worlds", randomWorld, (...parts) => mergeWorlds(...parts), docEquals);
     laws("machines", randomMachine, (...parts) => mergeMachines(...parts), sameMachine);
+    if (process.env["COEVAL_MEASURE"] !== undefined) console.log(`MEASURE ${JSON.stringify({ id: "WORLD.LAWS", ...counts })}`);
+    // The seeds are fixed, thus the counts are exact (K200, D95). Of 1500 merges each, some succeed and the others have conflicts.
+    expect(counts).toEqual({ worlds: 313, machines: 180 });
   });
 });
 

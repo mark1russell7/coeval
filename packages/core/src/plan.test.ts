@@ -88,7 +88,7 @@ describe("plans", () => {
     expect(ref.plan.evaluate(makeContext({ x: { y: 5 } }))).toEqual({ ok: true, value: 5 });
   });
 
-  it("[PLAN.LEAN] a plan of one bare reference keeps less than 600 bytes", () => {
+  it("[PLAN.LEAN] a plan of one bare reference keeps less than 444 bytes", () => {
     setFlagsFromString("--expose-gc");
     const gc = runInNewContext("gc") as () => void;
     const machine = formulaMachine();
@@ -108,8 +108,11 @@ describe("plans", () => {
     expect(plans).toHaveLength(docs.length);
     const row = Array.from({ length: COUNT }, (_, index) => index * 2);
     expect(plans[4]?.evaluate(makeContext({ row }))).toEqual({ ok: true, value: 8 });
+    // The measure workflow prints the value of 5 runners, and the limit is the worst of them times 1.1 (K200, D95).
+    // On 2026-11-02 the 5 values were 401.5 to 402.9 bytes, thus the limit is 444.
+    if (process.env["COEVAL_MEASURE"] !== undefined) console.log(`MEASURE ${JSON.stringify({ id: "PLAN.LEAN", bytes: Number(bytes.toFixed(1)) })}`);
     // Before K105, such a plan kept approximately 1500 bytes: closures for each path, the split and the document.
-    expect(bytes, `${bytes.toFixed(0)} bytes for each plan`).toBeLessThan(600);
+    expect(bytes, `${bytes.toFixed(0)} bytes for each plan`).toBeLessThan(444);
   });
 
   it("[PLAN.TRACE] a traced plan gives the trace of evaluate, an untraced one gives none", () => {
@@ -482,7 +485,6 @@ describe("the run side", () => {
         { type: "log", value: ["later"] },
       ],
     };
-    const begin = Date.now();
     const done = await prepare(machine, doc).run(makeContext({}, STD_CAPS), {
       perform: async (effect) => {
         const text = String(effect.payload);
@@ -494,7 +496,8 @@ describe("the run side", () => {
       },
     });
     expect(done).toEqual({ ok: true, value: ["#ABORT", "#CALC!", "#ABORT"] });
-    expect(Date.now() - begin).toBeLessThan(150);
+    // The results came before the slow effect finished: the order of the events, not a time (K200).
+    expect(finished).toEqual([]);
     expect(started).toEqual(["slow", "boom"]);
     await waiter(250, null);
     // The part that ran stopped at its wait: its next step did not start

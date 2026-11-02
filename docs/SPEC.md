@@ -147,8 +147,8 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | PLAN.TRACE | A traced evaluation records each document. An evaluation of a plan without a trace records nothing. |
 | PLAN.CACHE | A planner compiles one document object one time. |
 | PLAN.CACHE-ZERO | A planner keeps the bare values `-0` and `0` apart, thus `-0` evaluates to `-0`. |
-| PLAN.COMPILE-SPEED | A compilation without a trace does not record the rungs of the ladder, thus it compiles a small document quickly. |
-| PLAN.LEAN | A plan keeps only its compiled code. It does not keep its document or the split of the value, thus a store can keep many plans. A plan of one reference with a static path keeps less than 600 bytes, by a measure of the heap over 10000 plans. |
+| PLAN.COMPILE-SPEED | A compilation without a trace does not record the rungs of the ladder, thus it compiles a small document quickly. The bench measures the time (K200). |
+| PLAN.LEAN | A plan keeps only its compiled code. It does not keep its document or the split of the value, thus a store can keep many plans. A plan of one reference with a static path keeps less than 444 bytes, by a measure of the heap over 10000 plans. The limit is the worst of 5 CI runs times 1.1 (K200). |
 | PLAN.DEPTH | The nesting of documents has a limit. The default is 1000. |
 | PLAN.RUN-OPTIONS | A plan keeps the verb and the declared type of its `prepare`. Thus the options of `plan.run` (`PlanRunOptions`) do not have them. The options of `run` (`RunOptions`) add them for its `prepare`. |
 | PLAN.PATH | A reference of the formula kit compiles its static path one time, in `prepare`. The compiled path reads the root and the open roots one time, and the ladder of `step` answers each step document one time. Each evaluation then examines only the values of the context. A trace and a runtime with another navigator resolve the steps again. The list of reads gets the steps of the document. |
@@ -234,7 +234,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.EFFECT | An effect has its kind, its keys, its place and its context. |
 | RUN.CAUSE | An error of the host stays the cause of the error value. |
 | RUN.ALL | Parts can run at the same time, with a limit. The results keep the order of the parts. |
-| RUN.FAIL-FAST | With `failFast`, the first failed part stops the parts at the same time. The later parts do not start, and the results come at once. |
+| RUN.FAIL-FAST | With `failFast`, the first failed part stops the parts at the same time. The later parts do not start, and the results come before a slow part finishes. |
 | RUN.ABORT | A run stops with `#ABORT` when the host aborts it. |
 | RUN.MOCK | An evaluation can get a mock `perform`. The answer of the mock is the result of the effect, as in a run with the same `perform`. A promise from the mock gives `#CALC!`, because an evaluation does not wait. |
 | RUN.OUTCOME | Each effect records its outcome: the result that it gave its document. A throw of the host gives `#CALC!` with the cause, and a `Failure` gives its own error value. An effect of a run that stopped at its wait has no outcome. |
@@ -300,7 +300,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
 | STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless a host thing without `has` answers the names (DEREF.HOST-UNDEFINED). A `#DEPTH!` from an overflow of the stack of the host is not an error of `check`. |
 | STATIC.NARROW | `check` tests each effect against the capabilities of its own document: the capabilities at the root, narrowed by the rules of the kinds around it. |
-| STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. |
+| STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. K208 adds a check of the ratio of the times of N and 2N levels. |
 | STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |
 | STATIC.AT | `check` gives the JSON path of each problem. For a value without its shape, the path goes to the value with the problem. |
 | STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |
@@ -444,7 +444,7 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | FORMULA.EXT-CONTEXT | An extension gets the context of its document, for example the position of `self`. |
 | FORMULA.EXT | The standard extensions give the values that JSON cannot write. |
 | FORMULA.DEPTH | A deep formula evaluates up to the limit of the depth. |
-| FORMULA.SPEED | A plan evaluates a small formula many times quickly. |
+| FORMULA.SPEED | A plan evaluates a small formula many times quickly. The bench measures the time (K200). |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
 
 ## The codec of values
