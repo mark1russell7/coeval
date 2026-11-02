@@ -230,7 +230,8 @@ export interface ReplayErrorJson {
   /**
    * The JSON form of a cause without a term document that is a list or a plain record with an exception at some depth
    * (RUN.REPLAY-CAUSE-PARTS, D87). It is a list of parts, the part `record` or the part `share`. The index 0 of `loop` is its
-   * first exception, and the index 0 of `share` is its first list or record.
+   * first exception, and the index 0 of `share` is its first list or record. Since D101, a list or a record cause that
+   * holds a container at two places is also `causeParts` (RUN.REPLAY-SHARED-VALUES).
    */
   readonly causeParts?: ReplayCausePartsJson;
   /** The names of the items of `causeParts` without a form, for example `cause.send`. This list is only a note. */
@@ -251,13 +252,18 @@ export type ReplayCausePartsJson = readonly ReplayPartsJson[] | { readonly recor
 export interface ReplayExceptionJson {
   readonly name: string;
   readonly message: string;
-  /** The term documents of the own fields of the exception that `encodeValue` writes, for example `code` or `errno`. */
+  /**
+   * The term documents of the own fields of the exception that `encodeValue` writes, for example `code` or `errno`. A list
+   * or a plain record that two places of the error share is in `parts` (RUN.REPLAY-SHARED-VALUES, D101).
+   */
   readonly fields?: Readonly<Record<string, Json>>;
   /**
    * The own enumerable fields without a term document that are an exception, a list or a plain record (RUN.REPLAY-FIELDS,
    * D78, D82). An example is a list `errors` on an `Error`. A list is a list of parts, and a record is the part `record`.
    * Each exception in them has the rule of a cause. A container without a form in it is a name in `dropped`. A container
    * that an earlier place holds is the part `share` (D88).
+   *
+   * Since D101, a shared container with a term document is in `parts` too, and so is each container that holds it.
    */
   readonly parts?: Readonly<Record<string, ReplayPartsJson>>;
   /**
@@ -372,7 +378,10 @@ interface Holder {
   /** The name for `dropped` when no item of the container has a form. */
   readonly name: string;
   readonly list: boolean;
-  /** The value `true` marks a hidden list of a standard class. It keeps its marks also without a form (D78). */
+  /**
+   * The value `true` marks a hidden list of a standard class. It keeps its marks also without a form (D78). It also marks
+   * a shared container with a term document, thus an empty container keeps its form (D101).
+   */
   keep: boolean;
   /** The keys of a record in the order of the keys. A list has no keys. */
   readonly keys: readonly string[];
@@ -423,6 +432,63 @@ function holdsHole(value: unknown): boolean {
     }
   }
   return false;
+}
+
+/**
+ * This function gives the lists and the plain records that the walk of `causeJson` keeps as containers of parts, also
+ * with a term document (D101). Such a container is at two places of the walk, or it holds such a container at some depth.
+ * It reads the values as the walk does: the fields of an exception, its hidden fields and its cause, and the items of a
+ * container. A term document gives a copy at each place, thus a shared container cannot be one.
+ */
+function sharedOf(root: unknown): ReadonlySet<object> {
+  const seen = new Set<object>();
+  const twice: object[] = [];
+  // The containers that hold each container. A container on the way to a shared container is a container of parts too.
+  const owners = new Map<object, object[]>();
+  const stack: [unknown, object | undefined][] = [[root, undefined]];
+  for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
+    const [at, owner] = next;
+    if (typeof at !== "object" || at === null) continue;
+    const container = Array.isArray(at) || isRecord(at);
+    if (!container && !(at instanceof Error)) continue;
+    if (container && owner !== undefined) {
+      const list = owners.get(at);
+      if (list === undefined) owners.set(at, [owner]);
+      else list.push(owner);
+    }
+    if (seen.has(at)) {
+      if (container) twice.push(at);
+      continue;
+    }
+    seen.add(at);
+    if (Array.isArray(at)) {
+      for (let item = 0; item < at.length; item += 1) if (Object.hasOwn(at, item)) stack.push([readField(at, item), at]);
+    } else if (container) {
+      for (const key of Object.keys(at)) stack.push([readField(at, key), at]);
+    } else {
+      // An exception is never a term document of the walk, thus it is not an owner.
+      for (const key of Object.keys(at)) if (!ownField(key)) stack.push([readField(at, key), undefined]);
+      for (const key of HIDDEN) if (Object.getOwnPropertyDescriptor(at, key)?.enumerable === false) stack.push([readField(at, key), undefined]);
+      if (Object.hasOwn(at, "cause")) stack.push([readField(at, "cause"), undefined]);
+    }
+  }
+  const shared = new Set<object>();
+  for (let at = twice.pop(); at !== undefined; at = twice.pop()) {
+    if (shared.has(at)) continue;
+    shared.add(at);
+    for (const owner of owners.get(at) ?? []) twice.push(owner);
+  }
+  return shared;
+}
+
+/**
+ * This function tells if the walk of `causeJson` keeps a value with a term document as a container of parts (D101). The
+ * value is in the set of `sharedOf`. A member of a domain stays a term document, because its codec makes it again.
+ */
+function wholeOf(shared: ReadonlySet<object>, value: unknown, term: Json): boolean {
+  if (typeof value !== "object" || value === null || !shared.has(value)) return false;
+  const type = isRecord(term) ? term["type"] : undefined;
+  return !(Array.isArray(type) && type[0] === "ext" && type[1] === "domain");
 }
 
 /**
@@ -500,10 +566,11 @@ function keptOf(keys: readonly string[], built: readonly Built[]): [string, Repl
  * is a container only when it holds an exception (D87). The cause of an exception is a container as a field is (D100).
  * A value that is an earlier exception of the walk is its index in `loop` (D77).
  *
- * A container that an earlier place holds is its index in `share`, also a container that holds itself (D88). The walk is
- * a loop, thus a long chain does not overflow the stack.
+ * A container that an earlier place holds is its index in `share`, also a container that holds itself (D88). A container
+ * of `sharedOf` is a container of parts also with a term document, thus each share gives one object (D101). The value
+ * `tried` marks a root that `encodeValue` cannot write. The walk is a loop, thus a long chain does not overflow the stack.
  */
-function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson {
+function causeJson(machine: Pick<Machine, "domains">, root: unknown, shared: ReadonlySet<object>, tried: boolean): CauseJson {
   // The nodes and the containers in the order of the walk. Each item of a node or of a container comes later.
   const items: (ExceptionNode | Holder)[] = [];
   const index = new Map<unknown, number>();
@@ -535,12 +602,14 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
     const at = items.length;
     index.set(current, index.size);
     const fields: [string, Json][] = [];
-    const linked: [string, unknown][] = [];
+    // The value `true` marks a field without a term document. A shared container has one, and the walk writes it (D101).
+    const linked: [string, unknown, boolean][] = [];
     for (const key of Object.keys(current)) {
       if (ownField(key)) continue;
       const value = readField(current, key);
       const term = value === MISSING ? undefined : termOrNothing(machine, value);
-      if (term === undefined) linked.push([key, value]);
+      if (term === undefined) linked.push([key, value, true]);
+      else if (wholeOf(shared, value, term)) linked.push([key, value, false]);
       else fields.push([key, term]);
     }
     const head = { name: String(current.name), message: String(current.message), ...(fields.length === 0 ? {} : { fields: Object.fromEntries(fields) }) };
@@ -548,11 +617,11 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
     items.push(node);
     const children: ExceptionTask[] = [];
     for (let place = 0; place < linked.length; place += 1) {
-      const [key, value] = linked[place] as [string, unknown];
+      const [key, value, without] = linked[place] as [string, unknown, boolean];
       const put = (part: Part): void => {
         node.parts[place] = part;
       };
-      children.push({ value, name: key, tried: true, nest: true, keep: false, put });
+      children.push({ value, name: key, tried: without, nest: true, keep: false, put });
     }
     for (const key of HIDDEN) {
       if (Object.getOwnPropertyDescriptor(current, key)?.enumerable !== false) continue;
@@ -579,7 +648,7 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
   tasks.push({
     value: root,
     name: "cause",
-    tried: true,
+    tried,
     nest: false,
     keep: false,
     put: (part) => {
@@ -597,20 +666,23 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
       task.put({ loop });
       continue;
     }
+    const container = Array.isArray(value) || isRecord(value);
+    const held = container ? holders.get(value) : undefined;
+    if (held !== undefined) {
+      // A container that an earlier place holds, also a container that holds itself, is a share (D88, D101).
+      if (task.keep) (items[held] as Holder).keep = true;
+      task.put({ same: held, name: task.name });
+      continue;
+    }
     const term = task.tried || task.keep ? undefined : termOrNothing(machine, value);
-    if (term !== undefined) task.put({ value: term });
+    // A shared container with a term document is a container of parts, and it always has a form (D101).
+    const whole = term !== undefined && wholeOf(shared, value, term);
+    if (term !== undefined && !whole) task.put({ value: term });
     else if (value instanceof Error) task.put({ node: open(value) });
-    else if ((Array.isArray(value) || isRecord(value)) && (task.nest || holdsException(value))) {
-      const held = holders.get(value);
-      if (held === undefined) {
-        const children: ExceptionTask[] = [];
-        task.put({ holder: hold(task.name, value, task.keep, children) });
-        later(children);
-      } else {
-        // A container that an earlier place holds, also a container that holds itself, is a share (D88).
-        if (task.keep) (items[held] as Holder).keep = true;
-        task.put({ same: held, name: task.name });
-      }
+    else if (container && (whole || task.nest || holdsException(value))) {
+      const children: ExceptionTask[] = [];
+      task.put({ holder: hold(task.name, value as object, task.keep || whole, children) });
+      later(children);
     } else task.put({ none: task.name });
   }
   const { formed, shares } = formsOf(items);
@@ -724,14 +796,20 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
   const base = { code: error.code, reason: error.reason, ...(error.place === undefined ? {} : { place: error.place }) };
   if (!Object.hasOwn(error, "cause")) return base;
   const cause: unknown = error.cause;
+  const shared = sharedOf(cause);
+  let term: Json | undefined;
+  let failure: unknown;
   try {
-    return { ...base, cause: encodeValue(machine, cause) };
-  } catch (failure) {
-    // An exception, or a list or a record with an exception, is a best effort (D76, D87). Each other cause is a refusal.
-    const { link, names } = causeJson(machine, cause);
-    if (link === undefined) throw new TypeError(`encodeLog cannot write the cause of ${what()}: ${messageOf(failure)}`);
-    return { ...base, ...link, ...(names.length === 0 ? {} : { dropped: names }) };
+    term = encodeValue(machine, cause);
+  } catch (thrown) {
+    failure = thrown;
   }
+  // A cause that holds a shared container is a container of parts, thus each place keeps one object (D101).
+  if (term !== undefined && !wholeOf(shared, cause, term)) return { ...base, cause: term };
+  // An exception, or a list or a record with an exception, is a best effort (D76, D87). Each other cause is a refusal.
+  const { link, names } = causeJson(machine, cause, shared, term === undefined);
+  if (link === undefined) throw new TypeError(`encodeLog cannot write the cause of ${what()}: ${messageOf(failure)}`);
+  return { ...base, ...link, ...(names.length === 0 ? {} : { dropped: names }) };
 }
 
 /**
@@ -753,6 +831,8 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   (RUN.REPLAY-CAUSE-ITEMS, D100). Each item without a form is a name in `dropped`, for example `cause.send`.
  * - A list or a record of parts that an earlier place of one error holds is the part `share` with its index
  *   (RUN.REPLAY-SHARED, D88). This rule also covers a container that holds itself.
+ * - A list or a plain record with a term document that two places of one error share is a container of parts
+ *   (RUN.REPLAY-SHARED-VALUES, D101). Each later place is a share. A member of a domain stays a term document.
  * - An outcome that the log does not have stays absent.
  *
  * @param machine - The machine of the run, or only its domains.
