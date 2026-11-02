@@ -3429,5 +3429,5 @@ The behavior changes for a caller only with the new field. A check with types th
 
 - The bytes include the code and the feedback that V8 makes during a measured call. The warm rounds and the median of 5 passes keep that part small.
 - The measure counts the bytes of the heap of V8 only. It does not count memory outside the heap.
-- The values of the first CI run are not in this entry. The row STATIC.LINEAR of SPEC.md gets them after the measure run.
+- The first CI run of the memory phase is the Measure run 41526166950. The memory slope of `refsOf` and of `walk` was 0.991, with 90 % intervals inside 0.98 to 1.00. One call at 250 levels allocated approximately 1.65 MB. The row STATIC.LINEAR of SPEC.md has the slopes.
 - No test fails when the memory slope grows. The verdict is in the summary of the job `ladder-verdict` only.
