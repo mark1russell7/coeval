@@ -3389,22 +3389,22 @@ The behavior changes for a caller only with the new field. A check with types th
 **Context.** K209. STATIC.LINEAR says that a walk takes time and memory linear in the size of the document. The ladder of D97 measures the time only.
 
 - A measure of the bytes of a call must not lose bytes. A scavenge in the call frees the garbage of the call, and then the change of `heapUsed` is too small.
-- V8 flags on the command line, such as `--expose-gc` or a large semi-space, apply to the whole process. Thus they also change the conditions of the timed passes.
+- V8 flags on the command line apply to the whole process. For example, `--expose-gc` or a large semi-space also changes the conditions of the timed passes.
 
 **Decision.**
 
 - The ladder keeps its timed rounds as D97 sets them. The process starts with no new flags, and `measure.yml` does not change.
-- After all timed rounds, a memory phase measures the bytes that one call allocates. It uses calls of their own, not the timed calls.
+- After all timed rounds, a memory phase measures the bytes that one call allocates. The phase measures its own uses of each walk, not the timed uses.
 - The memory phase sets `--expose-gc` with `setFlagsFromString` and gets `gc` from a new context, as the test of PLAN.LEAN does.
 - Each measured call starts after a full collection by `gc()`. Then a new `GCProfiler` starts.
 - The bytes are `heapUsed` after the call minus `heapUsed` before it, plus the bytes that each collection in the call frees.
 - The freed bytes of a collection are its `usedHeapSize` before the collection minus its `usedHeapSize` after the collection. The `GCProfiler` gives both.
 - Thus a scavenge in the call loses no bytes, and the semi-space needs no flag.
-- Each pass also measures an empty call. The ladder subtracts the median bytes of the empty calls of a round from each value of that round.
+- Each pass also measures an empty function. The ladder subtracts the median bytes of the empty functions of a round from each value of that round.
 - The memory phase uses the rungs, the order of the arms, the A/A arm and the rounds of the timed phase.
 - The bytes of a rung in a round are the median of its 5 passes. Each sample is one call, at each rung.
 - Each round fits the slope of log bytes against log n by least squares, with the function `slope` of D97.
-- The mode `merge` pools the memory slopes of the counted runs in the same way as the time slopes.
+- The mode `merge` pools the memory slopes of the counted jobs, as it pools the time slopes.
 - A run counts by the A/A band of its time, as D97 sets it. The A/A ratio of the bytes is information only.
 - The memory verdict is "at most linear" when the upper end of the pooled 90 % interval is at most 1.2. Else it is "over the bound".
 - The memory verdict is only an upper bound. A slope well under 1 shows a large fixed part of the bytes of a call. It also passes.
