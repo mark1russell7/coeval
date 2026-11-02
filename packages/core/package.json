@@ -12,7 +12,8 @@
   "files": [
     "build",
     "src",
-    "!src/**/*.test.ts"
+    "!src/**/*.test.ts",
+    "!src/**/*.test-support.ts"
   ],
   "sideEffects": false,
   "scripts": {

@@ -2857,7 +2857,7 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 **Decision.**
 
 - A unit test does not measure wall-clock time. The limits of STATIC.LINEAR (5000 ms), PLAN.COMPILE-SPEED (2000 ms) and FORMULA.SPEED (2000 ms) go. The tests keep their results.
-- The bench measures the three times. FORMULA.SPEED and PLAN.COMPILE-SPEED were bench cases already. The case `STATIC.LINEAR refsOf of a very deep document` is new.
+- The bench measures the three times. FORMULA.SPEED and PLAN.COMPILE-SPEED were bench cases already. The case `STATIC.LINEAR refsOf of a document 1000 levels deep` is new. A sample has at least 1000 calls, thus the case walks 1000 levels, not 100000.
 - The abort test of RUN.FAIL-FAST checks that the results come before the slow effect finishes. The 150 ms limit goes.
 - The workflow `measure` runs PLAN.LEAN and WORLD.LAWS on 5 runners and prints the values. The limit of PLAN.LEAN is the worst value times 1.1.
 - The seeds of WORLD.LAWS are fixed, thus its counts are the same in each run. The test pins them exactly.
@@ -2872,3 +2872,50 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 **Why.** A guessed limit fails at random, or it does not fail at any time. A derived limit fails when the value really changes.
 
 **Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 444 bytes, and WORLD.LAWS gets exact counts.
+
+## D96 (2026-11-02): a seeded property test splits its corpus into parts of a fixed size, and CI checks the share of the timeout
+
+**Context.** K206 and K207. CI runs the property tests of `packages/core` with `COEVAL_AGREE_COUNT` 2000 and the fixed seed 1. Thus each test does fixed work. On a slow runner, TYPE.SOUND took 5.4 s, over the timeout of 5 s. On main, ten tests took 2.0 s to 3.7 s. A slow runner doubles such a time.
+
+**Decision.**
+
+- The function `corpus` of `src/corpus.test-support.ts` splits the indexes of a corpus into parts of a fixed size. Each part is one test with the default timeout.
+- The parts give the same indexes in the same order as one loop. Thus the seeds and the documents do not change.
+- Each part checks its own documents. A last test checks the totals of all parts. It first checks that each part finished.
+- Some tests advance one source of random numbers from document to document. These tests use `inOrder`. It makes each document one time, in the order of the indexes.
+- Thus a later part gets the same documents as one loop, also when a filter skips the earlier parts.
+- The corpora of TYPE.FITS-SOUND first sample the members of each record, in the order of the loop. The checks read no random number, thus the members do not change.
+- The name of each part stays a literal `it("[ID] ...")` at the call site. Thus the gate of `spec.test.ts` finds the ID, and the gate does not change.
+- The size of a part comes from the time on main at the count 2000. The sizes aim at approximately 0.6 s or less for each part on main.
+- The sizes are 1000 documents for TYPE.SOUND, TYPE.TRUTH-SOUND, EVAL.SEALED, EVAL.DETERMINISTIC and CAP.MONOTONE. SEQ.LAWS has parts of 400, and RUN.AGREES-EQUATIONS has parts of 300.
+- The two corpora of type splits (D90) have parts of 40 records. The corpus of nested records (D89) has parts of 30 records.
+- A part has no own timeout. The split tests lose their timeouts of 120 s and 300 s.
+- SCHED.LONG-CHAIN has no seeded corpus, and its claim is the absence of `#DEPTH!`. A one-off measurement on Node.js 24 found the depth of the overflow.
+- A demand through lazy edges overflowed at 600 to 800 nodes. S2a found approximately 1000 nodes. The chain has 2000 nodes, twice that depth.
+- The test first shows that the same chain through lazy edges gives an error on the host. Thus a host with a deeper stack makes the test fail, not pass with no proof.
+- The reporter `ShareReporter` of `vitest.share.ts` divides the duration of each test by its timeout. Only in CI, it writes the 5 slowest tests to the step summary.
+- It prints a warning when the slowest share is above 0.4. It fails the run when the slowest share is above 0.6.
+- The timeout stays a detector of a hang. The claims of speed stay in the bench.
+
+**Rejected.**
+
+- A higher timeout. Then a hang shows later, and the timeout becomes a gate of speed.
+- A smaller count in CI. Then CI examines fewer documents.
+- A helper that calls `it` with a computed name, or `it.for` of vitest. Then the gate of `spec.test.ts` does not find the ID.
+- A wider pattern in the gate. A name from a template literal can then hide a typing error in an ID.
+- A part size that grows with the count. The parts have a fixed size, thus a nightly run with more documents gets more parts, not longer parts.
+- A ratio gate of 2000 and 4000 nodes for SCHED.LONG-CHAIN. Its claim is the absence of `#DEPTH!`, not linear time.
+- A chain of 100000 nodes. The work beyond twice the depth of the overflow proves nothing more, and it took 2.7 s and approximately 730 MB.
+
+**Why.** A test of fixed work far below its timeout passes on a slow runner. The share check finds a test that grows toward its timeout before a slow runner fails it.
+
+**Public types.** No change. The index does not export the helper, and the `files` of the npm package exclude it.
+
+**Changed expected values.** No expected value changes. The split tests have new names: one name for each part and one for the totals. The row SCHED.LONG-CHAIN of SPEC.md says 2000 nodes.
+
+**Limits.**
+
+- The share check reads the timeout of each test. Some tests keep a timeout of 120 s or 300 s, thus their shares stay small.
+- These tests include DURABLE.SOUND, FACTS.SOUND, SCHED.ONE-MEANING and READS.SOUND, with 1.5 s to 1.9 s on main.
+- A part with a shared random stream keeps each earlier document of its stream. A corpus of 4000 small documents keeps a few MB.
+- A chain of lazy edges that overflows the stack can give `#CYCLE!`, not `#DEPTH!`. Its nodes are on no cycle. The test of SCHED.LONG-CHAIN accepts each error there.
