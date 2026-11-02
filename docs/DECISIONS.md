@@ -3148,3 +3148,38 @@ The bench runs the `cases.ts` and the `paths.ts` of the head with both kernels. 
 - A change of `cases.ts` or `paths.ts` alone does not start the mode run. A change of `mode.ts` or `measure.yml` starts it, and a dispatch of `measure.yml` starts it.
 - The mode run does not measure the cause. Shared code of the kernel with the type feedback of the earlier cases is one possible cause.
 - σ includes the slow processes of a case. Thus a case with a few slow processes needs a large size.
+
+## D99 (2026-11-02): a domain gives samples of its members to `conforms`
+
+**Context.** K188, found by K181 (D86 Limits) and K187 (D94 Limits). The checks `truth` and `cover` test a type without a list `values` only with the palette. The palette holds the numbers `1` and `2`. Thus `0` and `-1` got no test for `number`, and a `truthy` without a truth for `0` conformed.
+
+**Decision.**
+
+- `Domain` gets the optional field `samples`: some members of the domain for the tests of `conforms` (CONFORM.SAMPLES). The list is not complete.
+- `STD_DOMAINS` gives `number` the samples `0` and `-1`. The other standard domains keep their fields.
+- The kernel helper `membersOf` adds the samples of each domain of the table to the palette. Thus the check `truth` reads them.
+- `falseCovers` adds the same samples to the samples of each covered domain. Thus the check `cover` reads them.
+- The table is the domains of the machine and each standard domain that the machine does not replace.
+- The samples come after the results of the palette. Thus a finding of an existing test keeps its first member.
+- A sample that is not a member of the type does not count, as a value of the palette.
+- `fits` does not read `samples`. A list that is not complete gives no proof.
+- `mergeMachines` compares `samples` as it compares `values`. `extendDomain` keeps `samples`, because a sample outside the new line does not count.
+
+**Rejected.**
+
+- More values in the default palette. The palette also gives the results of the probe parts. Thus each check C1 to C8 then starts more probes, and each result of `conforms` can change.
+- A new option of `conforms` with the samples of a type. The option `results` already adds samples, and a language then gives its samples at each call (D86).
+- Samples only from the domain of the type itself. A domain under `number` then does not give its samples to `number`, and a cover of `number` needs them.
+- Samples in `values`. `fits` trusts `values` as a full list, thus a partial list makes `fits` unsound (D79).
+
+**Why.** A language knows the edge members of its domains: `0`, a negative number, an empty text. The domain is the one place that holds such knowledge, and each check of `conforms` then reads it.
+
+**Public types.** `Domain.samples` is a new optional field. No export goes, and no other type changes. A merge of two domains that differ only in `samples` is a conflict. The change is a new feature: MINOR before 1.0, as D94.
+
+**Changed expected values.** One test of CONFORM.TRUTH changes its input. Before, it used `0` as a member outside the palette. Since D99, the samples of `number` hold `0`, thus the test uses `5`. No other result of `conforms` for an existing machine or test changes. The new tests are in `conform.test.ts`.
+
+**Limits.**
+
+- Only `number` gets samples. The domain `text` has no sample `""`, thus the empty text gets no test.
+- The checks C1 to C8 do not read `samples`. A probe part gives only the results of the palette.
+- The check reads each list of samples in full. A long list makes each check `truth` and `cover` slower.

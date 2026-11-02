@@ -89,7 +89,7 @@ function same(a: unknown, b: unknown): boolean {
 
 /**
  * Two domains are the same when they are one object. They are also the same when they have the same test `is`,
- * parents, summary, steps, codec, list of values and covers. Thus two languages that give one test under one name give one
+ * parents, summary, steps, codec, list of values, samples and covers. Thus two languages that give one test under one name give one
  * domain. Two codecs are the same when they have the same functions `encode` and `decode` (D80).
  */
 function sameDomain(a: Domain, b: Domain): boolean {
@@ -102,6 +102,7 @@ function sameDomain(a: Domain, b: Domain): boolean {
     steps: same(a.steps ?? {}, b.steps ?? {}),
     codec: same(a.codec ?? null, b.codec ?? null),
     values: same(a.values ?? null, b.values ?? null),
+    samples: same(a.samples ?? null, b.samples ?? null),
     covers: same(a.covers ?? [], b.covers ?? []),
   };
   return Object.values(fields).every(Boolean);
@@ -123,8 +124,8 @@ export interface DomainExtension {
 /**
  * This function makes a part of a merge that adds parents, steps or covers to a domain of an earlier part
  * (TYPE.PARENTS). An example is a domain of another language. The part reads the domain from the merge before it
- * (`prev`). It gives a copy with the same test, summary, codec and list of values, and it names `["domains", name]`
- * in `replaces` (D17).
+ * (`prev`). It gives a copy with the same test, summary, codec, list of values and samples, and it names
+ * `["domains", name]` in `replaces` (D17).
  * A domain of the kernel that the earlier parts do not name comes from `STD_DOMAINS`.
  *
  * An extension does not change the codec. Thus each member keeps its document (D80).
@@ -158,6 +159,8 @@ export function extendDomain(name: string, more: DomainExtension): (prev: Machin
       codec: found.codec,
       // A new parent only adds a test, thus the list of values stays complete (TYPE.FITS-FINITE).
       values: found.values,
+      // A sample outside the new line does not count, thus the samples stay (D99).
+      samples: found.samples,
       // A new parent only adds a test, thus each cover stays true (TYPE.FITS-COVER). A new cover is a claim of the extension.
       covers: covers.length === 0 ? undefined : covers,
     };
