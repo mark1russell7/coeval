@@ -559,6 +559,9 @@ interface Outcome {
   readonly codes: ReadonlyMap<string, number>;
 }
 
+/** The number of runs that read an unknown attribute, thus the comparison with check is not empty (TREE.CHECK-UNKNOWN). */
+let unknownReads = 0;
+
 /** The codes that `check` finds before a run. A document that `check` passes does not give them (STATIC.AGREES). */
 const STATIC_CODES = new Set(["#KIND?", "#PART?", "#NOEVAL", "#CAP!", "#DEPTH!"]);
 
@@ -570,7 +573,11 @@ const STATIC_CODES = new Set(["#KIND?", "#PART?", "#NOEVAL", "#CAP!", "#DEPTH!"]
 function sameInCheck(machine: Machine, doc: unknown, error: EvalError, declared: { readonly declaredType?: string }): "reason" | "place" | undefined {
   if (error.code === "#NAME?" && /^The language has no (operation|extension) /.test(error.reason)) return "reason";
   if (error.code === "#VALUE!" && / The kind is .+\.$/.test(error.reason)) return "reason";
-  const name = /^The context has no name (.+)\.$/.exec(error.reason)?.[1];
+  if (error.code === "#N/A" && unknownAttribute(machine, doc, error, declared)) {
+    unknownReads += 1;
+    return "place";
+  }
+  const name =/^The context has no name (.+)\.$/.exec(error.reason)?.[1];
   // A host that adopts the names answers their steps itself (DEREF.ADOPT). Its things tell a name bound to undefined
   // from a missing name with has (DEREF.HOST-UNDEFINED), thus check and a run agree.
   if (error.code !== "#NAME?" || name === undefined) return undefined;
@@ -583,6 +590,39 @@ function sameInCheck(machine: Machine, doc: unknown, error: EvalError, declared:
     return "skip";
   }, declared);
   return named ? "place" : undefined;
+}
+
+/** The standard kinds that give their parts the self of their own context, and the standard tree kinds (D106). */
+const KEEPS_SELF = new Set(["list", "add", "multiply", "greater", "if", "number", "panel", "box"]);
+
+/**
+ * This function tells if the `#N/A` of a run is the read of an unknown attribute (TREE.CHECK-UNKNOWN). The reference
+ * at the place goes from `self` up its parent nodes, and then it names one attribute. Each document around it is a
+ * standard tree node, or standard code that keeps self, without a header. The name of the step is in the path one time, thus that step
+ * failed.
+ */
+function unknownAttribute(machine: Machine, doc: unknown, error: EvalError, declared: { readonly declaredType?: string }): boolean {
+  if (machine.world !== STD_MACHINE.world) return false;
+  const name = /^The step (.+) reaches nothing\.$/.exec(error.reason)?.[1];
+  if (name === undefined) return false;
+  const above = new Map<object, { readonly nodes: number; readonly known: boolean }>();
+  let found = false;
+  walk(machine.world, doc, (visit) => {
+    // A header such as own can give the document other code, thus only a plain envelope counts.
+    const type = Object.keys(visit.doc).every((key) => key === "type" || key === "value") ? typeName(visit.doc.type) : "";
+    const up = visit.parent === undefined ? { nodes: 0, known: true } : (above.get(visit.parent) ?? { nodes: 0, known: false });
+    const node = type === "panel" || type === "box";
+    above.set(visit, { nodes: up.nodes + (node ? 1 : 0), known: up.known && KEEPS_SELF.has(type) });
+    if (!docEquals(visit.place, error.place ?? []) || !isRef(visit.doc) || visit.parent === undefined) return undefined;
+    const path = visit.doc.value as readonly unknown[];
+    const outer = above.get(visit.parent) as { readonly nodes: number; readonly known: boolean };
+    let index = 1;
+    while (path[index] === "parent") index += 1;
+    const steps = path.map(String);
+    found ||= path[0] === "self" && outer.known && outer.nodes >= index && steps[index] === name && steps.indexOf(name) === steps.lastIndexOf(name);
+    return undefined;
+  }, declared);
+  return found;
 }
 
 function show(value: unknown): string {
@@ -804,6 +844,8 @@ describe("one meaning", () => {
 
   it("[STATIC.AGREES] a generated document that check passes gives none of the errors that check finds", () => {
     for (const config of CONFIGS) expect(report(outcomeOf(config).unchecked), config.name).toEqual([]);
+    // The trees read unknown attributes, and check finds each such read at its place (D106).
+    expect(unknownReads).toBeGreaterThan(0);
   });
 
   it("[GEN.REACH] the generated documents reach each kind, and give values and errors", () => {

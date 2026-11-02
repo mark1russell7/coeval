@@ -276,3 +276,85 @@ describe("the reads of a node of a tree (K149)", () => {
     expect(agreed(closed, flat)).toEqual(ok({ width: 1, children: [{ width: 2 }] }));
   });
 });
+
+describe("the checks of attributes (L2d, D106)", () => {
+  const machine = withKinds({
+    column: treeKind({ down: { x: path("self", "x"), y: add(path("self", "y"), path("names", "index")) } }),
+    cell: treeKind({ equations: { area: add(path("self", "width"), path("self", "height")) }, attributes: { x: {}, theme: { copy: true }, w: {} } }),
+    probe: { verbs: { eval: "test.probe" }, parts: { shape: "list" } },
+  }, { "test.probe": () => ok(0) });
+
+  it("[TREE.CHECK-UNKNOWN] check finds a read of an attribute that no rung answers, with the code and the place of the run", () => {
+    const doc = node("column", { x: 0, y: 0, children: list(node("cell", { width: 1, height: 2, w: 3, seen: list(path("self", "x"), path("self", "q")) })) });
+    const issue = { code: "#N/A", place: ["children", 0, "seen", 1], reason: "No rung gives the attribute q of the kind cell.", at: ["value", "children", "value", 0, "value", "seen", "value", 1, "value", 1] };
+    expect(check(machine, doc)).toEqual([issue]);
+    expect(evaluate(machine, doc).result).toMatchObject({ ok: false, error: { code: "#N/A", place: issue.place } });
+    // The steps parent go up the known nodes. The steps parent and type never read an attribute.
+    const up = node("column", { x: 0, y: 0, children: list(node("cell", { width: 1, height: 2, w: 3, a: path("self", "parent", "z"), t: path("self", "type") })) });
+    expect(check(machine, up)).toMatchObject([{ code: "#N/A", place: ["children", 0, "a"], reason: "No rung gives the attribute z of the kind column." }]);
+    // The parent of the root is not known. Code that check does not know can change self. Thus check finds nothing.
+    expect(check(machine, node("cell", { width: 1, height: 2, w: 3, a: path("self", "parent", "z") }))).toEqual([]);
+    expect(check(machine, node("cell", { width: 1, height: 2, w: 3, a: { type: "probe", value: [path("self", "z")] } }))).toEqual([]);
+  });
+
+  it("[TREE.CHECK-UNKNOWN] in an open world, a parent that check does not know can be a node of the fallback kind", () => {
+    const leaf = node("cell", { width: 1, height: 2, w: 3, a: path("self", "z") });
+    expect(check(machine, leaf)).toMatchObject([{ code: "#N/A", reason: "No rung gives the attribute z of the kind cell." }]);
+    const open: Machine = { ...machine, world: { ...machine.world, fallback: treeKind({ down: { z: 1 } }) } };
+    expect(check(open, leaf)).toEqual([]);
+    // A known parent of another kind gives no z, also in the open world.
+    expect(check(open, node("column", { x: 0, y: 0, children: list(leaf) }))).toMatchObject([{ code: "#N/A", place: ["children", 0, "a"] }]);
+  });
+
+  it("[TREE.CHECK-RESERVED] check finds an attribute with the name of a structural step, and a tree kind of the run side", () => {
+    const reserved = withKinds({ odd: { ...treeKind({ equations: { parent: 1 }, attributes: { type: { default: 0 } } }), side: "run" } });
+    expect(check(reserved, node("odd", { type: 2, n: 1 }))).toEqual([
+      { code: "#NAME?", place: [], reason: "The kind odd gives the reserved attribute tree.equations.parent: the step parent gives the parent of the node.", at: [] },
+      { code: "#NAME?", place: [], reason: "The kind odd gives the reserved attribute tree.attributes.type: the step type gives the type of the node.", at: [] },
+      { code: "#CALC!", place: [], reason: "The tree kind odd is on the run side: a node evaluates its attributes on demand, thus in no fixed order.", at: [] },
+      { code: "#NAME?", place: [], reason: "The part type of the kind odd has a reserved name: the step type gives the type of the node.", at: ["value", "type"] },
+    ]);
+    // The step type gives the type, not the part.
+    expect(evaluate(reserved, node("odd", { type: 2, t: path("self", "type") })).result).toEqual(ok({ type: 2, t: "odd" }));
+  });
+
+  it("[TREE.CHECK-COMPLETE] check finds an attribute that the kind declares or reads when no rung answers it at a node", () => {
+    const cell = (value: Record<string, Json>): Json => node("cell", value);
+    // The equation area reads height, and no rung gives w. Under the column, the parent gives x.
+    const doc = node("column", { x: 0, y: 0, children: list(cell({ width: 1 }), cell({ width: 1, area: 5, w: 2 })) });
+    expect(check(machine, doc)).toEqual([
+      { code: "#N/A", place: ["children", 0], reason: "No rung gives the attribute w of the kind cell, and the kind declares it.", at: ["value", "children", "value", 0] },
+      { code: "#N/A", place: ["children", 0], reason: "No rung gives the attribute height of the kind cell, and the equation tree.equations.area reads it.", at: ["value", "children", "value", 0] },
+    ]);
+    // The equations down of the column read x and y of the column itself. A parent cell gives no y.
+    const inner = cell({ width: 1, height: 2, w: 3, inner: node("column", { x: 0 }) });
+    expect(check(machine, inner)).toMatchObject([{ code: "#N/A", place: ["inner"], reason: "No rung gives the attribute y of the kind column, and the equation tree.down.y reads it." }]);
+    // The parent of the root is not known, and the column gives y to its children. Thus check finds nothing at the root.
+    expect(check(machine, node("column", { x: 0 }))).toEqual([]);
+    // The standard kinds have no contract, thus each node of them is complete.
+    expect(check(STD_MACHINE, node("panel", { width: 10, children: list(node("box", { width: path("self", "parent", "width") })) }))).toEqual([]);
+  });
+
+  it("[STATIC.AGREES] a tree document that checks evaluates without the read of an unknown attribute", () => {
+    const cases: readonly Json[] = [
+      node("column", { x: 0, y: 0, children: list(node("cell", { width: 1, height: 2, w: 3, seen: list(path("self", "x"), path("self", "y"), path("self", "area")) })) }),
+      node("panel", { width: 10, children: list(node("box", { width: path("self", "parent", "width") }), node("box", { width: path("self", "parent", "children", 0, "width") })) }),
+      node("panel", { width: 10, height: path("self", "children", 0, "height"), children: list(node("box", { width: 1, height: path("self", "parent", "width") })) }),
+    ];
+    for (const doc of cases) {
+      expect(check(machine, doc), JSON.stringify(doc)).toEqual([]);
+      expect(evaluate(machine, doc).result.ok, JSON.stringify(doc)).toBe(true);
+    }
+    // Each #N/A of an unknown attribute in a run has an issue of check at its place.
+    const misses: readonly Json[] = [
+      node("panel", { width: path("self", "height") }),
+      node("panel", { children: list(node("box", { width: path("self", "parent", "height") })) }),
+    ];
+    for (const doc of misses) {
+      const result = evaluate(machine, doc).result;
+      expect(result).toMatchObject({ ok: false, error: { code: "#N/A" } });
+      const place = result.ok ? [] : result.error.place;
+      expect(check(machine, doc)).toMatchObject([{ code: "#N/A", place }]);
+    }
+  });
+});

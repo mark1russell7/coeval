@@ -621,33 +621,161 @@ const FOLD_NAMES: readonly string[] = /* @__PURE__ */ Object.freeze(["acc", "ite
  * This function gives each equation of the tree contract of a kind, with the names that it sees (D42). An equation of
  * `equations`, a `unit` and a `default` see no names. `check` and `factsOf` read the equations with this one function.
  */
-export function equationsOf(kind: Kind): readonly { readonly label: string; readonly term: Json; readonly names: readonly string[] }[] {
+export function equationsOf(kind: Kind): readonly Equation[] {
   const tree = kind.tree;
   if (tree === undefined) return [];
-  const out: { readonly label: string; readonly term: Json; readonly names: readonly string[] }[] = [];
-  for (const [name, term] of Object.entries(tree.equations ?? {})) out.push({ label: `tree.equations.${name}`, term, names: [] });
-  for (const [name, term] of Object.entries(tree.down ?? {})) out.push({ label: `tree.down.${name}`, term, names: DOWN_NAMES });
+  const out: Equation[] = [];
+  for (const [name, term] of Object.entries(tree.equations ?? {})) out.push({ label: `tree.equations.${name}`, term, names: [], attribute: name, down: false });
+  for (const [name, term] of Object.entries(tree.down ?? {})) out.push({ label: `tree.down.${name}`, term, names: DOWN_NAMES, attribute: name, down: true });
   for (const [name, declared] of Object.entries(tree.attributes ?? {})) {
     if (declared.fold !== undefined) {
-      out.push({ label: `tree.attributes.${name}.fold.unit`, term: declared.fold.unit, names: [] });
-      out.push({ label: `tree.attributes.${name}.fold.combine`, term: declared.fold.combine, names: FOLD_NAMES });
+      out.push({ label: `tree.attributes.${name}.fold.unit`, term: declared.fold.unit, names: [], attribute: name, down: false });
+      out.push({ label: `tree.attributes.${name}.fold.combine`, term: declared.fold.combine, names: FOLD_NAMES, attribute: name, down: false });
     }
-    if (declared.default !== undefined) out.push({ label: `tree.attributes.${name}.default`, term: declared.default, names: [] });
+    if (declared.default !== undefined) out.push({ label: `tree.attributes.${name}.default`, term: declared.default, names: [], attribute: name, down: false });
   }
   return out;
+}
+
+/** One equation of the tree contract of a kind, with the names that it sees (D42). */
+export interface Equation {
+  /** The path of the equation in the contract, for the reason of an issue. */
+  readonly label: string;
+  readonly term: Json;
+  readonly names: readonly string[];
+  /** The name of the attribute that the equation gives. */
+  readonly attribute: string;
+  /** `true` for an equation of `down`: it gives the attribute of a child. */
+  readonly down: boolean;
+}
+
+/**
+ * The steps that a node of the decorated tree answers before its ladder: `parent` and `type` (D106). An attribute with
+ * one of these names gets no read.
+ */
+const STRUCTURAL: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
+  parent: "the step parent gives the parent of the node",
+  type: "the step type gives the type of the node",
+});
+
+/**
+ * The standard code that gives its parts the self of its own context (D106). `check` knows the self of a document only
+ * through this code and the nodes of the decorated tree.
+ */
+const KEEPS_SELF: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "data.number",
+  "data.text",
+  "data.bool",
+  "math.add",
+  "math.multiply",
+  "math.greater",
+  "control.seq",
+  "control.pure",
+  "control.if",
+  "list.all",
+  "effect.log",
+  "effect.write",
+]);
+
+/** The name of the standard code of a node of the decorated tree. */
+const TREE_NODE = "tree.node";
+
+/** The name of the standard code of a reference. */
+const REF_CODE = "ref.resolve";
+
+/** A node of the decorated tree that `check` knows (D106): the self of the code of its parts. */
+interface SeenNode {
+  readonly kind: Kind;
+  /** The name of the kind, for the reason of an issue. */
+  readonly text: string;
+  /** The names of the own parts of the node. The node of an equation has `undefined`: it stands for each node of its kind. */
+  readonly own: ReadonlySet<string> | undefined;
+  /** The parent node. It is `undefined` when `check` does not know the parent. */
+  readonly parent: SeenNode | undefined;
+}
+
+/** One attribute that a kind needs at each of its nodes: a declaration, or a read in an equation (TREE.CHECK-COMPLETE). */
+interface Need {
+  readonly name: string;
+  /** The words of the reason that tell why the kind needs the attribute. */
+  readonly why: string;
+  /** The attribute of the equation with the read. An own part with this name hides the equation. */
+  readonly hidden: string | undefined;
+}
+
+/** The state of the checks of attributes in one check: the kinds that the check walked, and the needs of each kind. */
+interface TreeState {
+  readonly seen: Set<Kind>;
+  readonly needs: Map<Kind, Need[]>;
+}
+
+/** The names of `down` in the world of each machine, for a parent that `check` does not know (D106). */
+const DOWNS = /* @__PURE__ */ new WeakMap<World, ReadonlySet<string>>();
+
+/**
+ * This function gives each name that an equation of `down` of a kind of the world gives. The kinds include the kinds
+ * of the namespaces and each fallback kind (WORLD.OPEN). A parent that `check` does not know has one of these kinds.
+ */
+function downNames(world: World): ReadonlySet<string> {
+  const known = DOWNS.get(world);
+  if (known !== undefined) return known;
+  const out = new Set<string>();
+  const done = new Set<object>();
+  const add = (kind: Kind | undefined): void => {
+    for (const name of Object.keys(kind?.tree?.down ?? {})) out.add(name);
+  };
+  const visit = (entries: Readonly<Record<string, WorldEntry>>, fallback: Kind | undefined): void => {
+    if (done.has(entries)) return;
+    done.add(entries);
+    add(fallback);
+    for (const entry of Object.values(entries)) {
+      if (isKind(entry)) add(entry);
+      else if (isNamespace(entry)) visit(entry.kinds, entry.fallback);
+    }
+  };
+  visit(world.kinds, world.fallback);
+  DOWNS.set(world, out);
+  return out;
+}
+
+/** This function tells if a table of a tree contract has its own entry for a name. */
+function hasEntry(table: Readonly<Record<string, unknown>> | undefined, name: string): boolean {
+  return table !== undefined && Object.hasOwn(table, name);
+}
+
+/**
+ * This function tells if a rung of the ladder can answer an attribute of a node (TREE.LADDER). An unknown parent can
+ * be a node of each kind of the world, thus each name of `down` in the world can answer. A copy can always answer,
+ * because `check` does not know a node without a parent.
+ */
+function answered(world: World, node: SeenNode, name: string): boolean {
+  if (node.own?.has(name) === true) return true;
+  const tree = node.kind.tree;
+  if (hasEntry(tree?.equations, name)) return true;
+  if (node.parent === undefined ? downNames(world).has(name) : hasEntry(node.parent.kind.tree?.down, name)) return true;
+  const declared = tree?.attributes !== undefined && Object.hasOwn(tree.attributes, name) ? tree.attributes[name] : undefined;
+  return declared !== undefined && (declared.copy === true || declared.fold !== undefined || declared.default !== undefined);
 }
 
 /**
  * This function checks the equations of the tree contract of a kind, each with the names of its rung (TREE.DOWN-NAMES).
  * An equation evaluates without capabilities, thus a check with capabilities gives it none. Each issue gets the place
- * of the document of the kind, and its reason names the equation.
+ * of the document of the kind, and its reason names the equation. The function also records the needs of the kind:
+ * each declared attribute, and each attribute of the node that an equation reads (TREE.CHECK-COMPLETE).
  */
-function equationIssues(machine: Machine, kind: Kind, kindText: string, options: CheckOptions, seen: Set<Kind>): readonly Issue[] {
+function equationIssues(machine: Machine, kind: Kind, kindText: string, options: CheckOptions, state: TreeState): readonly Issue[] {
   const of = equationType(kind);
   const out: Issue[] = [];
-  for (const { label, term, names } of equationsOf(kind)) {
+  const needs: Need[] = [];
+  state.needs.set(kind, needs);
+  for (const name of Object.keys(kind.tree?.attributes ?? {})) needs.push({ name, why: "the kind declares it", hidden: undefined });
+  const self: SeenNode = { kind, text: kindText, own: undefined, parent: undefined };
+  for (const { label, term, names, attribute, down } of equationsOf(kind)) {
     const inner: CheckOptions = { names, ...(of === undefined ? {} : { declaredType: of }), ...(options.caps === undefined ? {} : { caps: [] }) };
-    for (const issue of checkAll(machine, term, inner, undefined, seen)) {
+    const read = (name: string): void => {
+      needs.push({ name, why: `the equation ${label} reads it`, hidden: down ? undefined : attribute });
+    };
+    for (const issue of checkAll(machine, term, inner, undefined, state, { node: self, read })) {
       out.push({ code: issue.code, place: [], reason: `In the equation ${label} of the kind ${kindText}: ${issue.reason}` });
     }
   }
@@ -655,11 +783,89 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
 }
 
 /**
- * This function finds the issues of `check`. With a list of nodes, it also records each document that it visits for
- * the pass of types. It marks each document with an issue. The set `seen` holds the kinds whose equations the check
- * walked, thus it walks the equations of each kind one time.
+ * This function finds the issues of the contract of a tree kind (TREE.CHECK-RESERVED). An attribute with the name of a
+ * structural step gets no read. A tree kind of the run side contradicts the evaluation on demand of its attributes.
  */
-function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: TypeNode[] | undefined, seen: Set<Kind> = new Set()): readonly Issue[] {
+function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
+  const out: Issue[] = [];
+  const tree = kind.tree;
+  for (const table of ["equations", "down", "attributes"] as const) {
+    for (const name of Object.keys(tree?.[table] ?? {})) {
+      const why = Object.hasOwn(STRUCTURAL, name) ? STRUCTURAL[name] : undefined;
+      if (why !== undefined) out.push({ code: "#NAME?", place: [], reason: `The kind ${kindText} gives the reserved attribute tree.${table}.${name}: ${why}.` });
+    }
+  }
+  if (kind.side === "run") {
+    out.push({ code: "#CALC!", place: [], reason: `The tree kind ${kindText} is on the run side: a node evaluates its attributes on demand, thus in no fixed order.` });
+  }
+  return out;
+}
+
+/**
+ * This function finds the issues of a node of a document (D106). An own part with the name of a structural step is
+ * not read at any time (TREE.CHECK-RESERVED). Each need of the kind gets an answer from a rung (TREE.CHECK-COMPLETE).
+ */
+function nodeIssues(machine: Machine, node: SeenNode, state: TreeState, v: DocVisit): readonly Issue[] {
+  const out: Issue[] = [];
+  const at = (key: string): readonly Key[] => [...v.at, ...(v.declared ? [] : ["value"]), key];
+  for (const name of node.own ?? []) {
+    const why = Object.hasOwn(STRUCTURAL, name) ? STRUCTURAL[name] : undefined;
+    if (why !== undefined) out.push({ code: "#NAME?", place: v.place, reason: `The part ${name} of the kind ${node.text} has a reserved name: ${why}.`, at: at(name) });
+  }
+  const done = new Set<string>();
+  for (const need of state.needs.get(node.kind) ?? []) {
+    if (done.has(need.name) || (need.hidden !== undefined && node.own?.has(need.hidden) === true)) continue;
+    done.add(need.name);
+    if (answered(machine.world, node, need.name)) continue;
+    out.push({ code: "#N/A", place: v.place, reason: `No rung gives the attribute ${need.name} of the kind ${node.text}, and ${need.why}.`, at: v.at });
+  }
+  return out;
+}
+
+/**
+ * This function examines a reference from the root `self` (TREE.CHECK-UNKNOWN). The steps `parent` go up the known
+ * nodes. The first other key names an attribute of the node that they reach. When no rung answers the attribute, the
+ * function gives the index of the step and the reason. In an equation, a read of the node of the equation goes to the
+ * needs of its kind.
+ */
+function readIssue(machine: Machine, self: SeenNode | undefined, path: readonly Json[], rootSelf: RootSelf | undefined): { readonly index: number; readonly reason: string } | undefined {
+  let node = self;
+  let index = 1;
+  while (node !== undefined && index < path.length && path[index] === "parent") {
+    node = node.parent;
+    index += 1;
+  }
+  const step = path[index];
+  if (node === undefined || !isKey(step) || Object.hasOwn(STRUCTURAL, String(step))) return undefined;
+  const name = String(step);
+  if (node.own === undefined) {
+    if (node === rootSelf?.node) rootSelf.read(name);
+    return undefined;
+  }
+  return answered(machine.world, node, name) ? undefined : { index, reason: `No rung gives the attribute ${name} of the kind ${node.text}.` };
+}
+
+/** The self of the root of a walk for the checks of attributes: the node of an equation, and the function for its reads. */
+interface RootSelf {
+  readonly node: SeenNode;
+  /** This function gets each attribute of the node of the equation that the equation reads. */
+  readonly read: (name: string) => void;
+}
+
+/**
+ * This function finds the issues of `check`. With a list of nodes, it also records each document that it visits for
+ * the pass of types. It marks each document with an issue. The state holds the kinds whose equations the check
+ * walked, thus it walks the equations of each kind one time. In an equation, `rootSelf` is the node of the equation.
+ */
+function checkAll(
+  machine: Machine,
+  doc: unknown,
+  options: CheckOptions,
+  nodes: TypeNode[] | undefined,
+  state: TreeState = { seen: new Set(), needs: new Map() },
+  rootSelf?: RootSelf,
+): readonly Issue[] {
+  const seen = state.seen;
   const issues: Issue[] = [];
   const verb = options.verb ?? "eval";
   const indices = nodes === undefined ? undefined : new Map<DocVisit, number>();
@@ -681,6 +887,11 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
   const anyName = options.names === "any";
   const roots: readonly string[] = machine.roots ?? ROOTS;
   const has = (table: Readonly<Record<string, unknown>> | undefined, name: string): boolean => table !== undefined && Object.hasOwn(table, name);
+  // The checks of attributes know the self of the code of each document (D106). The map gives the self of the parts of
+  // a document: a node of the decorated tree, or undefined when the check does not know it. Only eval reads attributes.
+  const attributes = verb === "eval" && roots.includes("self");
+  const selves = new Map<DocVisit, SeenNode | undefined>();
+  const treeCode = has(machine.evaluators, TREE_NODE) && !has(machine.runners, TREE_NODE);
   walk(
     machine.world,
     doc,
@@ -703,9 +914,23 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
         return "skip";
       }
       // The equations of a kind are code of the kind. The check walks them at the first document of the kind (D42).
-      if (v.kind?.tree !== undefined && !seen.has(v.kind)) {
+      const node = attributes && treeCode && answer.evaluator === TREE_NODE && v.kind !== undefined;
+      if (v.kind !== undefined && (v.kind.tree !== undefined || node) && !seen.has(v.kind)) {
         seen.add(v.kind);
-        for (const issue of equationIssues(machine, v.kind, typeName(v.doc.type), options, seen)) push({ ...issue, place: v.place, at: v.at });
+        const kindText = typeName(v.doc.type);
+        for (const issue of [...contractIssues(v.kind, kindText), ...equationIssues(machine, v.kind, kindText, options, state)]) push({ ...issue, place: v.place, at: v.at });
+      }
+      // The self of the code of this document, and the self that its parts get (D106).
+      const self = v.parent === undefined ? rootSelf?.node : selves.get(v.parent);
+      if (node && v.kind !== undefined) {
+        // The own parts are the parts of the split, as in a run. A field without a part is data, and no step reads it.
+        const read = partsOf(machine.world, v.declared ? v.doc.value : v.doc, v.declared ? typeName(v.doc.type) : undefined);
+        const own = read.ok && read.split.ok ? new Set(read.split.parts.map((part) => part.key)) : undefined;
+        const here: SeenNode = { kind: v.kind, text: typeName(v.doc.type), own, parent: self };
+        selves.set(v, here);
+        if (own !== undefined) for (const issue of nodeIssues(machine, here, state, v)) push(issue);
+      } else {
+        selves.set(v, answer.evaluator !== undefined && KEEPS_SELF.has(answer.evaluator) ? self : undefined);
       }
       const name = answer.evaluator;
       if (current !== undefined) current.evaluator = name;
@@ -779,6 +1004,11 @@ function checkAll(machine: Machine, doc: unknown, options: CheckOptions, nodes: 
           reason: later ? `The name ${String(first)} is bound by a later step.` : `Nothing binds the name ${String(first)}.`,
           at: stepAt(1),
         });
+      }
+      // Only the standard code of a reference reads the attribute, thus a header that changes the code hides the read.
+      if (attributes && root === "self" && v.address !== true && name === REF_CODE) {
+        const issue = readIssue(machine, self, path, rootSelf);
+        if (issue !== undefined) push({ code: "#N/A", place: v.place, reason: issue.reason, at: stepAt(issue.index) });
       }
       path.forEach((step, index) => {
         if (index === 0 || isKey(step)) return;

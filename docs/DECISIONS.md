@@ -3431,3 +3431,49 @@ The behavior changes for a caller only with the new field. A check with types th
 - The measure counts the bytes of the heap of V8 only. It does not count memory outside the heap.
 - The first CI run of the memory phase is the Measure run 41526166950. The memory slope of `refsOf` and of `walk` was 0.991, with 90 % intervals inside 0.98 to 1.00. One call at 250 levels allocated approximately 1.65 MB. The row STATIC.LINEAR of SPEC.md has the slopes.
 - No test fails when the memory slope grows. The verdict is in the summary of the job `ladder-verdict` only.
+
+## D106 (2026-11-02): `check` finds unknown attributes, reserved names and incomplete nodes of a tree
+
+**Context.** L2d, from R3 P4. D42 gave `check` the equations of each kind with the names of their rung (TREE.DOWN-NAMES). A read of an attribute that no rung answers still gives its `#N/A` only in a run. R3 P4 also asks for reserved names, for tree kinds of the run side and for a check of completeness by kind, as in Silver.
+
+**Decision.**
+
+- `check` knows the self of a document through the nodes of the decorated tree and the standard code that keeps self. Code of a host can change self, thus a document under such code has no known self.
+- A node is a document whose code is the standard `tree.node`. Its known parent is the nearest node around it. The parent of the root of a document is not known.
+- A reference from `self` goes up the known nodes through its steps `parent`. Its first other key names an attribute of the node that it reaches.
+- When no rung of TREE.LADDER can answer that attribute, `check` gives `#N/A` at the place of the reference (TREE.CHECK-UNKNOWN). The run gives the same code and place.
+- The own parts of a node are the parts of its split, as in a run. A field that holds no part is data, and no step reads it.
+- A rung can answer when the node has the part or its kind has the equation. A declaration with a `copy`, a `fold` or a `default` can answer too.
+- The parent rung can answer when the known parent has the equation in `down`. A parent that `check` does not know can answer each name of `down` in the world.
+- Those names include the kinds of the namespaces and each fallback kind. Thus an open world (WORLD.OPEN) makes the check weaker, and `check` reports only what it knows.
+- The reserved names are `parent` and `type`. A node answers these two steps before its ladder (D16), thus no step reads an attribute with such a name.
+- `check` gives `#NAME?` for such a name in `tree.equations`, `tree.down` or `tree.attributes`, and for such a part of a node (TREE.CHECK-RESERVED).
+- `check` gives `#CALC!` for a tree kind of the run side. Its attributes evaluate on demand, thus in no fixed order.
+- The needs of a kind are its declared attributes, and each attribute of the node that an equation of the kind reads. `check` collects them when it walks the equations (TREE.CHECK-COMPLETE).
+- At each node, `check` gives `#N/A` for a need that no rung answers. Its reason names the kind, the attribute and the cause of the need.
+- An own part hides the equation of its name, thus the reads of that equation are no needs of that node. An equation of `down` serves each child, thus its reads are needs of each node.
+- Each kind gets its needs from its own contract only, as in the modular analysis of Silver. Thus a kind that `check` does not know adds no need.
+- The issues have no new error code. A `#N/A` of the run and of `check` have the same code and place, thus STATIC.AGREES examines the generated trees too.
+- Only the standard code of a reference reads an attribute. A header that gives a document other code hides its read.
+
+**Rejected.**
+
+- `#NAME?` for an unknown attribute. The run gives `#N/A`, and STATIC.AGREES compares the code.
+- The names of `down` (`child`, `index` and `prev`) as reserved attribute names. They are names of the root `names`, and a step on a node does not see them (D42).
+- `children` as a reserved name. The ladder answers it as each other attribute, and an equation can compute the list of children.
+- The parent of the root as "no parent". A host can evaluate a document inside an open tree (TREE.SELF), thus the root can have a parent.
+- A check of each read after the first attribute of a path. The value of an attribute is not known before a run.
+- A check of each code of a host by its contract. The contract does not tell if the code changes self.
+
+**Why.** Before D106, a wrong name of an attribute gave its `#N/A` only in a run. At this time, `check` finds it before a run, at the place where the run fails. The rule "only what `check` knows" keeps the false positives at zero in an open world.
+
+**Public types.** No change. `equationsOf` is internal, and its items get the fields `attribute` and `down`.
+
+**Changed expected values.** None. The existing tests and the standard kinds `panel` and `box` give no new issue.
+
+**Limits.**
+
+- A read through `names.child` or `names.prev` in an equation of `down` reads a child of an unknown kind, thus `check` does not examine it.
+- The `fold` of an attribute reads that attribute of each child. `check` does not examine those reads.
+- A read of the parent of the node of an equation goes to an unknown node, thus `check` does not examine it.
+- The cycles of attributes wait for the graph of attribute instances (L2e).
