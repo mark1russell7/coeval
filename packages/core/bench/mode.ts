@@ -13,16 +13,21 @@
  *
  * - ALONE: a new process runs only one case. Each round has two ALONE processes for each case, A1 and A2.
  * - IN ORDER: a new process runs all cases in the order of `cases.ts`.
- * - GROUP: a new process runs only the cases that the bench keeps together, in their order.
+ * - GROUP: a new process runs only the cases that the bench keeps together, in their order. This arm runs only when
+ *   `TOGETHER` of `paths.ts` has 2 or more cases.
  *
  * The job of part P of N measures each case whose index modulo N is P - 1. In each round, the A1 processes run in one
  * half and the A2 processes in the other half, in the opposite order. The halves change places in each second round.
  * The case order and the places of the IN ORDER and the GROUP processes turn in each round.
  *
- * The rule of the split (D98). The A/A band of a case is the 5th to the 95th percentile of its ratios A2 / A1 of each
- * round. The interval of a case is the same percentiles of its ratios IN ORDER / A1. A case stays in order only when
- * its interval is inside its A/A band on both sides. Else the bench gives it its own processes. The GROUP arm gets
- * the same check against A1, thus the record shows if the group of the bench is clean.
+ * The verdict of the split (D98) is an equivalence verdict. The ratios of a case are IN ORDER / A1 of each round.
+ * The interval of the median is the 6th to the 15th of the 20 sorted ratios: P(6 <= Bin(20, 1/2) <= 14) =
+ * 1005176 / 1048576 = 0.9586. The A/A interval is the same interval of the ratios A2 / A1. The effect interval E is
+ * the interval of the median, made wider on each side by half the width of the A/A interval. The budget is the bound
+ * of the bench (`merge.ts`, D50, D70): 1.5 % or two times the noise, whichever is larger. The noise is the median of
+ * A2 / A1 minus 1. The verdict is "no change" when E is inside 1 +- budget. It is "slower" when the low end of E is
+ * over 1 + budget, and "faster" when the high end of E is under 1 - budget. Else it is "cannot decide". A case stays
+ * in order only with "no change". The GROUP arm gets the same verdict with its ratios GROUP / A1.
  *
  * The first rule of D98 stays in the table as information, because a prediction pinned it. A process is slow when its
  * IN ORDER time is over the maximum of the A1 times of the case. A case has a mode when 5 or more of 20 are slow.
@@ -41,6 +46,18 @@ import type { Measured } from "./cases.ts";
 const MODE_LIMIT = 5;
 
 type Arm = "alone 1" | "alone 2" | "in order" | "group";
+
+/** The equivalence verdict of D98. Only "no change" keeps a case in order. */
+type Decision = "no change" | "slower" | "faster" | "cannot decide";
+
+/** The verdict of one arm against A1. */
+interface Effect {
+  /** The interval of the median of the ratios: the 6th to the 15th sorted value of 20. */
+  readonly median: Band;
+  /** The effect interval E: the interval of the median, wider on each side by half the A/A interval. */
+  readonly effect: Band;
+  readonly decision: Decision;
+}
 
 /** One process of the mode run. */
 interface ModeProcess {
@@ -75,8 +92,10 @@ interface ModeRun {
   readonly cpu: string;
   readonly node: string;
   readonly flags: readonly string[];
-  /** The cases of `SPLIT` in `paths.ts`: the bench runs each in its own processes. */
-  readonly split: readonly string[];
+  /** The cases of `TOGETHER` in `paths.ts`: the bench runs them in one process. Each other case has its own processes. */
+  readonly together?: readonly string[];
+  /** The cases of `SPLIT`, the list before `TOGETHER`: records of 41426813620 and 41430307699 have it. */
+  readonly split?: readonly string[];
   /** The number of all cases of `cases.ts`. */
   readonly total: number;
   readonly processes: number;
@@ -86,7 +105,7 @@ interface ModeRun {
   readonly records: readonly ModeProcess[];
 }
 
-/** The 5th and the 95th percentile of some ratios. */
+/** The low end and the high end of an interval of ratios. */
 interface Band {
   readonly low: number;
   readonly high: number;
@@ -101,9 +120,14 @@ interface Verdict {
   readonly aloneMaxNs: number;
   readonly inOrderNs: number;
   readonly ratio: number;
+  /** The interval of the median of the ratios A2 / A1. */
   readonly aa: Band;
-  readonly interval: Band;
-  /** True when the interval is inside the A/A band on both sides: the case can stay in order. */
+  /** The median of the ratios A2 / A1 minus 1. */
+  readonly noise: number;
+  /** The bound of the bench: 1.5 % or two times the noise, whichever is larger. A fraction, not a percent. */
+  readonly budget: number;
+  readonly inOrder: Effect;
+  /** True when the verdict is "no change": the case can stay in order. */
   readonly stays: boolean;
   readonly slow: number;
   readonly of: number;
@@ -111,7 +135,7 @@ interface Verdict {
   /** True when the bench runs the case in its own processes. */
   readonly split: boolean;
   /** The GROUP arm, when the bench keeps the case together. */
-  readonly group?: { readonly ns: number; readonly interval: Band; readonly clean: boolean };
+  readonly group?: Effect & { readonly ns: number; readonly clean: boolean };
   readonly different?: string;
 }
 
@@ -129,14 +153,41 @@ function median(values: readonly number[]): number {
   return quantile(values, 0.5);
 }
 
-/** This function gives the band of the ratios `top[r] / bottom[r]` of each round. */
-function band(top: readonly number[], bottom: readonly number[]): Band {
-  const ratios = top.map((value, round) => value / (bottom[round] as number));
-  return { low: quantile(ratios, 0.05), high: quantile(ratios, 0.95) };
+/** The bound of the bench (`merge.ts`, D50, D70) as a fraction: the floor of 1.5 %. */
+const FLOOR = 0.015;
+
+/** This function gives the ratios `top[r] / bottom[r]` of each round. */
+function ratios(top: readonly number[], bottom: readonly number[]): number[] {
+  return top.map((value, round) => value / (bottom[round] as number));
 }
 
-function inside(interval: Band, aa: Band): boolean {
-  return interval.low >= aa.low && interval.high <= aa.high;
+/**
+ * This function gives the distribution-free interval of the median of n values: the k-th to the (n + 1 - k)-th sorted
+ * value. k is the largest number with P(Bin(n, 1/2) < k) <= 0.025. For 20 values, k is 6 and the coverage is 0.9586.
+ */
+function medianInterval(values: readonly number[]): Band {
+  const sorted = [...values].sort((a, b) => a - b);
+  const n = sorted.length;
+  let [k, below, term] = [0, 0, 0.5 ** n];
+  while (k < n && below + term <= 0.025) {
+    below += term;
+    term = (term * (n - k)) / (k + 1);
+    k += 1;
+  }
+  const low = Math.max(k - 1, 0);
+  return { low: sorted[low] as number, high: sorted[Math.min(n - 1 - low, n - 1)] as number };
+}
+
+/** This function gives the equivalence verdict of D98 for the ratios of one arm against A1. */
+function decide(values: readonly number[], aa: Band, budget: number): Effect {
+  const median = medianInterval(values);
+  const half = (aa.high - aa.low) / 2;
+  const effect = { low: median.low - half, high: median.high + half };
+  let decision: Decision = "cannot decide";
+  if (effect.low >= 1 - budget && effect.high <= 1 + budget) decision = "no change";
+  else if (effect.low > 1 + budget) decision = "slower";
+  else if (effect.high < 1 - budget) decision = "faster";
+  return { median, effect, decision };
 }
 
 function fixed(value: number, digits = 1): number {
@@ -155,8 +206,11 @@ function judge(item: ModeCase, part: number, split: readonly string[]): Verdict 
   const aloneMaxNs = Math.max(...item.alone);
   const slow = item.inOrder.filter((ns) => ns > aloneMaxNs).length;
   const [aloneNs, inOrderNs] = [median(item.alone), median(item.inOrder)];
-  const aa = band(item.alone2, item.alone);
-  const interval = band(item.inOrder, item.alone);
+  const aaRatios = ratios(item.alone2, item.alone);
+  const aa = medianInterval(aaRatios);
+  const noise = median(aaRatios) - 1;
+  const budget = Math.max(FLOOR, 2 * Math.abs(noise));
+  const inOrder = decide(ratios(item.inOrder, item.alone), aa, budget);
   const verdict: Verdict = {
     index: item.index,
     name: item.name,
@@ -166,17 +220,19 @@ function judge(item: ModeCase, part: number, split: readonly string[]): Verdict 
     inOrderNs,
     ratio: inOrderNs / aloneNs,
     aa,
-    interval,
-    stays: inside(interval, aa),
+    noise,
+    budget,
+    inOrder,
+    stays: inOrder.decision === "no change",
     slow,
     of: item.inOrder.length,
     mode: slow >= MODE_LIMIT,
     split: split.includes(item.name),
   };
-  const group = item.group === undefined ? undefined : band(item.group, item.alone);
+  const group = item.group === undefined ? undefined : decide(ratios(item.group, item.alone), aa, budget);
   return {
     ...verdict,
-    ...(item.group === undefined || group === undefined ? {} : { group: { ns: median(item.group), interval: group, clean: inside(group, aa) } }),
+    ...(item.group === undefined || group === undefined ? {} : { group: { ...group, ns: median(item.group), clean: group.decision === "no change" } }),
     ...(item.different === undefined ? {} : { different: item.different }),
   };
 }
@@ -187,25 +243,27 @@ function range(value: Band): string {
 
 function header(): string[] {
   return [
-    "The A/A band and the interval are the 5th to the 95th percentile of the ratios of each round, against A1. A case stays in order only when its interval is inside its A/A band.",
+    "The ratios of each round are against A1. E is the interval of the median of IN ORDER / A1 (the 6th to the 15th of 20 sorted ratios, 95.9 %), wider on each side by half the same interval of A2 / A1 (the A/A column).",
+    "The budget is 1.5 % or two times the noise (the median of A2 / A1 minus 1), whichever is larger. A case stays in order only when E is inside 1 +- budget: the verdict \"no change\".",
     `The columns Slow and Mode give the first rule of D98 as information: ${MODE_LIMIT} or more IN ORDER times over the A1 maximum.`,
     "",
-    "| Case | Part | Alone median (ns) | In order median (ns) | In order / alone | Interval | A/A band | Rule | Slow | Mode | Bench |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- |",
+    "| Case | Part | Alone median (ns) | In order median (ns) | In order / alone | E | A/A | Budget | Verdict | Slow | Mode | Bench |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- |",
   ];
 }
 
 function row(verdict: Verdict): string {
-  if (verdict.different !== undefined) return `| ${verdict.name} | ${verdict.part} | different results: ${verdict.different} | | | | | | | | |`;
+  if (verdict.different !== undefined) return `| ${verdict.name} | ${verdict.part} | different results: ${verdict.different} | | | | | | | | | | |`;
   const cells = [
     verdict.name,
     String(verdict.part),
     verdict.aloneNs.toFixed(1),
     verdict.inOrderNs.toFixed(1),
     verdict.ratio.toFixed(3),
-    range(verdict.interval),
+    range(verdict.inOrder.effect),
     range(verdict.aa),
-    verdict.stays ? "stays" : "splits",
+    `${(verdict.budget * 100).toFixed(1)} %`,
+    verdict.inOrder.decision,
     `${verdict.slow} of ${verdict.of}`,
     verdict.mode ? "yes" : "no",
     verdict.split ? "own processes" : "in order",
@@ -216,27 +274,27 @@ function row(verdict: Verdict): string {
 /** This function gives the table of the GROUP arm: the cases that the bench keeps together. */
 function groupTable(verdicts: readonly Verdict[]): string[] {
   const rows = verdicts.filter((verdict) => verdict.group !== undefined);
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return ["", "The GROUP arm did not run: `TOGETHER` has fewer than 2 cases."];
   return [
     "",
-    "The GROUP arm runs only the cases that the bench keeps together, in their order. The group is clean when each interval is inside its A/A band.",
+    "The GROUP arm runs only the cases that the bench keeps together, in their order. The group is clean when each case of it gets \"no change\" with GROUP / A1.",
     "",
-    "| Case | Part | Alone median (ns) | Group median (ns) | Group interval | A/A band | Clean |",
+    "| Case | Part | Alone median (ns) | Group median (ns) | E | Budget | Verdict |",
     "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ...rows.map((verdict) => {
       const group = verdict.group as NonNullable<Verdict["group"]>;
-      return `| ${verdict.name} | ${verdict.part} | ${verdict.aloneNs.toFixed(1)} | ${group.ns.toFixed(1)} | ${range(group.interval)} | ${range(verdict.aa)} | ${group.clean ? "yes" : "no"} |`;
+      return `| ${verdict.name} | ${verdict.part} | ${verdict.aloneNs.toFixed(1)} | ${group.ns.toFixed(1)} | ${range(group.effect)} | ${(verdict.budget * 100).toFixed(1)} % | ${group.decision} |`;
     }),
   ];
 }
 
-/** This function gives a line for each case where the rule and `SPLIT` of `paths.ts` do not agree. */
+/** This function gives a line for each case where the verdict and `TOGETHER` of `paths.ts` do not agree. */
 function disagree(verdicts: readonly Verdict[]): string[] {
   const join = verdicts.filter((verdict) => verdict.split && verdict.stays).map((verdict) => verdict.name);
   const leave = verdicts.filter((verdict) => !verdict.split && !verdict.stays).map((verdict) => verdict.name);
   const lines: string[] = [];
-  if (leave.length > 0) lines.push("", `The bench runs these cases in order, but the rule splits them: ${leave.join(", ")}. Add them to \`SPLIT\`.`);
-  if (join.length > 0) lines.push("", `The bench splits these cases, but the rule keeps them in order: ${join.join(", ")}. Remove them from \`SPLIT\`.`);
+  if (leave.length > 0) lines.push("", `The bench runs these cases in order, but the verdict splits them: ${leave.join(", ")}. Remove them from \`TOGETHER\`.`);
+  if (join.length > 0) lines.push("", `The verdict keeps these cases in order: ${join.join(", ")}. The bench can add them to \`TOGETHER\`.`);
   return lines;
 }
 
@@ -248,14 +306,23 @@ function short(verdict: Verdict): Record<string, unknown> {
     aloneNs: fixed(verdict.aloneNs),
     inOrderNs: fixed(verdict.inOrderNs),
     ratio: fixed(verdict.ratio, 3),
-    interval: two(verdict.interval),
+    median: two(verdict.inOrder.median),
+    effect: two(verdict.inOrder.effect),
     aa: two(verdict.aa),
+    budget: fixed(verdict.budget, 4),
+    decision: verdict.inOrder.decision,
     stays: verdict.stays,
     slow: verdict.slow,
     mode: verdict.mode,
     split: verdict.split,
-    ...(verdict.group === undefined ? {} : { group: { ns: fixed(verdict.group.ns), interval: two(verdict.group.interval), clean: verdict.group.clean } }),
+    ...(verdict.group === undefined ? {} : { group: { ns: fixed(verdict.group.ns), effect: two(verdict.group.effect), decision: verdict.group.decision, clean: verdict.group.clean } }),
   };
+}
+
+/** This function gives the cases of a run that the bench runs in their own processes, also from a record with `SPLIT`. */
+function splitOf(run: ModeRun): readonly string[] {
+  if (run.together !== undefined) return run.cases.map((item) => item.name).filter((name) => !(run.together as readonly string[]).includes(name));
+  return run.split ?? [];
 }
 
 function whole(name: string, fallback: number): number {
@@ -271,7 +338,7 @@ async function measure(): Promise<void> {
   const [headFile] = process.argv.slice(2);
   if (headFile === undefined) throw new Error("Give the index.ts of the head.");
   // The bundler is a package. Only this mode imports it, thus the mode merge needs only the modules of Node.
-  const { FLAGS, SPLIT, bundle, groups, measureCopy } = await import("./paths.ts");
+  const { FLAGS, TOGETHER, bundle, groups, measureCopy } = await import("./paths.ts");
   const started = performance.now();
   const part = whole("MODE_PART", 1);
   const parts = whole("MODE_PARTS", 1);
@@ -282,8 +349,10 @@ async function measure(): Promise<void> {
   const first = measureCopy(file);
   const counts = first.map((item) => item.calls);
   const names = first.map((item) => item.name);
-  // The cases that the bench keeps together: the first group of `groups`, when no case of it is in SPLIT.
-  const together = groups(names)[0]?.filter((index) => !SPLIT.includes(names[index] as string)) ?? [];
+  // The cases that the bench keeps together: the first group of `groups`, when it has the cases of TOGETHER. A group
+  // needs 2 or more cases, because a group of 1 case is the arm ALONE.
+  const kept = groups(names)[0]?.filter((index) => TOGETHER.includes(names[index] as string)) ?? [];
+  const together = kept.length >= 2 ? kept : [];
   const mine = names.map((_, index) => index).filter((index) => index % parts === part - 1);
   const times = new Map<string, Measured[]>();
   const add = (arm: Arm, index: number, measured: Measured): void => {
@@ -337,14 +406,14 @@ async function measure(): Promise<void> {
     cpu: cpus()[0]?.model.trim() ?? "an unknown CPU",
     node: process.version,
     flags: FLAGS,
-    split: SPLIT,
+    together: TOGETHER,
     total: first.length,
     processes,
     seconds: fixed((performance.now() - started) / 1000),
     cases,
     records,
   };
-  const verdicts = cases.map((item) => judge(item, part, SPLIT));
+  const verdicts = cases.map((item) => judge(item, part, splitOf(run)));
   writeSummary([
     `### Mode run, part ${part} of ${parts}`,
     "",
@@ -366,7 +435,7 @@ function merge(files: readonly string[]): void {
   if (files.length === 0) throw new Error("Give the JSON files of the parts.");
   const runs = files.map((file) => JSON.parse(readFileSync(file, "utf8")) as ModeRun);
   const total = runs[0]?.total ?? 0;
-  const verdicts = runs.flatMap((run) => run.cases.map((item) => judge(item, run.part, run.split))).sort((a, b) => a.index - b.index);
+  const verdicts = runs.flatMap((run) => run.cases.map((item) => judge(item, run.part, splitOf(run)))).sort((a, b) => a.index - b.index);
   const missing: number[] = [];
   for (let index = 0; index < total; index += 1) {
     const found = verdicts.filter((verdict) => verdict.index === index).length;
@@ -384,7 +453,7 @@ function merge(files: readonly string[]): void {
     ...verdicts.map(row),
     ...groupTable(verdicts),
     "",
-    `The rule splits ${splits.length} of ${verdicts.length} cases: ${splits.map((verdict) => verdict.name).join(", ")}.`,
+    `The verdict splits ${splits.length} of ${verdicts.length} cases: ${splits.map((verdict) => verdict.name).join(", ")}.`,
     ...disagree(verdicts),
   ];
   if (missing.length > 0) lines.push("", `The parts do not give each case one time. The cases ${missing.join(", ")} have no row or more than one row.`);

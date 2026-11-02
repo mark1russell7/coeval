@@ -23,10 +23,11 @@
  * not remove them. Now each round compiles each copy again, and `FLAGS` make the compiler and the collector run at
  * fixed points. In CI, two copies of the same code then differ by less than 1 % in each case.
  *
- * Why some cases have their own processes (K210, D98). A case that runs after other cases in one process gets their
- * heap and their type feedback. The mode run `mode.ts` found cases that were slower or faster there than alone.
- * Thus each case of `SPLIT` runs alone in its own process, and the other cases run in one process, in order. Each
- * group of cases runs for the three copies in the order of the round, before the next group starts.
+ * Why each case has its own processes (K210, D98). A case that runs after other cases in one process gets their heap
+ * and their type feedback. The mode run `mode.ts` found cases that were up to 1.9 times slower or 0.8 times faster
+ * there than alone. Thus each case runs alone in its own processes by default. Only the cases of `TOGETHER` run in
+ * one process, in order. Each group of cases runs for the three copies in the order of the round, before the next
+ * group starts.
  *
  * Each copy is an esbuild bundle without `keepNames`, as the bundler of a host makes it. The loader of tsx keeps the
  * name of each function, and that adds a call at each closure that the kernel makes.
@@ -51,30 +52,18 @@ const ROUNDS = Number(process.env["BENCH_ROUNDS"] ?? 12);
 export const FLAGS = ["--predictable", "--predictable-gc-schedule"] as const;
 
 /**
- * The cases that the rule of D98 splits. A case stays in order only when its interval IN ORDER / ALONE is inside its
- * A/A band on both sides. The list comes from the mode run 41426813620: 10 cases slower in order, and 2 faster.
+ * The cases that run together in one process, in order (D98). Each other case runs alone in its own processes. A case
+ * joins this list only when a mode run with enough processes for the budget gives it the verdict "no change". The
+ * mode run 41430307699 had 20 processes for each arm, too few for that verdict. Thus the list is empty.
  */
-export const SPLIT: readonly string[] = [
-  "a reference of five steps",
-  "a reference into a host thing with resolve",
-  "a reference with a step document",
-  "resolve without hops, five steps",
-  "PLAN.FOLD a record of 20 literals",
-  "PLAN.TOTAL a record of 20 literals, without folds",
-  "PLAN.FIXED a path of four steps from a fixed name",
-  "PLAN.PATH the same path, without the declaration",
-  "PLAN.FIXED a formula with a fixed name and a free name",
-  "the same tree, with a list of reads",
-  "factsOf a tree with an equation",
-  "PLAN.COMPILE-SPEED prepare",
-];
+export const TOGETHER: readonly string[] = [];
 
-/** This function gives the groups of case indexes: the cases that stay together in order, then each case of `SPLIT`. */
+/** This function gives the groups of case indexes: the cases of `TOGETHER` in one group, then each other case. */
 export function groups(names: readonly string[]): number[][] {
-  const absent = SPLIT.filter((name) => !names.includes(name));
-  if (absent.length > 0) throw new Error(`SPLIT names cases that cases.ts does not have: ${absent.join(", ")}.`);
-  const together = names.flatMap((name, index) => (SPLIT.includes(name) ? [] : [index]));
-  const alone = names.flatMap((name, index) => (SPLIT.includes(name) ? [[index]] : []));
+  const absent = TOGETHER.filter((name) => !names.includes(name));
+  if (absent.length > 0) throw new Error(`TOGETHER names cases that cases.ts does not have: ${absent.join(", ")}.`);
+  const together = names.flatMap((name, index) => (TOGETHER.includes(name) ? [index] : []));
+  const alone = names.flatMap((name, index) => (TOGETHER.includes(name) ? [] : [[index]]));
   return [...(together.length > 0 ? [together] : []), ...alone];
 }
 
@@ -152,7 +141,7 @@ async function main(): Promise<void> {
   const lines: string[] = [
     `Run ${run} on ${cpu}.`,
     `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the base, a second copy of the base and the head each run in new processes.`,
-    `${SPLIT.length} cases each run alone in their own processes (D98). The other cases run in one process, in order.`,
+    `Each case runs alone in its own processes (D98), except the ${TOGETHER.length} cases of \`TOGETHER\`, which run in one process, in order.`,
     "The change compares the head with the base of the same round. The noise (A/A) compares the two copies of the base.",
     "A change that is not clearly larger than the noise of its case is noise.",
     "",

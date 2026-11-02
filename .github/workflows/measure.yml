@@ -3,7 +3,7 @@
 # Each job prints its values in its log and in its summary. A local machine is shared, thus the measures run here.
 # The jobs "ladder" measure the slope of the walks of STATIC.LINEAR (K208, D97). The job "ladder-verdict" pools them.
 # The jobs "mode" compare each bench case alone with the same case in the order of cases.ts (K210, D98).
-# Each part measures 8 cases on its runner in 361 processes, approximately 94 s by the times of run 41426813620.
+# Each part measures 8 cases on its runner in 341 processes, approximately 2 minutes by the times of run 41430307699.
 # The job "mode-verdict" pools the parts.
 name: Measure
 
