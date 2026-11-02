@@ -7,11 +7,9 @@
 name: Speed
 
 on:
+  # Each pull request starts this workflow, so its summary check is always there. The job changes skips the
+  # work when the pull request changes no file of the gate (CI.md of the template, "A gate with paths").
   pull_request:
-    paths:
-      - "packages/core/src/**"
-      - "packages/core/bench/**"
-      - ".github/workflows/bench.yml"
   workflow_dispatch:
     inputs:
       base:
@@ -27,7 +25,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      match: ${{ steps.changes.outputs.match }}
+    steps:
+      - id: changes
+        uses: mark1russell7/template/.github/actions/changes@e035fa69560ec82e176f1f7bdcb6760c8b15af54 # main
+        with:
+          paths: |
+            packages/core/src/**
+            packages/core/bench/**
+            .github/workflows/bench.yml
+
   bench:
+    needs: changes
+    if: needs.changes.outputs.match == 'true'
     name: bench (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -67,8 +84,8 @@ jobs:
           retention-days: 14
 
   verdict:
-    needs: bench
-    if: ${{ !cancelled() }}
+    needs: [changes, bench]
+    if: ${{ needs.changes.outputs.match == 'true' && (!cancelled()) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -88,3 +105,16 @@ jobs:
       - name: Merge the two runs
         if: ${{ !cancelled() }}
         run: node packages/core/bench/merge.ts "$RUNNER_TEMP/bench/bench-1.json" "$RUNNER_TEMP/bench/bench-2.json"
+
+  speed-ok:
+    name: Speed OK
+    if: always()
+    needs: [changes, bench, verdict]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - uses: mark1russell7/template/.github/actions/gate-summary@e035fa69560ec82e176f1f7bdcb6760c8b15af54 # main
+        with:
+          needs: ${{ toJSON(needs) }}
+          allow-skip: verdict

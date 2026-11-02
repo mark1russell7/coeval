@@ -2852,7 +2852,7 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 ## D95 (2026-11-02): each numeric limit of a unit test is derived, or goes
 
-**Context.** K200. The gate rule of 2026-10-30 says that a limit comes from 5 or more CI runs. The limit is the worst value times 1.1, and the A/A noise is well inside it. Six limits of the unit tests were guesses.
+**Context.** K200. The gate rule of 2026-10-30 says that a limit comes from 5 or more CI runs. The limit is the worst value plus the spread of the values. Six limits of the unit tests were guesses.
 
 **Decision.**
 
@@ -2860,20 +2860,28 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - The bench measures FORMULA.SPEED and PLAN.COMPILE-SPEED. Both were bench cases already.
 - The claim of STATIC.LINEAR is linear time. One walk gives no ratio, thus K208 compares the times of N and 2N levels in one process.
 - The abort test of RUN.FAIL-FAST checks that the results come before the slow effect finishes. The 150 ms limit goes.
-- The workflow `measure` runs PLAN.LEAN and WORLD.LAWS on 5 runners and prints the values. The limit of PLAN.LEAN is the worst value times 1.1.
+- The workflow `measure` runs PLAN.LEAN and WORLD.LAWS on 5 runners and prints the values. The limit of PLAN.LEAN is the worst value plus the spread of the values.
 - The seeds of WORLD.LAWS are fixed, thus its counts are the same in each run. The test pins them exactly.
 
-**Measures (2026-11-02).** PLAN.LEAN gave 401.5, 401.6, 402.2, 402.3 and 402.9 bytes on 5 runners, a spread of 0.4 %. The limit is 444 bytes. WORLD.LAWS gave 313 merges of worlds and 180 merges of machines in each run.
+**Measures (2026-11-02).** PLAN.LEAN measures the retained bytes of each plan. The test starts `gc()` before both readings of the heap, and the plans stay alive.
+
+- The inputs are fixed, and `prepare` reads no clock and no random number. But the first 4 measure runs gave 20 values from 384.2 to 404.0 bytes.
+- An A/A in one process measured the same plans 6 times. Two processes each gave 403.7, 392.7, 392.2, 392.3, 392.2 and 392.2 bytes.
+- Thus the plans keep 392.2 bytes. The first measure also counted code and feedback of V8, because the warm-up had only 100 documents.
+- The warm-up is a full round of the 10000 documents. The measure run 41381230112 then gave 392.4, 393.5, 393.3, 392.3 and 393.3 bytes.
+- The limit is 393.5 + 1.2 = 394.7, thus 395 bytes. WORLD.LAWS gave 313 merges of worlds and 180 merges of machines in each run.
 
 **Rejected.**
 
 - A time limit from 5 runs in the unit tests. The tests share one process with other files, and the A/A noise of such a measure is not well inside a limit.
 - A gate on the bench. The bench verdict reports and does not block a merge (D50, D70).
+- The worst value times 1.1. The factor 1.1 is a guess too. The first limit of K200 used it and gave 444 bytes.
+- A limit from the values of the warm-up of 100 documents. Their spread of 19.8 bytes came from V8, not from the plans.
 - A bench case of a deep walk. A sample has at least 1000 calls, and a walk of 1000 levels took 3.7 ms. Thus each bench job went past its 10 minutes.
 
 **Why.** A guessed limit fails at random, or it does not fail at any time. A derived limit fails when the value really changes.
 
-**Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 444 bytes, and WORLD.LAWS gets exact counts.
+**Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 395 bytes, and WORLD.LAWS gets exact counts.
 
 ## D96 (2026-11-02): a seeded property test splits its corpus into parts of a fixed size, and CI checks the share of the timeout
 

@@ -1,14 +1,13 @@
 # The measures that derive the limits of the unit tests (K200, D95): the same test on 5 runners.
-# A limit is the worst value of the 5 runs times 1.1. A seeded count is the same in each run, thus a test pins it.
+# A limit is the worst value of the runs plus the spread of the values. A seeded count is the same in each run, thus a test pins it.
 # Each job prints its values in its log and in its summary. A local machine is shared, thus the measures run here.
 # The jobs "ladder" measure the slope of the walks of STATIC.LINEAR (K208, D97). The job "ladder-verdict" pools them.
 name: Measure
 
 on:
+  # Each pull request starts this workflow, so its summary check is always there. The job changes skips the
+  # work when the pull request changes no file of the gate (CI.md of the template, "A gate with paths").
   pull_request:
-    paths:
-      - ".github/workflows/measure.yml"
-      - "packages/core/bench/ladder.ts"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +18,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      match: ${{ steps.changes.outputs.match }}
+    steps:
+      - id: changes
+        uses: mark1russell7/template/.github/actions/changes@e035fa69560ec82e176f1f7bdcb6760c8b15af54 # main
+        with:
+          paths: |
+            .github/workflows/measure.yml
+            packages/core/bench/ladder.ts
+
   measure:
+    needs: changes
+    if: needs.changes.outputs.match == 'true'
     name: measure (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -48,6 +65,8 @@ jobs:
           { echo "### Run ${{ matrix.run }}"; echo '```'; cat measures.jsonl; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   ladder:
+    needs: changes
+    if: needs.changes.outputs.match == 'true'
     name: ladder (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -79,8 +98,8 @@ jobs:
           retention-days: 14
 
   ladder-verdict:
-    needs: ladder
-    if: ${{ !cancelled() }}
+    needs: [changes, ladder]
+    if: ${{ !cancelled() && needs.changes.outputs.match == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -98,3 +117,15 @@ jobs:
           path: ${{ runner.temp }}/ladder
       - name: Pool the five runs
         run: node packages/core/bench/ladder.ts merge "$RUNNER_TEMP"/ladder/ladder-*.json
+
+  measure-ok:
+    name: Measure OK
+    if: always()
+    needs: [changes, measure, ladder, ladder-verdict]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - uses: mark1russell7/template/.github/actions/gate-summary@e035fa69560ec82e176f1f7bdcb6760c8b15af54 # main
+        with:
+          needs: ${{ toJSON(needs) }}
