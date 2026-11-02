@@ -45,6 +45,40 @@ const domainDoc = (domain: string, data: unknown): unknown => ({ type: ["ext", "
 /** Two dates are the same when they hold the same time. Each other pair gets the rules of `sameValue`. */
 const sameDate = (a: unknown, b: unknown): boolean | undefined => (a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : undefined);
 
+/** A shape of a kind and a size, for the domains of EXT.SPECIFIC. JSON does not write an instance of a class. */
+class Shape {
+  constructor(
+    readonly kind: string,
+    readonly size: number,
+  ) {}
+}
+
+/**
+ * This function gives a domain of shapes with a codec. With kinds, the domain holds only the shapes of those kinds. A
+ * domain of one kind writes only the size, and the other domains write the kind and the size.
+ */
+function shapes(...kinds: readonly string[]): Domain {
+  const is = (value: unknown): boolean => value instanceof Shape && (kinds.length === 0 || kinds.includes(value.kind));
+  if (kinds.length === 1) {
+    const kind = kinds[0] as string;
+    return { is, codec: { encode: (value) => (value as Shape).size, decode: (data) => new Shape(kind, data as number) } };
+  }
+  return { is, codec: { encode: (value) => [(value as Shape).kind, (value as Shape).size], decode: (data) => new Shape(...(data as [string, number])) } };
+}
+
+/** Two shapes are the same when they have the same kind and size. Each other pair gets the rules of `sameValue`. */
+const sameShape = (a: unknown, b: unknown): boolean | undefined => (a instanceof Shape && b instanceof Shape ? a.kind === b.kind && a.size === b.size : undefined);
+
+/** This function tells that `decodeValue` gives each value again, and that the reference agrees with the plan. */
+function roundTrip(own: ReturnType<typeof formulaMachine>, values: readonly unknown[]): void {
+  for (const value of values) {
+    const doc = encodeValue(own, value);
+    const back = decodeValue(own, doc);
+    expect(back.ok && sameValue(back.value, value, sameShape)).toBe(true);
+    expect(agree(own, doc, context(), { ...LIT, definitions, equal: sameShape }).ok).toBe(true);
+  }
+}
+
 describe("the codec of values", () => {
   it("[EXT.DOMAIN] ext.domain reads its data through the codec of the domain", () => {
     expect(decodeValue(machine, domainDoc("big", "12345678901234567890"))).toEqual(ok(12345678901234567890n));
@@ -134,6 +168,65 @@ describe("the codec of values", () => {
       if (!agree(machine, doc, context(), { ...LIT, definitions, equal: sameDate }).ok) bad.push(`seed ${seed} disagrees: ${JSON.stringify(doc)}`);
     }
     expect(bad.slice(0, 3)).toEqual([]);
+  });
+
+  it("[EXT.SPECIFIC] the codec of a domain under another domain encodes its members, whatever the names", () => {
+    // Each pair of names puts the child first and last in the order of the names.
+    for (const [parent, child] of [
+      ["a-shape", "z-square"],
+      ["z-shape", "a-square"],
+    ] as const) {
+      const domains = { [parent]: shapes(), [child]: { ...shapes("square"), under: [parent] } };
+      const own = formulaMachine(PROFILE, { domains });
+      expect(encodeValue(own, new Shape("square", 2))).toEqual(domainDoc(child, 2));
+      expect(encodeValue(own, new Shape("circle", 3))).toEqual(domainDoc(parent, ["circle", 3]));
+      expect(encodeValue(own, [new Shape("square", 1), new Shape("circle", 1)])).toEqual({ type: "list", value: [domainDoc(child, 1), domainDoc(parent, ["circle", 1])] });
+      roundTrip(own, [new Shape("square", 2), new Shape("circle", 3)]);
+    }
+    // A chain of three domains: the deepest domain that holds the value wins, in each order of the names.
+    for (const [top, middle, bottom] of [
+      ["a-shape", "b-quad", "c-square"],
+      ["c-shape", "b-quad", "a-square"],
+      ["b-shape", "c-quad", "a-square"],
+    ] as const) {
+      const domains = { [top]: shapes(), [middle]: { ...shapes("square", "rect"), under: [top] }, [bottom]: { ...shapes("square"), under: [middle] } };
+      const own = formulaMachine(PROFILE, { domains });
+      expect(encodeValue(own, new Shape("square", 1))).toEqual(domainDoc(bottom, 1));
+      expect(encodeValue(own, new Shape("rect", 1))).toEqual(domainDoc(middle, ["rect", 1]));
+      expect(encodeValue(own, new Shape("circle", 1))).toEqual(domainDoc(top, ["circle", 1]));
+      roundTrip(own, [new Shape("square", 1), new Shape("rect", 1), new Shape("circle", 1)]);
+    }
+    // A chain through a domain without a codec counts too. A parent that is not a domain ends the chain.
+    const through = formulaMachine(PROFILE, {
+      domains: { "a-shape": shapes(), "b-quad": { is: shapes("square", "rect").is, under: ["a-shape", "nothing"] }, "z-square": { ...shapes("square"), under: ["b-quad"] } },
+    });
+    expect(encodeValue(through, new Shape("square", 1))).toEqual(domainDoc("z-square", 1));
+    expect(encodeValue(through, new Shape("rect", 1))).toEqual(domainDoc("a-shape", ["rect", 1]));
+    // Two domains in a cycle of parents hold the same members, thus the first name wins. The cycle ends.
+    const cycle = formulaMachine(PROFILE, { domains: { "z-one": { ...shapes(), under: ["a-two"] }, "a-two": { ...shapes(), under: ["z-one"] }, "m-square": { ...shapes("square"), under: ["z-one"] } } });
+    expect(encodeValue(cycle, new Shape("circle", 1))).toEqual(domainDoc("a-two", ["circle", 1]));
+    expect(encodeValue(cycle, new Shape("square", 1))).toEqual(domainDoc("m-square", 1));
+    roundTrip(cycle, [new Shape("circle", 1), new Shape("square", 1)]);
+  });
+
+  it("[EXT.TIE] between unrelated domains with codecs, the deeper domain wins, and then the first name", () => {
+    // Two unrelated domains of the same depth: the first name wins in each order of the table.
+    for (const domains of [
+      { "b-small": shapes("square"), "a-any": shapes() },
+      { "a-any": shapes(), "b-small": shapes("square") },
+    ]) {
+      const own = formulaMachine(PROFILE, { domains });
+      expect(encodeValue(own, new Shape("square", 1))).toEqual(domainDoc("a-any", ["square", 1]));
+      roundTrip(own, [new Shape("square", 1)]);
+    }
+    // A domain with a parent with a codec is deeper than an unrelated domain without one, thus it wins over the first name.
+    const deeper = formulaMachine(PROFILE, { domains: { "a-any": shapes(), "m-shape": shapes(), "z-square": { ...shapes("square"), under: ["m-shape"] } } });
+    expect(encodeValue(deeper, new Shape("square", 1))).toEqual(domainDoc("z-square", 1));
+    expect(encodeValue(deeper, new Shape("circle", 1))).toEqual(domainDoc("a-any", ["circle", 1]));
+    // A parent without a codec adds no depth.
+    const plain = formulaMachine(PROFILE, { domains: { "a-any": shapes(), "m-shape": { is: shapes().is }, "z-square": { ...shapes("square"), under: ["m-shape"] } } });
+    expect(encodeValue(plain, new Shape("square", 1))).toEqual(domainDoc("a-any", ["square", 1]));
+    roundTrip(deeper, [new Shape("square", 1), new Shape("circle", 1)]);
   });
 
   it("[EXT.TYPE] the check of types gives ext.domain the type of its domain", () => {
