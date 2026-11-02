@@ -4,7 +4,7 @@
  *   pnpm exec tsx packages/core/bench/paths.ts <base src/index.ts> <head src/index.ts>
  *
  * The script bundles `cases.ts` three times: with the base, with the base again and with the head. Each round runs
- * each bundle in a new process, thus no copy shares its compiled code, its type feedback or its heap with another copy.
+ * each bundle in new processes, thus no copy shares its compiled code, its type feedback or its heap with another copy.
  * The order of the three copies changes in each round, and each order comes equally often.
  *
  * The script prints the median time of one call for each case and each copy. The change is the median ratio of the
@@ -23,12 +23,18 @@
  * not remove them. Now each round compiles each copy again, and `FLAGS` make the compiler and the collector run at
  * fixed points. In CI, two copies of the same code then differ by less than 1 % in each case.
  *
+ * Why each case has its own processes (K210, D98). A case that runs after other cases in one process gets their heap
+ * and their type feedback. The mode run `mode.ts` found cases that were up to 1.9 times slower or 0.8 times faster
+ * there than alone. Thus each case runs alone in its own processes by default. Only the cases of `TOGETHER` run in
+ * one process, in order. Each group of cases runs for the three copies in the order of the round, before the next
+ * group starts.
+ *
  * Each copy is an esbuild bundle without `keepNames`, as the bundler of a host makes it. The loader of tsx keeps the
  * name of each function, and that adds a call at each closure that the kernel makes.
  */
 import { build, type Plugin } from "esbuild";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { join, resolve as resolveFile } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,7 +49,23 @@ const ROUNDS = Number(process.env["BENCH_ROUNDS"] ?? 12);
  * `--predictable-gc-schedule` grows the heap by fixed steps. Without them, one case of identical code took from 270 ns
  * to 760 ns in different processes.
  */
-const FLAGS = ["--predictable", "--predictable-gc-schedule"] as const;
+export const FLAGS = ["--predictable", "--predictable-gc-schedule"] as const;
+
+/**
+ * The cases that run together in one process, in order (D98). Each other case runs alone in its own processes. A case
+ * joins this list only when a mode run with enough processes for the budget gives it the verdict "no change". The
+ * mode run 41430307699 had 20 processes for each arm, too few for that verdict. Thus the list is empty.
+ */
+export const TOGETHER: readonly string[] = [];
+
+/** This function gives the groups of case indexes: the cases of `TOGETHER` in one group, then each other case. */
+export function groups(names: readonly string[]): number[][] {
+  const absent = TOGETHER.filter((name) => !names.includes(name));
+  if (absent.length > 0) throw new Error(`TOGETHER names cases that cases.ts does not have: ${absent.join(", ")}.`);
+  const together = names.flatMap((name, index) => (TOGETHER.includes(name) ? [index] : []));
+  const alone = names.flatMap((name, index) => (TOGETHER.includes(name) ? [] : [[index]]));
+  return [...(together.length > 0 ? [together] : []), ...alone];
+}
 
 /** The six orders of the three copies: the base, the base again and the head. */
 const ORDERS = [
@@ -58,7 +80,7 @@ const ORDERS = [
 const CASES_FILE = fileURLToPath(new URL("./cases.ts", import.meta.url));
 
 /** This function bundles the cases with one copy of the kernel. */
-async function bundle(kernelFile: string, name: string, dir: string): Promise<string> {
+export async function bundle(kernelFile: string, name: string, dir: string): Promise<string> {
   const outfile = join(dir, `${name}.mjs`);
   const kernel = resolveFile(kernelFile);
   const copy: Plugin = {
@@ -71,9 +93,10 @@ async function bundle(kernelFile: string, name: string, dir: string): Promise<st
   return outfile;
 }
 
-/** This function runs one bundle in a new process, and gives its measurements. */
-function measureCopy(file: string, counts?: readonly number[]): Measured[] {
-  const args = [...FLAGS, file, "measure", ...(counts === undefined ? [] : [JSON.stringify(counts)])];
+/** This function runs one bundle in a new process, and gives its measurements. With `only`, the process runs those cases. */
+export function measureCopy(file: string, counts?: readonly number[], only?: readonly number[]): Measured[] {
+  if (only !== undefined && counts === undefined) throw new Error("Give the calls of each case with some cases.");
+  const args = [...FLAGS, file, "measure", ...(counts === undefined ? [] : [JSON.stringify(counts)]), ...(only === undefined ? [] : [JSON.stringify(only)])];
   const child = spawnSync(process.execPath, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   if (child.status !== 0) throw new Error(`The process of ${file} stopped with the status ${String(child.status)}.`);
   return JSON.parse(child.stdout) as Measured[];
@@ -98,12 +121,18 @@ async function main(): Promise<void> {
   // A first process calibrates the calls of each sample, thus each copy does the same work. Its times do not count.
   const first = measureCopy(copies[0] as string);
   const counts = first.map((item) => item.calls);
+  const parts = groups(first.map((item) => item.name));
   // runs[copy][round][case]
   const runs: Measured[][][] = [[], [], []];
   for (let round = 0; round < ROUNDS; round += 1) {
-    for (const which of ORDERS[round % ORDERS.length] as readonly number[]) {
-      (runs[which] as Measured[][]).push(measureCopy(copies[which] as string, counts));
+    const measured: Measured[][] = [[], [], []];
+    for (const part of parts) {
+      for (const which of ORDERS[round % ORDERS.length] as readonly number[]) {
+        const items = measureCopy(copies[which] as string, counts, part);
+        part.forEach((index, place) => ((measured[which] as Measured[])[index] = items[place] as Measured));
+      }
     }
+    measured.forEach((copy, which) => (runs[which] as Measured[][]).push(copy));
   }
   const run = process.env["BENCH_RUN"] ?? "1";
   // On Linux, Node reads the model of the CPU from /proc/cpuinfo.
@@ -111,7 +140,8 @@ async function main(): Promise<void> {
   const cases: BenchCase[] = [];
   const lines: string[] = [
     `Run ${run} on ${cpu}.`,
-    `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the base, a second copy of the base and the head each run in a new process.`,
+    `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the base, a second copy of the base and the head each run in new processes.`,
+    `Each case runs alone in its own processes (D98), except the ${TOGETHER.length} cases of \`TOGETHER\`, which run in one process, in order.`,
     "The change compares the head with the base of the same round. The noise (A/A) compares the two copies of the base.",
     "A change that is not clearly larger than the noise of its case is noise.",
     "",
@@ -148,4 +178,5 @@ async function main(): Promise<void> {
   if (mismatch) process.exitCode = 1;
 }
 
-await main();
+// The mode run `mode.ts` imports the functions of this file, and only a start of this file runs the bench.
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) await main();

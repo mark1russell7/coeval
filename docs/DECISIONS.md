@@ -599,7 +599,7 @@ The work found a hole of D25. A name bound to a reference document had the type 
 
 **Why.** A reference does the static work of its path one time, as `prepare` does for the ladder of each document. The values stay dynamic, thus each result, error, place and read stays the same. One step function for the dynamic path and the compiled path keeps their edges equal. Two property tests compare them on random paths and on generated documents, and `agree` compares the plan with the reference interpreter.
 
-The CI job of this change measured the medians on Node 26, with the base and the head as bundles. An evaluation of the formula of FORMULA.SPEED went from 118 ns to 98 ns. A reference of five steps went from 163 ns to 120 ns. A reference through an envelope went from 387 ns to 253 ns, and a reference with a step document from 387 ns to 134 ns. A compilation of PLAN.COMPILE-SPEED stays at 2.9 µs.
+The CI job of this change measured the medians on Node 26, with the base and the head as bundles. An evaluation of the formula of FORMULA.SPEED went from 118 ns to 98 ns. A reference of five steps went from 163 ns to 120 ns. A reference through an envelope went from 387 ns to 253 ns, and a reference with a step document from 387 ns to 134 ns. A compilation of PLAN.COMPILE-SPEED stays at 2.9 µs. FORMULA.SPEED runs first. The times of the other cases were measured after the other cases in one process (before K210).
 
 **Next.**
 
@@ -1244,9 +1244,9 @@ D23 put off a contract that declares the effects of each verb. The design calls 
 
 **Limits.** A host compiler that gives a constant still gets the wrapper. A plan with folds already gives one value for a closed literal. Thus the gain shows in a plan without folds, in a trace and in a fold at compile time.
 
-**Measured (K151).** The bench case of a record of 20 literals without folds is 9% to 13% faster. The same record with folds is approximately 6% slower (15.7 to 16.9 ns, A/A noise below 1%). Four comparisons in the bench of CI found the cause in the mark of the literal code in `formula.ts`.
+**Measured (K151).** The bench case of a record of 20 literals without folds is 9% to 13% faster. The same record with folds is approximately 6% slower (15.7 to 16.9 ns, A/A noise below 1%, measured after the other cases in one process (before K210)). Four comparisons in the bench of CI found the cause in the mark of the literal code in `formula.ts`.
 
-The folded code of each evaluation is the same `() => value`, thus the cost comes from the feedback of the JIT in the process. A plan with folds pays approximately 1.5 ns for each evaluation. A plan that evaluates a literal saves approximately 6 ns for each literal. The kernel keeps the mark.
+The folded code of each evaluation is the same `() => value`, thus the cost comes from the feedback of the JIT in the process. A plan with folds pays approximately 1.5 ns for each evaluation. A plan that evaluates a literal saves approximately 6 ns for each literal. These times were measured after the other cases in one process (before K210). The kernel keeps the mark.
 
 ## D51 (2026-10-28): `#CYCLE!` keeps its code, and its reason tells a cycle from a chain that is longer than the bound
 
@@ -1952,12 +1952,12 @@ Each variant then went in one bench against `main` at 8ae6491. A negative change
 **Limits.**
 
 - The reference with a step document is a sixth case that is slower in both runs. The two benches of PR #126 gave -1.2% for it. The benches of PR #127, #128 and #129 each gave it in its bound. Thus small changes of the code add up in such a case.
-- The runners of CI are not all the same machine. The same case took 107 ns on one runner and 206 ns on another, and the change of a case can have another sign on each.
+- The runners of CI are not all the same machine. The same case took 107 ns on one runner and 206 ns on another (measured after the other cases in one process (before K210)), and the change of a case can have another sign on each.
 - PLAN.COMPILE-SPEED is faster than 22d94f4 in both runs, -4.6% and -7.2%. D69 shows that this case also changes with the runner.
 
 ## D71 (2026-10-29): the bench of a pull request repeats each comparison on two runners
 
-**Context.** K167, from K164 (D70). The same case took 107 ns on one runner and 206 ns on another. Single benches went over the bound in both directions without a repeat (K151, K164, K166). The design questions are how a bench repeats, and when a case is slower.
+**Context.** K167, from K164 (D70). The same case took 107 ns on one runner and 206 ns on another (measured after the other cases in one process (before K210)). Single benches went over the bound in both directions without a repeat (K151, K164, K166). The design questions are how a bench repeats, and when a case is slower.
 
 **Decision.**
 
@@ -2985,3 +2985,166 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - The documents are chains of one kind. A wide document or a document with scopes has no rung.
 - The ladder starts on a change of `ladder.ts` or `measure.yml`, and by `workflow_dispatch`. A change of the kernel does not start it.
 - No test fails when the slope grows. A new measure needs a dispatch of `measure.yml`.
+
+## D98 (2026-11-02): the bench runs each case in its own processes
+
+**Context.** K210. The bench of `paths.ts` starts new processes for the base, the base again and the head. Before K210, each process ran all 16 cases of `cases.ts` in a fixed order.
+
+Thus a later case ran on the heap and the type feedback of the earlier cases. Another project found that V8 can tenure an allocation site in a later case. That case was then slow in 9 of 40 processes. The A/A arm of the bench cannot see such a change, because both copies of the base have the same order.
+
+**Decision.**
+
+- The bench follows the default of the fleet strategy: each case of a gate runs alone in its own fresh processes.
+- A mode run is optional. It only saves processes, and it can keep a case in order only when it has enough processes for the budget.
+- The bench thus runs each of the 16 cases in its own processes. The list `TOGETHER` of `paths.ts` names the cases that run in one process. It is empty.
+- In each round, each group of cases runs for the three copies in the order of the round. Then the next group starts.
+- The mode run of K210 is a record of the effect of the order. It is not a gate. Its verdicts are information.
+
+**The mode run.** The script `packages/core/bench/mode.ts` measures the cases with the head kernel only, in four arms.
+
+- ALONE: a new process runs only one case. Each round has two such processes for each case, A1 and A2.
+- IN ORDER: a new process runs all 16 cases in the order of `cases.ts`. This arm stays, thus a later mode run can show if a group is clean.
+- GROUP: a new process runs only the cases of `TOGETHER`, in their order. This arm runs only when `TOGETHER` has 2 or more cases.
+- Each process uses the flags of `paths.ts`, and a first process calibrates the calls of each sample.
+- Each part has 20 rounds. In a round, the A1 processes run in one half and the A2 processes in the other half, in the opposite order.
+- The halves change places in each second round. The case order and the places of IN ORDER and GROUP turn in each round.
+- The workflow `measure.yml` runs the script in 2 parts of 8 cases, each part on its own runner. The job `mode-verdict` pools the parts with Node only.
+
+**The verdict.** The mode run gives each case the equivalence verdict of the fleet strategy (O83 amendment, with the amendment of the A/A term).
+
+- The ratios of a case are its 20 ratios IN ORDER / A1, one for each round.
+- The interval of the median is the 6th to the 15th of the 20 sorted ratios. It is free of a distribution.
+- Its coverage is P(6 ≤ Bin(20, 1/2) ≤ 14) = 1005176 / 1048576 = 0.95861.
+- The A/A interval is the same interval of the 20 ratios A2 / A1.
+- The effect interval E is the interval of the median, wider on each side by half the width of the A/A interval.
+- The noise is the median of A2 / A1 minus 1. The budget is the bound of the bench (`merge.ts`, D50, D70).
+- Budget = max(1.5 %, 2 × the absolute noise).
+- "No change" when E is inside 1 ± budget. "Slower" when the low end of E is over 1 + budget.
+- "Faster" when the high end of E is under 1 − budget. Else "cannot decide".
+- Only "no change" keeps a case in order. Each other verdict splits the case, because a false split costs only processes.
+- The GROUP arm gets the same verdict with its ratios GROUP / A1.
+
+**The first rule.** The prediction of K210 pinned a first rule, and the tables keep it as information.
+
+- A process is slow for a case when its IN ORDER time is over the maximum of the 20 ALONE times of that case.
+- A case has a mode when 5 or more of its 20 IN ORDER processes are slow.
+- With no mode, each IN ORDER process is over the ALONE maximum with the probability 1/21. Then 5 or more of 20 have a probability under 0.5 %.
+- That rule sees only a slower case. The first measure also found two cases that are faster in order.
+
+**First measure (2026-11-02).** The measure run 41426813620 had the arms ALONE and IN ORDER only, with one ALONE process for each case in a round. Part 1 had an AMD EPYC 9V45, and part 2 had an Intel Xeon Platinum 8370C. The ratio is the IN ORDER median divided by the ALONE median.
+
+| Case | Part | Alone median (ns) | Alone max (ns) | In order median (ns) | In order / alone | Slow | Mode |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| FORMULA.SPEED formula | 1 | 107.4 | 137.1 | 107.7 | 1.003 | 0 of 20 | no |
+| the same formula, with a list of reads | 2 | 264.2 | 281.7 | 268.0 | 1.014 | 1 of 20 | no |
+| a reference of five steps | 1 | 74.6 | 77.8 | 109.8 | 1.472 | 20 of 20 | yes |
+| a reference into a host thing with resolve | 2 | 170.1 | 174.2 | 226.0 | 1.329 | 20 of 20 | yes |
+| a reference through an envelope | 1 | 200.3 | 456.0 | 218.9 | 1.093 | 0 of 20 | no |
+| a reference with a step document | 2 | 201.8 | 211.3 | 258.0 | 1.278 | 20 of 20 | yes |
+| resolve without hops, five steps | 1 | 37.6 | 39.5 | 73.9 | 1.968 | 20 of 20 | yes |
+| PLAN.FOLD a record of 20 literals | 2 | 24.9 | 25.6 | 29.0 | 1.162 | 20 of 20 | yes |
+| PLAN.TOTAL a record of 20 literals, without folds | 1 | 597.5 | 621.0 | 661.4 | 1.107 | 20 of 20 | yes |
+| PLAN.FIXED a path of four steps from a fixed name | 2 | 39.0 | 39.4 | 41.6 | 1.066 | 20 of 20 | yes |
+| PLAN.PATH the same path, without the declaration | 1 | 77.2 | 80.5 | 115.0 | 1.490 | 20 of 20 | yes |
+| PLAN.FIXED a formula with a fixed name and a free name | 2 | 108.7 | 112.2 | 161.3 | 1.485 | 20 of 20 | yes |
+| a tree with an equation | 1 | 5643.8 | 6207.9 | 5691.0 | 1.008 | 0 of 20 | no |
+| the same tree, with a list of reads | 2 | 12030.6 | 12452.8 | 7268.3 | 0.604 | 0 of 20 | no |
+| factsOf a tree with an equation | 1 | 5089.9 | 5417.8 | 5332.1 | 1.048 | 5 of 20 | yes |
+| PLAN.COMPILE-SPEED prepare | 2 | 15269.3 | 16777.4 | 12554.3 | 0.822 | 0 of 20 | no |
+
+- 10 cases have a mode by the first rule. Nine of them are slow in each of the 20 IN ORDER processes. Thus the order gives a constant shift, not a mode of some processes.
+- `factsOf` of a tree with an equation is slow in 5 of 20 processes. That is the limit of a mode.
+- Two cases are faster in order: the tree with a list of reads (0.604) and PLAN.COMPILE-SPEED (0.822).
+- FORMULA.SPEED is the first case, thus no case runs before it. Its ratio of 1.003 is the check of the method.
+- The parts took 58.8 s and 62.1 s in the script. The jobs took 79 s and 95 s, and the job `mode-verdict` took 13 s.
+- The bench of the same head (run 41426813579) ran before the split and gave 16 cases in bound. Its jobs took 87 s and 93 s.
+
+**Second measure (2026-11-02).** The measure run 41430307699 had all four arms, with 12 cases split and 4 cases in GROUP. Part 1 had an AMD EPYC 9V45, and part 2 had an AMD EPYC 9V74. The table gives the verdict above, from the raw records of the run.
+
+| Case | Part | Alone median (ns) | In order median (ns) | In order / alone | E | Budget | Verdict | Slow |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| FORMULA.SPEED formula | 1 | 108.3 | 106.0 | 0.978 | 0.942 to 1.030 | 1.5 % | cannot decide | 0 of 20 |
+| the same formula, with a list of reads | 2 | 251.4 | 258.4 | 1.028 | 1.017 to 1.040 | 1.5 % | slower | 19 of 20 |
+| a reference of five steps | 1 | 73.7 | 108.3 | 1.468 | 1.443 to 1.510 | 1.5 % | slower | 20 of 20 |
+| a reference into a host thing with resolve | 2 | 158.6 | 205.4 | 1.295 | 1.288 to 1.303 | 1.5 % | slower | 20 of 20 |
+| a reference through an envelope | 1 | 199.2 | 212.5 | 1.066 | 1.017 to 1.106 | 1.6 % | slower | 8 of 20 |
+| a reference with a step document | 2 | 184.4 | 215.4 | 1.168 | 1.156 to 1.180 | 1.5 % | slower | 20 of 20 |
+| resolve without hops, five steps | 1 | 37.7 | 73.2 | 1.943 | 1.920 to 1.986 | 1.5 % | slower | 20 of 20 |
+| PLAN.FOLD a record of 20 literals | 2 | 28.2 | 32.6 | 1.156 | 1.126 to 1.181 | 1.5 % | slower | 20 of 20 |
+| PLAN.TOTAL a record of 20 literals, without folds | 1 | 596.5 | 665.3 | 1.115 | 1.085 to 1.145 | 1.5 % | slower | 0 of 20 |
+| PLAN.FIXED a path of four steps from a fixed name | 2 | 43.2 | 46.9 | 1.086 | 1.081 to 1.092 | 1.5 % | slower | 20 of 20 |
+| PLAN.PATH the same path, without the declaration | 1 | 76.4 | 115.2 | 1.506 | 1.478 to 1.533 | 1.5 % | slower | 20 of 20 |
+| PLAN.FIXED a formula with a fixed name and a free name | 2 | 115.1 | 146.8 | 1.275 | 1.253 to 1.285 | 1.5 % | slower | 20 of 20 |
+| a tree with an equation | 1 | 5069.2 | 6230.7 | 1.229 | 1.160 to 1.278 | 1.5 % | slower | 20 of 20 |
+| the same tree, with a list of reads | 2 | 9165.4 | 7337.4 | 0.801 | 0.778 to 0.823 | 1.5 % | faster | 0 of 20 |
+| factsOf a tree with an equation | 1 | 4698.7 | 4650.2 | 0.990 | 0.931 to 1.015 | 1.5 % | cannot decide | 0 of 20 |
+| PLAN.COMPILE-SPEED prepare | 2 | 15492.5 | 12635.2 | 0.816 | 0.793 to 0.830 | 1.5 % | faster | 0 of 20 |
+
+- 12 cases are slower in order, 2 cases are faster, and 2 cases get "cannot decide". No case gets "no change". Thus all 16 cases split.
+- The GROUP arm had the 4 cases that stayed. Each of them got "cannot decide" with GROUP / A1.
+- The parts took 89.3 s and 97.4 s in the script. The jobs took 112 s and 118 s, and the job `mode-verdict` took 14 s.
+- The bench of the same head (run 41430307725) ran with 12 cases split and gave 16 cases in bound. Its jobs took 112 s and 103 s.
+
+**Why 20 processes are too few.** The verdict cannot give "no change" with 20 processes for most cases. A simulation shows it.
+
+- The simulation draws A1, A2 and IN ORDER from the ALONE times of each case, with 10000 tries of 20 rounds.
+- With no effect, E is inside 1 ± budget in 0.246 of the tries on average with the noise of run 2. With the noise of run 1, the mean is 0.168.
+- The pass rate with no effect is 0.01 to 0.02 for 8 cases. Only the quiet cases pass often: PLAN.FIXED a path (1.000), the formula with a list of reads (0.971).
+- With a true shift of 1.015, E is not inside 1 ± budget in 0.994 of the tries with the noise of run 2. With run 1, it is 0.995.
+- That power comes mostly from "cannot decide". E is wider than the budget before any effect.
+- The strategy states this clause: a gate that needs "no change" verdicts must bring its A/A spread under the budget.
+- A test sized for the budget b needs approximately ((1.64 + 0.84) × σ / b)² processes in each arm. σ is the spread of single processes.
+- σ is the relative standard deviation of the 40 ALONE processes of a case in run 2. The budget b is 1.5 %.
+
+| Case | σ | Processes in each arm |
+| --- | ---: | ---: |
+| FORMULA.SPEED formula | 14.7 % | 589 |
+| a tree with an equation | 11.1 % | 338 |
+| PLAN.TOTAL a record of 20 literals, without folds | 5.9 % | 97 |
+
+**Time of a job.** The run 41426813620 and its bench give approximately 0.054 s to start a process and 0.101 s for one case in a process.
+
+- A part of the mode run has 341 processes since this change, because the GROUP arm does not run. The record of the run on the head gives its time.
+- A round of the bench starts 48 processes, not 3. A bench job has 577 processes and 592 measures of a case.
+- That gives approximately 91 s in the script. The Speed run of the head gives the time of the job after the split.
+
+**Times from the bench before K210.** These places give times that a case had after the other cases in one process. Each place gets the mark "measured after the other cases in one process (before K210)".
+
+- D29: the reference of five steps, the envelope, the step document and PLAN.COMPILE-SPEED. FORMULA.SPEED runs first, thus its times of 118 ns and 98 ns stay without a mark.
+- D50: PLAN.FOLD from 15.7 to 16.9 ns, and the costs of 1.5 ns and 6 ns.
+- D70 and D71: the same case at 107 ns and 206 ns on two runners.
+- The roadmap rows K151 (PLAN.FOLD, 15.7 to 16.9 ns), K154 (PLAN.FOLD, 26.2 to 27.3 ns) and K167 (107 ns and 206 ns).
+- The row K154 also gives FORMULA.SPEED from 160.4 to 165.7 ns. That case runs first, thus that time stays without a mark.
+- R1 gives approximately 22 ns for each node of a small formula. R1 names no bench run for it, thus it stays without a mark.
+- The README files and the site give no time of a bench case.
+
+**Rejected.**
+
+- The spread rule: the 5th to 95th percentile of IN ORDER / A1 inside the same band of A2 / A1. It compares two spreads.
+- With no effect, that rule kept a case in 0.245 of the tries of a simulation. Thus it split 3 of 4 cases by noise.
+- The interval of the median inside the A/A band. It kept a case with no effect in 0.96 of the tries.
+- It caught a shift of 1.07 with the noise of PLAN.FIXED a path in each try. The strategist chose the verdict of the strategy, not a new rule.
+- The verdict with E wider by half the 5th to 95th percentile band of A2 / A1. That term is a spread of single processes, not of a median.
+- With no effect, it gave "no change" in 0.075 of the tries with the noise of run 2, and 0.063 with run 1.
+- The amended verdict above uses the A/A interval of the median, at the level of E. With no effect, it gives 0.246. It does not change the split.
+- More processes for each arm. The table above needs up to 589 processes in each arm, and a job of the mode run stops after 10 minutes.
+- A budget from the spread of single processes. That is a new budget, not the bound of the bench.
+- A new order of the cases in one process. Another order changes which case gets the state of the others. It moves the change, and it does not remove it.
+- One pool of both runners for a case. A comparison across two CPUs measures the machines (D70).
+- The base and the head in the mode run. The change comes from the cases and their order, thus the head is sufficient.
+
+**Why.** A case in its own process measures its own code, not the state that the earlier cases leave. Thus a change in an earlier case does not move the time of a case.
+
+**Public types.** No change. The scripts are in `bench`, and the `files` of the npm package do not include them.
+
+**Changed expected values.** No result of the kernel changes. The bench times of all 16 cases become their times alone. On the EPYC 9V45, a reference of five steps goes from approximately 110 ns to 75 ns.
+
+The bench runs the `cases.ts` and the `paths.ts` of the head with both kernels. Thus a change and a noise in one run compare the same groups, also against an old base. The times of a table from before K210 differ in each case except FORMULA.SPEED.
+
+**Limits.**
+
+- Each case ran on one runner only. Another CPU can give another result.
+- The verdict of the mode run is information. A case joins `TOGETHER` only after a mode run sized for its budget.
+- A change of `cases.ts` or `paths.ts` alone does not start the mode run. A change of `mode.ts` or `measure.yml` starts it, and a dispatch of `measure.yml` starts it.
+- The mode run does not measure the cause. Shared code of the kernel with the type feedback of the earlier cases is one possible cause.
+- σ includes the slow processes of a case. Thus a case with a few slow processes needs a large size.
