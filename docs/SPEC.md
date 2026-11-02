@@ -300,7 +300,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
 | STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless a host thing without `has` answers the names (DEREF.HOST-UNDEFINED). A `#DEPTH!` from an overflow of the stack of the host is not an error of `check`. |
 | STATIC.NARROW | `check` tests each effect against the capabilities of its own document: the capabilities at the root, narrowed by the rules of the kinds around it. |
-| STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. K208 adds a check of the ratio of the times of N and 2N levels. |
+| STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. A log-log ladder of 250 to 2000 levels measures the time of `refsOf` and `walk` on 5 CI runners (K208, D97). The slope of log t against log n was 0.998 and 1.000, with 90 % intervals inside 0.92 to 1.07. The memory has no measure. |
 | STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |
 | STATIC.AT | `check` gives the JSON path of each problem. For a value without its shape, the path goes to the value with the problem. |
 | STATIC.STEPS | When the kind `ref` has parts, the static kit visits the step documents of a path. A reference in an address position is an address, not a read. |

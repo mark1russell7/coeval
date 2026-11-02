@@ -2929,3 +2929,59 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - These tests include DURABLE.SOUND, FACTS.SOUND, SCHED.ONE-MEANING and READS.SOUND, with 1.5 s to 1.9 s on main.
 - A part with a shared random stream keeps each earlier document of its stream. A corpus of 4000 small documents keeps a few MB.
 - A chain of lazy edges that overflows the stack can give `#CYCLE!`, not `#DEPTH!`. Its nodes are on no cycle. The test of SCHED.LONG-CHAIN accepts each error there.
+
+## D97 (2026-11-02): a log-log ladder measures the slope of the walks of STATIC.LINEAR
+
+**Context.** K208. STATIC.LINEAR says that a walk takes time and memory linear in the size of the document. A one-off local measure of `refsOf` gave 3.7 ms at 1000 levels and 11.7 ms at 2000 levels. That ratio of 3.1 is not the ratio 2 of a linear walk. One ratio cannot tell a constant factor from a power.
+
+**Decision.**
+
+- The script `packages/core/bench/ladder.ts` measures two walks: `refsOf`, and `walk` with a visit that only counts.
+- Each walk goes over documents of 250, 500, 1000 and 2000 levels of `op("add", doc, 1)` around one reference.
+- All rungs run in one process, in turns. Each round has 5 passes. The order turns by one place in each pass, and it goes back to front in each second round.
+- The time of a rung in a round is the median of its passes. Each sample walks 2000 levels: 8 calls at 250 levels and 1 call at 2000 levels.
+- Two rounds warm up the compiler first. Then 30 rounds count.
+- Each round fits the slope of log t against log n by least squares. A linear walk gives 1, and a walk of the square of the size gives 2.
+- The A/A arm is a second document of 1000 levels, made in the same way. Its ratio to the first document shows the noise of one rung.
+- The interval is the median of the rounds and their 5th to 95th percentile. The mode `merge` pools the rounds of the runs.
+- A run counts only when the A/A band of each walk contains 1.0. Else the run measured the runner, and a new run replaces it.
+- The claim is linear when the pooled interval contains 1.0 and its upper end is less than 1.2.
+- The workflow `measure.yml` starts the ladder on 5 runners, at most 3 at one time. The job `ladder-verdict` pools them.
+
+**Measures (2026-11-02).** The measure run 41420165848 gave 5 counted runs and no excluded run. The CPUs were 4 AMD EPYC 7763 and 1 AMD EPYC 9V74.
+
+| Run | Slope of `refsOf` | Slope of `walk` | A/A band of `refsOf` | A/A band of `walk` | Ladder (s) | Job (s) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.999 (0.964 to 1.049) | 1.001 (0.924 to 1.071) | 0.870 to 1.131 | 0.932 to 1.026 | 13.2 | 39 |
+| 2 | 1.003 (0.957 to 1.065) | 0.994 (0.921 to 1.075) | 0.843 to 1.072 | 0.871 to 1.203 | 14.5 | 40 |
+| 3 | 0.996 (0.933 to 1.068) | 1.000 (0.919 to 1.055) | 0.870 to 1.022 | 0.967 to 1.107 | 15.4 | 46 |
+| 4 | 0.996 (0.905 to 1.049) | 1.004 (0.957 to 1.046) | 0.873 to 1.116 | 0.856 to 1.111 | 13.4 | 51 |
+| 5 | 0.999 (0.947 to 1.051) | 0.996 (0.932 to 1.043) | 0.892 to 1.190 | 0.981 to 1.165 | 13.5 | 41 |
+
+- The pooled slope of `refsOf` is 0.998, with the pooled 90 % interval 0.929 to 1.062. The medians of the runs give 0.999 plus or minus 0.003.
+- The pooled slope of `walk` is 1.000, with the pooled 90 % interval 0.922 to 1.062. The medians of the runs give 0.999 plus or minus 0.004.
+- The second interval is the mean of the 5 medians plus or minus t times the standard error, with t = 2.132 for 4 degrees of freedom.
+- The pooled A/A ratio is 0.999 (0.848 to 1.150) for `refsOf` and 1.002 (0.879 to 1.156) for `walk`.
+- On a runner, `refsOf` took 0.96 ms to 1.13 ms at 250 levels and 7.7 ms to 9.0 ms at 2000 levels. The ratio of 1000 to 2000 levels is 2.0.
+- The verdict is linear for both walks. The local ratio of 3.1 came from one measure on a shared machine, not from the walk.
+
+**Rejected.**
+
+- A ratio of N and 2N levels. One ratio cannot tell a constant factor from a power, and its noise is the noise of two single times.
+- Each rung in its own process. Then the rungs get different compilations and different heaps, and the noise of a process goes into the slope.
+- The bench of `paths.ts`. A bench sample has at least 1000 calls, and a call at 2000 levels takes approximately 8 ms (D95).
+- A gate on the slope in a unit test. A unit test shares its process with other files, and its rounds differ from the 30 rounds of the ladder. Thus a limit from the ladder does not apply there.
+- A drop of a run by eye. A run counts by its A/A band only.
+
+**Why.** A slope of log t against log n separates a constant factor from a power. The A/A arm shows the noise in the same passes, thus a run that measured the runner is visible.
+
+**Public types.** No change. The script is in `bench`, and the `files` of the npm package do not include it.
+
+**Changed expected values.** No expected value changes. The row STATIC.LINEAR of SPEC.md states the measured slopes.
+
+**Limits.**
+
+- The ladder measures time only. Memory has no measure.
+- The documents are chains of one kind. A wide document or a document with scopes has no rung.
+- The ladder starts on a change of `ladder.ts` or `measure.yml`, and by `workflow_dispatch`. A change of the kernel does not start it.
+- No test fails when the slope grows. A new measure needs a dispatch of `measure.yml`.
