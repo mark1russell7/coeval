@@ -244,10 +244,10 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | L1 | The sequence kit: steps with names for the results of earlier steps, capabilities, and the order of effects | done (2026-10-21: parts at the same time, the error of the host, capabilities that only narrow, an abort) | K2 |
 | L1a | A handler kind `handle` with clauses that run in place, so that mocks, retries and logs are documents (R2 P5, and R2 drafts its decision). It also adds the rule `grant` of R2 P3 to `Kind.caps`: the parts get operations that the handler answers (D27). | later | K10, K18 |
 | L1b | Multi-shot by evaluation again: a kind `choose` evaluates its sealed body again for each branch, with a replay log (R2 P7) | later | K11, L1a |
-| L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later (L2a, L2b and L2d are done, and the other items come from R3) | K2, K4 |
+| L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later (L2a, L2b, L2c and L2d are done, and the other items come from R3) | K2, K4 |
 | L2a | The decorated tree: demand evaluation with one memo for each node and attribute, `#CYCLE!` with its chain, and errors that stay errors. It fixes three bugs that R3 found in the standard `tree.node` (R3 P1). | done (2026-10-24, version 0.5.0, D16) | K2, K4 |
 | L2b | Equations in kind contracts, with a ladder for attributes: the own field, the kind, the parent, a copy, then a default (R3 P2) | done (2026-10-26, D42) | L2a |
-| L2c | Memo cells from the host: a host with signals keeps the cell of each attribute between evaluations (R3 P3) | later | L2a |
+| L2c | Memo cells from the host: a host with signals keeps the cell of each attribute between evaluations (R3 P3) | done (2026-11-02, D108) | L2a |
 | L2d | Static checks of attributes: unknown names, names outside `down`, reserved names and completeness (R3 P4) | done (2026-11-02, D106) | L2b |
 | L2e | The graph of attribute instances: `check` finds each cycle before a run, and the schedule layer gets its first concrete graph (R3 P5) | later | L2b |
 | L2f | Circular attributes: a cycle evaluates again until no value changes, or it gives `#CYCLE!` at a limit (R3 P6) | later | L2a |

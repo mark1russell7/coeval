@@ -236,7 +236,7 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     const found = resolve(data as readonly Json[]);
     return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
   },
-  "tree.node": (input) => treeNode(input),
+  "tree.node": (input) => treeNode(input, undefined),
 };
 
 /*
@@ -316,6 +316,57 @@ interface NodeState {
   json(path: Set<object>): Result;
 }
 
+/** The answer of the ladder for one attribute of one node (TREE.CELL, D108). */
+export interface AttributeAnswer {
+  /** The result of the attribute. It is `undefined` when no rung answered. */
+  readonly result: Result | undefined;
+  /** The rung that answered. It is `undefined` when no rung answered. */
+  readonly by: AttributeRung | undefined;
+}
+
+/**
+ * This function gives the memo cell of one attribute of one node, for a host that keeps its cells between evaluations
+ * (TREE.CELL, D108). The kit uses it at each demand of an attribute in an evaluation.
+ *
+ * The array `place` is one object for each document of a plan, and it stays the same across the evaluations of that
+ * plan. A new plan gives new arrays. Thus a host keeps its cells by the identity of `place` and by `attribute`.
+ * A host that keeps its cells by the keys of `place` can give a stale answer after a change of the document.
+ *
+ * The function gives the answer of `compute`, or a kept answer. A host with signals gives a computed signal: a change
+ * of its store then makes only the attributes that read the store compute again. Each demand gives a new `compute`, and
+ * a cell that computes again uses the last one.
+ *
+ * The kit marks an attribute in evaluation before it uses the cell. Thus a cycle gives `#CYCLE!` before it reaches the
+ * cell again. An exception of the function that `compute` did not throw gives `#CYCLE!` with the chain of the demands.
+ *
+ * @param place - The keys from the root document to the document of the node.
+ * @param attribute - The name of the attribute.
+ * @param compute - The function that visits the rungs of the ladder.
+ * @returns The answer.
+ */
+export type AttributeCell = (place: readonly Key[], attribute: string, compute: () => AttributeAnswer) => AttributeAnswer;
+
+/** The options of the tree kit (D108). */
+export interface TreeOptions {
+  /**
+   * The memo cells of the host (TREE.CELL). The default is a plain memo for each node and attribute, for one
+   * evaluation (TREE.MEMO).
+   */
+  readonly cell?: AttributeCell;
+}
+
+/**
+ * This function gives the code of the kind of a node of the decorated tree, with the options of the host. A host puts
+ * the code at the name `tree.node` of its machine. Without a cell, the code is the standard code.
+ *
+ * @param options - The options, for example the memo cells of the host.
+ * @returns The code.
+ */
+export function treeNodeEvaluator(options: TreeOptions = {}): Evaluator {
+  const host = options.cell;
+  return host === undefined ? (STD_EVALUATORS["tree.node"] as Evaluator) : (input: EvalInput) => treeNode(input, host);
+}
+
 /**
  * The memo cell of one attribute: in evaluation, or done with its result and the rung that answered. A done cell
  * without a result tells that no rung answered.
@@ -372,6 +423,31 @@ function contractOf(machine: Machine | undefined, typePath: readonly Key[]): Nod
 }
 
 const BUSY: Cell = /* @__PURE__ */ Object.freeze({ busy: true });
+
+/** The answer of the ladder when no rung answers. */
+const NO_ANSWER: AttributeAnswer = /* @__PURE__ */ Object.freeze({ result: undefined, by: undefined });
+
+/**
+ * The marks of the attributes in evaluation, for each place of a plan, with the cells of a host (TREE.CELL). Nodes of
+ * two evaluations share their place and their kept cells, thus they share their marks.
+ */
+const marksByPlace = /* @__PURE__ */ new WeakMap<readonly Key[], Map<string, Cell>>();
+
+/** The trees of the cells of a host, for each place of a root in a plan. Nodes of two evaluations stay in one tree. */
+const buildsByPlace = /* @__PURE__ */ new WeakMap<readonly Key[], TreeBuild>();
+
+/** This function gives the value of a weak map, or puts a new value in it. */
+function keptAt<T>(map: WeakMap<readonly Key[], T>, place: readonly Key[], make: () => T): T {
+  let value = map.get(place);
+  if (value === undefined) {
+    value = make();
+    map.set(place, value);
+  }
+  return value;
+}
+
+/** A value that no exception has. */
+const NOT_THROWN: unique symbol = /* @__PURE__ */ Symbol("coeval.tree.not-thrown") as never;
 
 /** One attribute in evaluation. The text names it in the reason of a cycle. */
 interface Demand {
@@ -451,8 +527,10 @@ function plainOf(value: unknown, path: Set<object>): Result {
  * the node, an equation of its kind and an equation `down` of the kind of its parent. A copy from the parent, then a
  * fold or a default, come last. A failed attribute throws `Failure` with its own error, thus a reference to it gives that error.
  * The argument `outer` is the self of the context, that `treeNode` resolved. The node reads no root of the context directly (C4).
+ *
+ * The argument `host` gives the memo cells of the host (TREE.CELL), or `undefined` for the plain memo of the node.
  */
-function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined): HostThing {
+function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined, host: AttributeCell | undefined): HostThing {
   const { parts, context, kind: type, place, machine } = input;
   // The equations evaluate in the evaluation that made the node, thus their reads go in its list (READS.EQUATION).
   const runtime = (input as InputWithRuntime)[RUNTIME];
@@ -461,6 +539,8 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined)
   // Only a node of the same tree is a parent for the rungs `parent` and `copy`.
   const up = above !== undefined && above.build === build ? above : undefined;
   const cells = new Map<string, Cell>();
+  // With the cells of a host, the marks of a place serve each node of the place (TREE.CELL).
+  const marks = host === undefined ? cells : keptAt(marksByPlace, place, () => new Map<string, Cell>());
   /** The positions of the items of the list `children`, for the names of the children. */
   let positions: { readonly list: readonly unknown[]; readonly at: Map<unknown, number> } | undefined;
 
@@ -505,7 +585,45 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined)
     return undefined;
   };
 
+  /**
+   * This function gives an attribute through the cell of the host (TREE.CELL). The cell is the memo. The node keeps
+   * the last answer only for `has` and `trace`.
+   */
+  const through =
+    host === undefined
+      ? undefined
+      : (key: string): Result | undefined => {
+          const text = attributeText(key, type, place);
+          if (marks.has(key)) return cycleAt(marks, key, text);
+          if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
+          marks.set(key, BUSY);
+          demands.push({ cells: marks, key, text });
+          let thrown: unknown = NOT_THROWN;
+          let answer: AttributeAnswer;
+          try {
+            answer = host(place, key, () => {
+              try {
+                return climb(key) ?? NO_ANSWER;
+              } catch (error) {
+                thrown = error;
+                throw error;
+              }
+            });
+          } catch (error) {
+            // An exception of the kit or of the stack goes on, as without a host. Another exception is a cycle of the host.
+            if (error === thrown) throw error;
+            const chain = demands.map((demand) => demand.text).join(" -> ");
+            answer = { result: fail("#CYCLE!", `The cells of the host found a cycle in the demands: ${chain}.`, { cause: error }), by: undefined };
+          } finally {
+            demands.pop();
+            marks.delete(key);
+          }
+          cells.set(key, { busy: false, result: answer.result, by: answer.by });
+          return answer.result;
+        };
+
   const read = (key: string): Result | undefined => {
+    if (through !== undefined) return through(key);
     const cell = cells.get(key);
     if (cell !== undefined) return cell.busy ? cycleAt(cells, key, attributeText(key, type, place)) : cell.result;
     // A node without a contract has only its parts, as before D42. Thus a missing part needs no cell.
@@ -635,14 +753,17 @@ const NO_HOPS = /* @__PURE__ */ Object.freeze({ hops: false });
  * This function evaluates a node of the decorated tree. Inside an attribute of an open tree, the node gives its host
  * thing, and no attribute evaluates. Else the node is the root of a new tree, and it gives the JSON of the tree. The
  * node reads `self` through `resolve` (C4, D44). A machine that closes the root `self` thus gives no nested trees.
+ * The argument `host` gives the memo cells of the host (TREE.CELL), or `undefined` for the plain memo of each node.
  */
-function treeNode(input: EvalInput): Result {
+function treeNode(input: EvalInput, host: AttributeCell | undefined): Result {
   const found = input.resolve(SELF_PATH, NO_HOPS);
   const outer = found.ok ? found.thing : undefined;
   const above = stateOf(outer);
-  if (above !== undefined && above.build.open) return ok(treeThing(input, above.build, outer));
-  const build: TreeBuild = { open: true };
-  const root = treeThing(input, build, outer);
+  if (above !== undefined && above.build.open) return ok(treeThing(input, above.build, outer, host));
+  // With the cells of a host, a kept value can hold a node of an earlier evaluation. Thus that node stays in the tree.
+  const build: TreeBuild = host === undefined ? { open: true } : keptAt(buildsByPlace, input.place, () => ({ open: true }));
+  build.open = true;
+  const root = treeThing(input, build, outer, host);
   try {
     return (stateOf(root) as NodeState).json(new Set());
   } finally {

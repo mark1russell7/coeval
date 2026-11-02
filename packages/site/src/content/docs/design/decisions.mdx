@@ -107,6 +107,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D104 | The limit of PLAN.LEAN applies only in the job `measure`, the job that measured it. The full suite of the job `checks` gives no stable value, thus it applies no limit. |
 | D105 | The ladder of STATIC.LINEAR also measures the bytes that one call of a walk allocates, after the timed rounds. Its memory verdict is only an upper bound of 1.2 on the slope. |
 | D106 | `check` finds a read of an attribute that no rung answers, an attribute named `parent` or `type`, a tree kind of the run side, and each node without an answer for a need of its kind. |
+| D108 | A host gives the tree kit its own memo cells with `treeNodeEvaluator({ cell })`. The array `place` of a plan is the key, and the kit marks a cycle before it uses a cell. |
 
 ## Open
 
