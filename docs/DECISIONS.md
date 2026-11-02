@@ -3383,3 +3383,51 @@ The behavior changes for a caller only with the new field. A check with types th
 
 - A pull request that changes no file of the core gets no gate of PLAN.LEAN.
 - A push to `main` does not start `measure.yml`. Thus `main` gets the gate only from the pull request of each change.
+
+## D105 (2026-11-02): the ladder of STATIC.LINEAR also measures the memory of each walk
+
+**Context.** K209. STATIC.LINEAR says that a walk takes time and memory linear in the size of the document. The ladder of D97 measures the time only.
+
+- A measure of the bytes of a call must not lose bytes. A scavenge in the call frees the garbage of the call, and then the change of `heapUsed` is too small.
+- V8 flags on the command line apply to the whole process. For example, `--expose-gc` or a large semi-space also changes the conditions of the timed passes.
+
+**Decision.**
+
+- The ladder keeps its timed rounds as D97 sets them. The process starts with no new flags, and `measure.yml` does not change.
+- After all timed rounds, a memory phase measures the bytes that one call allocates. The phase measures its own uses of each walk, not the timed uses.
+- The memory phase sets `--expose-gc` with `setFlagsFromString` and gets `gc` from a new context, as the test of PLAN.LEAN does.
+- Each measured call starts after a full collection by `gc()`. Then a new `GCProfiler` starts.
+- The bytes are `heapUsed` after the call minus `heapUsed` before it, plus the bytes that each collection in the call frees.
+- The freed bytes of a collection are its `usedHeapSize` before the collection minus its `usedHeapSize` after the collection. The `GCProfiler` gives both.
+- Thus a scavenge in the call loses no bytes, and the semi-space needs no flag.
+- Each pass also measures an empty function. The ladder subtracts the median bytes of the empty functions of a round from each value of that round.
+- The memory phase uses the rungs, the order of the arms, the A/A arm and the rounds of the timed phase.
+- The bytes of a rung in a round are the median of its 5 passes. Each sample is one call, at each rung.
+- Each round fits the slope of log bytes against log n by least squares, with the function `slope` of D97.
+- The mode `merge` pools the memory slopes of the counted jobs, as it pools the time slopes.
+- A run counts by the A/A band of its time, as D97 sets it. The A/A ratio of the bytes is information only.
+- The memory verdict is "at most linear" when the upper end of the pooled 90 % interval is at most 1.2. Else it is "over the bound".
+- The memory verdict is only an upper bound. A slope well under 1 shows a large fixed part of the bytes of a call. It also passes.
+- The time slopes, their verdict and the counts of the work of one call do not change.
+
+**Rejected.**
+
+- `--max-semi-space-size` or `--min-semi-space-size` on the command line. Those flags change the scavenges of the timed passes, thus the time slopes change.
+- A second process for the memory with its own flags. It needs a second start of tsx, and the profiler gives the same bytes without flags.
+- The change of `heapUsed` alone. A scavenge in the call at 2000 levels loses the garbage of the call, thus the slope is too low.
+- The retained bytes after a second `gc()`. The claim is about the work of a walk. A walk that keeps nothing has no retained bytes.
+- A memory verdict that needs the interval to contain 1. A walk with a large fixed part has a slope under 1, and that is not a fault.
+- A new statistics helper. The ladder keeps its local `median`, `quantile`, `slope` and `meanInterval`.
+
+**Why.** The memory phase after the timed rounds keeps the time measure of D97 the same. The bytes that the profiler adds back make the measure exact also with a scavenge.
+
+**Public types.** No change. The script is in `bench`, and the `files` of the npm package do not include it.
+
+**Changed expected values.** No expected value changes. The record of each run gets the new fields `bytes`, `byteSlopes`, `byteAa`, `memorySeconds` and `baseBytes`.
+
+**Limits.**
+
+- The bytes include the code and the feedback that V8 makes during a measured call. The warm rounds and the median of 5 passes keep that part small.
+- The measure counts the bytes of the heap of V8 only. It does not count memory outside the heap.
+- The first CI run of the memory phase is the Measure run 41526166950. The memory slope of `refsOf` and of `walk` was 0.991, with 90 % intervals inside 0.98 to 1.00. One call at 250 levels allocated approximately 1.65 MB. The row STATIC.LINEAR of SPEC.md has the slopes.
+- No test fails when the memory slope grows. The verdict is in the summary of the job `ladder-verdict` only.
