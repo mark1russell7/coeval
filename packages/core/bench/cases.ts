@@ -229,6 +229,16 @@ export const CASES: readonly Case[] = [
     },
   },
   {
+    // The walk of a document 100000 levels deep, as STATIC.LINEAR measured it before K200.
+    name: "STATIC.LINEAR refsOf of a very deep document",
+    make: (k) => {
+      const world = { kinds: k.formulaKinds(), defaults: {} };
+      let doc: unknown = ref("names", "x");
+      for (let index = 0; index < 100_000; index += 1) doc = op("add", doc, 1);
+      return () => k.refsOf(world, doc).length;
+    },
+  },
+  {
     // The cost of a compilation, as PLAN.COMPILE-SPEED measures it.
     name: "PLAN.COMPILE-SPEED prepare",
     make: (k) => {

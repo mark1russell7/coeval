@@ -49,14 +49,13 @@ describe("contracts with data", () => {
 describe("the scale of the static kit", () => {
   const world = { kinds: formulaKinds(), defaults: {} };
 
-  it("[STATIC.LINEAR] a walk of a very deep document is linear, and a visit knows its parent and its slot", () => {
+  it("[STATIC.LINEAR] a walk of a very deep document finishes, and a visit knows its parent and its slot", () => {
     let doc: unknown = ref("names", "x");
     for (let index = 0; index < 100_000; index += 1) doc = op("add", doc, 1);
-    const start = performance.now();
+    // The time of this walk is a case of the bench (K200): a shared test process cannot measure it.
     const refs = refsOf(world, doc);
     expect(refs).toHaveLength(1);
     expect(refs[0]?.place).toHaveLength(100_000);
-    expect(performance.now() - start).toBeLessThan(5000);
     let deepest: DocVisit | undefined;
     walk(world, op("add", { type: "let", value: { bind: { a: 1 }, body: ref("names", "a") } }, 2), (v) => {
       if (v.depth === 2) deepest = v;

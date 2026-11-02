@@ -144,26 +144,23 @@ describe("the formula kit", () => {
     expect(strict(doc)).toEqual(ok(900));
   });
 
-  it("[PLAN.COMPILE-SPEED] a compilation without a trace is quick, and a record keeps a field named __proto__", () => {
+  it("[PLAN.COMPILE-SPEED] a compilation without a trace records no trace, and a record keeps a field named __proto__", () => {
     const machine = formulaMachine({ ops: OPS });
     const record = (n: number): unknown => ({ type: "record", value: { a: ref("names", "x"), b: op("add", n, 1), ["__proto__"]: n } });
     expect(prepare(machine, JSON.parse(JSON.stringify(record(1)))).evaluate(context({ names: { x: 0 } }))).toSatisfy((result: Result) => {
       const value = result.ok ? (result.value as Record<string, unknown>) : {};
       return Object.hasOwn(value, "__proto__") && value["__proto__"] === 1 && Object.getPrototypeOf(value) === Object.prototype;
     });
-    const start = performance.now();
-    for (let index = 0; index < 20000; index += 1) prepare(machine, record(index));
-    expect(performance.now() - start).toBeLessThan(2000);
+    // The time of a compilation is a case of the bench (K200).
+    expect(prepare(machine, record(2)).traced).toBe(false);
   });
 
-  it("[FORMULA.SPEED] a plan evaluates a small formula many times quickly", () => {
+  it("[FORMULA.SPEED] a plan evaluates a small formula many times with the same result", () => {
     const plan = prepare(formulaMachine({ ops: OPS }), op("add", ref("names", "x"), op("add", ref("names", "y"), 1)));
     const ctx = context({ names: { x: 1, y: 2 } });
-    const start = performance.now();
+    // The time of an evaluation is a case of the bench (K200).
     let last: Result = ok(0);
     for (let index = 0; index < 100000; index += 1) last = plan.evaluate(ctx);
-    const ms = performance.now() - start;
     expect(last).toEqual(ok(4));
-    expect(ms).toBeLessThan(2000);
   });
 });

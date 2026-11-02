@@ -2849,3 +2849,24 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 - The palette has few values. A domain without `values`, for example `number`, gets only the samples `1` and `2`. K188 adds samples of a domain.
 - The check reports the first false cover only, as each check of `conforms` reports its first finding.
+
+## D95 (2026-11-02): each numeric limit of a unit test is derived, or goes
+
+**Context.** K200. The gate rule of 2026-10-30 says that a limit comes from 5 or more CI runs: the worst value times 1.1, with the noise of an A/A comparison well inside. Six limits of the unit tests were guesses.
+
+**Decision.**
+
+- A unit test does not measure wall-clock time. The limits of STATIC.LINEAR (5000 ms), PLAN.COMPILE-SPEED (2000 ms) and FORMULA.SPEED (2000 ms) go. The tests keep their results.
+- The bench measures the three times. FORMULA.SPEED and PLAN.COMPILE-SPEED were bench cases already. The case `STATIC.LINEAR refsOf of a very deep document` is new.
+- The abort test of RUN.FAIL-FAST checks that the results come before the slow effect finishes. The 150 ms limit goes.
+- The workflow `measure` runs PLAN.LEAN and WORLD.LAWS on 5 runners and prints the values. The limit of PLAN.LEAN is the worst value times 1.1.
+- The seeds of WORLD.LAWS are fixed, thus its counts are the same in each run. The test pins them exactly.
+
+**Rejected.**
+
+- A time limit from 5 runs in the unit tests. The tests share one process with other files, and the A/A noise of such a measure is not well inside a limit.
+- A gate on the bench. The bench verdict reports and does not block a merge (D50, D70).
+
+**Why.** A guessed limit fails at random or never fails. A derived limit fails when the value really changes.
+
+**Changed expected values.** No result of the kernel changes. The tests lose their time limits, PLAN.LEAN gets a new limit, and WORLD.LAWS gets exact counts.
