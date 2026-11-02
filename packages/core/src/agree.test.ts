@@ -70,6 +70,7 @@ import {
   verifyReads,
   walk,
 } from "./index.ts";
+import { corpus } from "./corpus.test-support.ts";
 
 /** The number of documents for each configuration. CI and a nightly run can raise it with COEVAL_AGREE_COUNT. */
 const COUNT = Number(process.env["COEVAL_AGREE_COUNT"] ?? 300);
@@ -1197,8 +1198,12 @@ function covers(read: StaticRead, path: readonly unknown[]): boolean {
   return read.keys.every((key, index) => path[index + 1] === key);
 }
 
-/** This function evaluates the corpus of trees with equations in each tier, and verifies the reads of each plan. */
-async function harnessEquations(total: number): Promise<EquationOutcome> {
+/**
+ * This function evaluates the trees with equations of `indexes` in each tier, and verifies the reads of each plan.
+ * The indexes are one part of the corpus. The machine of an index comes from its group, thus a part that starts in a
+ * group gets the machine of one loop.
+ */
+async function harnessEquations(indexes: Iterable<number>): Promise<EquationOutcome> {
   const findings: Finding[] = [];
   const stale: string[] = [];
   const uncovered: string[] = [];
@@ -1206,9 +1211,13 @@ async function harnessEquations(total: number): Promise<EquationOutcome> {
   const add = (name: string, by = 1): void => {
     counts[name] = (counts[name] ?? 0) + by;
   };
-  let machine = equationMachine(0);
-  for (let index = 0; index < total; index += 1) {
-    if (index % EQUATION_GROUP === 0) machine = equationMachine(index / EQUATION_GROUP);
+  let machine: Machine | undefined;
+  let group = -1;
+  for (const index of indexes) {
+    if (machine === undefined || Math.floor(index / EQUATION_GROUP) !== group) {
+      group = Math.floor(index / EQUATION_GROUP);
+      machine = equationMachine(group);
+    }
     const seed = SEED * 1_000_003 + index;
     const doc = treeDoc(random(seed), 2);
     const ctx = EQUATION_CONTEXTS[index % EQUATION_CONTEXTS.length] as Context;
@@ -1266,19 +1275,28 @@ async function harnessEquations(total: number): Promise<EquationOutcome> {
 }
 
 describe("one meaning of trees with equations", () => {
-  it("[RUN.AGREES-EQUATIONS] generated trees with generated equations agree in agree and agreeRun with their free reads, factsOf covers each free read, and verifyReads keeps no stale result", async () => {
-    const outcome = await harnessEquations(COUNT);
-    const counts = outcome.counts;
-    expect(report(outcome.findings), show(counts)).toEqual([]);
-    expect(outcome.stale.slice(0, 3), show(counts)).toEqual([]);
-    expect(outcome.uncovered.slice(0, 3), show(counts)).toEqual([]);
-    // The corpus reaches values, free reads of equations with their static reads, and verifications that keep and that discard a result.
+  // The corpus took 3.7 s on main at COUNT 2000, thus each test examines one part of 300 trees (K207, D96). The parts
+  // give the same seeds, contexts and machines in the same order as one loop. The last test checks the totals.
+  const trees = corpus(COUNT, 300);
+  const counts: Record<string, number> = {};
+  for (const part of trees.parts) {
+    it("[RUN.AGREES-EQUATIONS] generated trees with generated equations agree in agree and agreeRun with their free reads, factsOf covers each free read, and verifyReads keeps no stale result: " + part.name, async () => {
+      const outcome = await harnessEquations(part);
+      for (const [name, value] of Object.entries(outcome.counts)) counts[name] = (counts[name] ?? 0) + value;
+      expect(report(outcome.findings), show(outcome.counts)).toEqual([]);
+      expect(outcome.stale.slice(0, 3), show(outcome.counts)).toEqual([]);
+      expect(outcome.uncovered.slice(0, 3), show(outcome.counts)).toEqual([]);
+    });
+  }
+  it("[RUN.AGREES-EQUATIONS] the parts reach values, free reads of equations with their static reads, and verifications that keep and that discard a result", () => {
+    expect(trees.unfinished(), "parts that did not finish").toEqual([]);
+    expect(counts["docs"] ?? 0, show(counts)).toBe(COUNT);
     expect(counts["value"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 12);
     expect(counts["equationReads"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
     expect(counts["covered"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
     expect(counts["same"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 4);
     expect(counts["changed"] ?? 0, show(counts)).toBeGreaterThan(COUNT / 10);
-  }, 300_000);
+  });
 });
 
 describe("the disagreements that the harness found", () => {

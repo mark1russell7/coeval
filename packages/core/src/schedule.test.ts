@@ -510,8 +510,17 @@ describe("the interface of a schedule", () => {
     expect(s.read("q")).toEqual(ok(2));
   });
 
-  it("[SCHED.LONG-CHAIN] a demand of the host first demands the nodes that the eager edges reach, deepest first, thus a chain of 100000 nodes gives its value with no #DEPTH!", async () => {
-    const LENGTH = 100_000;
+  it("[SCHED.LONG-CHAIN] a demand of the host first demands the nodes that the eager edges reach, deepest first, thus a chain of 2000 nodes gives its value with no #DEPTH!, and the same chain through lazy edges overflows", async () => {
+    // A demand through lazy edges uses the stack of the host for each node. In a one-off measurement on Node.js 24, such
+    // a chain gave #DEPTH! from 600 to 800 nodes, and S2a found approximately 1000 nodes. The chain has 2000 nodes:
+    // twice the depth of the overflow, with no work beyond it (K207, D96). Before, it had 100000 nodes and took 2.7 s.
+    const LENGTH = 2000;
+    // The lazy chain shows the overflow on this host. If it gives its value, the chain is too short for the claim.
+    // The error is #DEPTH!, or #CYCLE! when the overflow comes between two steps of the walk of the demand.
+    const lazy = schedule(strictMachine, { ...LIT, context: context({ names: { x: 7, flag: true } }) });
+    for (let index = 0; index < LENGTH; index += 1) lazy.set(`n${index}`, index === LENGTH - 1 ? ref("names", "x") : { type: "if", value: { test: ref("names", "flag"), then: ref("world", `n${index + 1}`), else: 0 } });
+    expect(lazy.read("n0").ok, "a chain of lazy edges of this length overflows the stack of the host").toBe(false);
+    expect(lazy.counts.ahead).toBe(0);
     const chain = schedule(strictMachine, { ...LIT, context: context({ names: { x: 7 } }) });
     for (let index = 0; index < LENGTH; index += 1) chain.set(`n${index}`, index === LENGTH - 1 ? ref("names", "x") : ref("world", `n${index + 1}`));
     expect(chain.read("n0")).toEqual(ok(7));

@@ -16,7 +16,8 @@
     "src/**/*",
     "bench/**/*.ts",
     "tsdown.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vitest.share.ts"
   ],
   "exclude": []
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type FormulaProfile, type Issue, type Json, type Machine, type OpFn, type Random, type Result, type Signature, type ValueType, check, evaluate, formulaMachine, member, random, typeCheck } from "./index.ts";
+import { corpus, inOrder } from "./corpus.test-support.ts";
 
 /*
  * K50: the declared type of a truth for an own truthy (D81).
@@ -129,34 +130,43 @@ describe("the declared type of a truth", () => {
     expect(typeCheck(undeclared, when("a", 1, 2), LIT).type).toEqual({ one: [1, 2] });
   });
 
-  it("[TYPE.TRUTH-SOUND] a generated document that checks under a declared truth type gives no error of a truth", () => {
-    for (const logic of ["boolean", "value"] as const) {
-      const profile: FormulaProfile = { ...BASE, truthy: numberTruthy, truthType: TRUTH, logic };
-      const machine = formulaMachine(profile);
-      const loose = formulaMachine({ ...BASE, truthy: numberTruthy, logic });
-      const rng = random(SEED);
-      let accepted = 0;
-      let refused = 0;
-      let caught = 0;
-      for (let index = 0; index < COUNT; index += 1) {
-        const doc = truthDoc(rng, 4, []);
-        const typing = typeCheck(machine, doc, LIT);
-        const result = run(machine, doc);
-        // Without the declaration, the check accepts more documents, and some of them give an error of a truth.
-        if (typeCheck(loose, doc, LIT).issues.length === 0 && truthError(result)) caught += 1;
-        if (typing.issues.length > 0) {
-          refused += 1;
-          continue;
+  // Each logic has its own tests, and each test examines one part of 1000 documents (K207, D96). The two logics in one
+  // test took 2.0 s on main. The last test of a logic checks the totals of its parts.
+  for (const logic of ["boolean", "value"] as const) {
+    const profile: FormulaProfile = { ...BASE, truthy: numberTruthy, truthType: TRUTH, logic };
+    const machine = formulaMachine(profile);
+    const loose = formulaMachine({ ...BASE, truthy: numberTruthy, logic });
+    // The documents share one stream of random numbers. docAt makes each document one time, in the order of the
+    // indexes, thus a part that starts later gets the same documents as one loop.
+    const rng = random(SEED);
+    const docAt = inOrder((): Json => truthDoc(rng, 4, []));
+    const docs = corpus(COUNT, 1000);
+    const totals = { accepted: 0, refused: 0, caught: 0 };
+    for (const part of docs.parts) {
+      it("[TYPE.TRUTH-SOUND] a generated document that checks under a declared truth type gives no error of a truth, with the logic " + logic + ", " + part.name, () => {
+        for (const index of part) {
+          const doc = docAt(index);
+          const typing = typeCheck(machine, doc, LIT);
+          const result = run(machine, doc);
+          // Without the declaration, the check accepts more documents, and some of them give an error of a truth.
+          if (typeCheck(loose, doc, LIT).issues.length === 0 && truthError(result)) totals.caught += 1;
+          if (typing.issues.length > 0) {
+            totals.refused += 1;
+            continue;
+          }
+          totals.accepted += 1;
+          expect(truthError(result), `${logic}: ${JSON.stringify(doc)}`).toBe(false);
+          if (result.ok) expect(member(result.value, typing.type, machine.domains), `${logic}: ${JSON.stringify(doc)}`).toBe(true);
         }
-        accepted += 1;
-        expect(truthError(result), `${logic}: ${JSON.stringify(doc)}`).toBe(false);
-        if (result.ok) expect(member(result.value, typing.type, machine.domains), `${logic}: ${JSON.stringify(doc)}`).toBe(true);
-      }
-      expect(accepted, logic).toBeGreaterThan(COUNT / 10);
-      expect(refused, logic).toBeGreaterThan(COUNT / 10);
-      expect(caught, logic).toBeGreaterThan(0);
+      });
     }
-  });
+    it("[TYPE.TRUTH-SOUND] the parts of the logic " + logic + " accept and refuse enough documents, and the check without the declaration lets an error of a truth through", () => {
+      expect(docs.unfinished(), `${logic}: parts that did not finish`).toEqual([]);
+      expect(totals.accepted, logic).toBeGreaterThan(COUNT / 10);
+      expect(totals.refused, logic).toBeGreaterThan(COUNT / 10);
+      expect(totals.caught, logic).toBeGreaterThan(0);
+    });
+  }
 });
 
 /** The literals of the generated documents: truths, numbers and values without a truth. */

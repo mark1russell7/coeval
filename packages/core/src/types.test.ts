@@ -21,6 +21,7 @@ import {
 } from "./index.ts";
 // The kernel does not export falseCovers. `conforms` uses it too (D94).
 import { falseCovers } from "./types.ts";
+import { corpus } from "./corpus.test-support.ts";
 
 /** The domains of a small language: refinements of numbers, a unit of length and a color. */
 const isColor = (value: unknown): boolean => typeof value === "string" && /^#[0-9a-f]{6}$/.test(value);
@@ -179,14 +180,24 @@ const COVER_SAMPLES: Readonly<Record<string, readonly unknown[]>> = {
  * This function tests a seeded corpus of records with covered fields and union fields over a language (D90). The
  * unions hold the type splits of each record by the covers of the language. Thus a false cover gives a fit.
  */
-function splitCorpus(domains: Readonly<Record<string, Domain>>): {
+/** The counts of a part of the corpus of type splits, from `splitCorpus`. */
+interface SplitCounts {
   readonly pairs: number;
-  readonly total: number;
   readonly split: number;
   readonly cover: number;
   readonly checked: number;
   readonly bad: readonly string[];
-} {
+}
+
+/** The corpus of type splits: the number of found records and of pairs, and a check of the found records of one part. */
+interface SplitCorpus {
+  readonly founds: number;
+  readonly total: number;
+  /** This function examines the found records of `indexes` against each union. */
+  check(indexes: Iterable<number>): SplitCounts;
+}
+
+function splitCorpus(domains: Readonly<Record<string, Domain>>): SplitCorpus {
   type Rec = { record: Record<string, ValueType>; optional?: string[]; closed?: true };
   const plain: Record<string, Domain> = {};
   for (const [name, domain] of Object.entries(domains)) {
@@ -261,26 +272,33 @@ function splitCorpus(domains: Readonly<Record<string, Domain>>): {
     if (parts.length > 1 && rng.chance(0.2)) parts.splice(rng.int(parts.length), 1);
     unions.push({ union: parts });
   }
-  let pairs = 0;
-  let split = 0;
-  let cover = 0;
-  let checked = 0;
-  const bad: string[] = [];
-  for (const found of founds) {
-    const members = Array.from({ length: 10 }, () => sampleOf(rng, found, COVER_SAMPLES)).filter((value) => value !== NONE);
-    for (const value of members) if (!member(value, found, domains)) bad.push(`${JSON.stringify(value)} is not in ${JSON.stringify(found)}`);
-    for (const expected of unions) {
-      if (!fits(found, expected, domains)) continue;
-      pairs += 1;
-      if (!(expected as { union: ValueType[] }).union.some((each) => fits(found, each, domains))) split += 1;
-      if (!fits(found, expected, plain)) cover += 1;
-      for (const value of members) {
-        checked += 1;
-        if (!member(value, expected, domains)) bad.push(`${String(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+  // The members of each found record, in the order of one loop over the records. The checks read no random number,
+  // thus a part of the records gets the same members as one loop (K207, D96).
+  const membersOf = founds.map((found) => Array.from({ length: 10 }, () => sampleOf(rng, found, COVER_SAMPLES)).filter((value) => value !== NONE));
+  const check = (indexes: Iterable<number>): SplitCounts => {
+    let pairs = 0;
+    let split = 0;
+    let cover = 0;
+    let checked = 0;
+    const bad: string[] = [];
+    for (const index of indexes) {
+      const found = founds[index] as Rec;
+      const members = membersOf[index] as unknown[];
+      for (const value of members) if (!member(value, found, domains)) bad.push(`${JSON.stringify(value)} is not in ${JSON.stringify(found)}`);
+      for (const expected of unions) {
+        if (!fits(found, expected, domains)) continue;
+        pairs += 1;
+        if (!(expected as { union: ValueType[] }).union.some((each) => fits(found, each, domains))) split += 1;
+        if (!fits(found, expected, plain)) cover += 1;
+        for (const value of members) {
+          checked += 1;
+          if (!member(value, expected, domains)) bad.push(`${String(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+        }
       }
     }
-  }
-  return { pairs, total: founds.length * unions.length, split, cover, checked, bad };
+    return { pairs, split, cover, checked, bad };
+  };
+  return { founds: founds.length, total: founds.length * unions.length, check };
 }
 
 /** This function tests a seeded corpus of types over the domains of `COVERED`: each pair that fits, with the sampled members of `found`. */
@@ -329,6 +347,90 @@ function coverCorpus(domains: Readonly<Record<string, Domain>>): { readonly type
     }
   }
   return { types: pool.length, pairs, cover, checked, bad };
+}
+
+/** A record type of the corpus of nested records (D89). */
+type NestedRec = { record: Record<string, ValueType>; optional?: string[]; closed?: true };
+
+/** The corpus of nested records (D89): the domains, the found records, the unions and the sampled members of each found record. */
+interface NestedCorpus {
+  readonly domains: Readonly<Record<string, Domain>>;
+  readonly founds: readonly NestedRec[];
+  readonly unions: readonly ValueType[];
+  readonly membersOf: readonly (readonly unknown[])[];
+}
+
+/**
+ * This function builds the corpus of nested records with finite inner fields and the unions of nested records (D89).
+ * It samples the members of each found record in the order of one loop over the records, thus each part gets the same
+ * members (K207, D96).
+ */
+function nestedCorpus(): NestedCorpus {
+  const domains: Readonly<Record<string, Domain>> = {
+    ...DOMAINS,
+    align: { is: (value) => value === "left" || value === "right", values: ["left", "right", "up"], under: ["text"] },
+    on: { is: (value) => value === true, under: ["bool"] },
+  };
+  const samples: Readonly<Record<string, readonly unknown[]>> = { ...BASE_SAMPLES, align: ["left", "right"], on: [true] };
+  const leaves: readonly ValueType[] = ["null", "bool", "on", "align", "undefined", { one: [true] }, { one: [false] }, { one: ["left"] }, { one: [null, 1] }];
+  const wide: readonly ValueType[] = [...leaves, "number", "text", { union: ["bool", "null"] }, { list: "bool" }];
+  const SPLIT: readonly ValueType[] = ["bool", "align", { one: [null, 1] }];
+  type Rec = NestedRec;
+  const shapeOf = (fields: Record<string, ValueType>, rng: Random, open: number): Rec => {
+    const optional = Object.keys(fields).filter(() => rng.chance(0.25));
+    return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(rng.chance(open) ? {} : { closed: true }) };
+  };
+  // An inner record has finite fields x and y, and a closed inner record sometimes has a field n without a finite list.
+  const innerOf = (rng: Random, from: readonly ValueType[], depth: number): Rec => {
+    const fields: Record<string, ValueType> = {};
+    for (const name of ["x", "y"]) if (rng.chance(0.8)) fields[name] = rng.pick(rng.chance(0.5) ? from : SPLIT);
+    if (depth > 1 && rng.chance(0.3)) fields["z"] = innerOf(rng, from, depth - 1);
+    if (rng.chance(0.3)) fields["n"] = "number";
+    return shapeOf(fields, rng, 0.6);
+  };
+  const outerOf = (rng: Random, from: readonly ValueType[]): Rec => {
+    const fields: Record<string, ValueType> = { a: innerOf(rng, from, 2) };
+    if (rng.chance(0.3)) fields["b"] = rng.pick(from);
+    if (rng.chance(0.3)) fields["c"] = innerOf(rng, from, 1);
+    return shapeOf(fields, rng, 0.7);
+  };
+  // The paths of a record type to its fields with a finite type.
+  const pathsOf = (type: Rec, prefix: readonly string[]): string[][] =>
+    Object.entries(type.record).flatMap(([key, field]) => (typeof field === "object" && "record" in field ? pathsOf(field as Rec, [...prefix, key]) : [[...prefix, key]]));
+  // A copy of a record type with the field at a path narrowed, the other fields sometimes wider, and the optional fields sometimes needed.
+  const narrowed = (rng: Random, type: Rec, path: readonly string[], to: ValueType): Rec => {
+    const [key, ...rest] = path as [string, ...string[]];
+    const fields: Record<string, ValueType> = {};
+    for (const [name, field] of Object.entries(type.record)) {
+      if (name === key) fields[name] = rest.length === 0 ? to : narrowed(rng, field as Rec, rest, to);
+      else fields[name] = typeof field === "string" && field !== "number" && rng.chance(0.1) ? rng.pick(wide) : field;
+    }
+    // Only the field at the end of the path can become needed: a needed record on the path refuses each found record.
+    const optional = (type.optional ?? []).filter((name) => name !== key || rest.length > 0 || rng.chance(0.5));
+    return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(type.closed === true && rng.chance(0.7) ? { closed: true } : {}) };
+  };
+  const rng = random(89);
+  const founds: Rec[] = Array.from({ length: 120 }, () => outerOf(rng, leaves));
+  const unions: ValueType[] = Array.from({ length: 40 }, () => ({ union: Array.from({ length: 1 + rng.int(4) }, () => outerOf(rng, wide)) }));
+  // The field at a path of a found record: a type with few members, or a record.
+  const fieldAt = (type: Rec, path: readonly string[]): ValueType => path.reduce<ValueType>((at, key) => (at as Rec).record[key] as ValueType, type);
+  // A case for each member of a type with few members. A case sometimes is a random type instead.
+  const casesOf = (rng: Random, type: ValueType): ValueType[] => {
+    const values: readonly unknown[] = type === "bool" ? [true, false] : type === "align" ? ["left", "right"] : type === "on" ? [true] : typeof type === "object" && "one" in type ? type.one : [];
+    const cases: ValueType[] = values.length === 0 ? [type] : values.map((value) => ({ one: [value as Json] }));
+    return cases.map((each) => (rng.chance(0.2) ? rng.pick(leaves) : each));
+  };
+  // A union of the split of a found record by one path at depth two or more gives more pairs that fit.
+  for (const found of [...founds, ...founds]) {
+    const paths = pathsOf(found, []).filter((path) => path.length > 1 && fieldAt(found, path) !== "number");
+    if (paths.length === 0) continue;
+    const path = rng.pick(paths);
+    const parts = casesOf(rng, fieldAt(found, path)).map((to) => narrowed(rng, found, path, to));
+    if (parts.length > 1 && rng.chance(0.2)) parts.splice(rng.int(parts.length), 1);
+    unions.push({ union: parts });
+  }
+  const membersOf = founds.map((found) => Array.from({ length: 10 }, () => sampleOf(rng, found, samples)).filter((value) => value !== NONE));
+  return { domains, founds, unions, membersOf };
 }
 
 describe("value types and value domains", () => {
@@ -771,93 +873,42 @@ describe("value types and value domains", () => {
     expect(checked).toBeGreaterThan(15000);
   });
 
-  it("[TYPE.FITS-SOUND] a sampled member of a nested record with finite inner fields is a member of each union of nested records that it fits (D89)", () => {
-    const domains: Readonly<Record<string, Domain>> = {
-      ...DOMAINS,
-      align: { is: (value) => value === "left" || value === "right", values: ["left", "right", "up"], under: ["text"] },
-      on: { is: (value) => value === true, under: ["bool"] },
-    };
-    const samples: Readonly<Record<string, readonly unknown[]>> = { ...BASE_SAMPLES, align: ["left", "right"], on: [true] };
-    const leaves: readonly ValueType[] = ["null", "bool", "on", "align", "undefined", { one: [true] }, { one: [false] }, { one: ["left"] }, { one: [null, 1] }];
-    const wide: readonly ValueType[] = [...leaves, "number", "text", { union: ["bool", "null"] }, { list: "bool" }];
-    const SPLIT: readonly ValueType[] = ["bool", "align", { one: [null, 1] }];
-    type Rec = { record: Record<string, ValueType>; optional?: string[]; closed?: true };
-    const shapeOf = (fields: Record<string, ValueType>, rng: Random, open: number): Rec => {
-      const optional = Object.keys(fields).filter(() => rng.chance(0.25));
-      return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(rng.chance(open) ? {} : { closed: true }) };
-    };
-    // An inner record has finite fields x and y, and a closed inner record sometimes has a field n without a finite list.
-    const innerOf = (rng: Random, from: readonly ValueType[], depth: number): Rec => {
-      const fields: Record<string, ValueType> = {};
-      for (const name of ["x", "y"]) if (rng.chance(0.8)) fields[name] = rng.pick(rng.chance(0.5) ? from : SPLIT);
-      if (depth > 1 && rng.chance(0.3)) fields["z"] = innerOf(rng, from, depth - 1);
-      if (rng.chance(0.3)) fields["n"] = "number";
-      return shapeOf(fields, rng, 0.6);
-    };
-    const outerOf = (rng: Random, from: readonly ValueType[]): Rec => {
-      const fields: Record<string, ValueType> = { a: innerOf(rng, from, 2) };
-      if (rng.chance(0.3)) fields["b"] = rng.pick(from);
-      if (rng.chance(0.3)) fields["c"] = innerOf(rng, from, 1);
-      return shapeOf(fields, rng, 0.7);
-    };
-    // The paths of a record type to its fields with a finite type.
-    const pathsOf = (type: Rec, prefix: readonly string[]): string[][] =>
-      Object.entries(type.record).flatMap(([key, field]) => (typeof field === "object" && "record" in field ? pathsOf(field as Rec, [...prefix, key]) : [[...prefix, key]]));
-    // A copy of a record type with the field at a path narrowed, the other fields sometimes wider, and the optional fields sometimes needed.
-    const narrowed = (rng: Random, type: Rec, path: readonly string[], to: ValueType): Rec => {
-      const [key, ...rest] = path as [string, ...string[]];
-      const fields: Record<string, ValueType> = {};
-      for (const [name, field] of Object.entries(type.record)) {
-        if (name === key) fields[name] = rest.length === 0 ? to : narrowed(rng, field as Rec, rest, to);
-        else fields[name] = typeof field === "string" && field !== "number" && rng.chance(0.1) ? rng.pick(wide) : field;
-      }
-      // Only the field at the end of the path can become needed: a needed record on the path refuses each found record.
-      const optional = (type.optional ?? []).filter((name) => name !== key || rest.length > 0 || rng.chance(0.5));
-      return { record: fields, ...(optional.length > 0 ? { optional } : {}), ...(type.closed === true && rng.chance(0.7) ? { closed: true } : {}) };
-    };
-    const rng = random(89);
-    const founds: Rec[] = Array.from({ length: 120 }, () => outerOf(rng, leaves));
-    const unions: ValueType[] = Array.from({ length: 40 }, () => ({ union: Array.from({ length: 1 + rng.int(4) }, () => outerOf(rng, wide)) }));
-    // The field at a path of a found record: a type with few members, or a record.
-    const fieldAt = (type: Rec, path: readonly string[]): ValueType => path.reduce<ValueType>((at, key) => (at as Rec).record[key] as ValueType, type);
-    // A case for each member of a type with few members. A case sometimes is a random type instead.
-    const casesOf = (rng: Random, type: ValueType): ValueType[] => {
-      const values: readonly unknown[] = type === "bool" ? [true, false] : type === "align" ? ["left", "right"] : type === "on" ? [true] : typeof type === "object" && "one" in type ? type.one : [];
-      const cases: ValueType[] = values.length === 0 ? [type] : values.map((value) => ({ one: [value as Json] }));
-      return cases.map((each) => (rng.chance(0.2) ? rng.pick(leaves) : each));
-    };
-    // A union of the split of a found record by one path at depth two or more gives more pairs that fit.
-    for (const found of [...founds, ...founds]) {
-      const paths = pathsOf(found, []).filter((path) => path.length > 1 && fieldAt(found, path) !== "number");
-      if (paths.length === 0) continue;
-      const path = rng.pick(paths);
-      const parts = casesOf(rng, fieldAt(found, path)).map((to) => narrowed(rng, found, path, to));
-      if (parts.length > 1 && rng.chance(0.2)) parts.splice(rng.int(parts.length), 1);
-      unions.push({ union: parts });
-    }
-    let pairs = 0;
-    let nested = 0;
-    let checked = 0;
-    for (const found of founds) {
-      const members = Array.from({ length: 10 }, () => sampleOf(rng, found, samples)).filter((value) => value !== NONE);
-      for (const value of members) expect(member(value, found, domains), `${JSON.stringify(value)} in ${JSON.stringify(found)}`).toBe(true);
-      // A record without a field of its own that splits fits a union only by a path, when no member of the union alone takes it.
-      const flat = Object.entries(found.record).every(([, field]) => typeof field === "object" && "record" in field);
-      for (const expected of unions) {
-        if (!fits(found, expected, domains)) continue;
-        pairs += 1;
-        if (flat && !(expected as { union: ValueType[] }).union.some((each) => fits(found, each, domains))) nested += 1;
-        for (const value of members) {
-          checked += 1;
-          if (!member(value, expected, domains)) expect.fail(`${JSON.stringify(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+  // The corpus of nested records took 2.1 s on main, thus it has parts of 30 of its 120 found records (K207, D96). The
+  // last test checks the totals of the parts.
+  let nestedBuilt: NestedCorpus | undefined;
+  const nestedOf = (): NestedCorpus => (nestedBuilt ??= nestedCorpus());
+  const nestedRecords = corpus(120, 30);
+  const nestedTotals = { pairs: 0, nested: 0, checked: 0 };
+  for (const part of nestedRecords.parts) {
+    it("[TYPE.FITS-SOUND] a sampled member of a nested record with finite inner fields is a member of each union of nested records that it fits (D89): " + part.name, () => {
+      const { domains, founds, unions, membersOf } = nestedOf();
+      for (const index of part) {
+        const found = founds[index] as NestedRec;
+        const members = membersOf[index] as unknown[];
+        for (const value of members) expect(member(value, found, domains), `${JSON.stringify(value)} in ${JSON.stringify(found)}`).toBe(true);
+        // A record without a field of its own that splits fits a union only by a path, when no member of the union alone takes it.
+        const flat = Object.entries(found.record).every(([, field]) => typeof field === "object" && "record" in field);
+        for (const expected of unions) {
+          if (!fits(found, expected, domains)) continue;
+          nestedTotals.pairs += 1;
+          if (flat && !(expected as { union: ValueType[] }).union.some((each) => fits(found, each, domains))) nestedTotals.nested += 1;
+          for (const value of members) {
+            nestedTotals.checked += 1;
+            if (!member(value, expected, domains)) expect.fail(`${JSON.stringify(value)}: ${JSON.stringify(found)} fits ${JSON.stringify(expected)}`);
+          }
         }
       }
-    }
+    });
+  }
+  it("[TYPE.FITS-SOUND] the parts of the corpus of nested records give enough pairs, nested pairs and checked members (D89)", () => {
+    const { founds, unions } = nestedOf();
+    expect(nestedRecords.unfinished(), "parts that did not finish").toEqual([]);
+    expect(founds.length).toBe(nestedRecords.count);
     // The corpus holds 120 records, 274 unions and 32880 pairs. A split without the absent case at depth two fails here.
     expect(founds.length * unions.length).toBe(32880);
-    expect(pairs).toBeGreaterThan(450);
-    expect(nested).toBeGreaterThan(100);
-    expect(checked).toBeGreaterThan(4500);
+    expect(nestedTotals.pairs).toBeGreaterThan(450);
+    expect(nestedTotals.nested).toBeGreaterThan(100);
+    expect(nestedTotals.checked).toBeGreaterThan(4500);
   });
 
   it("[TYPE.FITS-COVER] a base type fits a union that holds each domain of a cover of its line (D85)", () => {
@@ -1046,20 +1097,45 @@ describe("value types and value domains", () => {
     expect(fits(withB, { union: [...each(32, true), ...each(32, false)] }, wide(32))).toBe(false);
   });
 
-  it("[TYPE.FITS-SOUND] a sampled member of a record with covered fields and union fields is a member of each union of its type splits that it fits (D90)", () => {
-    expect(falseCovers(COVERED, COVER_SAMPLES)).toEqual([]);
-    const run = splitCorpus(COVERED);
-    expect(run.bad).toEqual([]);
-    // The corpus holds 120 records, 244 unions and 29280 pairs. The counts pin the corpus: a change to the generator shows here.
-    expect(run.total).toBe(29280);
-    expect(run.pairs).toBe(1176);
-    expect(run.split).toBe(374);
-    expect(run.cover).toBe(144);
-    expect(run.checked).toBe(11760);
-    // A false cover: neg and zero do not hold 1.5. The corpus then finds a counterexample.
-    const wrong: Readonly<Record<string, Domain>> = { ...COVERED, number: { ...(COVERED["number"] as Domain), covers: [["neg", "zero"]] } };
-    expect(splitCorpus(wrong).bad.length).toBeGreaterThan(0);
-  });
+  // The corpus of type splits took 3.1 s on main for its two runs, thus each run has parts of 40 of its 120 found
+  // records (K207, D96). A part examines its records against each union, and the last test of a run checks the totals.
+  // A false cover: neg and zero do not hold 1.5. The corpus then finds a counterexample.
+  const wrongCover: Readonly<Record<string, Domain>> = { ...COVERED, number: { ...(COVERED["number"] as Domain), covers: [["neg", "zero"]] } };
+  for (const [name, domains] of [
+    ["the covers of COVERED", COVERED],
+    ["a false cover", wrongCover],
+  ] as const) {
+    let built: SplitCorpus | undefined;
+    const corpusOf = (): SplitCorpus => (built ??= splitCorpus(domains));
+    const records = corpus(120, 40);
+    const totals = { pairs: 0, split: 0, cover: 0, checked: 0, bad: [] as string[] };
+    for (const part of records.parts) {
+      it("[TYPE.FITS-SOUND] a sampled member of a record with covered fields and union fields is a member of each union of its type splits that it fits (D90): " + name + ", " + part.name, () => {
+        const counts = corpusOf().check(part);
+        totals.pairs += counts.pairs;
+        totals.split += counts.split;
+        totals.cover += counts.cover;
+        totals.checked += counts.checked;
+        totals.bad.push(...counts.bad);
+        if (domains === COVERED) expect(counts.bad).toEqual([]);
+      });
+    }
+    it("[TYPE.FITS-SOUND] the parts of the corpus of type splits with " + name + " give the counts of the corpus (D90)", () => {
+      expect(records.unfinished(), `${name}: parts that did not finish`).toEqual([]);
+      expect(corpusOf().founds).toBe(records.count);
+      if (domains !== COVERED) {
+        expect(totals.bad.length).toBeGreaterThan(0);
+        return;
+      }
+      expect(falseCovers(COVERED, COVER_SAMPLES)).toEqual([]);
+      // The corpus holds 120 records, 244 unions and 29280 pairs. The counts pin the corpus: a change to the generator shows here.
+      expect(corpusOf().total).toBe(29280);
+      expect(totals.pairs).toBe(1176);
+      expect(totals.split).toBe(374);
+      expect(totals.cover).toBe(144);
+      expect(totals.checked).toBe(11760);
+    });
+  }
 
   it("[TYPE.FITS] fits is reflexive, and transitive for generated types without unknown", () => {
     const pool = poolOf(11, 120, false);
