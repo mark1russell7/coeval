@@ -100,6 +100,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D90 | A split of `fits` also narrows a field to each domain of a cover or each member of a union. Thus `{a: number}` fits a union of `{a: neg}` and `{a: nonneg}` when the two domains cover `number`. |
 | D94 | `conforms` tests the covers of a machine from samples. A sample of a covered domain that no domain of a cover holds is a finding of the check `cover`. |
 | D99 | A domain gives samples of its members in the new optional field `samples`. The checks `truth` and `cover` add them to the palette, thus `number` gets the tests `0` and `-1`. |
+| D100 | A cause of an exception that is a list or a plain record keeps each item with a form in `causeParts`, also without an exception. `dropped` names each other item by its path. |
 
 ## Open
 

@@ -279,7 +279,8 @@ export interface ReplayExceptionJson {
   readonly loop?: number;
   /**
    * The JSON form of a cause without a term document that is a list or a plain record with an exception at some depth
-   * (RUN.REPLAY-CAUSE-PARTS, D87). Each exception in it has the rule of a cause, also a `loop`.
+   * (RUN.REPLAY-CAUSE-PARTS, D87). Each exception in it has the rule of a cause, also a `loop`. Since D100, a list or a
+   * record without an exception is also `causeParts` when an item has a form (RUN.REPLAY-CAUSE-ITEMS).
    */
   readonly causeParts?: ReplayCausePartsJson;
 }
@@ -385,7 +386,10 @@ interface ExceptionTask {
   readonly name: string;
   /** The value `true` marks a value that `encodeValue` cannot write, thus the walk does not try again. */
   readonly tried: boolean;
-  /** The value `false` marks a cause. A cause is a container only when it holds an exception at some depth (D87). */
+  /**
+   * The value `false` marks the cause of an error value. It is a container only when it holds an exception at some depth
+   * (D87). The cause of an exception is a container as a field is (D100).
+   */
   readonly nest: boolean;
   /** The value `true` marks a hidden list of a standard class. It is always a container of parts (D77). */
   readonly keep: boolean;
@@ -423,7 +427,7 @@ function holdsHole(value: unknown): boolean {
 
 /**
  * This function tells if a list or a plain record holds an exception at some depth (D87). It reads the items as the
- * walk of `causeJson` does, thus a cause container with an exception gets a form.
+ * walk of `causeJson` does, thus a container cause of an error value with an exception gets a form.
  */
 function holdsException(value: unknown): boolean {
   const seen = new Set<object>();
@@ -492,8 +496,9 @@ function keptOf(keys: readonly string[], built: readonly Built[]): [string, Repl
  *
  * The walk gives each exception an index in the order of a depth-first walk. It takes the fields in `parts` in the
  * order of their keys, the hidden fields in the order of `HIDDEN`, then the cause (D78). A list or a plain record
- * without a term document is a container of parts, with its items in their order (D82). A cause is a container only
- * when it holds an exception (D87). A value that is an earlier exception of the walk is its index in `loop` (D77).
+ * without a term document is a container of parts, with its items in their order (D82). The cause of an error value
+ * is a container only when it holds an exception (D87). The cause of an exception is a container as a field is (D100).
+ * A value that is an earlier exception of the walk is its index in `loop` (D77).
  *
  * A container that an earlier place holds is its index in `share`, also a container that holds itself (D88). The walk is
  * a loop, thus a long chain does not overflow the stack.
@@ -564,7 +569,8 @@ function causeJson(machine: Pick<Machine, "domains">, root: unknown): CauseJson 
       const put = (part: Part): void => {
         node.cause = part;
       };
-      children.push({ value: current.cause, name: "cause", tried: false, nest: false, keep: false, put });
+      // The cause of an exception keeps each item with a form, also without an exception in it (D100).
+      children.push({ value: current.cause, name: "cause", tried: false, nest: true, keep: false, put });
     }
     later(children);
     return at;
@@ -743,6 +749,8 @@ function errorJson(machine: Pick<Machine, "domains">, error: EvalError, what: ()
  *   (RUN.REPLAY-FIELDS, D78, D82). An item of a list without a form is the mark `dropped` at its place.
  * - A cause without a term document that is a list or a plain record with an exception is in `causeParts`
  *   (RUN.REPLAY-CAUSE-PARTS, D87). The rule is the same for the cause of an exception and of an error value.
+ * - The cause of an exception is also in `causeParts` without an exception in it, when an item has a form
+ *   (RUN.REPLAY-CAUSE-ITEMS, D100). Each item without a form is a name in `dropped`, for example `cause.send`.
  * - A list or a record of parts that an earlier place of one error holds is the part `share` with its index
  *   (RUN.REPLAY-SHARED, D88). This rule also covers a container that holds itself.
  * - An outcome that the log does not have stays absent.
