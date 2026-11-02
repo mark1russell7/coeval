@@ -2985,3 +2985,78 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - The documents are chains of one kind. A wide document or a document with scopes has no rung.
 - The ladder starts on a change of `ladder.ts` or `measure.yml`, and by `workflow_dispatch`. A change of the kernel does not start it.
 - No test fails when the slope grows. A new measure needs a dispatch of `measure.yml`.
+
+## D98 (2026-11-02): the bench runs each case with a mode in its own processes
+
+**Context.** K210. The bench of `paths.ts` starts new processes for the base, the base again and the head. Each process runs all 16 cases of `cases.ts` in a fixed order.
+
+Thus a later case runs on the heap and the type feedback of the earlier cases. Another project found that V8 can tenure an allocation site in a later case. That case was then slow in 9 of 40 processes. The A/A arm of the bench cannot see such a mode, because both copies of the base have the same order.
+
+**Decision.**
+
+- The script `packages/core/bench/mode.ts` compares two arms for each case, with the head kernel only.
+- In the arm ALONE, a new process runs only that case. In the arm IN ORDER, a new process runs all 16 cases in order.
+- Each arm has 20 processes for each case. Each process uses the flags of `paths.ts`, and a first process calibrates the calls of each sample.
+- Each round runs one IN ORDER process and one ALONE process for each case of the part. The case order and the place of the IN ORDER process turn in each round.
+- The definitions are fixed before the run. A process is slow for a case when its IN ORDER time is over the maximum of the 20 ALONE times.
+- A case has a mode when 5 or more of its 20 IN ORDER processes are slow.
+- With no mode, each IN ORDER process is over the ALONE maximum with the probability 1/21. Then 5 or more of 20 have a probability under 0.5 %.
+- The workflow `measure.yml` runs the script in 2 parts of 8 cases, each part on its own runner. The job `mode-verdict` pools the parts with Node only.
+- The bench gives each case with a mode its own processes. These cases are the list `SPLIT` of `paths.ts`. The other 6 cases stay in one process, in order.
+- In each round, each group of cases runs for the three copies in the order of the round. Then the next group starts.
+- The mode run keeps all 16 cases in the arm IN ORDER. Thus each split case keeps its comparison, and a new mode in a case that stays together shows.
+- The tables of the mode run tell how the bench runs each case. A case with a mode that the bench keeps in order gets a line below the table.
+
+**Measures (2026-11-02).** The measure run 41426813620 gave the table below. Part 1 had an AMD EPYC 9V45, and part 2 had an Intel Xeon Platinum 8370C. The ratio is the IN ORDER median divided by the ALONE median.
+
+| Case | Part | Alone median (ns) | Alone max (ns) | In order median (ns) | In order / alone | Slow | Mode |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| FORMULA.SPEED formula | 1 | 107.4 | 137.1 | 107.7 | 1.003 | 0 of 20 | no |
+| the same formula, with a list of reads | 2 | 264.2 | 281.7 | 268.0 | 1.014 | 1 of 20 | no |
+| a reference of five steps | 1 | 74.6 | 77.8 | 109.8 | 1.472 | 20 of 20 | yes |
+| a reference into a host thing with resolve | 2 | 170.1 | 174.2 | 226.0 | 1.329 | 20 of 20 | yes |
+| a reference through an envelope | 1 | 200.3 | 456.0 | 218.9 | 1.093 | 0 of 20 | no |
+| a reference with a step document | 2 | 201.8 | 211.3 | 258.0 | 1.278 | 20 of 20 | yes |
+| resolve without hops, five steps | 1 | 37.6 | 39.5 | 73.9 | 1.968 | 20 of 20 | yes |
+| PLAN.FOLD a record of 20 literals | 2 | 24.9 | 25.6 | 29.0 | 1.162 | 20 of 20 | yes |
+| PLAN.TOTAL a record of 20 literals, without folds | 1 | 597.5 | 621.0 | 661.4 | 1.107 | 20 of 20 | yes |
+| PLAN.FIXED a path of four steps from a fixed name | 2 | 39.0 | 39.4 | 41.6 | 1.066 | 20 of 20 | yes |
+| PLAN.PATH the same path, without the declaration | 1 | 77.2 | 80.5 | 115.0 | 1.490 | 20 of 20 | yes |
+| PLAN.FIXED a formula with a fixed name and a free name | 2 | 108.7 | 112.2 | 161.3 | 1.485 | 20 of 20 | yes |
+| a tree with an equation | 1 | 5643.8 | 6207.9 | 5691.0 | 1.008 | 0 of 20 | no |
+| the same tree, with a list of reads | 2 | 12030.6 | 12452.8 | 7268.3 | 0.604 | 0 of 20 | no |
+| factsOf a tree with an equation | 1 | 5089.9 | 5417.8 | 5332.1 | 1.048 | 5 of 20 | yes |
+| PLAN.COMPILE-SPEED prepare | 2 | 15269.3 | 16777.4 | 12554.3 | 0.822 | 0 of 20 | no |
+
+- 10 cases have a mode. Nine of them are slow in each of the 20 IN ORDER processes. Thus their mode is a constant shift, not a mode of some processes.
+- `factsOf` of a tree with an equation is slow in 5 of 20 processes. That is the limit of a mode.
+- FORMULA.SPEED is the first case, thus no case runs before it. Its ratio of 1.003 is the check of the method.
+- The parts took 58.8 s and 62.1 s in the script. The jobs took 79 s and 95 s, and the job `mode-verdict` took 13 s.
+- The bench of the same head (run 41426813579) ran before the split and gave 16 cases in bound. Its jobs took 87 s and 93 s.
+- After the split, a round of the bench starts 33 processes, not 3. The work of the samples does not change.
+- The estimate for a bench job is 576 measures of a case in 397 processes, approximately 0.1 s each, thus approximately 1.5 to 2 minutes.
+
+**Rejected.**
+
+- Each of the 16 cases in its own processes. The 6 other cases show no mode, and they keep the times of the earlier tables.
+- A new order of the cases in one process. Another order changes which case gets the state of the others. It moves a mode, and it does not remove it.
+- A mode from the median ratio. The definitions were fixed before the run, thus the result does not select its own rule.
+- One pool of both runners for a case. A comparison across two CPUs measures the machines (D70).
+- The base and the head in the mode run. The mode comes from the cases and their order, thus the head is sufficient.
+
+**Why.** A case in its own process measures its own code, not the state that the earlier cases leave. Thus a change in an earlier case does not move the time of a split case.
+
+**Public types.** No change. The scripts are in `bench`, and the `files` of the npm package do not include them.
+
+**Changed expected values.** No result of the kernel changes. The bench times of the 10 split cases become their times alone. On the EPYC 9V45, a reference of five steps goes from approximately 110 ns to 75 ns.
+
+The bench runs the `cases.ts` and the `paths.ts` of the head with both kernels. Thus a change and a noise in one run compare the same groups, also against an old base. The times of a table from before K210 differ in these 10 cases.
+
+**Limits.**
+
+- The definition counts only IN ORDER processes that are slower. Two cases are faster in order: the tree with a list of reads (0.604) and PLAN.COMPILE-SPEED (0.822). They stay in order.
+- The ALONE maximum comes from one process. In the case with an envelope, one ALONE process gave 456.0 ns against a median of 200.3 ns. That maximum hides an IN ORDER ratio of 1.093.
+- Each case ran on one runner only. Another CPU can give another mode.
+- The arm IN ORDER runs all 16 cases. Since D98, the bench runs the 6 other cases together. A mode that only that group of 6 cases gives does not show.
+- A change of `cases.ts` or `paths.ts` alone does not start the mode run. A change of `mode.ts` or `measure.yml` starts it, and a dispatch of `measure.yml` starts it.
+- The mode run does not measure the cause. Shared code of the kernel with the type feedback of the earlier cases is one possible cause.

@@ -24,6 +24,11 @@
  * IN ORDER process is over the maximum of 20 ALONE times with the probability 1/21. Then 5 or more slow processes of
  * 20 have a probability under 0.5 %.
  *
+ * The bench gives each case of `SPLIT` in `paths.ts` its own processes. The mode run still runs all cases in the arm
+ * IN ORDER. Thus a split case keeps its comparison, and a new mode in a case that stays together shows. The column
+ * "Bench" tells how the bench runs each case. A case with a mode that the bench keeps in order gets a line below the
+ * table.
+ *
  * The script prints one table and one line `MEASURE {json}`. With `MODE_JSON`, it writes each process to that file.
  * `MODE_PART` and `MODE_PARTS` select the part, and `MODE_PROCESSES` gives the processes of each arm. The mode `merge`
  * reads the files of all parts and prints one table for all cases. That mode uses only the modules of Node, and Node
@@ -68,6 +73,8 @@ interface ModeRun {
   readonly cpu: string;
   readonly node: string;
   readonly flags: readonly string[];
+  /** The cases of `SPLIT` in `paths.ts`: the bench runs each in its own processes. */
+  readonly split: readonly string[];
   /** The number of all cases of `cases.ts`. */
   readonly total: number;
   readonly processes: number;
@@ -89,6 +96,8 @@ interface Verdict {
   readonly slow: number;
   readonly of: number;
   readonly mode: boolean;
+  /** True when the bench runs the case in its own processes. */
+  readonly split: boolean;
   readonly different?: string;
 }
 
@@ -111,27 +120,33 @@ function writeSummary(lines: readonly string[]): void {
 }
 
 /** This function applies the fixed definitions of D98 to one case. */
-function judge(item: ModeCase, part: number): Verdict {
+function judge(item: ModeCase, part: number, split: readonly string[]): Verdict {
   const aloneMaxNs = Math.max(...item.alone);
   const slow = item.inOrder.filter((ns) => ns > aloneMaxNs).length;
   const [aloneNs, inOrderNs] = [median(item.alone), median(item.inOrder)];
   const verdict = { index: item.index, name: item.name, part, aloneNs, aloneMaxNs, inOrderNs, ratio: inOrderNs / aloneNs, slow, of: item.inOrder.length };
-  return { ...verdict, mode: slow >= MODE_LIMIT, ...(item.different === undefined ? {} : { different: item.different }) };
+  return { ...verdict, mode: slow >= MODE_LIMIT, split: split.includes(item.name), ...(item.different === undefined ? {} : { different: item.different }) };
 }
 
 function header(): string[] {
   return [
     `A process is slow when its IN ORDER time is over the ALONE maximum. A case has a mode when ${MODE_LIMIT} or more IN ORDER processes are slow.`,
     "",
-    "| Case | Part | Alone median (ns) | Alone max (ns) | In order median (ns) | In order / alone | Slow | Mode |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    "| Case | Part | Alone median (ns) | Alone max (ns) | In order median (ns) | In order / alone | Slow | Mode | Bench |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
   ];
 }
 
 function row(verdict: Verdict): string {
-  if (verdict.different !== undefined) return `| ${verdict.name} | ${verdict.part} | different results: ${verdict.different} | | | | | |`;
+  if (verdict.different !== undefined) return `| ${verdict.name} | ${verdict.part} | different results: ${verdict.different} | | | | | | |`;
   const ratio = `${verdict.ratio.toFixed(3)}`;
-  return `| ${verdict.name} | ${verdict.part} | ${verdict.aloneNs.toFixed(1)} | ${verdict.aloneMaxNs.toFixed(1)} | ${verdict.inOrderNs.toFixed(1)} | ${ratio} | ${verdict.slow} of ${verdict.of} | ${verdict.mode ? "yes" : "no"} |`;
+  return `| ${verdict.name} | ${verdict.part} | ${verdict.aloneNs.toFixed(1)} | ${verdict.aloneMaxNs.toFixed(1)} | ${verdict.inOrderNs.toFixed(1)} | ${ratio} | ${verdict.slow} of ${verdict.of} | ${verdict.mode ? "yes" : "no"} | ${verdict.split ? "own processes" : "in order"} |`;
+}
+
+/** This function gives a line for the cases with a mode that the bench keeps in one process, in order. */
+function kept(verdicts: readonly Verdict[]): string[] {
+  const names = verdicts.filter((verdict) => verdict.mode && !verdict.split).map((verdict) => verdict.name);
+  return names.length === 0 ? [] : ["", `The bench runs these cases with a mode in order: ${names.join(", ")}. Add them to \`SPLIT\` in \`paths.ts\`.`];
 }
 
 function short(verdict: Verdict): Record<string, unknown> {
@@ -145,6 +160,7 @@ function short(verdict: Verdict): Record<string, unknown> {
     slow: verdict.slow,
     of: verdict.of,
     mode: verdict.mode,
+    split: verdict.split,
   };
 }
 
@@ -158,7 +174,7 @@ async function measure(): Promise<void> {
   const [headFile] = process.argv.slice(2);
   if (headFile === undefined) throw new Error("Give the index.ts of the head.");
   // The bundler is a package. Only this mode imports it, thus the mode merge needs only the modules of Node.
-  const { FLAGS, bundle, measureCopy } = await import("./paths.ts");
+  const { FLAGS, SPLIT, bundle, measureCopy } = await import("./paths.ts");
   const started = performance.now();
   const part = whole("MODE_PART", 1);
   const parts = whole("MODE_PARTS", 1);
@@ -178,7 +194,7 @@ async function measure(): Promise<void> {
     const slots: number[] = [...order];
     slots.splice(round % (mine.length + 1), 0, -1);
     for (const slot of slots) {
-      const measured = slot === -1 ? measureCopy(file, counts) : measureCopy(file, counts, slot);
+      const measured = slot === -1 ? measureCopy(file, counts) : measureCopy(file, counts, [slot]);
       if (slot === -1) inOrder.push(measured);
       else (alone.get(slot) as Measured[]).push(measured[0] as Measured);
       records.push({ at: records.length, arm: slot === -1 ? "in order" : "alone", measured });
@@ -205,13 +221,14 @@ async function measure(): Promise<void> {
     cpu: cpus()[0]?.model.trim() ?? "an unknown CPU",
     node: process.version,
     flags: FLAGS,
+    split: SPLIT,
     total: first.length,
     processes,
     seconds: fixed((performance.now() - started) / 1000),
     cases,
     records,
   };
-  const verdicts = cases.map((item) => judge(item, part));
+  const verdicts = cases.map((item) => judge(item, part, SPLIT));
   writeSummary([
     `### Mode run, part ${part} of ${parts}`,
     "",
@@ -219,6 +236,7 @@ async function measure(): Promise<void> {
     "",
     ...header(),
     ...verdicts.map(row),
+    ...kept(verdicts),
   ]);
   process.stdout.write(`MEASURE ${JSON.stringify({ id: "BENCH.MODE", part, parts, ci: run.ci, cpu: run.cpu, processes, seconds: run.seconds, cases: verdicts.map(short) })}\n`);
   const out = process.env["MODE_JSON"];
@@ -231,7 +249,7 @@ function merge(files: readonly string[]): void {
   if (files.length === 0) throw new Error("Give the JSON files of the parts.");
   const runs = files.map((file) => JSON.parse(readFileSync(file, "utf8")) as ModeRun);
   const total = runs[0]?.total ?? 0;
-  const verdicts = runs.flatMap((run) => run.cases.map((item) => judge(item, run.part))).sort((a, b) => a.index - b.index);
+  const verdicts = runs.flatMap((run) => run.cases.map((item) => judge(item, run.part, run.split))).sort((a, b) => a.index - b.index);
   const missing: number[] = [];
   for (let index = 0; index < total; index += 1) {
     const found = verdicts.filter((verdict) => verdict.index === index).length;
@@ -249,6 +267,7 @@ function merge(files: readonly string[]): void {
     ...verdicts.map(row),
     "",
     modes.length === 0 ? "No case has a mode." : `The cases with a mode: ${modes.map((verdict) => verdict.name).join(", ")}.`,
+    ...kept(verdicts),
   ];
   if (missing.length > 0) lines.push(`The parts do not give each case one time. The cases ${missing.join(", ")} have no row or more than one row.`);
   writeSummary(lines);

@@ -4,7 +4,7 @@
  *   pnpm exec tsx packages/core/bench/paths.ts <base src/index.ts> <head src/index.ts>
  *
  * The script bundles `cases.ts` three times: with the base, with the base again and with the head. Each round runs
- * each bundle in a new process, thus no copy shares its compiled code, its type feedback or its heap with another copy.
+ * each bundle in new processes, thus no copy shares its compiled code, its type feedback or its heap with another copy.
  * The order of the three copies changes in each round, and each order comes equally often.
  *
  * The script prints the median time of one call for each case and each copy. The change is the median ratio of the
@@ -22,6 +22,11 @@
  * heap. Identical code then showed changes of up to 11 %, in random cases and in both directions, and more rounds did
  * not remove them. Now each round compiles each copy again, and `FLAGS` make the compiler and the collector run at
  * fixed points. In CI, two copies of the same code then differ by less than 1 % in each case.
+ *
+ * Why some cases have their own processes (K210, D98). A case that runs after other cases in one process gets their
+ * heap and their type feedback. The mode run `mode.ts` found 10 cases that were often slower there than alone.
+ * Thus each case of `SPLIT` runs alone in its own process, and the other cases run in one process, in order. Each
+ * group of cases runs for the three copies in the order of the round, before the next group starts.
  *
  * Each copy is an esbuild bundle without `keepNames`, as the bundler of a host makes it. The loader of tsx keeps the
  * name of each function, and that adds a call at each closure that the kernel makes.
@@ -44,6 +49,32 @@ const ROUNDS = Number(process.env["BENCH_ROUNDS"] ?? 12);
  * to 760 ns in different processes.
  */
 export const FLAGS = ["--predictable", "--predictable-gc-schedule"] as const;
+
+/**
+ * The cases with a mode in the mode run 41426813620 (D98). In each process that ran all cases in order, each of these
+ * cases was slower than in each process that ran it alone, except `factsOf`, with 5 such processes of 20.
+ */
+export const SPLIT: readonly string[] = [
+  "a reference of five steps",
+  "a reference into a host thing with resolve",
+  "a reference with a step document",
+  "resolve without hops, five steps",
+  "PLAN.FOLD a record of 20 literals",
+  "PLAN.TOTAL a record of 20 literals, without folds",
+  "PLAN.FIXED a path of four steps from a fixed name",
+  "PLAN.PATH the same path, without the declaration",
+  "PLAN.FIXED a formula with a fixed name and a free name",
+  "factsOf a tree with an equation",
+];
+
+/** This function gives the groups of case indexes: the cases that stay together in order, then each case of `SPLIT`. */
+export function groups(names: readonly string[]): number[][] {
+  const absent = SPLIT.filter((name) => !names.includes(name));
+  if (absent.length > 0) throw new Error(`SPLIT names cases that cases.ts does not have: ${absent.join(", ")}.`);
+  const together = names.flatMap((name, index) => (SPLIT.includes(name) ? [] : [index]));
+  const alone = names.flatMap((name, index) => (SPLIT.includes(name) ? [[index]] : []));
+  return [...(together.length > 0 ? [together] : []), ...alone];
+}
 
 /** The six orders of the three copies: the base, the base again and the head. */
 const ORDERS = [
@@ -71,10 +102,10 @@ export async function bundle(kernelFile: string, name: string, dir: string): Pro
   return outfile;
 }
 
-/** This function runs one bundle in a new process, and gives its measurements. With `only`, the process runs one case. */
-export function measureCopy(file: string, counts?: readonly number[], only?: number): Measured[] {
-  if (only !== undefined && counts === undefined) throw new Error("Give the calls of each case with one case.");
-  const args = [...FLAGS, file, "measure", ...(counts === undefined ? [] : [JSON.stringify(counts)]), ...(only === undefined ? [] : [String(only)])];
+/** This function runs one bundle in a new process, and gives its measurements. With `only`, the process runs those cases. */
+export function measureCopy(file: string, counts?: readonly number[], only?: readonly number[]): Measured[] {
+  if (only !== undefined && counts === undefined) throw new Error("Give the calls of each case with some cases.");
+  const args = [...FLAGS, file, "measure", ...(counts === undefined ? [] : [JSON.stringify(counts)]), ...(only === undefined ? [] : [JSON.stringify(only)])];
   const child = spawnSync(process.execPath, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   if (child.status !== 0) throw new Error(`The process of ${file} stopped with the status ${String(child.status)}.`);
   return JSON.parse(child.stdout) as Measured[];
@@ -99,12 +130,18 @@ async function main(): Promise<void> {
   // A first process calibrates the calls of each sample, thus each copy does the same work. Its times do not count.
   const first = measureCopy(copies[0] as string);
   const counts = first.map((item) => item.calls);
+  const parts = groups(first.map((item) => item.name));
   // runs[copy][round][case]
   const runs: Measured[][][] = [[], [], []];
   for (let round = 0; round < ROUNDS; round += 1) {
-    for (const which of ORDERS[round % ORDERS.length] as readonly number[]) {
-      (runs[which] as Measured[][]).push(measureCopy(copies[which] as string, counts));
+    const measured: Measured[][] = [[], [], []];
+    for (const part of parts) {
+      for (const which of ORDERS[round % ORDERS.length] as readonly number[]) {
+        const items = measureCopy(copies[which] as string, counts, part);
+        part.forEach((index, place) => ((measured[which] as Measured[])[index] = items[place] as Measured));
+      }
     }
+    measured.forEach((copy, which) => (runs[which] as Measured[][]).push(copy));
   }
   const run = process.env["BENCH_RUN"] ?? "1";
   // On Linux, Node reads the model of the CPU from /proc/cpuinfo.
@@ -112,7 +149,8 @@ async function main(): Promise<void> {
   const cases: BenchCase[] = [];
   const lines: string[] = [
     `Run ${run} on ${cpu}.`,
-    `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the base, a second copy of the base and the head each run in a new process.`,
+    `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the base, a second copy of the base and the head each run in new processes.`,
+    `${SPLIT.length} cases each run alone in their own processes (D98). The other cases run in one process, in order.`,
     "The change compares the head with the base of the same round. The noise (A/A) compares the two copies of the base.",
     "A change that is not clearly larger than the noise of its case is noise.",
     "",
