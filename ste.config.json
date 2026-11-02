@@ -6,6 +6,7 @@
     "RELEASING.md",
     "docs/**/*.{md,mdx}",
     "packages/*/README.md",
+    "packages/*/CHANGELOG.md",
     "packages/site/**/*.{md,mdx}",
     "packages/*/src/**/*.{ts,tsx}",
     "packages/*/*.config.{ts,mts}"
