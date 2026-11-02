@@ -1345,7 +1345,7 @@ describe("a list or a record that two places of an exception share in the JSON f
     expect(exceptionOf(encodeLog(dated, failedWith(Object.assign(new Error("empty"), { empty, other: empty }))))).toEqual({ name: "Error", message: "empty", dropped: ["empty", "other"] });
   });
 
-  it("[RUN.REPLAY-SHARED] an old log without a share decodes as before, a term document stays a copy, and decodeLog gives #VALUE! at a bad share", () => {
+  it("[RUN.REPLAY-SHARED] an old log without a share decodes as before, an old term document stays a copy, and decodeLog gives #VALUE! at a bad share", () => {
     // The form of D82 for a shared record: two records with the same exception.
     const old = {
       version: 1,
@@ -1373,12 +1373,11 @@ describe("a list or a record that two places of an exception share in the JSON f
     expect(cause.b).not.toBe(cause.a);
     expect(cause.b.error).toBe(cause.a.error);
     expect(encodeLog(dated, back.value)).toEqual(old);
-    // A record that encodeValue writes is a term document in fields, thus each place gets a copy (D88 Limits).
-    const plain = { code: 7 };
-    const copies = encodeLog(dated, failedWith(Object.assign(new Error("copies"), { a: plain, b: plain })));
-    expect(exceptionOf(copies)).toEqual({ name: "Error", message: "copies", fields: { a: { code: 7 }, b: { code: 7 } } });
-    const read = decodedCause(copies) as { readonly a: unknown; readonly b: unknown };
+    // Before D101, a record that encodeValue writes was a term document at each place. Such a log decodes as two copies.
+    const copies = { ...old, effects: [{ ...old.effects[0], outcome: { ok: false, error: { code: "#CALC!", reason: "r", exception: { name: "Error", message: "copies", fields: { a: { code: 7 }, b: { code: 7 } } } } } }] };
+    const read = decodedCauseOf(copies as ReplayLogJson) as { readonly a: unknown; readonly b: unknown };
     expect(read.b).not.toBe(read.a);
+    expect(read.b).toEqual(read.a);
     const placeOf = (error: unknown): unknown => {
       const decoded = decodeLog(dated, { ...old, effects: [{ ...old.effects[0], outcome: { ok: false, error } }] });
       return decoded.ok ? "read" : decoded.error.place;
@@ -1396,6 +1395,72 @@ describe("a list or a record that two places of an exception share in the JSON f
     expect(thrown({ name: "E", message: "m", causeParts: { share: 0, record: {} } })).toEqual([...at, "exception", "causeParts"]);
     // The cause of an error value has no earlier container.
     expect(placeOf({ ...base, causeParts: { share: 0 } })).toEqual([...at, "causeParts", "share"]);
+  });
+});
+
+describe("a list or a record with a term document that two places of an error share in the JSON form", () => {
+  it("[RUN.REPLAY-SHARED-VALUES] a record or a list that two fields share is a container of parts and a share, and decodeLog gives one object", () => {
+    const plain = { a: 1 };
+    const json = encodeLog(dated, failedWith(Object.assign(new Error("both"), { first: plain, second: plain, code: 7 })));
+    expect(exceptionOf(json)).toEqual({ name: "Error", message: "both", fields: { code: 7 }, parts: { first: { record: { a: { value: 1 } } }, second: { share: 0 } } });
+    const back = decodedCause(json) as Error & { readonly first: unknown; readonly second: unknown };
+    expect(back.second).toBe(back.first);
+    expect(back.first).toEqual({ a: 1 });
+    const again = decodeLog(dated, JSON.parse(JSON.stringify(json)));
+    expect(again.ok && encodeLog(dated, again.value)).toEqual(json);
+    // A list has the same rule. An item with a term document that no other place holds stays a term document.
+    const tries = [1, { at: 2 }];
+    const list = encodeLog(dated, failedWith(Object.assign(new Error("tries"), { tries, again: tries })));
+    expect(exceptionOf(list)).toEqual({ name: "Error", message: "tries", parts: { tries: [{ value: 1 }, { value: { at: 2 } }], again: { share: 0 } } });
+    const items = decodedCause(list) as Error & { readonly tries: unknown; readonly again: unknown };
+    expect(items.again).toBe(items.tries);
+    expect(items.tries).toEqual([1, { at: 2 }]);
+    // An empty record keeps its form, and a value that a domain holds stays a term document at each place.
+    const empty = {};
+    const when = new Date(Date.UTC(2026, 10, 2));
+    const kept = encodeLog(dated, failedWith(Object.assign(new Error("kept"), { empty, other: empty, when, then: when })));
+    const date = { type: ["ext", "domain"], value: { domain: "date", data: when.toISOString() } };
+    expect(exceptionOf(kept)).toMatchObject({ fields: { when: date, then: date }, parts: { empty: { record: {} }, other: { share: 0 } } });
+    const read = decodedCause(kept) as Error & { readonly empty: unknown; readonly other: unknown };
+    expect(read.other).toBe(read.empty);
+    // A plain record that a domain with a codec holds is a member of the domain, thus it stays a term document.
+    const BOXED: Domain = { is: (value) => typeof value === "object" && value !== null && Object.hasOwn(value, "boxed"), codec: { encode: () => "boxed", decode: () => ({ boxed: undefined }) } };
+    const boxed = { ...dated, domains: { ...dated.domains, boxed: BOXED } };
+    const member = { boxed: undefined };
+    const term = { type: ["ext", "domain"], value: { domain: "boxed", data: "boxed" } };
+    expect(exceptionOf(encodeLog(boxed, failedWith(Object.assign(new Error("member"), { member, other: member }))))).toEqual({ name: "Error", message: "member", fields: { member: term, other: term } });
+  });
+
+  it("[RUN.REPLAY-SHARED-VALUES] a record that a field and the cause share, or that a term document holds, is one object, also for an error value", () => {
+    const plain = { a: 1 };
+    const json = encodeLog(dated, failedWith(Object.assign(new Error("outer", { cause: plain }), { plain })));
+    expect(exceptionOf(json)).toEqual({ name: "Error", message: "outer", parts: { plain: { record: { a: { value: 1 } } } }, causeParts: { share: 0 } });
+    const back = decodedCause(json) as Error & { readonly plain: unknown };
+    expect(back.cause).toBe(back.plain);
+    expect(Object.getOwnPropertyDescriptor(back, "cause")).toMatchObject({ enumerable: false });
+    // A record that holds a shared record is a container of parts too, and the index counts it first.
+    const nested = encodeLog(dated, failedWith(Object.assign(new Error("nested"), { box: { inner: plain, n: 2 }, inner: plain })));
+    expect(exceptionOf(nested)).toEqual({
+      name: "Error",
+      message: "nested",
+      parts: { box: { record: { inner: { record: { a: { value: 1 } } }, n: { value: 2 } } }, inner: { share: 1 } },
+    });
+    const box = decodedCause(nested) as Error & { readonly box: { readonly inner: unknown }; readonly inner: unknown };
+    expect(box.inner).toBe(box.box.inner);
+    // The cause of an error value is the first container of its walk, and a later place shares an inner record.
+    const value = encodeLog(dated, failedWith({ first: plain, list: [plain] }));
+    expect(errorOf(value)).toEqual({
+      code: "#CALC!",
+      reason: "The host failed.",
+      causeParts: { record: { first: { record: { a: { value: 1 } } }, list: [{ share: 1 }] } },
+    });
+    const cause = decodedCause(value) as { readonly first: unknown; readonly list: readonly unknown[] };
+    expect(cause.list[0]).toBe(cause.first);
+    // A cause of an error value without a shared container stays a term document, and a cycle without an exception stays a refusal.
+    expect(errorOf(encodeLog(dated, failedWith({ a: { b: 1 }, c: { b: 1 } })))).toEqual({ code: "#CALC!", reason: "The host failed.", cause: { a: { b: 1 }, c: { b: 1 } } });
+    const ring: Record<string, unknown> = { a: 1 };
+    ring["self"] = ring;
+    expect(() => encodeLog(dated, failedWith(ring))).toThrow(TypeError);
   });
 });
 

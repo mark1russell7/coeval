@@ -3222,3 +3222,45 @@ The output changes for a caller. A container cause of an exception with an item 
 
 - `decodeLog` gives the cause `{ code: 7 }`, and `encodeValue` writes it. Thus a new recording of the decoded log writes it in `cause`, not in `causeParts`. A field of D82 has the same limit.
 - A cause of an error value without an exception stays a refusal (D87).
+
+## D101 (2026-11-02): a list or a record with a term document that two places of an error share is a container of parts
+
+**Context.** K190, found by K183 (D88 Limits). Since D88, a list or a record of parts that two places share is the part `share`. `encodeValue` writes a list or a record without an exception and without a function as a term document. Thus two fields that held the same record `{ a: 1 }` gave two term documents in `fields`, and `decodeLog` gave two copies.
+
+**Decision.**
+
+- Before the walk of an error value, a first walk finds each list and each plain record that the walk reaches at two places (RUN.REPLAY-SHARED-VALUES). It reads the values as the walk does.
+- Such a container is a container of parts, also with a term document. A container that holds such a container at some depth is a container of parts too.
+- The first place gets the list of parts or the part `record`. Each later place is the part `share` of D88.
+- The index of `share` counts these containers with the containers of D88, in the order of the walk. `decodeLog` meets them in the same order, thus `decodeLog` does not change.
+- A field of an exception with such a value leaves `fields` and goes in `parts`. A cause of an exception or of an error value with such a value is `causeParts`.
+- Such a container always has a form, thus an empty record is the part `{ "record": {} }`, and an empty list is `[]`.
+- A member of a domain with a codec stays a term document, also when it is a plain record. Its codec makes it again.
+- The form stays at the version 1. No new field comes, and an old log decodes as before: each term document gives a new copy.
+
+**Rejected.**
+
+- A share in a term document, for example a new envelope `ext.share`. `encodeValue` has no identity for a value (D40), and each reader of a term document then needs the rule.
+- A share for a whole term document only, without the containers on the way. A record that holds the shared record then stays a term document, and its copy breaks the identity.
+- A share only for a container without a term document, as in D88. The host has one object at two places in both cases.
+- An index of its own for these containers. One count for each list and record of parts keeps one rule for `share`.
+- A container of parts for each list or record of an error. Most containers have one place, and a term document is shorter.
+
+**Why.** The walk of D88 already gives a container its index before its items, and `decodeLog` already gives one object for each share. Only the encoder must know which containers have more than one place. A first walk tells it, because the walk writes the first place before it meets the later places.
+
+**Public types.** None. No type changes and no export goes. The TSDoc of `ReplayExceptionJson.fields`, `ReplayExceptionJson.parts` and `ReplayErrorJson.causeParts` tells the new case.
+
+The output changes for a caller. A shared list or record with a term document is in `parts` or `causeParts`, not in `fields` or `cause`. A container that holds it moves there too. The release 0.17.0 gives the old form.
+
+**Changed expected values.** One test changes.
+
+- RUN.REPLAY-SHARED, an old log: before, the record `{ code: 7 }` in the fields `a` and `b` gave two term documents in `fields`, and `decodeLog` gave two copies. This assertion moves to RUN.REPLAY-SHARED-VALUES. Since D101, `a` is the part `record`, and `b` is `{ share: 0 }`. The old test keeps the old form as a literal log, and it decodes as two copies, as before.
+
+**The golden file.** `packages/core/golden/replay.json` does not change. Its exception is a `TypeError` without fields.
+
+**Limits.**
+
+- A shared field leaves `fields` for `parts`, and `decodeLog` gives the fields before the parts. Thus the order of the keys of the exception can change, as for each field of D82.
+- A cause of an error value without an exception that holds itself stays a refusal (D87). `encodeValue` cannot write a cycle, and D87 gives a form only to a cause with an exception.
+- The first walk reads each field of an exception, also of an exception that a domain holds. A container in it can then be a container of parts without a share. `decodeLog` gives the same value.
+- A share counts in one error value, as in D88. Two effects of a log that share a container give two objects.
