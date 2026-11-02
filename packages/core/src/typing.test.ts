@@ -42,6 +42,7 @@ import {
   typeText,
   typesOf,
 } from "./index.ts";
+import { corpus, inOrder } from "./corpus.test-support.ts";
 
 /** The number of documents for each property. CI and a nightly run can raise it with COEVAL_AGREE_COUNT. */
 const COUNT = Number(process.env["COEVAL_AGREE_COUNT"] ?? 300);
@@ -381,8 +382,9 @@ describe("signatures and the check of types", () => {
     expect(issues).toBeGreaterThan(COUNT / 4);
   });
 
-  // Each profile is one test (K206). With COEVAL_AGREE_COUNT 2000, the two profiles in one test took 5.4 s on a slow runner.
-  // A test of one profile has the same documents and the same checks.
+  // Each profile has its own tests (K206), and each test examines one part of 1000 documents (K207, D96). With
+  // COEVAL_AGREE_COUNT 2000, the two profiles in one test took 2.7 s on main and 5.4 s on a slow runner.
+  // The parts have the same documents in the same order as one loop, and the last test of a profile checks the totals.
   const soundProfiles: readonly (readonly [string, FormulaProfile])[] = [
     ["strict", { ops: GUARDED, sigs: SIGS }],
     [
@@ -398,42 +400,47 @@ describe("signatures and the check of types", () => {
       },
     ],
   ];
-  const sound = (name: string, profile: FormulaProfile): void => {
+  for (const [name, profile] of soundProfiles) {
     const machine = formulaMachine(profile);
+    // The odd documents share one stream of random numbers. docAt makes each document one time, in the order of the
+    // indexes, thus a part that starts later gets the same documents as one loop.
     const rng = random(SEED);
-    let accepted = 0;
-    let precise = 0;
-    let nodes = 0;
-    for (let index = 0; index < 2 * COUNT; index += 1) {
-      // The even documents come from the contracts (generate), and the odd documents from the signatures.
-      const doc = index % 2 === 0 ? generate(machine.world, { ...OPTIONS, seed: SEED * 1_000_003 + index }) : typedDoc(rng, "any", 4, []);
-      const typing = typeCheck(machine, doc);
-      if (typing.issues.length > 0) continue;
-      const result = prepare(machine, doc).evaluate();
-      if (!result.ok) continue;
-      accepted += 1;
-      if (typing.type !== "unknown") precise += 1;
-      expect(member(result.value, typing.type, machine.domains), `${name}: ${JSON.stringify(doc)} gives ${JSON.stringify(result.value)}, not a member of ${typeText(typing.type)}`).toBe(true);
-      // Each value of the trace is a member of the type of its place too. A body of fn evaluates at each call.
-      const types = new Map(typing.places.map((item) => [JSON.stringify(item.place.map(String)), item.type]));
-      const stack: TraceNode[] = [evaluate(machine, doc).trace];
-      while (stack.length > 0) {
-        const node = stack.pop() as TraceNode;
-        stack.push(...node.children);
-        const type = types.get(JSON.stringify(node.path));
-        if (!node.result.ok || type === undefined) continue;
-        nodes += 1;
-        expect(member(node.result.value, type, machine.domains), `${name}: at ${node.path.join(".")} of ${JSON.stringify(doc)}, ${JSON.stringify(node.result.value)} is not a member of ${typeText(type)}`).toBe(true);
-      }
+    // The even documents come from the contracts (generate), and the odd documents from the signatures.
+    const docAt = inOrder((index): unknown => (index % 2 === 0 ? generate(machine.world, { ...OPTIONS, seed: SEED * 1_000_003 + index }) : typedDoc(rng, "any", 4, [])));
+    const docs = corpus(2 * COUNT, 1000);
+    const totals = { accepted: 0, precise: 0, nodes: 0 };
+    for (const part of docs.parts) {
+      it("[TYPE.SOUND] a generated document that checks with no issue evaluates to a member of its synthesized type, with the profile " + name + ", " + part.name, () => {
+        for (const index of part) {
+          const doc = docAt(index);
+          const typing = typeCheck(machine, doc);
+          if (typing.issues.length > 0) continue;
+          const result = prepare(machine, doc).evaluate();
+          if (!result.ok) continue;
+          totals.accepted += 1;
+          if (typing.type !== "unknown") totals.precise += 1;
+          expect(member(result.value, typing.type, machine.domains), `${name}: ${JSON.stringify(doc)} gives ${JSON.stringify(result.value)}, not a member of ${typeText(typing.type)}`).toBe(true);
+          // Each value of the trace is a member of the type of its place too. A body of fn evaluates at each call.
+          const types = new Map(typing.places.map((item) => [JSON.stringify(item.place.map(String)), item.type]));
+          const stack: TraceNode[] = [evaluate(machine, doc).trace];
+          while (stack.length > 0) {
+            const node = stack.pop() as TraceNode;
+            stack.push(...node.children);
+            const type = types.get(JSON.stringify(node.path));
+            if (!node.result.ok || type === undefined) continue;
+            totals.nodes += 1;
+            expect(member(node.result.value, type, machine.domains), `${name}: at ${node.path.join(".")} of ${JSON.stringify(doc)}, ${JSON.stringify(node.result.value)} is not a member of ${typeText(type)}`).toBe(true);
+          }
+        }
+      });
     }
-    expect(accepted, name).toBeGreaterThan(COUNT / 2);
-    expect(precise, name).toBeGreaterThan(COUNT / 4);
-    expect(nodes, name).toBeGreaterThan(3 * COUNT);
-  };
-
-  it("[TYPE.SOUND] a generated document that checks with no issue evaluates to a member of its synthesized type, with the strict profile", () => sound(...soundProfiles[0]!));
-
-  it("[TYPE.SOUND] a generated document that checks with no issue evaluates to a member of its synthesized type, with the loose profile", () => sound(...soundProfiles[1]!));
+    it("[TYPE.SOUND] the parts of the profile " + name + " accept enough documents, with precise types and values in the trace", () => {
+      expect(docs.unfinished(), `${name}: parts that did not finish`).toEqual([]);
+      expect(totals.accepted, name).toBeGreaterThan(COUNT / 2);
+      expect(totals.precise, name).toBeGreaterThan(COUNT / 4);
+      expect(totals.nodes, name).toBeGreaterThan(3 * COUNT);
+    });
+  }
 });
 
 /** The value types of the typed documents: the base types of the language, a list, a record, a function, or each value. */

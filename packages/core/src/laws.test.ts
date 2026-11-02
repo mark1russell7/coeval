@@ -49,6 +49,7 @@ import {
   typesOf,
   walk,
 } from "./index.ts";
+import { corpus } from "./corpus.test-support.ts";
 
 /*
  * The law tests of the semantics (K93, R7 P4, D37). Each law follows from rules of docs/SEMANTICS.md, and each test
@@ -644,14 +645,14 @@ interface SealedOutcome {
 /**
  * This function examines EVAL.SEALED on generated documents. A part that evaluates one time to a JSON value changes
  * to a literal of that value, with the same header. The parent then gives the same result, and the effects outside
- * the part stay the same, in the plan and in the reference.
+ * the part stay the same, in the plan and in the reference. It examines the documents of `indexes`: one part of the corpus.
  */
-function sealedLaw(config: Config): SealedOutcome {
+function sealedLaw(config: Config, indexes: Iterable<number>): SealedOutcome {
   const findings: Finding[] = [];
   let replaced = 0;
   let skipped = 0;
   const machine = config.machine;
-  for (let index = 0; index < COUNT; index += 1) {
+  for (const index of indexes) {
     const seed = seedOf(index);
     const doc = generate(machine.world, { ...config.options, seed });
     const ctx = contextOf(index);
@@ -750,14 +751,15 @@ interface MonotoneOutcome {
   readonly skipped: number;
 }
 
-function monotoneLaw(config: Config): MonotoneOutcome {
+/** This function examines CAP.MONOTONE on the documents of `indexes`: one part of the corpus. */
+function monotoneLaw(config: Config, indexes: Iterable<number>): MonotoneOutcome {
   const findings: Finding[] = [];
   let same = 0;
   let split = 0;
   let skipped = 0;
   const log = { list: [] as Attempt[] };
   const machine = asking(config.machine, log);
-  for (let index = 0; index < COUNT; index += 1) {
+  for (const index of indexes) {
     const seed = seedOf(index);
     const doc = generate(config.machine.world, { ...config.options, seed });
     const runs = TIERS.map(([name, tier]) => ({
@@ -934,63 +936,94 @@ function reading(step: unknown, name: string | undefined): unknown {
 /* The tests. */
 
 describe("the laws of the semantics", () => {
-  it("[EVAL.SEALED] a part that evaluates one time to a JSON value gives way to a literal of that value, and the parent gives the same result, for code that keeps C5", () => {
-    const outcomes = SEALED_CONFIGS.map((config) => [config.name, sealedLaw(config)] as const);
-    expect(report(outcomes.flatMap(([, outcome]) => outcome.findings))).toEqual([]);
-    for (const [name, outcome] of outcomes) expect(outcome.replaced, `${name}: ${outcome.skipped} documents without a part to replace`).toBeGreaterThan(COUNT / 5);
-    // The law needs the obligation C5: a kind whose code reads the JSON of its parts sees the literal.
-    expect(sealedLaw(PEEKING).findings.length).toBeGreaterThan(0);
-  }, 120_000);
-
-  it("[EVAL.DETERMINISTIC] the same machine, document and context give the same result, effects and reads again, also after an evaluation in another context, in the plan and in the reference", () => {
-    let compared = 0;
-    let skipped = 0;
-    for (const config of [STANDARD, TREES, FORMULA_STRICT, FORMULA_LOOSE, LANGUAGE, WIDENING]) {
-      const findings: Finding[] = [];
-      for (let index = 0; index < COUNT; index += 1) {
-        const seed = seedOf(index);
-        const doc = generate(config.machine.world, { ...config.options, seed });
-        const first = contextOf(index);
-        const other = contextOf(index + 1);
-        const plan = prepare(config.machine, doc, declaredOf(config));
-        const a1 = evaluateOnce(plan, first);
-        const b1 = evaluateOnce(plan, other);
-        const a2 = evaluateOnce(plan, first);
-        const b2 = planned(config, config.machine, doc, other);
-        const x1 = referred(config, config.machine, doc, first);
-        const y1 = referred(config, config.machine, doc, other);
-        const x2 = referred(config, config.machine, doc, first);
-        const y2 = referred(config, config.machine, doc, other);
-        if ([a1, b1, a2, b2, x1, y1, x2, y2].some((outcome) => overflowed(outcome.result))) {
-          skipped += 1;
-          continue;
-        }
-        compared += 1;
-        const pairs: readonly (readonly [string, Outcome, Outcome])[] = [
-          ["the plan", a1, a2],
-          ["the plan in the other context, and a new plan", b1, b2],
-          ["the reference", x1, x2],
-          ["the reference in the other context", y1, y2],
-        ];
-        for (const [name, x, y] of pairs) {
-          const why = outcomesDiffer(x, y) ?? (x.reads !== undefined && y.reads !== undefined ? readsDiffer(x.reads, y.reads) : undefined);
-          if (why !== undefined) findings.push({ config: config.name, seed, reason: `${name}: ${why}`, doc });
-        }
-      }
-      expect(report(findings), config.name).toEqual([]);
+  // The property tests below split their corpus into parts of a fixed size (K207, D96). Each part is one test with the
+  // default timeout, and the last test of a law checks the totals of its parts. The parts give the same seeds in the
+  // same order as one loop. On main at COUNT 2000, EVAL.SEALED took 3.2 s, EVAL.DETERMINISTIC 3.1 s, SEQ.LAWS 3.0 s and
+  // CAP.MONOTONE 2.3 s in one test each.
+  for (const config of [...SEALED_CONFIGS, PEEKING]) {
+    const docs = corpus(COUNT, 1000);
+    const totals = { findings: 0, replaced: 0, skipped: 0 };
+    for (const part of docs.parts) {
+      it("[EVAL.SEALED] a part that evaluates one time to a JSON value gives way to a literal of that value, and the parent gives the same result, for code that keeps C5: " + config.name + ", " + part.name, () => {
+        const outcome = sealedLaw(config, part);
+        totals.findings += outcome.findings.length;
+        totals.replaced += outcome.replaced;
+        totals.skipped += outcome.skipped;
+        if (config !== PEEKING) expect(report(outcome.findings)).toEqual([]);
+      });
     }
-    expect(skipped, "documents with an overflow of the stack").toBeLessThan(compared / 20);
-  }, 120_000);
+    it("[EVAL.SEALED] the parts of " + config.name + " replace enough parts, and a kind that reads doc.value breaks the law", () => {
+      expect(docs.unfinished(), `${config.name}: parts that did not finish`).toEqual([]);
+      // The law needs the obligation C5: a kind whose code reads the JSON of its parts sees the literal.
+      if (config === PEEKING) expect(totals.findings).toBeGreaterThan(0);
+      else expect(totals.replaced, `${config.name}: ${totals.skipped} documents without a part to replace`).toBeGreaterThan(COUNT / 5);
+    });
+  }
 
-  it("[CAP.MONOTONE] fewer capabilities never change the result of an evaluation without a refused effect, and never permit an effect that more capabilities refused", () => {
-    for (const config of [STANDARD, LANGUAGE, WIDENING]) {
-      const outcome = monotoneLaw(config);
-      expect(report(outcome.findings), config.name).toEqual([]);
-      expect(outcome.split, `${config.name}: pairs that split at a refused effect`).toBeGreaterThan(COUNT / 10);
-      expect(outcome.same, `${config.name}: pairs with the same effects`).toBeGreaterThan(COUNT / 20);
-      expect(outcome.skipped, `${config.name}: documents that read the root caps`).toBeLessThan(COUNT / 2);
+  const deterministic = { compared: 0, skipped: 0 };
+  const deterministicParts = [STANDARD, TREES, FORMULA_STRICT, FORMULA_LOOSE, LANGUAGE, WIDENING].map((config) => [config, corpus(COUNT, 1000)] as const);
+  for (const [config, docs] of deterministicParts) {
+    for (const part of docs.parts) {
+      it("[EVAL.DETERMINISTIC] the same machine, document and context give the same result, effects and reads again, also after an evaluation in another context, in the plan and in the reference: " + config.name + ", " + part.name, () => {
+        const findings: Finding[] = [];
+        for (const index of part) {
+          const seed = seedOf(index);
+          const doc = generate(config.machine.world, { ...config.options, seed });
+          const first = contextOf(index);
+          const other = contextOf(index + 1);
+          const plan = prepare(config.machine, doc, declaredOf(config));
+          const a1 = evaluateOnce(plan, first);
+          const b1 = evaluateOnce(plan, other);
+          const a2 = evaluateOnce(plan, first);
+          const b2 = planned(config, config.machine, doc, other);
+          const x1 = referred(config, config.machine, doc, first);
+          const y1 = referred(config, config.machine, doc, other);
+          const x2 = referred(config, config.machine, doc, first);
+          const y2 = referred(config, config.machine, doc, other);
+          if ([a1, b1, a2, b2, x1, y1, x2, y2].some((outcome) => overflowed(outcome.result))) {
+            deterministic.skipped += 1;
+            continue;
+          }
+          deterministic.compared += 1;
+          const pairs: readonly (readonly [string, Outcome, Outcome])[] = [
+            ["the plan", a1, a2],
+            ["the plan in the other context, and a new plan", b1, b2],
+            ["the reference", x1, x2],
+            ["the reference in the other context", y1, y2],
+          ];
+          for (const [name, x, y] of pairs) {
+            const why = outcomesDiffer(x, y) ?? (x.reads !== undefined && y.reads !== undefined ? readsDiffer(x.reads, y.reads) : undefined);
+            if (why !== undefined) findings.push({ config: config.name, seed, reason: `${name}: ${why}`, doc });
+          }
+        }
+        expect(report(findings), config.name).toEqual([]);
+      });
     }
-  }, 120_000);
+  }
+  it("[EVAL.DETERMINISTIC] the parts of each configuration have few documents with an overflow of the stack", () => {
+    expect(deterministicParts.flatMap(([config, docs]) => docs.unfinished().map((name) => `${config.name}, ${name}`)), "parts that did not finish").toEqual([]);
+    expect(deterministic.skipped, "documents with an overflow of the stack").toBeLessThan(deterministic.compared / 20);
+  });
+
+  for (const config of [STANDARD, LANGUAGE, WIDENING]) {
+    const docs = corpus(COUNT, 1000);
+    const totals = { same: 0, split: 0, skipped: 0 };
+    for (const part of docs.parts) {
+      it("[CAP.MONOTONE] fewer capabilities never change the result of an evaluation without a refused effect, and never permit an effect that more capabilities refused: " + config.name + ", " + part.name, () => {
+        const outcome = monotoneLaw(config, part);
+        totals.same += outcome.same;
+        totals.split += outcome.split;
+        totals.skipped += outcome.skipped;
+        expect(report(outcome.findings), config.name).toEqual([]);
+      });
+    }
+    it("[CAP.MONOTONE] the parts of " + config.name + " have enough pairs that split and pairs with the same effects", () => {
+      expect(docs.unfinished(), `${config.name}: parts that did not finish`).toEqual([]);
+      expect(totals.split, `${config.name}: pairs that split at a refused effect`).toBeGreaterThan(COUNT / 10);
+      expect(totals.same, `${config.name}: pairs with the same effects`).toBeGreaterThan(COUNT / 20);
+      expect(totals.skipped, `${config.name}: documents that read the root caps`).toBeLessThan(COUNT / 2);
+    });
+  }
 
   it("[COMPOSE.CONSERVATIVE] an extension with new kinds and no conflict keeps the result of each document that names no new kind and reads no changed entry of the world", () => {
     for (const [config, parts] of COMPOSE_CASES) {
@@ -1054,43 +1087,51 @@ describe("the laws of the semantics", () => {
     expect(compared, `${skipped} documents with a cycle`).toBeGreaterThan(COUNT / 4);
   }, 120_000);
 
-  it("[SEQ.LAWS] seq with one step gives the step, the steps at the end or the start of a sequence group into a nested sequence by the rules of names, and a name reaches only the later steps of its own sequence", () => {
+  const seqDocs = corpus(COUNT, 400);
+  const reached = new Map<string, number>();
+  it("[SEQ.LAWS] seq with no step gives null in each tier", () => {
     for (const [, tier] of TIERS) expect(tier(STANDARD, STD_MACHINE, seq([]), contextOf(0)).result).toEqual(ok(null));
-    const findings: Finding[] = [];
-    const reached = new Map<string, number>();
-    for (let index = 0; index < COUNT; index += 1) {
-      const seed = seedOf(index);
-      const rng = random(seed);
-      const [a, b, c] = [0, 1, 2].map((step) => generate(STD_MACHINE.world, { ...STEP_OPTIONS, seed: seed * 3 + step }));
-      const header = (): string | undefined => (rng.chance(0.5) ? rng.pick(HEADERS) : undefined);
-      const [ha, hb, hc] = [header(), header(), header()];
-      const hs = rng.pick(HEADERS);
-      const laws: readonly (readonly [string, unknown, unknown, Move])[] = [
-        // The unit: seq with one step gives the result and the effects of the step, one level deeper.
-        ["one step", named(a, ha), seq([named(a, ha)]), (place) => [0, ...place]],
-        // The steps after the first group into a nested sequence, also with names: a sequence passes its names in.
-        [
-          "a nested tail",
-          seq([named(a, ha), named(reading(b, ha), hb), named(reading(c, hb), hc)]),
-          seq([named(a, ha), seq([named(reading(b, ha), hb), named(reading(c, hb), hc)])]),
-          moving([[[1], [1, 0]], [[2], [1, 1]]]),
-        ],
-        // The first steps group into a nested sequence when only the last of them has a name. The group gets the name.
-        ["a nested head", seq([a, named(b, hb), named(reading(c, hb), hc)]), seq([named(seq([a, b]), hb), named(reading(c, hb), hc)]), moving([[[0], [0, 0]], [[1], [0, 1]], [[2], [1]]])],
-        // The name of a step of a nested sequence does not reach the steps after that sequence.
-        ["the scope of a name", seq([a, reading(c, hs)]), seq([seq([named(a, hs)]), reading(c, hs)]), moving([[[0], [0, 0]]])],
-      ];
-      for (const [law, flat, nested, move] of laws) {
-        for (const [name, tier] of TIERS) {
-          const x = tier(STANDARD, STD_MACHINE, flat, contextOf(index, STD_CAPS));
-          const y = tier(STANDARD, STD_MACHINE, nested, contextOf(index, STD_CAPS));
-          const why = outcomesDiffer(x, y, move);
-          if (why !== undefined) findings.push({ config: law, seed, reason: `${name}: ${why}`, doc: nested });
-          for (const kind of [x.result.ok ? "value" : "error", ...(x.effects.length > 0 ? ["effects"] : [])]) reached.set(kind, (reached.get(kind) ?? 0) + 1);
+  });
+  for (const part of seqDocs.parts) {
+    it("[SEQ.LAWS] seq with one step gives the step, the steps at the end or the start of a sequence group into a nested sequence by the rules of names, and a name reaches only the later steps of its own sequence: " + part.name, () => {
+      const findings: Finding[] = [];
+      for (const index of part) {
+        const seed = seedOf(index);
+        const rng = random(seed);
+        const [a, b, c] = [0, 1, 2].map((step) => generate(STD_MACHINE.world, { ...STEP_OPTIONS, seed: seed * 3 + step }));
+        const header = (): string | undefined => (rng.chance(0.5) ? rng.pick(HEADERS) : undefined);
+        const [ha, hb, hc] = [header(), header(), header()];
+        const hs = rng.pick(HEADERS);
+        const laws: readonly (readonly [string, unknown, unknown, Move])[] = [
+          // The unit: seq with one step gives the result and the effects of the step, one level deeper.
+          ["one step", named(a, ha), seq([named(a, ha)]), (place) => [0, ...place]],
+          // The steps after the first group into a nested sequence, also with names: a sequence passes its names in.
+          [
+            "a nested tail",
+            seq([named(a, ha), named(reading(b, ha), hb), named(reading(c, hb), hc)]),
+            seq([named(a, ha), seq([named(reading(b, ha), hb), named(reading(c, hb), hc)])]),
+            moving([[[1], [1, 0]], [[2], [1, 1]]]),
+          ],
+          // The first steps group into a nested sequence when only the last of them has a name. The group gets the name.
+          ["a nested head", seq([a, named(b, hb), named(reading(c, hb), hc)]), seq([named(seq([a, b]), hb), named(reading(c, hb), hc)]), moving([[[0], [0, 0]], [[1], [0, 1]], [[2], [1]]])],
+          // The name of a step of a nested sequence does not reach the steps after that sequence.
+          ["the scope of a name", seq([a, reading(c, hs)]), seq([seq([named(a, hs)]), reading(c, hs)]), moving([[[0], [0, 0]]])],
+        ];
+        for (const [law, flat, nested, move] of laws) {
+          for (const [name, tier] of TIERS) {
+            const x = tier(STANDARD, STD_MACHINE, flat, contextOf(index, STD_CAPS));
+            const y = tier(STANDARD, STD_MACHINE, nested, contextOf(index, STD_CAPS));
+            const why = outcomesDiffer(x, y, move);
+            if (why !== undefined) findings.push({ config: law, seed, reason: `${name}: ${why}`, doc: nested });
+            for (const kind of [x.result.ok ? "value" : "error", ...(x.effects.length > 0 ? ["effects"] : [])]) reached.set(kind, (reached.get(kind) ?? 0) + 1);
+          }
         }
       }
-    }
-    expect(report(findings)).toEqual([]);
+      expect(report(findings)).toEqual([]);
+    });
+  }
+  it("[SEQ.LAWS] the parts reach values, errors and effects", () => {
+    expect(seqDocs.unfinished(), "parts that did not finish").toEqual([]);
     for (const kind of ["value", "error", "effects"]) expect(reached.get(kind) ?? 0, kind).toBeGreaterThan(COUNT / 4);
-  }, 120_000);
+  });
 });
