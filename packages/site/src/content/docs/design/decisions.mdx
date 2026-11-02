@@ -102,6 +102,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D99 | A domain gives samples of its members in the new optional field `samples`. The checks `truth` and `cover` add them to the palette, thus `number` gets the tests `0` and `-1`. |
 | D100 | A cause of an exception that is a list or a plain record keeps each item with a form in `causeParts`, also without an exception. `dropped` names each other item by its path. |
 | D101 | A list or a plain record with a term document that two places of an error share is a container of parts and a share. `decodeLog` gives one object. |
+| D102 | A split of `fits` tries each valid cover of a field until one fits, inside the budget of 64 records. Thus `{a: number}` fits a union of `{a: lo}` and `{a: hi}` when `lo` and `hi` are the second cover of `number`. |
 
 ## Open
 
