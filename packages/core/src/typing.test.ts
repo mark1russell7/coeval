@@ -443,6 +443,83 @@ describe("signatures and the check of types", () => {
   }
 });
 
+/*
+ * K51: the value types of the own extensions of a profile (D103).
+ */
+
+describe("the value types of the own extensions", () => {
+  const ext = (name: string, value: Json = null): Json => ({ type: ["ext", name], value });
+  // The extension width gives a number and label gives a text. The extension raw gives its data, and it has no entry.
+  const EXT: FormulaProfile["ext"] = { width: () => ok(4), label: () => ok("a"), raw: (data) => ok(data) };
+  const EXT_TYPES: Readonly<Record<string, ValueType>> = { width: "number", label: "text" };
+  const PROFILE: FormulaProfile = { ops: GUARDED, sigs: SIGS, ext: EXT, extTypes: EXT_TYPES };
+  const machine = formulaMachine(PROFILE);
+  const issuesOf = (on: Machine, doc: Json): readonly unknown[] => typeIssuesOf(on, doc).map((issue) => [issue.place, issue.reason, issue.expected, issue.found]);
+
+  it("[TYPE.EXT] an own extension gives its type from extTypes, and a part of it that does not fit gets #TYPE!", () => {
+    expect([ext("width"), ext("label"), ext("raw", "x")].map((doc) => typeCheck(machine, doc, LIT).type)).toEqual(["number", "text", "unknown"]);
+    expect(issuesOf(machine, op("add", ext("width"), 1))).toEqual([]);
+    expect(issuesOf(machine, op("add", ext("label"), 1))).toEqual([[[0], "The argument 1 of ops.add has the type text. It must have the type number.", "number", "text"]]);
+    expect(issuesOf(machine, op("concat", "a", ext("width")))).toEqual([[[1], "The argument 2 of ops.concat has the type number. It must have the type text.", "text", "number"]]);
+    // The type goes on through the other kinds: a name of let, a branch of if and an item of a list.
+    expect(typeCheck(machine, bind({ w: ext("width") }, op("add", ref("names", "w"), 1)), LIT)).toMatchObject({ type: "number", issues: [] });
+    expect(typeCheck(machine, when(true, ext("width"), ext("label")), LIT).type).toEqual({ union: ["number", "text"] });
+    expect(typeCheck(machine, { type: "list", value: [ext("width"), ext("width")] }, LIT).type).toEqual({ list: "number" });
+  });
+
+  it("[TYPE.EXT] an own extension without an entry stays unknown, and a profile without extTypes gets no type issue from it", () => {
+    // The extension raw has no entry, thus it fits each position (TYPE.GRADUAL).
+    expect(issuesOf(machine, op("add", ext("raw", "x"), 1))).toEqual([]);
+    expect(issuesOf(machine, op("not", ext("raw", 1)))).toEqual([]);
+    const untyped = formulaMachine({ ops: GUARDED, sigs: SIGS, ext: EXT });
+    expect([ext("width"), ext("label")].map((doc) => typeCheck(untyped, doc, LIT).type)).toEqual(["unknown", "unknown"]);
+    expect(issuesOf(untyped, op("add", ext("label"), 1))).toEqual([]);
+    // An entry for a standard extension has no effect, and an own extension with a standard name takes the entry.
+    const standard = formulaMachine({ ops: GUARDED, sigs: SIGS, extTypes: { number: "text", undefined: "number" } });
+    expect([ext("number", "NaN"), ext("undefined")].map((doc) => typeCheck(standard, doc, LIT).type)).toEqual(["number", "undefined"]);
+    const shadow = formulaMachine({ ops: GUARDED, sigs: SIGS, ext: { number: () => ok("n") }, extTypes: { number: "text" } });
+    expect(typeCheck(shadow, ext("number", "NaN"), LIT).type).toBe("text");
+  });
+
+  it("[TYPE.EXT] a bad type in extTypes is one type issue in a check, and the extension then gives unknown", () => {
+    const bad = formulaMachine({ ...PROFILE, extTypes: { width: "nope" } });
+    const issues = typeIssuesOf(bad, op("add", ext("width"), ext("width")));
+    expect(issues.map((issue) => [issue.place, issue.reason])).toEqual([[[0], "The type of ext.width in extTypes is not a correct value type. The machine has no domain nope."]]);
+    expect(typeCheck(bad, ext("width"), LIT).type).toBe("unknown");
+  });
+
+  it("[TYPE.EXT] a document that checks evaluates to a member of its type, when each extension keeps its entry", () => {
+    const docs: readonly Json[] = [
+      ext("width"),
+      op("add", ext("width"), 1),
+      op("concat", ext("label"), "b"),
+      when(op("gt", ext("width"), 1), ext("label"), "c"),
+      call(fn(["x"], op("add", ref("names", "x"), ext("width"))), 2),
+      { type: "list", value: [ext("width"), ext("label")] },
+      { type: "record", value: { w: ext("width"), l: ext("label") } },
+    ];
+    for (const doc of docs) {
+      const typing = typeCheck(machine, doc, LIT);
+      expect(typing.issues, JSON.stringify(doc)).toEqual([]);
+      expect(typing.type, JSON.stringify(doc)).not.toBe("unknown");
+      const result = evaluate(machine, doc, undefined, "lit").result;
+      expect(result.ok && member(result.value, typing.type, machine.domains), `${JSON.stringify(doc)} gives ${JSON.stringify(result)}, not a member of ${typeText(typing.type)}`).toBe(true);
+    }
+  });
+
+  it("[TYPE.EXT] equal profiles with extTypes give the same evaluators, and another extTypes gives another kit", () => {
+    // A profile in a new object with the same fields finds the recent kit (D46).
+    const first = formulaMachine({ ...PROFILE });
+    const again = formulaMachine({ ...PROFILE });
+    expect(again.evaluators["formula.ext"]).toBe(first.evaluators["formula.ext"]);
+    expect(() => mergeMachines(again, first)).not.toThrow();
+    // A record of the profile is equal only to itself, thus a copy of extTypes gives another kit.
+    const other = formulaMachine({ ...PROFILE, extTypes: { ...EXT_TYPES } });
+    expect(other.evaluators["formula.ext"]).not.toBe(first.evaluators["formula.ext"]);
+    expect(() => mergeMachines(other, first)).toThrow(MergeError);
+  });
+});
+
 /** The value types of the typed documents: the base types of the language, a list, a record, a function, or each value. */
 type Want = "number" | "text" | "bool" | "list" | "record" | "fn" | "any";
 

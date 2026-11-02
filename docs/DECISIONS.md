@@ -3307,6 +3307,43 @@ The behavior changes for a caller. `fits` gives `true` for some pairs that gave 
 - The split lists each valid cover of the line before the first try. A language with many covers pays for this list at each covered field, also when the first cover fits.
 - Two outer splits beside each other each get a budget of 64 records, as in D89.
 
+## D103 (2026-11-02): a formula profile gives the value type of each own extension in `extTypes`
+
+**Context.** K51, from K24 (D25). A standard extension has a base type, for example `ext.number` gives `number` (D48). An own extension of a profile gave `unknown` at each time. Thus a check let its value go to each position, also where the run fails. The design calls are the shape of the declaration, its place, and the rule for a bad type.
+
+**Decision.**
+
+- `FormulaProfile` gets the optional field `extTypes`: the value type of each own extension, by its name (TYPE.EXT).
+- The type rule of `formula.ext` gives that type for an own extension. A position that needs another type gives `#TYPE!` with `expected` and `found`, as each other type issue.
+- An own extension without an entry gives `unknown`, as before (TYPE.GRADUAL). A profile without `extTypes` gets the same issues as before.
+- An entry for a standard extension has no effect, as a name in `pureExt` without an own extension (D47). An own extension with a standard name takes its entry, because the own code runs.
+- The check examines each entry as a contract, one time in a check. A bad type gives one issue at its first use, and the extension then gives `unknown`. Thus one problem gives one issue.
+- `extTypes` is a field of the canonical form of a profile (D46), thus 16 fields. The record is equal only to itself, as `ext` and `sigs` are. Two profiles with different records give two kits, and their machines conflict.
+- The language keeps its declaration: each own extension gives a member of its type. The check trusts it, as it trusts the signatures and `truthType`.
+
+**Rejected.**
+
+- A full signature with parameter types for the data of the extension. The data is JSON that the document holds, not a value of a term. Thus no part of the data has a type that the check synthesizes. The shape of the data is a rule of the contract, not of a type.
+- A result type in `ext` itself, for example a record with the code and its type. Then `ext` changes its type, and each existing profile with `ext` breaks. The code and the type also get one identity, thus a new type needs new code.
+- A type from the function of the extension. A function is code of the host, and the check cannot test it on each data.
+- A type that each own extension must have. Then each existing profile with `ext` gets new issues, and the change breaks the API.
+
+**Why.** The type of an extension is a rule of the language, as a signature is a rule of an operation. A record next to `ext` keeps each existing profile unchanged, and its keys are the names of `ext`, as in `pureExt`. The check reads it with the existing contract rule, thus no new mechanism comes in.
+
+**Soundness.** The tests of TYPE.EXT examine seven documents with own extensions that keep their entries. Each document checks with no issue and evaluates to a member of its synthesized type. The documents use `ops`, `let`, `if`, `fn`, `call`, `list` and `record`. The property test TYPE.SOUND does not generate own extensions, and its profiles do not change.
+
+**Public types.** `FormulaProfile.extTypes` is a new optional field, with the type `Readonly<Record<string, ValueType>>`. No other type changes and no export goes. The TSDoc of `FormulaProfile` tells the field and the promise of the language.
+
+The behavior changes for a caller only with the new field. A check with types then gives the declared type to each document of an own extension. A use that does not fit it gets a new `#TYPE!`. A profile without `extTypes` gets the same types and the same issues as before.
+
+**Changed expected values.** No expected value of an earlier test changes. The new tests are in `typing.test.ts`.
+
+**Limits.**
+
+- The language keeps `extTypes` true to its extensions. An extension that gives a value outside its type makes the check unsound at that place. `conforms` does not test this promise yet, as K181 tests `truthType`.
+- An entry gives one type for each data of the extension. An extension whose type depends on its data, as `ext.domain` does, needs a union of its types, or no entry.
+- A key of `extTypes` that names no own extension has no effect and gets no issue.
+
 ## D104 (2026-11-02): the limit of PLAN.LEAN applies in the job that measured it
 
 **Context.** K211. D95 derived the limit of 395 bytes from the job `measure` of `measure.yml`. Its run 41381230112 gave 392.3 to 393.5 bytes.
