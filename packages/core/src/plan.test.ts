@@ -88,7 +88,7 @@ describe("plans", () => {
     expect(ref.plan.evaluate(makeContext({ x: { y: 5 } }))).toEqual({ ok: true, value: 5 });
   });
 
-  it("[PLAN.LEAN] a plan of one bare reference keeps less than 424 bytes", () => {
+  it("[PLAN.LEAN] a plan of one bare reference keeps less than 395 bytes", () => {
     setFlagsFromString("--expose-gc");
     const gc = runInNewContext("gc") as () => void;
     const machine = formulaMachine();
@@ -109,11 +109,12 @@ describe("plans", () => {
     expect(plans).toHaveLength(docs.length);
     const row = Array.from({ length: COUNT }, (_, index) => index * 2);
     expect(plans[4]?.evaluate(makeContext({ row }))).toEqual({ ok: true, value: 8 });
-    // The limit is the worst value plus the spread of the values (K200, D95). The measure runs 41365693150,
-    // 41373989315, 41378274009 and 41379502106 gave 20 values from 384.2 to 404.0 bytes. 404.0 + 19.8 = 423.8.
+    // The value is the retained bytes of each plan: gc() runs before both readings, and the plans stay alive.
+    // The limit is the worst value plus the spread of the values (K200, D95). The measure run 41381230112 gave 5
+    // values from 392.3 to 393.5 bytes. 393.5 + 1.2 = 394.7.
     if (process.env["COEVAL_MEASURE"] !== undefined) console.log(`MEASURE ${JSON.stringify({ id: "PLAN.LEAN", bytes: Number(bytes.toFixed(1)) })}`);
     // Before K105, such a plan kept approximately 1500 bytes: closures for each path, the split and the document.
-    expect(bytes, `${bytes.toFixed(0)} bytes for each plan`).toBeLessThan(424);
+    expect(bytes, `${bytes.toFixed(0)} bytes for each plan`).toBeLessThan(395);
   });
 
   it("[PLAN.TRACE] a traced plan gives the trace of evaluate, an untraced one gives none", () => {

@@ -148,7 +148,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | PLAN.CACHE | A planner compiles one document object one time. |
 | PLAN.CACHE-ZERO | A planner keeps the bare values `-0` and `0` apart, thus `-0` evaluates to `-0`. |
 | PLAN.COMPILE-SPEED | A compilation without a trace does not record the rungs of the ladder, thus it compiles a small document quickly. The bench measures the time (K200). |
-| PLAN.LEAN | A plan keeps only its compiled code. It does not keep its document or the split of the value, thus a store can keep many plans. A plan of one reference with a static path keeps less than 424 bytes, by a measure of the heap over 10000 plans. The limit is the worst of 20 CI values plus their spread (K200). |
+| PLAN.LEAN | A plan keeps only its compiled code. It does not keep its document or the split of the value, thus a store can keep many plans. A plan of one reference with a static path keeps less than 395 bytes, by a measure of the retained heap over 10000 plans. The limit is the worst of 5 CI values plus their spread (K200). |
 | PLAN.DEPTH | The nesting of documents has a limit. The default is 1000. |
 | PLAN.RUN-OPTIONS | A plan keeps the verb and the declared type of its `prepare`. Thus the options of `plan.run` (`PlanRunOptions`) do not have them. The options of `run` (`RunOptions`) add them for its `prepare`. |
 | PLAN.PATH | A reference of the formula kit compiles its static path one time, in `prepare`. The compiled path reads the root and the open roots one time, and the ladder of `step` answers each step document one time. Each evaluation then examines only the values of the context. A trace and a runtime with another navigator resolve the steps again. The list of reads gets the steps of the document. |
