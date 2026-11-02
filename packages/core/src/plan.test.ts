@@ -95,8 +95,9 @@ describe("plans", () => {
     const COUNT = 10_000;
     // Each document has its own path. Half of the documents read a name, and the other half read a node of the world.
     const docs = Array.from({ length: COUNT }, (_, index) => ({ type: "ref", value: index % 2 === 0 ? ["names", "row", index] : ["world", `n${index}`] }));
-    // The first plans make the code of the kernel ready, thus the measure does not count that code.
-    for (const doc of docs.slice(0, 100)) prepare(machine, doc).evaluate();
+    // A first round of all the documents makes the code of the kernel ready, thus the measure does not count that code.
+    // With a warm-up of 100 documents, the first measure in one process counted 11.5 bytes more for each plan (D95).
+    for (const doc of docs) prepare(machine, doc).evaluate();
     gc();
     gc();
     const before = process.memoryUsage().heapUsed;
