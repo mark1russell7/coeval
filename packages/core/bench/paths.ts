@@ -28,7 +28,7 @@
  */
 import { build, type Plugin } from "esbuild";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { join, resolve as resolveFile } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,7 +43,7 @@ const ROUNDS = Number(process.env["BENCH_ROUNDS"] ?? 12);
  * `--predictable-gc-schedule` grows the heap by fixed steps. Without them, one case of identical code took from 270 ns
  * to 760 ns in different processes.
  */
-const FLAGS = ["--predictable", "--predictable-gc-schedule"] as const;
+export const FLAGS = ["--predictable", "--predictable-gc-schedule"] as const;
 
 /** The six orders of the three copies: the base, the base again and the head. */
 const ORDERS = [
@@ -58,7 +58,7 @@ const ORDERS = [
 const CASES_FILE = fileURLToPath(new URL("./cases.ts", import.meta.url));
 
 /** This function bundles the cases with one copy of the kernel. */
-async function bundle(kernelFile: string, name: string, dir: string): Promise<string> {
+export async function bundle(kernelFile: string, name: string, dir: string): Promise<string> {
   const outfile = join(dir, `${name}.mjs`);
   const kernel = resolveFile(kernelFile);
   const copy: Plugin = {
@@ -71,9 +71,10 @@ async function bundle(kernelFile: string, name: string, dir: string): Promise<st
   return outfile;
 }
 
-/** This function runs one bundle in a new process, and gives its measurements. */
-function measureCopy(file: string, counts?: readonly number[]): Measured[] {
-  const args = [...FLAGS, file, "measure", ...(counts === undefined ? [] : [JSON.stringify(counts)])];
+/** This function runs one bundle in a new process, and gives its measurements. With `only`, the process runs one case. */
+export function measureCopy(file: string, counts?: readonly number[], only?: number): Measured[] {
+  if (only !== undefined && counts === undefined) throw new Error("Give the calls of each case with one case.");
+  const args = [...FLAGS, file, "measure", ...(counts === undefined ? [] : [JSON.stringify(counts)]), ...(only === undefined ? [] : [String(only)])];
   const child = spawnSync(process.execPath, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   if (child.status !== 0) throw new Error(`The process of ${file} stopped with the status ${String(child.status)}.`);
   return JSON.parse(child.stdout) as Measured[];
@@ -148,4 +149,5 @@ async function main(): Promise<void> {
   if (mismatch) process.exitCode = 1;
 }
 
-await main();
+// The mode run `mode.ts` imports the functions of this file, and only a start of this file runs the bench.
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) await main();

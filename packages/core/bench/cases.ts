@@ -3,10 +3,11 @@
  *
  * The script `paths.ts` bundles this file with each copy of the kernel. Each bundle runs in its own process:
  *
- *   node <bundle> measure [<calls of each case as JSON>]
+ *   node <bundle> measure [<calls of each case as JSON> [<index of one case>]]
  *
  * The process prints one line of JSON: for each case, the result, the calls in one sample and the median time of one
- * call. Without the calls, the process calibrates them. The process measures only its own copy, thus no other copy
+ * call. Without the calls, the process calibrates them. With the index of one case, the process runs only that case
+ * (the mode run of K210, D98). The process measures only its own copy, thus no other copy
  * changes its type feedback, its inline caches or its heap.
  */
 import * as kernel from "../src/index.ts";
@@ -276,9 +277,13 @@ export function show(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => (typeof item === "function" ? "<fn>" : item));
 }
 
-/** This function measures each case in turn. Without the calls of each case, it calibrates them. */
-export function run(counts?: readonly number[]): Measured[] {
-  return CASES.map((item, index) => {
+/**
+ * This function measures each case in turn. Without the calls of each case, it calibrates them. With `only`, it
+ * measures only the case at that index, and no other case makes its operation.
+ */
+export function run(counts?: readonly number[], only?: number): Measured[] {
+  const chosen = only === undefined ? CASES.map((item, index) => ({ item, index })) : [{ item: CASES[only] as Case, index: only }];
+  return chosen.map(({ item, index }) => {
     const fn = item.make(kernel);
     const result = show(fn());
     const calls = counts?.[index] ?? calibrate(fn);
@@ -293,5 +298,7 @@ export function run(counts?: readonly number[]): Measured[] {
 
 if (process.argv[2] === "measure") {
   const counts = process.argv[3] === undefined ? undefined : (JSON.parse(process.argv[3]) as number[]);
-  process.stdout.write(`${JSON.stringify(run(counts))}\n`);
+  const only = process.argv[4] === undefined ? undefined : Number(process.argv[4]);
+  if (only !== undefined && CASES[only] === undefined) throw new Error(`No case has the index ${String(process.argv[4])}.`);
+  process.stdout.write(`${JSON.stringify(run(counts, only))}\n`);
 }
