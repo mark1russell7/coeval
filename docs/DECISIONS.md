@@ -2883,6 +2883,8 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 **Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 395 bytes, and WORLD.LAWS gets exact counts.
 
+**Since D104.** The limit of PLAN.LEAN applies only in the job `measure`, the job that measured it. The job `checks` applies no limit of PLAN.LEAN.
+
 ## D96 (2026-11-02): a seeded property test splits its corpus into parts of a fixed size, and CI checks the share of the timeout
 
 **Context.** K206 and K207. CI runs the property tests of `packages/core` with `COEVAL_AGREE_COUNT` 2000 and the fixed seed 1. Thus each test does fixed work. On a slow runner, TYPE.SOUND took 5.4 s, over the timeout of 5 s. On main, ten tests took 2.0 s to 3.7 s. A slow runner doubles such a time.
@@ -3341,3 +3343,43 @@ The behavior changes for a caller only with the new field. A check with types th
 - The language keeps `extTypes` true to its extensions. An extension that gives a value outside its type makes the check unsound at that place. `conforms` does not test this promise yet, as K181 tests `truthType`.
 - An entry gives one type for each data of the extension. An extension whose type depends on its data, as `ext.domain` does, needs a union of its types, or no entry.
 - A key of `extTypes` that names no own extension has no effect and gets no issue.
+
+## D104 (2026-11-02): the limit of PLAN.LEAN applies in the job that measured it
+
+**Context.** K211. D95 derived the limit of 395 bytes from the job `measure` of `measure.yml`. Its run 41381230112 gave 392.3 to 393.5 bytes.
+
+- That job tests only `plan.test.ts` and `merge.test.ts`, with a filter for PLAN.LEAN and WORLD.LAWS.
+- The job `checks` of `ci.yml` also applied the limit. That job starts all test files of the package in one run of the suite.
+- There, the value went over 395 bytes with no change of the code. `main` at `ecf5310` failed with 396.0 bytes in run 41442630692.
+- Pull request #209 failed with 418.5 bytes in run 41488821854. The push run of the same head passed.
+- The job `measure` started only for a change of `measure.yml`, `bench/ladder.ts` or `bench/mode.ts`. Thus on a usual pull request, only `checks` applied the limit.
+
+**Decision.**
+
+- The gate rule: the runs that set a limit run in the job, on the runner class and with the test set that apply it.
+- The byte assertion of PLAN.LEAN applies only when `COEVAL_MEASURE` is set. Without it, the test still builds and evaluates the plans.
+- The job `checks` thus applies no limit of PLAN.LEAN. It does not get a second limit that is less strict.
+- A second job of the action `changes`, the job `core-changes`, starts the job `measure`.
+- Its paths are `packages/core/src/**`, `packages/core/package.json`, `pnpm-lock.yaml` and `.github/workflows/measure.yml`.
+- The jobs `ladder`, `ladder-verdict`, `mode` and `mode-verdict` keep the filter of the job `changes`. A pull request of the core only skips them.
+- The check `Measure OK` has two steps of the action `gate-summary`. Each step gets one filter and its jobs.
+- A failed job fails the check. A job that its filter skipped passes. A skip for another reason fails the check.
+- The limit stays at 395 bytes. WORLD.LAWS does not change: its counts come from fixed seeds, thus they are exact in each job.
+
+**Rejected.**
+
+- A limit from runs of the job `checks`. The full suite shares the state of the heap with the other test files, thus it gives no stable value.
+- A new run of a failed job. It hides a real change of the value, and it does not make the value stable.
+- One filter for all jobs of `measure.yml`. Then each pull request of the core also starts the 5 jobs of the ladder and the 2 jobs of the mode run.
+- A trigger with `on.pull_request.paths`. Then the check `Measure OK` does not start on each pull request, and the ruleset blocks the pull request.
+
+**Why.** A limit is true only for the job that measured it. The job `measure` has the same tests in each run, thus its values have the small spread of D95.
+
+**Public types.** None.
+
+**Changed expected values.** None. The limit stays at 395 bytes, and the counts of WORLD.LAWS stay the same.
+
+**Limits.**
+
+- A pull request that changes no file of the core gets no gate of PLAN.LEAN.
+- A push to `main` does not start `measure.yml`. Thus `main` gets the gate only from the pull request of each change.
