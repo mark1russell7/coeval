@@ -23,4 +23,4 @@ MINOR: before `1.0.0`, a breaking change increases MINOR. `conforms` tests more 
 
 ### Tests and CI
 
-These changes are not in the package. Each numeric limit of a unit test comes from CI runs (D95, D104). Each bench case runs in its own processes (D98). A ladder measures the slope of STATIC.LINEAR (D97).
+These changes are not in the package. Each numeric limit of a unit test comes from CI runs (D95, D104). The bench starts each case in its own processes (D98). A ladder measures the slope of STATIC.LINEAR (D97).
