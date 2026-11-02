@@ -8,8 +8,9 @@
 name: Measure
 
 on:
-  # Each pull request starts this workflow, so its summary check is always there. The job changes skips the
-  # work when the pull request changes no file of the gate (CI.md of the template, "A gate with paths").
+  # Each pull request starts this workflow, so its summary check is always there. Two jobs of the action "changes"
+  # skip the work when the pull request changes no file of a gate (CI.md of the template, "A gate with paths").
+  # The job "core-changes" starts the job "measure". The job "changes" starts the jobs "ladder" and "mode".
   pull_request:
   workflow_dispatch:
 
@@ -38,9 +39,28 @@ jobs:
             packages/core/bench/ladder.ts
             packages/core/bench/mode.ts
 
+  # The job "checks" of ci.yml does not apply the limit of PLAN.LEAN. Thus the job "measure" is its gate (K211, D104).
+  core-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      match: ${{ steps.changes.outputs.match }}
+    steps:
+      - id: changes
+        uses: mark1russell7/template/.github/actions/changes@3377b376fb6e39e4d65f130a98e74125d592f1f3 # main
+        with:
+          paths: |
+            packages/core/src/**
+            packages/core/package.json
+            pnpm-lock.yaml
+            .github/workflows/measure.yml
+
   measure:
-    needs: changes
-    if: needs.changes.outputs.match == 'true'
+    needs: core-changes
+    if: needs.core-changes.outputs.match == 'true'
     name: measure (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -180,11 +200,24 @@ jobs:
   measure-ok:
     name: Measure OK
     if: always()
-    needs: [changes, measure, ladder, ladder-verdict, mode, mode-verdict]
+    needs: [changes, core-changes, measure, ladder, ladder-verdict, mode, mode-verdict]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
+    # The action "gate-summary" reads one job of the action "changes". Thus each step gets one filter and its jobs.
     steps:
-      - uses: mark1russell7/template/.github/actions/gate-summary@3377b376fb6e39e4d65f130a98e74125d592f1f3 # main
+      - name: The jobs of the filter "changes"
+        uses: mark1russell7/template/.github/actions/gate-summary@3377b376fb6e39e4d65f130a98e74125d592f1f3 # main
         with:
-          needs: ${{ toJSON(needs) }}
+          needs: >-
+            {"changes": ${{ toJSON(needs.changes) }}, "ladder": ${{ toJSON(needs.ladder) }},
+            "ladder-verdict": ${{ toJSON(needs.ladder-verdict) }}, "mode": ${{ toJSON(needs.mode) }},
+            "mode-verdict": ${{ toJSON(needs.mode-verdict) }}}
+      # This step also runs when the first step failed, thus the summary shows both verdicts.
+      - name: The jobs of the filter "core-changes"
+        if: ${{ !cancelled() }}
+        uses: mark1russell7/template/.github/actions/gate-summary@3377b376fb6e39e4d65f130a98e74125d592f1f3 # main
+        with:
+          changes: core-changes
+          needs: >-
+            {"core-changes": ${{ toJSON(needs.core-changes) }}, "measure": ${{ toJSON(needs.measure) }}}
