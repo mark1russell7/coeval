@@ -24,7 +24,7 @@
  * fixed points. In CI, two copies of the same code then differ by less than 1 % in each case.
  *
  * Why some cases have their own processes (K210, D98). A case that runs after other cases in one process gets their
- * heap and their type feedback. The mode run `mode.ts` found 10 cases that were often slower there than alone.
+ * heap and their type feedback. The mode run `mode.ts` found cases that were slower or faster there than alone.
  * Thus each case of `SPLIT` runs alone in its own process, and the other cases run in one process, in order. Each
  * group of cases runs for the three copies in the order of the round, before the next group starts.
  *
@@ -51,8 +51,8 @@ const ROUNDS = Number(process.env["BENCH_ROUNDS"] ?? 12);
 export const FLAGS = ["--predictable", "--predictable-gc-schedule"] as const;
 
 /**
- * The cases with a mode in the mode run 41426813620 (D98). In each process that ran all cases in order, each of these
- * cases was slower than in each process that ran it alone, except `factsOf`, with 5 such processes of 20.
+ * The cases that the rule of D98 splits. A case stays in order only when its interval IN ORDER / ALONE is inside its
+ * A/A band on both sides. The list comes from the mode run 41426813620: 10 cases slower in order, and 2 faster.
  */
 export const SPLIT: readonly string[] = [
   "a reference of five steps",
@@ -64,7 +64,9 @@ export const SPLIT: readonly string[] = [
   "PLAN.FIXED a path of four steps from a fixed name",
   "PLAN.PATH the same path, without the declaration",
   "PLAN.FIXED a formula with a fixed name and a free name",
+  "the same tree, with a list of reads",
   "factsOf a tree with an equation",
+  "PLAN.COMPILE-SPEED prepare",
 ];
 
 /** This function gives the groups of case indexes: the cases that stay together in order, then each case of `SPLIT`. */
