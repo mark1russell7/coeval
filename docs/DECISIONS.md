@@ -978,7 +978,7 @@ A member of a domain, for example a time, had no shared document at all.
 
 **Why.** Each language writes the same value as the same document, also a member of a domain (D12). Documents of several languages can then mix. The codec lives next to the test `is` of the domain, thus one table describes a base type.
 
-**Limits.** Two domains with codecs that both hold a value give the document of the first name. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.
+**Limits.** Two domains with codecs that both hold a value give the document of the first name. D109 changes this rule: the lower domain comes first. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.
 
 ## D41 (2026-10-25): one syntax kit reads and writes the text of each language with a profile, and its printer is the default of the verb `format`
 
@@ -3477,3 +3477,37 @@ The behavior changes for a caller only with the new field. A check with types th
 - The `fold` of an attribute reads that attribute of each child. `check` does not examine those reads.
 - A read of the parent of the node of an equation goes to an unknown node, thus `check` does not examine it.
 - The cycles of attributes wait for the graph of attribute instances (L2e).
+
+## D109 (2026-11-02): `encodeValue` uses the codec of the most specific domain
+
+**Context.** K142, from K140. Since D40, the domains with a codec go in the order of their names, and the first domain that holds a value encodes it. A domain under a parent with a codec holds only members of the parent. Thus the parent wins when its name is first, and the codec of the subdomain does not get its own members.
+
+**Decision.**
+
+- The line of a domain is the domain and each parent, through each level (`lineOf` of the check of types). The membership test `member` reads the same line.
+- A cycle of parents ends at a name that the line already has. A parent that is not a domain ends its branch of the line, and it adds no codec.
+- The depth of a domain with a codec is the count of the other domains with a codec in its line. A domain without a codec in the chain adds no depth, but the chain through it counts.
+- `encodeValue` tries the domains with a codec in the order of their depth, the deepest first. Between domains of the same depth, the order of the names decides (EXT.TIE).
+- Thus a domain comes before each domain with a codec above it (EXT.SPECIFIC). The deeper line holds the line of the parent and the parent, thus its count is larger.
+- Domains in a cycle of parents have the same line, thus the same members and the same depth. Their names decide.
+- `encodeValue` computes the order one time for each call, as before. When no domain with a codec has a parent, the order of the names stays. That test costs one step for each codec.
+- `decodeValue` does not change. The document names its domain, and the result of the codec must be a member of that domain.
+
+**Rejected.**
+
+- The order of the names alone. A parent with an early name hides the codec of each subdomain.
+- The first topological order by names: at each step, the first name with no remaining domain under it. Its rule is hard to state, and it also changes the order of unrelated domains.
+- A choice for each value: the first name of the domains with no other domain that holds the value under them. Each value then tests each codec, and the cost of a large table grows.
+- An order by the order of the table. Two merges in another order give the same machine (WORLD.LAWS, D40).
+- A cache of the order for each machine. A table is a plain record that a host can change, and the order costs little.
+
+**Why.** The most specific codec gets its own members, whatever the names. A new domain with a codec under a domain of another language does not need a special name. The depth gives one stable order with a short rule.
+
+**Public types.** No change. `lineOf` gets an export inside the package, and the root of the package does not export it.
+
+**Changed expected values.** None of the existing tests. A table with a codec domain under another codec domain can give a new document. Thus this change goes into the next MINOR release.
+
+**Limits.**
+
+- Two unrelated domains of different depth that both hold a value give the document of the deeper domain, not of the first name.
+- The cost of the order grows as the square of the count of the domains with a codec, when a table has such a parent.

@@ -1,7 +1,7 @@
 import { type Json, isEnvelope, isRecord } from "./doc.ts";
 import { type Result, describe, fail, ok } from "./errors.ts";
 import { type Machine, makeContext, prepare } from "./evaluate.ts";
-import { type Domain, type DomainCodec, domainOf, member } from "./types.ts";
+import { type Domain, type DomainCodec, domainOf, lineOf, member } from "./types.ts";
 
 /*
  * The codec of the values that JSON cannot write (K140, D40). A document holds such a value as a standard extension:
@@ -71,7 +71,7 @@ function setOwn(target: Record<string, Json>, key: string, value: Json): void {
 /** The state of one call of `encodeValue`. */
 interface Encoder {
   readonly domains: Domains;
-  /** The domains with a codec, in the order of their names. */
+  /** The domains with a codec, in the order of `codecOrder`. */
   readonly codecs: readonly (readonly [string, DomainCodec])[];
   /** The answer of `isJson` for each container that it examined. */
   readonly json: WeakMap<object, boolean>;
@@ -151,7 +151,8 @@ function encodeTerm(value: unknown, encoder: Encoder): Json {
  *
  * - A value that JSON writes exactly stays as it is. A literal with the shape of an envelope goes into `lit`.
  * - `NaN`, an infinity and `-0` become `ext.number`, and `undefined` becomes `ext.undefined`.
- * - A member of a domain with a codec becomes `ext.domain`. The domains go in the order of their names.
+ * - A member of a domain with a codec becomes `ext.domain`. The codec of a domain under another domain comes first
+ *   (EXT.SPECIFIC, D109). The order of the names decides between unrelated domains.
  * - A list or a plain record with such a value becomes the construct `list` or `record`.
  *
  * @param machine - The machine, or only its domains.
@@ -161,15 +162,34 @@ function encodeTerm(value: unknown, encoder: Encoder): Json {
  */
 export function encodeValue(machine: Pick<Machine, "domains">, value: unknown): Json {
   const domains = machine.domains;
+  return encodeTerm(value, { domains, codecs: codecOrder(domains), json: new WeakMap(), open: new Set() });
+}
+
+/**
+ * This function gives the domains with a codec in the order of `encodeValue` (EXT.SPECIFIC, D109). The depth of a
+ * domain is the count of the other domains with a codec in its line. A deeper domain comes first, and the order of the
+ * names decides between domains of the same depth (EXT.TIE). Thus a domain comes before each domain with a codec above it.
+ */
+function codecOrder(domains: Domains): readonly (readonly [string, DomainCodec])[] {
   const codecs: (readonly [string, DomainCodec])[] = [];
-  if (domains !== undefined) {
-    for (const name of Object.keys(domains).sort()) {
-      const domain = domainOf(name, domains);
-      const codec = domain === undefined ? undefined : codecOf(domain);
-      if (codec !== undefined) codecs.push([name, codec]);
-    }
+  if (domains === undefined) return codecs;
+  let parents = false;
+  for (const name of Object.keys(domains).sort()) {
+    const domain = domainOf(name, domains);
+    const codec = domain === undefined ? undefined : codecOf(domain);
+    if (domain === undefined || codec === undefined) continue;
+    codecs.push([name, codec]);
+    if (Array.isArray(domain.under)) parents = true;
   }
-  return encodeTerm(value, { domains, codecs, json: new WeakMap(), open: new Set() });
+  // Without a parent of a domain with a codec, each depth is zero, thus the order of the names stays.
+  if (!parents) return codecs;
+  const depth = new Map<string, number>();
+  for (const [name] of codecs) {
+    const line = lineOf(name, domains);
+    depth.set(name, codecs.filter(([other]) => other !== name && line.has(other)).length);
+  }
+  // The sort is stable, thus the order of the names stays between domains of the same depth.
+  return codecs.sort(([a], [b]) => (depth.get(b) as number) - (depth.get(a) as number));
 }
 
 /**

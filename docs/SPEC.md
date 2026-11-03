@@ -463,6 +463,8 @@ A document holds a value that JSON cannot write as a standard extension (D40). T
 | EXT.DOMAIN | `ext.domain` holds a record with only the text `domain` and the JSON `data`. The codec of that domain of the machine reads the data. A domain without a codec gives `#NAME?`. Data that the codec cannot read gives `#VALUE!`, and so does a value that is not a member of the domain. The plan and the reference agree. |
 | EXT.ENCODE | `encodeValue` writes a host value as a term document. JSON stays as it is, and a literal with the shape of an envelope goes into `lit`. `NaN`, an infinity, `-0` and `undefined` use `ext.number` and `ext.undefined`. A member of a domain with a codec uses `ext.domain`. A cycle and a value without a codec throw. |
 | EXT.ROUNDTRIP | `decodeValue(machine, encodeValue(machine, v))` gives `v` again by `sameValue`. A property test examines generated values. |
+| EXT.SPECIFIC | When two domains with codecs hold a value and one is under the other, `encodeValue` uses the codec of the lower domain. The names do not change this. A chain through a domain without a codec counts. A cycle of parents ends, and a parent that is not a domain ends its chain. The round trip holds. |
+| EXT.TIE | The depth of a domain with a codec is the count of the other domains with a codec in its line. `encodeValue` tries the deeper domain first, then the first name. |
 | EXT.TYPE | The check of types gives `ext.domain` the type of its domain when the domain has a codec. |
 
 ## The syntax kit
