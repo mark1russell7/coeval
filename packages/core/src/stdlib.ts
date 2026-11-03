@@ -324,9 +324,12 @@ export interface AttributeAnswer {
  * This function gives the memo cell of one attribute of one node, for a host that keeps its cells between evaluations
  * (TREE.CELL, D108). The kit uses it at each demand of an attribute in an evaluation.
  *
- * The array `place` is one object for each document of a plan, and it stays the same across the evaluations of that
- * plan. A new plan gives new arrays. Thus a host keeps its cells by the identity of `place` and by `attribute`.
- * A host that keeps its cells by the keys of `place` can give a stale answer after a change of the document.
+ * The array `place` is one object for each node of a plan in its scope. It stays the same across the evaluations of
+ * that plan. The scope of a node is the node around it, or the demand that made its tree (TREE.CELL-DOCUMENT,
+ * D115). Thus a cached plan, for example the plan of an equation, gives a new array for the nodes of each document.
+ *
+ * A new plan gives new arrays. Thus a host keeps its cells by the identity of `place` and by `attribute`.
+ * A host that keeps its cells by the keys of `place` can give the answer of another node or a stale answer.
  *
  * The function gives the answer of `compute`, or a kept answer. A host with signals gives a computed signal: a change
  * of its store then makes only the attributes that read the store compute again. Each demand gives a new `compute`, and
@@ -335,7 +338,7 @@ export interface AttributeAnswer {
  * The kit marks an attribute in evaluation before it uses the cell. Thus a cycle gives `#CYCLE!` before it reaches the
  * cell again. An exception of the function that `compute` did not throw gives `#CYCLE!` with the chain of the demands.
  *
- * @param place - The keys from the root document to the document of the node.
+ * @param place - The key of the node. Its items are the keys from the root document to the document of the node.
  * @param attribute - The name of the attribute.
  * @param compute - The function that visits the rungs of the ladder.
  * @returns The answer.
@@ -424,13 +427,59 @@ const BUSY: Cell = /* @__PURE__ */ Object.freeze({ busy: true });
 const NO_ANSWER: AttributeAnswer = /* @__PURE__ */ Object.freeze({ result: undefined, by: undefined });
 
 /**
- * The marks of the attributes in evaluation, for each place of a plan, with the cells of a host (TREE.CELL). Nodes of
- * two evaluations share their place and their kept cells, thus they share their marks.
+ * The marks of the attributes in evaluation, for each key of a node, with the cells of a host (TREE.CELL). Nodes of
+ * two evaluations share their key and their kept cells, thus they share their marks. Nodes of two documents have
+ * different keys, thus a nested evaluation gets its own marks (TREE.CELL-NESTED, D115).
  */
 const marksByPlace = /* @__PURE__ */ new WeakMap<readonly Key[], Map<string, Cell>>();
 
-/** The trees of the cells of a host, for each place of a root in a plan. Nodes of two evaluations stay in one tree. */
+/** The trees of the cells of a host, for each key of a root. Nodes of two evaluations stay in one tree. */
 const buildsByPlace = /* @__PURE__ */ new WeakMap<readonly Key[], TreeBuild>();
+
+/** The keys of the nodes with the cells of a host, for each scope and each place of a plan (D115). */
+const keysByScope = /* @__PURE__ */ new WeakMap<object, WeakMap<readonly Key[], readonly Key[]>>();
+
+/** The scopes of the roots that a demand made, for each marks of a node and each name of an attribute (D115). */
+const demandScopes = /* @__PURE__ */ new WeakMap<Map<string, Cell>, Map<string, object>>();
+
+/**
+ * This function gives the key of a node with the cells of a host (TREE.CELL-DOCUMENT, D115). The key of the node
+ * around the node is its scope. A root without such a node has the scope of the open demand, or no scope.
+ * Without a scope, the key is the place of the plan. Thus a cached plan gives a new key for the nodes of each
+ * document, and each evaluation of a document gives the same keys.
+ *
+ * @param place - The place of the document of the node in its plan.
+ * @param above - The state of the node around the node, or `undefined`.
+ * @returns The key: an array with the keys of `place`.
+ */
+function cellPlace(place: readonly Key[], above: NodeState | undefined): readonly Key[] {
+  let scope: object | undefined = above?.place;
+  if (scope === undefined) {
+    const demand = demands[demands.length - 1];
+    if (demand === undefined) return place;
+    let byName = demandScopes.get(demand.cells);
+    if (byName === undefined) {
+      byName = new Map();
+      demandScopes.set(demand.cells, byName);
+    }
+    scope = byName.get(demand.key);
+    if (scope === undefined) {
+      scope = {};
+      byName.set(demand.key, scope);
+    }
+  }
+  let keys = keysByScope.get(scope);
+  if (keys === undefined) {
+    keys = new WeakMap();
+    keysByScope.set(scope, keys);
+  }
+  let key = keys.get(place);
+  if (key === undefined) {
+    key = Object.freeze([...place]);
+    keys.set(place, key);
+  }
+  return key;
+}
 
 /** This function gives the value of a weak map, or puts a new value in it. */
 function keptAt<T>(map: WeakMap<readonly Key[], T>, place: readonly Key[], make: () => T): T {
@@ -811,10 +860,11 @@ function plainOf(value: unknown, path: Set<object>): Result {
  * fold or a default, come last. A failed attribute throws `Failure` with its own error, thus a reference to it gives that error.
  * The argument `outer` is the self of the context, that `treeNode` resolved. The node reads no root of the context directly (C4).
  *
- * The argument `host` gives the memo cells of the host (TREE.CELL), or `undefined` for the plain memo of the node.
+ * The argument `place` is the key of the node. With the cells of a host, `cellPlace` gives it. Else it is the place of
+ * the plan. The argument `host` gives the memo cells of the host (TREE.CELL), or `undefined` for the plain memo of the node.
  */
-function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined, host: AttributeCell | undefined): HostThing {
-  const { parts, context, kind: type, place, machine } = input;
+function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, outer: Thing | undefined, host: AttributeCell | undefined): HostThing {
+  const { parts, context, kind: type, machine } = input;
   // The equations evaluate in the evaluation that made the node, thus their reads go in its list (READS.EQUATION).
   const runtime = (input as InputWithRuntime)[RUNTIME];
   const { tree, of } = contractOf(machine, input.typePath);
@@ -822,7 +872,7 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined,
   // Only a node of the same tree is a parent for the rungs `parent` and `copy`.
   const up = above !== undefined && above.build === build ? above : undefined;
   const cells = new Map<string, Cell>();
-  // With the cells of a host, the marks of a place serve each node of the place (TREE.CELL).
+  // With the cells of a host, the marks of a key serve each node of the key (TREE.CELL).
   const marks = host === undefined ? cells : keptAt(marksByPlace, place, () => new Map<string, Cell>());
   // Only a node whose kind declares a circular attribute takes the path of D113 outside a fixed point.
   const circular = hasCircular(tree);
@@ -1051,11 +1101,13 @@ function treeNode(input: EvalInput, host: AttributeCell | undefined): Result {
   const found = input.resolve(SELF_PATH, NO_HOPS);
   const outer = found.ok ? found.thing : undefined;
   const above = stateOf(outer);
-  if (above !== undefined && above.build.open) return ok(treeThing(input, above.build, outer, host));
+  // With the cells of a host, the key of a node holds its scope (D115). Without them, the place of the plan serves.
+  const place = host === undefined ? input.place : cellPlace(input.place, above);
+  if (above !== undefined && above.build.open) return ok(treeThing(input, place, above.build, outer, host));
   // With the cells of a host, a kept value can hold a node of an earlier evaluation. Thus that node stays in the tree.
-  const build: TreeBuild = host === undefined ? { open: true } : keptAt(buildsByPlace, input.place, () => ({ open: true }));
+  const build: TreeBuild = host === undefined ? { open: true } : keptAt(buildsByPlace, place, () => ({ open: true }));
   build.open = true;
-  const root = treeThing(input, build, outer, host);
+  const root = treeThing(input, place, build, outer, host);
   try {
     return (stateOf(root) as NodeState).json(new Set());
   } finally {

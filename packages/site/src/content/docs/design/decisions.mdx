@@ -114,6 +114,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D111 | `factsOf` with a verb other than `eval` gives the effects of the entry of the verb in `verbEffects`. A kind is on the run side for that verb when its entry declares an effect. A kind without an entry adds nothing. |
 | D112 | `printReads` keeps a print of the value of each read, and the option `prints` of `verifyReads` compares it. Thus a host finds a value that changed in place. Without the option, the verification does no new work. |
 | D113 | An attribute with the declaration `circular: { start, limit }` evaluates to a fixed point. A demand in its cycle gets the current approximation, and the limit gives `#CYCLE!`. |
+| D115 | With the cells of a host, each node gets a key in its scope: the node around it, or the demand that made its tree. Thus the cached plan of an equation gives each document its own cells and marks. |
 
 ## Open
 
