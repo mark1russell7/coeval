@@ -750,6 +750,8 @@ The check `truth` examines the premise of TYPE.TRUTH-SOUND (CONFORM.TRUTH, D86).
 
 The check `cover` examines the premise of TYPE.FITS-COVER (CONFORM.COVER, D94). Each sample of a covered domain is in one domain of each cover of the domain.
 
+The check `parallel` examines the code of a runner under the rule ALL (CONFORM.PARALLEL, D128). The probe `all` keeps that rule. The result, the parts and the effects of a probe do not change with the order of the waits. The rule gives a stop by `failFast` to the order of the host, thus such a stop gets no comparison.
+
 ## Facts that SPEC did not state
 
 The work on the rules found six facts that the code has and `SPEC.md` did not state. Each one has a requirement ID in `SPEC.md` and a test in `semantics.test.ts`.
