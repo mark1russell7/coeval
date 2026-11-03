@@ -3862,3 +3862,38 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 - Limit 1 of D108 stays. Two nodes of one document in one scope, for example two items of a map in one attribute, share one key.
 - A root whose scope is a demand of a node without the cells of a host gets a new scope in each evaluation. The marks of such a node are new in each evaluation. Thus the cells of that tree are not kept.
 - A host that gives two evaluations of one plan different names keeps the cells of the first one. The host drops the cells that read the changed names, as in TREE.CELL-STORE.
+
+## D116 (2026-11-03): a ladder of steps for each language, with the step of each construct as data
+
+**Context.** K215. A language that grows can lose a guarantee. A formula language with loops of a fixed count ends for each program. A loop with a limit from the data, a fixed point or a function that calls itself can cost more, or not end. A host must know which guarantee a program keeps before it accepts the program. The first language with this need has three steps: A (each loop has a fixed count), B (limits from the data and monotone fixed points) and C (functions that call themselves, with a budget).
+
+**Decision.**
+
+- A ladder is data: the names of the steps from the lowest to the highest, and the step that each construct needs. `stepLadder` checks the declaration and freezes it. A construct without an entry needs the lowest step.
+- The language gives a walk: the construct of a node and its child nodes, each with a key. The kernel does not know the documents of the language, thus a language with its own tree uses the module too.
+- `stepOf` gives the lowest step that a document needs. It is the highest step of the constructs of the document. The reason is the first node in document order with that step: its construct, its step, its path and the node.
+- `checkStep` compares the step with the highest step that the host accepts, `maxStep`. It gives a refusal that names the needed step, the limit and the reason.
+- The host gives `maxStep`. A document cannot raise its own step, because the declaration comes from the language and the limit from the host.
+- A limit changes only which documents a host accepts. The module only reads the document, thus a language evaluates an accepted document as before.
+
+**Rejected options.**
+
+- A function for the step of each node in place of a table. A table is data that a test, a catalog and an explanation can read. A language that needs the step of a variant gives the variant its own construct name, for example `iterate.data`.
+- A walk of the documents of the kernel only. The first language checks its own expression tree before it makes a document of the kernel.
+- A construct without an entry that is an error. A language adds constructs often, and its own test can check that the table has each construct.
+- A reason with each node of the highest step. The first node is enough for a refusal, and the walk can stop at the first node of the highest step of the ladder.
+- The name `ladder` for the module. The ladder of `ask` finds the evaluator of a verb, which is a different thing.
+
+**Why.** A language keeps the step of each construct in one table, and the kernel keeps the walk, the reason and the refusal in one place. A second language gets the same rules and the same messages.
+
+**Cost.** One walk of the document with its own stack, linear in the number of its nodes. A shared node is visited one time.
+
+**Public types.** New exports: `StepKey`, `StepLadder`, `StepNeed`, `StepReason`, `StepRefusal`, `StepWalk`, `checkStep`, `isStep`, `stepLadder`, `stepOf` and `stepRank`. This is a feature for the next PATCH release, because the version is before `1.0.0`.
+
+**Changed expected values.** None.
+
+**Limits.**
+
+- The step of a construct is a fact of its name. A step that depends on the data of a node needs a construct name for each variant.
+- The reason gives one node. A host that shows each node of a step walks the document itself.
+

@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.20.1
+
+PATCH: before `1.0.0`, a new feature increases PATCH. The new exports change nothing that exists.
+
+### New features
+
+- **A ladder of steps for each language (D116).** A language declares its steps, from the lowest to the highest, and the step of each construct as data with `stepLadder`. `stepOf` gives the lowest step that a document needs, with the first node that needs it. `checkStep` refuses a document above the highest step that the host accepts, and the refusal names the needed step. The new exports are `StepKey`, `StepLadder`, `StepNeed`, `StepReason`, `StepRefusal`, `StepWalk`, `checkStep`, `isStep`, `stepLadder`, `stepOf` and `stepRank`.
+
 ## 0.20.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. A node with the cells of a host gets a new key, and the place of such a node is a new array. Circular attributes are a new feature. No export goes.

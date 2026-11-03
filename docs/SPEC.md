@@ -328,6 +328,18 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.KNOWN | `check` asks the hook `known` of the machine about the kind and the evaluator of each document. A name that the evaluator does not know gives `#NAME?` with the reason of a run, for example an unknown operation. |
 | STATIC.COVERAGE | `checkWorld(machine, verbs)` checks the world before a document exists. It gives `#NOEVAL` for each kind and verb of the list when the kind has no entry and the world has no default for the verb. Thus a kind with no `view` entry, in a world with no `view` default, is in the list. The check visits each kind of each namespace and each fallback kind, and it does not follow an alias. A document of a kind in the list gives `#NOEVAL` in `check` with that verb. |
 
+## The steps of a language
+
+A step is a level of the power of a language (D116). A language declares its steps and the step of each construct as data. The host sets the highest step that it accepts.
+
+| ID | Rule |
+| --- | --- |
+| STEPS.LADDER | `stepLadder(steps, constructs)` makes a ladder: the names of the steps from the lowest to the highest, and the step of each construct. An empty list, a name two times and a construct with a step that is not in the list throw a `TypeError`. The ladder is frozen. `isStep` tells if a value is a step, and `stepRank` gives its position. |
+| STEPS.LOWEST | `stepOf(ladder, walk, root)` gives the lowest step that a document needs: the highest step of the constructs of its nodes. A node without a construct, or with a construct without an entry, needs the lowest step. The language gives the construct and the child nodes of a node in `walk`. |
+| STEPS.REASON | The reason of the step is the first node in document order whose construct needs that step. It gives the construct, the step, the path of keys from the root and the node. A document of the lowest step has no reason. |
+| STEPS.MAX | `checkStep(ladder, need, maxStep)` gives `undefined` when the step is `maxStep` or lower. Otherwise it gives a refusal with the needed step, the limit, the reason and a message that names them. A name that is not a step throws a `TypeError`. |
+| STEPS.LINEAR | The walk of `stepOf` has its own stack, thus a chain of 100000 nodes does not overflow. It visits a shared node one time, and it stops at the first node of the highest step of the ladder. |
+
 ## The static facts
 
 `factsOf` gives the static facts of a document for a schedule (R4 P2, D24). They depend only on the document and the machine.

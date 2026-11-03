@@ -92,6 +92,7 @@ export {
   kindNamed,
   kindOf,
 } from "./ladder.ts";
+export { type StepKey, type StepLadder, type StepNeed, type StepReason, type StepRefusal, type StepWalk, checkStep, isStep, stepLadder, stepOf, stepRank } from "./steps.ts";
 export {
   type Cap,
   type Context,
