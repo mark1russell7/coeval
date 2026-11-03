@@ -43,9 +43,12 @@ export interface DocFacts {
    * here. The roots that a kind declares in `reads` are here too, each one at the place of its document.
    */
   readonly reads: readonly StaticRead[];
-  /** `"run"` when one kind of the document is on the run side (FACTS.SIDE). */
+  /** `"run"` when one kind of the document is on the run side for the verb of the facts (FACTS.SIDE, FACTS.VERB-SIDE). */
   readonly side: Side;
-  /** The kinds of the effects that the contracts declare, as texts with dots, each one time (FACTS.EFFECTS). */
+  /**
+   * The kinds of the effects that the contracts declare for the verb of the facts, as texts with dots, each one time
+   * (FACTS.EFFECTS, FACTS.VERB-EFFECTS).
+   */
   readonly effects: readonly string[];
   /**
    * `true` when each kind of the document declares `pure`, and the document has no effect and is not volatile. Then
@@ -63,8 +66,10 @@ export interface FactsOptions {
   /** The type of a bare root value. */
   readonly declaredType?: string;
   /**
-   * The verb whose evaluators the facts describe, as in `prepare`. The default is `eval`. The contract of a kind
-   * describes the code of `eval` only. For another verb, only the hook `facts` describes the code (FACTS.VERB).
+   * The verb whose evaluators the facts describe, as in `prepare`. The default is `eval`. The marks `pure`,
+   * `volatile` and `lazy` of a contract describe the code of `eval` only. For another verb, only the hook `facts`
+   * describes the code (FACTS.VERB). The side and the effects come from the entry of the verb in `verbEffects`
+   * (FACTS.VERB-EFFECTS, D111).
    */
   readonly verb?: string;
   /**
@@ -157,7 +162,7 @@ function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean
  *   declares `reads` adds a read of each of its roots at each document of the kind. The first document of a tree
  *   kind also gets the lazy reads of the equations of its kind (FACTS.EQUATIONS). A read from `self` or from a name
  *   of a rung is not one of them, because it is not free (READS.EQUATION).
- * - `side` and `effects`: from the contract of each kind.
+ * - `side` and `effects`: from the contract of each kind, for the verb of the facts.
  * - `pure`: each kind declares `pure`, also in an equation, and the document has no effect and is not volatile.
  * - `volatile`: a kind, an operation or a step document declares `volatile`, or the host marks a read.
  *
@@ -166,9 +171,11 @@ function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean
  * entry. Thus a document with an own entry for another evaluator is not pure, and each of its parts is lazy. The
  * hook can still answer for that evaluator.
  *
- * The option `verb` names the verb whose code the facts describe (FACTS.VERB). A contract describes the code of
- * `eval`, thus the rule of an own entry applies to each document for another verb. The side and the effects come
- * from the contracts for each verb.
+ * The option `verb` names the verb whose code the facts describe (FACTS.VERB). The marks of a contract describe the
+ * code of `eval`, thus the rule of an own entry applies to each document for another verb. For another verb, the
+ * effects are the effects that the entry of the verb in `verbEffects` declares (FACTS.VERB-EFFECTS, D111). A kind is
+ * on the run side for that verb when its entry declares an effect (FACTS.VERB-SIDE). A kind without an entry for the
+ * verb adds no effect, as in `check` (FACTS.VERB-UNDECLARED). Its code is still not pure without an answer of the hook.
  *
  * A read is one resolution of its path. A reference that the resolution reaches and follows is a part of that read
  * (DEREF.COLLAPSE), not a separate read. The facts depend only on the document and the machine. Thus a host computes
@@ -239,13 +246,18 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
           if (node !== undefined && root === "self") continue;
           add({ root, keys: NONE, exact: true, lazy, address: false, path: [root], place: tight(place.place), at: tight(place.at) });
         }
+        // check and effectsOf read the declared effects with the same function (D27). The verb of the facts selects the
+        // declaration: effects for eval, and the entry of verbEffects for another verb (D49, D111).
+        const declared = declaredEffects(v, verb);
+        // The field side gives the side of eval. For another verb, a declared effect needs a runner, as in check, thus
+        // the run side (FACTS.VERB-SIDE).
+        const runs = verb === "eval" ? kind.side === "run" : declared.length > 0;
         // An equation evaluates without capabilities, thus an effect in it never reaches the host. It is still not pure.
-        if (kind.side === "run") {
+        if (runs) {
           if (node === undefined) side = "run";
           else pure = false;
         }
-        // check and effectsOf read the declared effects with the same function (D27).
-        for (const keys of declaredEffects(v)) {
+        for (const keys of declared) {
           if (node !== undefined) {
             pure = false;
             continue;

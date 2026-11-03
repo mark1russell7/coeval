@@ -24,6 +24,7 @@ import {
   ROOTS,
   STD_MACHINE,
   THING,
+  check,
   context,
   docEquals,
   evaluate,
@@ -515,6 +516,28 @@ describe("the static facts of generated documents", () => {
 
 const machine = formulaMachine(STRICT);
 
+/**
+ * This function gives a machine with a verb `format` and five kinds whose verbs `eval` and `format` declare other
+ * effects (FACTS.VERB-EFFECTS). The code of `format` gives a text and causes no effect.
+ */
+function formatMachine(): Machine {
+  const record = { shape: "record", fields: ["value"] } as const;
+  const kinds: Readonly<Record<string, Kind>> = {
+    print: { verbs: { eval: "effect.write" }, parts: record, side: "run", effects: ["write"], verbEffects: { format: ["print"] } },
+    quiet: { verbs: { eval: "effect.write" }, parts: record, side: "run", effects: ["write"], verbEffects: { format: [] } },
+    bare: { verbs: { eval: "effect.write" }, parts: record, side: "run", effects: ["write"] },
+    shout: { verbs: { eval: "list.all" }, parts: { shape: "list" }, verbEffects: { format: ["print"] } },
+    page: { verbs: { eval: "list.all" }, parts: { shape: "list" }, verbEffects: { format: "type" } },
+  };
+  const text: EvalFn = () => ok("");
+  return mergeMachines(STD_MACHINE, { world: { kinds, defaults: { format: "format.text" } }, evaluators: { "format.text": text } });
+}
+
+/** This function gives a document of a kind of `formatMachine`, with a key and a value. */
+function printDoc(type: string): Json {
+  return { type, value: { key: "k", value: { type: "number", value: 1 } } };
+}
+
 describe("factsOf", () => {
   it("[FACTS.READS] the reads are the free references from a root, with their keys, places and JSON paths", () => {
     const doc = {
@@ -704,12 +727,91 @@ describe("factsOf", () => {
     const described: Machine = { ...formats, facts: (_path, code) => (code === "show" ? { pure: true, lazy: [] } : undefined) };
     const answered = factsOf(described, doc, { verb: "format" });
     expect([answered.pure, answered.reads.map((read) => read.lazy)]).toEqual([true, [false, false]]);
-    // The reads, the side and the effects do not depend on the verb.
+    // The reads keep their roots and keys for each verb. The side and the effects come from the contract of the verb
+    // (FACTS.VERB-EFFECTS). The kinds seq and log declare no effect for format.
     const log = { type: "seq", value: [ref("names", "a"), { type: "log", value: ["x"] }] };
-    expect(factsOf(formats, log, { verb: "format" })).toMatchObject({ side: "run", effects: ["log"], reads: [{ keys: ["a"] }] });
+    expect(factsOf(formats, log, { verb: "format" })).toMatchObject({ side: "derive", effects: [], reads: [{ keys: ["a"] }] });
     // A step document runs the walker that the ladder finds. An own entry of step names code that the contract does not describe.
     const step = (own?: Readonly<Record<string, string>>): Json => ref("self", { type: "nearest", ...(own === undefined ? {} : { own }), value: { type: "panel" } });
     expect([factsOf(STD_MACHINE, step()).pure, factsOf(STD_MACHINE, step({ step: "walk.other" })).pure, factsOf(STD_MACHINE, step({ step: "walk.nearest" })).pure]).toEqual([true, false, true]);
+  });
+
+  it("[FACTS.VERB-EFFECTS] for another verb, the effects come from the entry of the verb in verbEffects, not from the field effects", () => {
+    const formats = formatMachine();
+    // The verb format of print declares the effect print, and its verb eval declares the effect write.
+    expect(factsOf(formats, printDoc("print"), { verb: "format" })).toMatchObject({ side: "run", effects: ["print"], pure: false });
+    expect(factsOf(formats, printDoc("print"))).toMatchObject({ side: "run", effects: ["write"], pure: false });
+    // Each effect comes one time, in the order of the document. The effects of eval do not count for format.
+    const doc = { type: "list", value: [printDoc("quiet"), printDoc("print"), { type: "log", value: ["x"] }, printDoc("print")] };
+    expect(factsOf(formats, doc, { verb: "format" }).effects).toEqual(["print"]);
+    expect(factsOf(formats, doc).effects).toEqual(["write", "log"]);
+    // The entry "type" gives the type of the document, as the field effects does.
+    expect(factsOf(formats, { type: "page", value: [] }, { verb: "format" })).toMatchObject({ side: "run", effects: ["page"] });
+    // An entry for one verb does not count for another verb.
+    expect(factsOf(formats, printDoc("print"), { verb: "view" })).toMatchObject({ side: "derive", effects: [] });
+  });
+
+  it("[FACTS.VERB-SIDE] for another verb, a kind is on the run side when its entry in verbEffects declares an effect", () => {
+    const formats = formatMachine();
+    // The kind quiet is on the run side for eval, and its verb format declares no effect.
+    expect(factsOf(formats, printDoc("quiet"), { verb: "format" })).toMatchObject({ side: "derive", effects: [], pure: false });
+    expect(factsOf(formats, printDoc("quiet")).side).toBe("run");
+    // The kind shout is on the derive side for eval, and its verb format declares an effect. A part on the run side
+    // puts the whole document on the run side.
+    const shout = { type: "shout", value: [] };
+    expect(factsOf(formats, { type: "list", value: [1, shout] }, { verb: "format" })).toMatchObject({ side: "run", effects: ["print"] });
+    expect(factsOf(formats, shout)).toMatchObject({ side: "derive", effects: [] });
+    // The hook describes the code of another verb. A document without an effect is then pure.
+    const described: Machine = { ...formats, facts: (_path, code) => (code === "format.text" ? { pure: true } : undefined) };
+    expect(factsOf(described, printDoc("quiet"), { verb: "format" })).toMatchObject({ side: "derive", pure: true });
+    expect(factsOf(described, shout, { verb: "format" })).toMatchObject({ side: "run", pure: false });
+  });
+
+  it("[FACTS.VERB-UNDECLARED] for another verb, a kind without an entry in verbEffects adds no effect and does not change the side", () => {
+    const formats = formatMachine();
+    // The kind bare declares the effect write and the run side for eval, and nothing for format.
+    expect(factsOf(formats, printDoc("bare"), { verb: "format" })).toMatchObject({ side: "derive", effects: [], pure: false });
+    expect(factsOf(formats, printDoc("bare"))).toMatchObject({ side: "run", effects: ["write"] });
+    // The kinds of the standard world declare no effect for format. check then tests no effect, and the facts agree.
+    const log = { type: "seq", value: [{ type: "number", value: 1 }, { type: "log", value: ["x"] }] };
+    expect(factsOf(formats, log, { verb: "format" })).toMatchObject({ side: "derive", effects: [], pure: false });
+    expect(check(formats, log, { verb: "format", caps: [] })).toEqual([]);
+    expect(check(formats, log, { caps: [] }).map((issue) => issue.code)).toEqual(["#CAP!"]);
+    // Only the hook can make the code of such a kind pure.
+    const described: Machine = { ...formats, facts: (_path, code) => (code === "format.text" ? { pure: true } : undefined) };
+    expect(factsOf(described, printDoc("bare"), { verb: "format" }).pure).toBe(true);
+  });
+
+  it("[FACTS.VERB-CHECK] the facts and check agree on the effects and on the run side of each verb", () => {
+    const formats = formatMachine();
+    const docs: readonly Json[] = [
+      printDoc("print"),
+      printDoc("quiet"),
+      printDoc("bare"),
+      { type: "page", value: [] },
+      { type: "shout", value: [] },
+      { type: "list", value: [printDoc("quiet"), { type: "shout", value: [] }, { type: "log", value: ["x"] }, printDoc("print")] },
+      { type: "seq", value: [{ type: "write", value: { key: "k", value: { type: "number", value: 1 } } }, printDoc("bare")] },
+    ];
+    // The text of the effect of each #CAP! of check.
+    const refused = (issues: readonly { readonly code: string; readonly reason: string }[]): readonly string[] => [
+      ...new Set(issues.filter((issue) => issue.code === "#CAP!").map((issue) => /the effect (\S+?)(?: here)?\./.exec(issue.reason)?.[1] ?? issue.reason)),
+    ];
+    for (const verb of ["eval", "format"]) {
+      for (const doc of docs) {
+        const facts = factsOf(formats, doc, { verb });
+        const label = `${verb} ${JSON.stringify(doc)}`;
+        // Without capabilities, check refuses each effect of the facts, and no other effect.
+        expect([...refused(check(formats, doc, { verb, caps: [] }))].sort(), label).toEqual([...facts.effects].sort());
+        // With the effects of the facts as its capabilities, check refuses no effect.
+        expect(refused(check(formats, doc, { verb, caps: [...facts.effects] })), label).toEqual([]);
+        if (verb === "format") {
+          // In a run, the evaluator of format needs a runner for a declared effect: that is the run side.
+          const needs = check(formats, doc, { verb, run: true }).some((issue) => issue.code === "#CALC!");
+          expect(needs, label).toBe(facts.side === "run");
+        }
+      }
+    }
   });
 
   it("[FACTS.PROFILE] formulaMachine gives the hook facts of its profile: lazy, pure and volatile operations, and the extensions", () => {
