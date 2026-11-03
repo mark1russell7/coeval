@@ -701,7 +701,6 @@ describe("the types of the roots, of the names and of the paths", () => {
       [["names", "box", "tags", 0], "text"],
       [["names", "box", "tags", "1"], "text"],
       [["names", "box", "tags", "length"], "number"],
-      [["names", "box", "tags", "first"], "unknown"],
       [["names", "box", "other"], "unknown"],
       [["names", "either", "a"], { union: ["number", "text"] }],
       [["names", "either", "b"], "bool"],
@@ -732,6 +731,26 @@ describe("the types of the roots, of the names and of the paths", () => {
     const data = swapMachine(TYPED, { plain: true });
     expect(typeIssuesOf(data, envelope).map((issue) => issue.reason)).toEqual(["The value at names.e has no field a. Its fields are type and value."]);
     expect(evaluate(data, envelope).result).toMatchObject({ ok: false, error: { code: "#N/A" } });
+  });
+
+  it("[TYPE.NO-STEP] a step into a base type of the kernel, a function, or a list with another key is a type issue, as the run gives #N/A", () => {
+    const world: ValueType = {
+      record: { n: "number", t: "text", b: "bool", z: "null", f: { fn: ["number"], to: "number" }, l: { list: "text" }, u: { union: ["number", { record: { a: "number" }, closed: true }] }, p: "point" },
+    };
+    const options = { ...LIT, rootTypes: { world } };
+    const value = { n: 1, t: "abc", b: true, z: null, f: (x: number): number => x, l: ["a"], u: 2, p: { x: 1, y: 2 } };
+    // Each of these steps reaches nothing in a run. The check gives the issue, and the reference gets unknown.
+    const impossible: readonly (readonly Json[])[] = [["n", "x"], ["t", "length"], ["t", 0], ["b", "x"], ["z", "x"], ["f", "x"], ["l", "first"], ["l", "-1"]];
+    for (const path of impossible) {
+      const typing = typeCheck(rooted, ref("world", ...path), options);
+      expect(typing.type, JSON.stringify(path)).toBe("unknown");
+      expect(typing.issues.map((issue) => issue.reason), JSON.stringify(path)).toEqual([`The value at world.${String(path[0])} has no field ${String(path[1])}.`]);
+      expect(evaluate(rooted, ref("world", ...path), context({ world: value })).result, JSON.stringify(path)).toMatchObject({ ok: false, error: { code: "#N/A" } });
+    }
+    // A union keeps only its members with the step, because a member without it makes the path fail.
+    expect(typeCheck(rooted, ref("world", "u", "a"), options)).toMatchObject({ type: "number", issues: [] });
+    // A base type outside the kernel can hold host things, thus a step without a type of its domain gives unknown.
+    expect(typeCheck(rooted, ref("world", "p", "z"), options)).toMatchObject({ type: "unknown", issues: [] });
   });
 
   it("[TYPE.WALKER] the type rule of a walker gives the type of what a step document reaches", () => {
