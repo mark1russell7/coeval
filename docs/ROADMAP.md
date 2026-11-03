@@ -129,7 +129,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K61 | A check that host values do not change in place. verifyReads compares host values by identity, so a change in place stays hidden. From S1b. | later | S1b |
 | K140 | A codec for values that are not JSON: an ext.domain extension with encode and decode from the domains of a machine, next to ext.number. Then each language writes NaN, -0 and domain values as the same documents (D12). From a review of duplicate code. | done (2026-10-25, D40, released in the next batch) | none |
 | K141 | A kernel check of the laws of a codec: `decode(encode(v))` equals `v` for sample members, and `encode` gives JSON. Today each language tests its own codec. From K140. | later | K140 |
-| K142 | `encodeValue` picks the most specific domain: a domain with a codec under another domain with a codec wins. Today the order of the names decides. From K140. | later | K140 |
+| K142 | `encodeValue` picks the most specific domain: a domain with a codec under another domain with a codec wins. Today the order of the names decides. From K140. | done (2026-11-02, D109) | K140 |
 | K143 | Literal rules for `ext.domain` in a syntax profile, for example a date literal of a spreadsheet. The rule reads the text through the codec of a domain. From C15. | later | C15, K140 |
 | K144 | `parse` recovers after an issue and gives each issue of a text, for an editor. Today it stops at the first issue. From C15. | later | C15 |
 | K145 | Text forms for the constructs `let`, `fn`, `call` and `record` in `STD_SYNTAX`. Today the standard profile writes only operators, calls, `if` and `list`. From C15. | later | C15 |
