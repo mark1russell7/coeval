@@ -116,6 +116,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D113 | An attribute with the declaration `circular: { start, limit }` evaluates to a fixed point. A demand in its cycle gets the current approximation, and the limit gives `#CYCLE!`. |
 | D114 | The bench uses the shared bench core `@mark1russell7/rigor-bench`. A new process starts each arm, and the verdict of a case is "same", "faster", "slower" or "cannot decide". The two runs pool their rounds. |
 | D115 | With the cells of a host, each node gets a key in its scope: the node around it, or the demand that made its tree. Thus the cached plan of an equation gives each document its own cells and marks. |
+| D116 | A language declares a ladder of steps and the step of each construct as data. `stepOf` gives the lowest step that a document needs, with the reason. `checkStep` refuses a step above the limit of the host. |
 
 ## Open
 
