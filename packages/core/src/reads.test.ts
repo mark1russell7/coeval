@@ -25,6 +25,7 @@ import {
   mergeMachines,
   ok,
   prepare,
+  printReads,
   random,
   refsOf,
   run,
@@ -761,5 +762,158 @@ describe("the reads of an evaluation", () => {
     // factsOf counts the same read: the reference, not its target.
     expect(factsOf(machine, ref("names", "hop")).reads.map((read) => read.keys)).toEqual([["hop"]]);
   });
-});
 
+  it("[READS.IN-PLACE] with the prints of printReads, verifyReads finds a host value that changed in place, and without them the change stays hidden", () => {
+    const doc = { type: ["ops", "keys"], value: [ref("names", "box")] };
+    const plan = prepare(machine, doc);
+    const box: Record<string, unknown> = { a: 1 };
+    const reads: Read[] = [];
+    expect(plan.evaluate(names({ box }), { reads })).toEqual(ok(["a"]));
+    const prints = printReads(reads);
+    expect(prints.prints).toHaveLength(1);
+    // A value that did not change gives no finding, with or without the prints.
+    expect(verifyReads(plan, reads, names({ box }))).toEqual({ same: true });
+    expect(verifyReads(plan, reads, names({ box }), { prints })).toEqual({ same: true });
+    // A change in place keeps the same object. Without the prints the old result stays, and it is stale.
+    box["b"] = 2;
+    expect(verifyReads(plan, reads, names({ box }))).toEqual({ same: true });
+    expect(plan.evaluate(names({ box }))).toEqual(ok(["a", "b"]));
+    expect(verifyReads(plan, reads, names({ box }), { prints })).toEqual({ same: false, index: 0, read: reads[0], now: ok(box), inPlace: true });
+    // A replaced value is a changed read as before, without the mark inPlace.
+    expect(verifyReads(plan, reads, names({ box: { a: 2 } }), { prints })).toEqual({ same: false, index: 0, read: reads[0], now: ok({ a: 2 }) });
+    // A new record with the same fields is the same, and its print is the same too.
+    const fresh: Read[] = [];
+    plan.evaluate(names({ box: { a: 1, list: [1, 2] } }), { reads: fresh });
+    expect(verifyReads(plan, fresh, names({ box: { a: 1, list: [1, 2] } }), { prints: printReads(fresh) })).toEqual({ same: true });
+
+    // A host value inside a new record: sameResult compares it by identity, and the print walks it.
+    const when = new Date(0);
+    const map = new Map<string, number>([["k", 1]]);
+    const set = new Set<number>([1]);
+    const host = new Box([1]);
+    const nested = prepare(machine, ref("names", "r"));
+    const nestedReads: Read[] = [];
+    const record = (): Readonly<Record<string, unknown>> => ({ r: { when, map, set, host } });
+    nested.evaluate(names(record()), { reads: nestedReads });
+    const nestedPrints = printReads(nestedReads);
+    expect(verifyReads(nested, nestedReads, names(record()), { prints: nestedPrints })).toEqual({ same: true });
+    const changes: (() => void)[] = [() => when.setTime(1), () => map.set("k", 2), () => set.add(2), () => (host.v as number[]).push(2)];
+    for (const change of changes) {
+      change();
+      expect(verifyReads(nested, nestedReads, names(record()))).toEqual({ same: true });
+      expect(verifyReads(nested, nestedReads, names(record()), { prints: nestedPrints })).toMatchObject({ same: false, index: 0, inPlace: true });
+    }
+
+    // A kept read compares its print too: here a kind sets a new self, and the root self changed in place.
+    const within: EvalFn = ({ parts, context: ctx }) => parts[0]?.evaluate({ ...ctx, self: { inner: ctx.self } }) ?? ok(null);
+    const kinds = { ...STD_MACHINE.world.kinds, within: { verbs: { eval: "t.within" }, parts: { shape: "list" as const } } };
+    const setter: Machine = { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds }, evaluators: { ...STD_MACHINE.evaluators, "t.within": within } };
+    const self: Record<string, unknown> = { w: 5 };
+    const kept: Read[] = [];
+    const inner = prepare(setter, { type: "within", value: [ref("self", "inner", "w")] });
+    inner.evaluate(context({ self }), { reads: kept });
+    const keptPrints = printReads(kept);
+    // Only the kept read of the root self has a print. The read through the self of the kind is not free.
+    expect(kept.map((read) => read.kept === true)).toEqual([true, false]);
+    expect(keptPrints.prints.map((print) => print !== undefined)).toEqual([true, false]);
+    expect(verifyReads(inner, kept, context({ self }), { prints: keptPrints })).toEqual({ same: true });
+    self["w"] = 7;
+    expect(verifyReads(inner, kept, context({ self }))).toEqual({ same: true });
+    expect(verifyReads(inner, kept, context({ self }), { prints: keptPrints })).toMatchObject({ same: false, index: 0, inPlace: true });
+  });
+
+  it("[READS.PRINT-LIMIT] a print ends at a cycle, starts no getter, takes a stamp, and a value over the limit or an exception gives a changed read", () => {
+    const plan = prepare(machine, ref("names", "v"));
+    const readsOf = (v: unknown): Read[] => {
+      const list: Read[] = [];
+      plan.evaluate(names({ v }), { reads: list });
+      return list;
+    };
+    // A read with a primitive value or an error has no print.
+    expect(printReads(readsOf(1)).prints).toEqual([undefined]);
+    const missing: Read[] = [];
+    plan.evaluate(names({}), { reads: missing });
+    expect(missing[0]?.reached.ok).toBe(false);
+    expect(printReads(missing).prints).toEqual([undefined]);
+
+    // A cycle ends, and a change inside the cycle is found.
+    const cycle: Record<string, unknown> = { n: 1 };
+    cycle["self"] = cycle;
+    cycle["twice"] = [cycle, cycle];
+    const cyclic = readsOf(cycle);
+    const cyclicPrints = printReads(cyclic);
+    expect(verifyReads(plan, cyclic, names({ v: cycle }), { prints: cyclicPrints })).toEqual({ same: true });
+    cycle["n"] = 2;
+    expect(verifyReads(plan, cyclic, names({ v: cycle }), { prints: cyclicPrints })).toMatchObject({ same: false, inPlace: true });
+
+    // The limit: a value with more entries gets no print, thus its read is changed also without a change.
+    const big = Array.from({ length: 50 }, (_, index) => index);
+    const bigReads = readsOf(big);
+    expect(verifyReads(plan, bigReads, names({ v: big }), { prints: printReads(bigReads, { limit: 1000 }) })).toEqual({ same: true });
+    expect(verifyReads(plan, bigReads, names({ v: big }), { prints: printReads(bigReads, { limit: 20 }) })).toMatchObject({ same: false, inPlace: true });
+    const wide = Object.fromEntries(big.map((index) => [`k${index}`, index]));
+    const wideReads = readsOf(wide);
+    expect(verifyReads(plan, wideReads, names({ v: wide }), { prints: printReads(wideReads, { limit: 20 }) })).toMatchObject({ same: false, inPlace: true });
+    const many = new Map(big.map((index) => [index, index]));
+    const manyReads = readsOf(many);
+    expect(verifyReads(plan, manyReads, names({ v: many }), { prints: printReads(manyReads, { limit: 20 }) })).toMatchObject({ same: false, inPlace: true });
+    const members = new Set(big);
+    const memberReads = readsOf(members);
+    expect(verifyReads(plan, memberReads, names({ v: members }), { prints: printReads(memberReads, { limit: 20 }) })).toMatchObject({ same: false, inPlace: true });
+    // A deep list of lists ends at the limit too.
+    let deep: unknown[] = [];
+    for (let level = 0; level < 100; level += 1) deep = [deep];
+    const deepReads = readsOf(deep);
+    expect(verifyReads(plan, deepReads, names({ v: deep }), { prints: printReads(deepReads, { limit: 50 }) })).toMatchObject({ same: false, inPlace: true });
+    expect(verifyReads(plan, deepReads, names({ v: deep }), { prints: printReads(deepReads) })).toEqual({ same: true });
+
+    // A getter does not start: the print keeps the getter function, thus a new value of the getter stays hidden.
+    let gets = 0;
+    let hidden = 1;
+    const withGetter = {
+      get g(): number {
+        gets += 1;
+        return hidden;
+      },
+    };
+    const getterReads = readsOf(withGetter);
+    const before = gets;
+    const getterPrints = printReads(getterReads);
+    hidden = 2;
+    expect(verifyReads(plan, getterReads, names({ v: withGetter }), { prints: getterPrints })).toEqual({ same: true });
+    expect(gets).toBe(before);
+
+    // A stamp of the host takes the place of the fields, for example a version of a host object.
+    class Counter {
+      #count = 0;
+      version = 0;
+      add(): void {
+        this.#count += 1;
+        this.version += 1;
+      }
+      get count(): number {
+        return this.#count;
+      }
+    }
+    const counter = new Counter();
+    const counterReads = readsOf(counter);
+    const stamp = (value: object): unknown => (value instanceof Counter ? value.version : undefined);
+    const stamped = printReads(counterReads, { stamp });
+    expect(verifyReads(plan, counterReads, names({ v: counter }), { prints: stamped })).toEqual({ same: true });
+    counter.add();
+    expect(counter.count).toBe(1);
+    expect(verifyReads(plan, counterReads, names({ v: counter }), { prints: stamped })).toMatchObject({ same: false, inPlace: true });
+
+    // An exception of the host during the walk gives no print, thus the read is changed.
+    const trap = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error("no keys");
+        },
+      },
+    );
+    const trapReads = readsOf(trap);
+    expect(verifyReads(plan, trapReads, names({ v: trap }), { prints: printReads(trapReads) })).toMatchObject({ same: false, inPlace: true });
+  });
+});

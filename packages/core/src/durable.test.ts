@@ -452,6 +452,32 @@ describe("two levels of durability", () => {
     expect(plain.counts).toMatchObject({ evaluations: 2, reuses: 0 });
   });
 
+  it("[DURABLE.IN-PLACE] with the option inPlace, a pure document finds a value of its reads that changed in place, and without it the old result stays", () => {
+    const doc: Json = { type: ["ops", "keys"], value: [ref("names", "box")] };
+    const box: Record<string, unknown> = { a: 1 };
+    const checked = durable(counting(1), { inPlace: true });
+    const limited = durable(counting(1), { inPlace: { limit: 1000 } });
+    const plain = durable(counting(1));
+    const caches = [checked, limited, plain];
+    for (const cache of caches) expect(cache.evaluate("k", doc, context({ names: { box } }))).toEqual(ok(["a"]));
+    // A change of data without a change of the box: each cache keeps its result.
+    for (const cache of caches) cache.changeData();
+    for (const cache of caches) expect(cache.evaluate("k", doc, context({ names: { box } }))).toEqual(ok(["a"]));
+    // A change in place: only the caches with the option evaluate again. The plain cache keeps a stale result.
+    box["b"] = 2;
+    for (const cache of caches) cache.changeData();
+    for (const cache of [checked, limited]) expect(cache.evaluate("k", doc, context({ names: { box } }))).toEqual(ok(["a", "b"]));
+    expect(plain.evaluate("k", doc, context({ names: { box } }))).toEqual(ok(["a"]));
+    for (const cache of [checked, limited]) expect(cache.counts).toMatchObject({ evaluations: 2, verifications: 2, reuses: 1 });
+    expect(plain.counts).toMatchObject({ evaluations: 1, verifications: 2, reuses: 2 });
+    // The new evaluation keeps new prints: the next change of data without a change keeps the result.
+    checked.changeData();
+    expect(checked.evaluate("k", doc, context({ names: { box } }))).toEqual(ok(["a", "b"]));
+    expect(checked.counts).toMatchObject({ evaluations: 2, reuses: 2 });
+    // A document that is not pure keeps no reads, thus no prints.
+    expect(checked.evaluate("q", IMPURE, context({ names: { a: 1 } }))).toEqual(ok([1, 1]));
+  });
+
   it("[DURABLE.STRUCTURE] an edit compiles only the new document, and a new machine drops each plan, each fact and each result", () => {
     const store = durable(counting(1));
     const other: Json = { type: "list", value: [TICK, ref("names", "b")] };

@@ -3511,3 +3511,49 @@ The behavior changes for a caller only with the new field. A check with types th
 
 - Two unrelated domains of different depth that both hold a value give the document of the deeper domain, not of the first name.
 - The cost of the order grows as the square of the count of the domains with a codec, when a table has such a parent.
+
+## D112 (2026-11-03): `printReads` keeps a print of each value that an evaluation read, and `verifyReads` compares it on request
+
+**Context.** K61, from S1b. `verifyReads` compares what a read reaches with `sameResult` (D26). The walk of `sameResult` compares two values with `Object.is` first. Each object that is not a list or a plain record compares only by identity (RESULT.SAME). Thus a value that a host changes in place is the same object, and the verification keeps a stale result.
+
+The rule `equal` of the host does not help: `Object.is` answers before it. D26 and D30 only state the promise that the values of a context do not change in place.
+
+**Decision.**
+
+- A new function `printReads(reads, options?)` gives the prints of a list of reads (READS.IN-PLACE). A host starts it after the evaluation, before it changes a value.
+- A print is a flat list of the parts of a value, in the order of a walk. Two prints are the same when each entry is the same by `Object.is`. Thus `-0` is not `0`, as in `sameResult`.
+- The walk visits lists, plain records and the own enumerable fields of each other object. An object adds its prototype. A list adds its length, a date its time, and a map or a set its size and its entries.
+- A function is one entry, by its identity. A field with a getter gives the getter function. The walk does not start the getter, thus it starts no host code of a field.
+- The walk visits each object one time. A second visit gives a mark and the number of the object. Thus a cycle ends, and a shared object costs one walk (READS.PRINT-LIMIT).
+- The option `limit` caps the entries of one print. The default is 10000. A larger value gets no print. An exception of the host in the walk, for example from a proxy, also gives no print.
+- A read without a print of its old value is changed. Thus a value over the limit evaluates again after each change of data. A wrong `false` only costs work (D20).
+- The option `stamp` of the host gives a value for an object, for example a version. The stamp takes the place of the fields of that object, and it compares with `Object.is`.
+- `verifyReads` takes the prints with the new option `prints`. A read that is the same by `sameResult` then also compares a new print of its value. A changed print gives the changed read in the old form, with the new mark `inPlace: true`.
+- Only a free read with a value that holds an object gets a print. A primitive value and an error cannot change in place. A kept read gets a print too.
+- `durable` and `schedule` take the option `inPlace`: `true`, or the options of `printReads`. The cache then keeps the prints of each pure document in a `WeakMap` beside its entry, and each verification compares them (DURABLE.IN-PLACE).
+- Without the option, `verifyReads` tests one `undefined` for each read, and `durable` makes no prints. An entry of the cache keeps its shape (PLAN.LEAN).
+
+**Rejected.**
+
+- A print at each read, in the kernel. It adds work to each resolution of each evaluation with a list of reads, also for a host that does not ask. A print after the evaluation gives the same prints for a pure document.
+- A print by default. It walks each value at each verification, and a large world then costs more than an evaluation. The bench gate needs no new work on the default path.
+- A version stamp only, as a new optional `version()` of a host thing, in the style of D21. A plain record or a list has no version, and each host must change. The option `stamp` gives the same power without a change of `HostThing`.
+- A deep copy of each value, compared with `sameResult`. D26 rejects a copy for its cost. A copy of a host object also loses its prototype, and `toJson` of a node evaluates each attribute of its tree.
+- A text form of the value, for example `JSON.stringify`. It loses `-0`, `NaN`, `undefined` and each function, and it throws at a cycle.
+- A print that ends at the limit and keeps its first part. A change after the limit then stays hidden, and a wrong `true` keeps a stale value.
+- A start of each getter. A getter is host code, and it can have an effect or throw.
+
+**Why.** A host that changes values in place needs a signal, but most hosts give a new object for a new state. An opt-in walk keeps the cost of the default path at zero. It finds a change in a record, a list, a host object, a date, a map and a set. The stamp covers the state that a walk cannot see. The answer keeps the form of READS.CHANGED, thus a schedule needs no new branch.
+
+**Public types.** New exports: `printReads`, `PrintOptions` and `ReadPrints`. New optional fields: `VerifyOptions.prints`, `DurableOptions.inPlace` and the mark `inPlace` of a changed `ReadsCheck`. This is a feature for the next MINOR release.
+
+**Changed expected values.** None. Without the new options, each answer stays the same.
+
+**Limits.**
+
+- The walk does not see the state in a closure or a private field. It does not see a field with a symbol name, a field that is not enumerable or the value of a getter. A host gives a stamp for such an object.
+- The walk does not see the bytes of an `ArrayBuffer`, or the entries of a `WeakMap` or a `WeakSet`. A map or a set of another realm shows only its fields. A typed array shows its items as fields.
+- The prints compare only the value that a read reached. The things of the hops of a read compare by identity, as before.
+- A host that changes a value during the evaluation, before `printReads`, gets a print of the new value. The prints are sound only for a pure document, as `verifyReads` is.
+- A new order of the fields of a record gives another print. Thus the read is changed, and the document evaluates again.
+- A value with many shared parts costs one walk for each verification. The limit bounds that cost.
