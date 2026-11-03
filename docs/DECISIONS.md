@@ -3478,6 +3478,46 @@ The behavior changes for a caller only with the new field. A check with types th
 - A read of the parent of the node of an equation goes to an unknown node, thus `check` does not examine it.
 - The cycles of attributes wait for the graph of attribute instances (L2e).
 
+## D108 (2026-11-02): a host gives the tree kit its own memo cells, keyed by the place of a plan
+
+**Context.** L2c, from R3 P3. The decorated tree of D16 keeps one memo for each node and attribute, for one evaluation (TREE.MEMO). Each evaluation makes new nodes, thus a host computes each attribute again in each evaluation. A host with signals wants to keep the cell of each attribute. A change of its store then computes only the attributes that read the store.
+
+**Decision.**
+
+- The new function `treeNodeEvaluator(options)` gives the code of `tree.node` with the options of the host. A host puts it at the name `tree.node` of its machine, as `nearestWalker` gives a walker.
+- The one option is `cell`, of the type `AttributeCell`. Without it, the function gives the standard code, thus the default path does not change.
+- `cell(place, attribute, compute)` gives an `AttributeAnswer`: the result, or `undefined` when no rung answers, and the rung that answered. Thus a kept answer keeps its error and its record of TREE.RUNGS.
+- `place` is the array `place` of the compiled document of the node. It is one object for each document of a plan, and it stays the same across the evaluations of that plan.
+- The plan enters the key through the identity of that array. A new plan gives new arrays, thus a changed document does not find an old cell (TREE.CELL-PLAN).
+- With a cell, the cell is the memo of the attribute. The kit uses the cell at each demand, and the node keeps the last answer only for `has` and `trace`.
+- A kept value can hold a node of an earlier evaluation, for example the list `children`. That node uses the same places, thus it reads the same cells (TREE.CELL-STORE).
+- Thus the kit keeps the tree of a root for each place of a root. It also keeps the marks of the attributes in evaluation for each place.
+- The kit marks an attribute in evaluation before it uses the cell. A demand that reaches a marked attribute gives `#CYCLE!` with its chain, as TREE.CYCLE. Thus the cycle detection of a signal library does not see a cycle of attributes at any time (TREE.CELL-CYCLE).
+- An exception of the cell that `compute` did not throw gives `#CYCLE!`. The reason gives the chain of the demands, and the exception is its cause.
+- An exception that `compute` threw goes on, as without a host, for example an overflow of the stack.
+- Each demand gives a new `compute`. A cell that computes again uses the last one.
+
+**Rejected.**
+
+- A key with the keys of the place as text. A changed document keeps the same keys, thus such a key gives a stale value.
+- A token of the plan as a fourth argument. The identity of `place` already gives the plan, and the signature of R3 P3 stays the same.
+- A memo of the node in front of the cell. A node of an earlier evaluation then keeps its old answers after a change of the store.
+- A compiled evaluator that makes a key at compile time. The place of the compile input is that key already, and an evaluator function keeps the code small.
+- A new field of `Machine` for the cells. The cells are an option of the tree kit only, and the kernel does not change.
+
+**Why.** A host with signals keeps its cells between evaluations, and a change of its store computes only the attributes that read it. The default path keeps the plain memo of each node, with no new allocation for each attribute.
+
+**Public types.** New: `treeNodeEvaluator`, `TreeOptions`, `AttributeCell` and `AttributeAnswer`. This is a new feature, thus the next release is MINOR.
+
+**Changed expected values.** None. Without a cell, the evaluator is the standard code, and each test of TREE.* stays the same.
+
+**Limits.**
+
+- A document that gives two nodes in one evaluation, for example in two contexts, gives one key to both nodes. With the cells of a host, the second node gets the answers of the first.
+- A node of an earlier evaluation computes again with its own context and in its own evaluation. Thus the reads of a kept attribute are not in the list of reads of a later evaluation.
+- A tree node inside an equation has the place of the cached plan of the equation (TREE.PLAN). That place is the same in each plan of the machine.
+- The kit cannot tell the cycle error of a signal library from another exception of the cell. Each such exception gives `#CYCLE!`.
+
 ## D109 (2026-11-02): `encodeValue` uses the codec of the most specific domain
 
 **Context.** K142, from K140. Since D40, the domains with a codec go in the order of their names, and the first domain that holds a value encodes it. A domain under a parent with a codec holds only members of the parent. Thus the parent wins when its name is first, and the codec of the subdomain does not get its own members.
