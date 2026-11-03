@@ -14,9 +14,10 @@ import {
   fail,
   ok,
   planner,
+  resolveCompiled,
 } from "./evaluate.ts";
 import { Failure } from "./errors.ts";
-import { type Cap, type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
+import { type Cap, type HostThing, type Thing, type Walker, THING, compilePath, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
 import { type AttributeDeclaration, type CircularRule, type TreeContract, atArgsOf, atRuleOf, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
 import { STD_DOMAINS } from "./types.ts";
@@ -245,12 +246,19 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     const [a, b] = values as readonly number[];
     return ok((a ?? 0) > (b ?? 0));
   },
-  "ref.resolve": ({ data, resolve }) => {
-    if (!Array.isArray(data) || data.length === 0) {
-      return fail("#VALUE!", "The value of ref is a path: a list that starts with a root, for example [\"names\", \"a\"].");
-    }
-    const found = resolve(data as readonly Json[]);
-    return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
+  // The path is data of the document, thus it compiles one time for the machine of the plan (PLAN.PATH-STD, D133).
+  "ref.resolve": {
+    compile: ({ data, machine }) => {
+      if (!Array.isArray(data) || data.length === 0) {
+        const bad = fail("#VALUE!", "The value of ref is a path: a list that starts with a root, for example [\"names\", \"a\"].");
+        return () => bad;
+      }
+      const path = compilePath(machine, data);
+      return (ctx, rt) => {
+        const found = resolveCompiled(rt, ctx, path);
+        return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
+      };
+    },
   },
   "tree.node": (input) => treeNode(input, undefined),
 };

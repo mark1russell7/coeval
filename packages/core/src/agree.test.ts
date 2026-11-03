@@ -923,7 +923,7 @@ function sameNode(a: unknown, b: unknown): boolean | undefined {
  * not static, thus the wrapper does not record its reads.
  */
 function graphHarness(config: Config, from: number, to: number): GraphOutcome {
-  const plain = STD_MACHINE.evaluators?.["ref.resolve"] as EvalFn;
+  const plain = STD_DEFINITIONS.evaluators?.["ref.resolve"] as EvalFn;
   const seen: { readonly place: readonly Key[]; readonly from: string }[] = [];
   const targets = new WeakMap<object, object>();
   /** This function wraps a thing that a static step reaches. A node is static when its place is the place that the step expects. */
