@@ -3819,3 +3819,46 @@ The functions of the shared packages replace the local code as follows:
 - With 12 rounds, a case with a noise near the margin often gives "cannot decide". More rounds give more power.
 - `TOGETHER` must stay empty. The bench refuses a group of cases in one process.
 - The speed job starts approximately four processes for each case and round. It takes more time than before.
+
+## D115 (2026-11-03): with the cells of a host, each node gets a key in its scope, and the marks and the tree of a root use that key
+
+**Context.** K213, a limit of L2c (D108). A host keeps its cells by the identity of the array `place`. The machine caches the plan of each equation (TREE.PLAN). Thus a tree node in an equation has the place of that cached plan.
+
+That place is the same for each node of the kind, in each document. A host then gave the cell of one document to another document, with no error. Two nodes of the kind in one document also shared one cell.
+
+The marks of the attributes in evaluation (D108) and the tree of a root were kept by place too. A cell can evaluate a second document during a demand. The nodes of the cached plan then shared the marks of the outer nodes, and a demand gave a false `#CYCLE!`. A nested evaluation of the same plan also shared the tree of the root, and its end closed the tree of the outer evaluation.
+
+**Decision.**
+
+- With the cells of a host, the kit gives each node a key (TREE.CELL-DOCUMENT). The key is the array `place` that the cell gets. Its items are the keys of the place, as before.
+- The scope of a node is the key of the node around it, the self of its context. A root without such a node has the scope of the open demand: the marks of its node and the name of its attribute. A root outside each demand has no scope.
+- Without a scope, the key is the place of the plan, as before. With a scope, the key is one frozen array for each scope and place.
+- The kit keeps the marks and the tree of a root by the key. Thus a nested evaluation gets its own marks and its own tree (TREE.CELL-NESTED).
+- Each evaluation of a plan gives the same keys. The root has the same place, and each scope is the same object. Thus the kept cells stay valid (TREE.CELL-KEPT, TREE.CELL-STORE).
+- `placeOf` and the place of an error of such a node give the key. The items are the same as before.
+- Without the cells of a host, the kit uses the place of the plan. The functions `read` and `through` of a node do not change.
+- `AttributeCell` keeps its type. A host that keeps its cells by the identity of `place`, as D108 tells, gets the fix with no change.
+
+**Rejected options.**
+
+- Option A: a new argument of the cell with the document, or a stable key of it. An old host ignores an optional argument, and it keeps the fault with no error. An argument without a default breaks each host, and the key in `place` gives the same power.
+- Option B: only a rule in the docs, for a key of each cell by the root document too. Each host must then find the root document. A host that does not read the rule keeps the fault, and nothing tells it.
+- A key by the root document only, as the argument of option A or as the rule of option B, gives too little. The badges of two nodes of one kind in one document then share one key.
+- A key with the chain of the places as text. A text key gives the cell of an old document after a change of the document (D108).
+- A plan of each equation for each document. The cost of the compilation then grows with each document. TREE.PLAN compiles each equation one time for each machine.
+
+**Why.** The fault becomes impossible for each host that follows the contract of D108, also for an old host. The key costs one lookup in a weak map for each new node with the cells of a host. A tree without the cells of a host does no new work, and the code of its demands does not change.
+
+**Breaking for a host.** A host that keeps its cells by the identity of `place` does not break. Before, the nodes of a cached plan in two documents got one array, thus one cell and the value of the first document. After, each node gets its own array and its own value. Before, a cell that evaluated a second document could give a false `#CYCLE!`. After, the second document gets its own marks.
+
+A host that keeps its cells by the keys of `place` as text was already wrong (D108). Such a host also mixes the nodes of two scopes after this change. This is a change of behavior, thus it goes into the next MINOR release.
+
+**Public types.** No change. The doc comment of `AttributeCell` gives the new rule of `place`.
+
+**Changed expected values.** None. The old tests of TREE.CELL and TREE.CIRCULAR-CELL give the same results.
+
+**Limits.**
+
+- Limit 1 of D108 stays. Two nodes of one document in one scope, for example two items of a map in one attribute, share one key.
+- A root whose scope is a demand of a node without the cells of a host gets a new scope in each evaluation. The marks of such a node are new in each evaluation. Thus the cells of that tree are not kept.
+- A host that gives two evaluations of one plan different names keeps the cells of the first one. The host drops the cells that read the changed names, as in TREE.CELL-STORE.

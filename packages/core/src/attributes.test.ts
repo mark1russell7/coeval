@@ -491,4 +491,60 @@ describe("the memo cells of a host (L2c, D108)", () => {
     });
     expect(result.ok ? undefined : result.error.cause).toBe(own);
   });
+
+  // The equation `badge` of a card makes a node. The machine caches the plan of the equation (TREE.PLAN), thus the
+  // badge of each card of each document comes from one plan.
+  const cards = { ...kinds, card: treeKind({ equations: { badge: node("item", { w: add(path("self", "parent", "width"), 1) }) } }) };
+  const card = (width: Json): Json => node("card", { width, seen: path("self", "badge", "w") });
+
+  it("[TREE.CELL-DOCUMENT] the nodes of a cached plan get a new key in each document, thus each document gets its own values", () => {
+    const { cell, computed } = keptCells();
+    const places: (readonly Key[])[] = [];
+    const machine = withKinds(cards, {
+      "tree.node": treeNodeEvaluator({
+        cell: (place, attribute, compute) => {
+          if (attribute === "w") places.push(place);
+          return cell(place, attribute, compute);
+        },
+      }),
+    });
+    expect(prepare(machine, card(10)).evaluate()).toEqual(ok({ width: 10, seen: 11 }));
+    expect(prepare(machine, card(20)).evaluate()).toEqual(ok({ width: 20, seen: 21 }));
+    // Two cards of one document: the badge of each card reads its own card.
+    const both = node("stack", { children: list(card(1), card(2)) });
+    const plan = prepare(machine, both);
+    expect(plan.evaluate()).toEqual(ok({ children: [{ width: 1, seen: 2 }, { width: 2, seen: 3 }] }));
+    // Each badge has its own key with the keys of the place of the equation.
+    expect(places).toHaveLength(4);
+    expect(new Set(places).size).toBe(4);
+    for (const place of places) expect(place).toEqual([]);
+    expect(plan.evaluate()).toEqual(prepare(withKinds(cards), both).evaluate());
+    // A second evaluation computes nothing.
+    computed.length = 0;
+    expect(plan.evaluate()).toEqual(ok({ children: [{ width: 1, seen: 2 }, { width: 2, seen: 3 }] }));
+    expect(computed).toEqual([]);
+  });
+
+  it("[TREE.CELL-NESTED] a cell that evaluates a second document gives that document its own marks and its own cells", () => {
+    const { cell: keep, computed } = keptCells();
+    const nested: Result[] = [];
+    let started = false;
+    const cell: AttributeCell = (place, attribute, compute) => {
+      // In the demand of the first badge, the host evaluates a second document and the same plan with other names.
+      if (attribute === "w" && !started) {
+        started = true;
+        nested.push(prepare(machine, card(20)).evaluate(), plan.evaluate(makeContext({ width: 30 })));
+      }
+      return keep(place, attribute, compute);
+    };
+    const machine = withKinds(cards, { "tree.node": treeNodeEvaluator({ cell }) });
+    const plan = prepare(machine, card(path("names", "width")));
+    const first = plan.evaluate(makeContext({ width: 10 }));
+    expect(first).toEqual(ok({ width: 10, seen: 11 }));
+    expect(nested).toEqual([ok({ width: 20, seen: 21 }), ok({ width: 30, seen: 31 })]);
+    // The outer evaluation keeps its own cells: a second evaluation computes nothing.
+    computed.length = 0;
+    expect(plan.evaluate(makeContext({ width: 10 }))).toEqual(first);
+    expect(computed).toEqual([]);
+  });
 });
