@@ -1,6 +1,20 @@
 import { type Envelope, type Json, type Key, docEquals, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { ask } from "./ladder.ts";
-import { type AttributeDeclaration, type CapsRule, type CircularRule, type Kind, type TreeContract, atArgsOf, atRuleOf, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
+import {
+  type AttributeDeclaration,
+  type CapsRule,
+  type CircularRule,
+  type Kind,
+  type TreeContract,
+  GENERATION_LIMIT,
+  atArgsOf,
+  atRuleOf,
+  circularOf,
+  collectOf,
+  documentKey,
+  equationType,
+  lookupKind,
+} from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, ROOTS, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
 import { type AttributeRung, AT_READERS, STD_EVALUATORS } from "./stdlib.ts";
@@ -882,6 +896,55 @@ function collectIn(node: RefNode, name: string, declared: unknown): Result {
   return visit(node) ?? acc;
 }
 
+/** TREE.HIGHER-DEPTH: the depth of each root of a generated document in the reference. */
+const refGenerations = /* @__PURE__ */ new WeakMap<RefNode, number>();
+
+/** TREE.HIGHER-DEPTH: the depth of the nearest root of a generated document at or above a node of the reference, or 0. */
+function generationIn(node: RefNode): number {
+  for (let at: RefNode | undefined = node; at !== undefined; at = at.up) {
+    const depth = refGenerations.get(at);
+    if (depth !== undefined) return depth;
+  }
+  return 0;
+}
+
+/**
+ * TREE.HIGHER: a higher-order attribute. The equation gives a document as data, and the document evaluates with the
+ * node as `self`. The reference compiles each document again, thus a structural key is not a part of the meaning.
+ */
+function higherOf(node: RefNode, name: string, term: Json): Result {
+  const value = equationOf(node, term, {});
+  if (!value.ok) return value;
+  const text = nameOfAttribute(node, name);
+  if (documentKey(value.value) === undefined) return fail("#VALUE!", `The equation of the higher-order attribute ${text} gives a value that is not JSON data.`);
+  const depth = generationIn(node) + 1;
+  if (depth > GENERATION_LIMIT) return fail("#DEPTH!", `The higher-order attribute ${text} is under more than ${GENERATION_LIMIT} generated documents.`);
+  const root = equationOf(node, value.value as Json, {});
+  if (!root.ok) return root;
+  const made = refNodeOf(root.value);
+  if (made === undefined) return fail("#VALUE!", `The document of the higher-order attribute ${text} gives no node of the tree.`);
+  refGenerations.set(made, depth);
+  return root;
+}
+
+/** TREE.FORWARD: the last rung. The attribute `forwards` gives a node, and that node answers through its own ladder. */
+function forwardOf(node: RefNode, name: string): Result | undefined {
+  const target: unknown = node.contract?.forwards;
+  if (target === undefined || target === name) return undefined;
+  const text = nameOfAttribute(node, name);
+  if (typeof target !== "string") return fail("#VALUE!", `The attribute ${text} has a contract with a bad field forwards. It must be a text.`);
+  const value = attributeOf(node, target);
+  if (value === undefined || !value.ok) return value;
+  const to = refNodeOf(value.value);
+  if (to === undefined) return fail("#VALUE!", `The attribute ${target} that ${text} forwards to gives no node of a tree.`);
+  if (!refGenerations.has(to)) {
+    const depth = generationIn(node) + 1;
+    if (depth > GENERATION_LIMIT) return fail("#DEPTH!", `The attribute ${text} forwards through more than ${GENERATION_LIMIT} generated documents.`);
+    refGenerations.set(to, depth);
+  }
+  return attributeOf(to, name);
+}
+
 /**
  * TREE.LADDER: the rungs of the ladder of an attribute, in their order. A rung gives `undefined` when it does not
  * answer, and the next rung then tries.
@@ -912,9 +975,11 @@ const REF_RUNGS: readonly (readonly [AttributeRung, (node: RefNode, name: string
       const declared = termIn(node.contract?.attributes, name);
       if (declared?.fold !== undefined) return foldOf(node, name, declared.fold);
       if (declared?.collect !== undefined) return collectIn(node, name, declared.collect);
-      return declared?.default === undefined ? undefined : equationOf(node, declared.default, {});
+      if (declared?.default !== undefined) return equationOf(node, declared.default, {});
+      return declared?.higher === undefined ? undefined : higherOf(node, name, declared.higher);
     },
   ],
+  ["forward", forwardOf],
 ];
 
 /** TREE.LADDER: the answer of the first rung that answers, or `undefined`. */
