@@ -205,8 +205,12 @@ function formOf(type: unknown, domains: Readonly<Record<string, Domain>> | undef
   return { t: "record", fields: fields as Readonly<Record<string, ValueType>>, optional: new Set(names), closed };
 }
 
-/** This function gives each base type that holds the members of a base type: the type itself and each parent, through each level. */
-function lineOf(name: string, domains: Readonly<Record<string, Domain>> | undefined): ReadonlySet<string> {
+/**
+ * This function gives each base type that holds the members of a base type: the type itself and each parent, through
+ * each level. A cycle of parents ends at a name that the line has, and a parent that is not a domain ends its branch.
+ * The function is internal: `encodeValue` uses it too (D109).
+ */
+export function lineOf(name: string, domains: Readonly<Record<string, Domain>> | undefined): ReadonlySet<string> {
   const seen = new Set<string>([name]);
   const queue = [name];
   while (queue.length > 0) {

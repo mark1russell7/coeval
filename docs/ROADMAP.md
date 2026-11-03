@@ -129,7 +129,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K61 | A check that host values do not change in place. verifyReads compares host values by identity, so a change in place stays hidden. From S1b. | later | S1b |
 | K140 | A codec for values that are not JSON: an ext.domain extension with encode and decode from the domains of a machine, next to ext.number. Then each language writes NaN, -0 and domain values as the same documents (D12). From a review of duplicate code. | done (2026-10-25, D40, released in the next batch) | none |
 | K141 | A kernel check of the laws of a codec: `decode(encode(v))` equals `v` for sample members, and `encode` gives JSON. Today each language tests its own codec. From K140. | later | K140 |
-| K142 | `encodeValue` picks the most specific domain: a domain with a codec under another domain with a codec wins. Today the order of the names decides. From K140. | later | K140 |
+| K142 | `encodeValue` picks the most specific domain: a domain with a codec under another domain with a codec wins. Today the order of the names decides. From K140. | done (2026-11-02, D109) | K140 |
 | K143 | Literal rules for `ext.domain` in a syntax profile, for example a date literal of a spreadsheet. The rule reads the text through the codec of a domain. From C15. | later | C15, K140 |
 | K144 | `parse` recovers after an issue and gives each issue of a text, for an editor. Today it stops at the first issue. From C15. | later | C15 |
 | K145 | Text forms for the constructs `let`, `fn`, `call` and `record` in `STD_SYNTAX`. Today the standard profile writes only operators, calls, `if` and `list`. From C15. | later | C15 |
@@ -244,10 +244,10 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | L1 | The sequence kit: steps with names for the results of earlier steps, capabilities, and the order of effects | done (2026-10-21: parts at the same time, the error of the host, capabilities that only narrow, an abort) | K2 |
 | L1a | A handler kind `handle` with clauses that run in place, so that mocks, retries and logs are documents (R2 P5, and R2 drafts its decision). It also adds the rule `grant` of R2 P3 to `Kind.caps`: the parts get operations that the handler answers (D27). | later | K10, K18 |
 | L1b | Multi-shot by evaluation again: a kind `choose` evaluates its sealed body again for each branch, with a replay log (R2 P7) | later | K11, L1a |
-| L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later (L2a, L2b, L2d and L2e are done, and the other items come from R3) | K2, K4 |
+| L2 | The tree kit: data down, sizes up and references sideways, by attribute equations | later (L2a, L2b, L2c, L2d and L2e are done, and the other items come from R3) | K2, K4 |
 | L2a | The decorated tree: demand evaluation with one memo for each node and attribute, `#CYCLE!` with its chain, and errors that stay errors. It fixes three bugs that R3 found in the standard `tree.node` (R3 P1). | done (2026-10-24, version 0.5.0, D16) | K2, K4 |
 | L2b | Equations in kind contracts, with a ladder for attributes: the own field, the kind, the parent, a copy, then a default (R3 P2) | done (2026-10-26, D42) | L2a |
-| L2c | Memo cells from the host: a host with signals keeps the cell of each attribute between evaluations (R3 P3) | later | L2a |
+| L2c | Memo cells from the host: a host with signals keeps the cell of each attribute between evaluations (R3 P3) | done (2026-11-02, D108) | L2a |
 | L2d | Static checks of attributes: unknown names, names outside `down`, reserved names and completeness (R3 P4) | done (2026-11-02, D106) | L2b |
 | L2e | The graph of attribute instances: `check` finds each cycle before a run, and the schedule layer gets its first concrete graph (R3 P5) | done (2026-11-02, D107) | L2b |
 | L2f | Circular attributes: a cycle evaluates again until no value changes, or it gives `#CYCLE!` at a limit (R3 P6) | later | L2a |

@@ -978,7 +978,7 @@ A member of a domain, for example a time, had no shared document at all.
 
 **Why.** Each language writes the same value as the same document, also a member of a domain (D12). Documents of several languages can then mix. The codec lives next to the test `is` of the domain, thus one table describes a base type.
 
-**Limits.** Two domains with codecs that both hold a value give the document of the first name. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.
+**Limits.** Two domains with codecs that both hold a value give the document of the first name. D109 changes this rule: the lower domain comes first. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.
 
 ## D41 (2026-10-25): one syntax kit reads and writes the text of each language with a profile, and its printer is the default of the verb `format`
 
@@ -3517,3 +3517,77 @@ The behavior changes for a caller only with the new field. A check with types th
 - A node document inside an equation is not a vertex. Its reads are not in the graph.
 - The JSON of a node that an unknown value holds is not in the graph.
 - A run stops at its first error. Thus the harness asks only that a run with a value gets no static cycle.
+
+## D108 (2026-11-02): a host gives the tree kit its own memo cells, keyed by the place of a plan
+
+**Context.** L2c, from R3 P3. The decorated tree of D16 keeps one memo for each node and attribute, for one evaluation (TREE.MEMO). Each evaluation makes new nodes, thus a host computes each attribute again in each evaluation. A host with signals wants to keep the cell of each attribute. A change of its store then computes only the attributes that read the store.
+
+**Decision.**
+
+- The new function `treeNodeEvaluator(options)` gives the code of `tree.node` with the options of the host. A host puts it at the name `tree.node` of its machine, as `nearestWalker` gives a walker.
+- The one option is `cell`, of the type `AttributeCell`. Without it, the function gives the standard code, thus the default path does not change.
+- `cell(place, attribute, compute)` gives an `AttributeAnswer`: the result, or `undefined` when no rung answers, and the rung that answered. Thus a kept answer keeps its error and its record of TREE.RUNGS.
+- `place` is the array `place` of the compiled document of the node. It is one object for each document of a plan, and it stays the same across the evaluations of that plan.
+- The plan enters the key through the identity of that array. A new plan gives new arrays, thus a changed document does not find an old cell (TREE.CELL-PLAN).
+- With a cell, the cell is the memo of the attribute. The kit uses the cell at each demand, and the node keeps the last answer only for `has` and `trace`.
+- A kept value can hold a node of an earlier evaluation, for example the list `children`. That node uses the same places, thus it reads the same cells (TREE.CELL-STORE).
+- Thus the kit keeps the tree of a root for each place of a root. It also keeps the marks of the attributes in evaluation for each place.
+- The kit marks an attribute in evaluation before it uses the cell. A demand that reaches a marked attribute gives `#CYCLE!` with its chain, as TREE.CYCLE. Thus the cycle detection of a signal library does not see a cycle of attributes at any time (TREE.CELL-CYCLE).
+- An exception of the cell that `compute` did not throw gives `#CYCLE!`. The reason gives the chain of the demands, and the exception is its cause.
+- An exception that `compute` threw goes on, as without a host, for example an overflow of the stack.
+- Each demand gives a new `compute`. A cell that computes again uses the last one.
+
+**Rejected.**
+
+- A key with the keys of the place as text. A changed document keeps the same keys, thus such a key gives a stale value.
+- A token of the plan as a fourth argument. The identity of `place` already gives the plan, and the signature of R3 P3 stays the same.
+- A memo of the node in front of the cell. A node of an earlier evaluation then keeps its old answers after a change of the store.
+- A compiled evaluator that makes a key at compile time. The place of the compile input is that key already, and an evaluator function keeps the code small.
+- A new field of `Machine` for the cells. The cells are an option of the tree kit only, and the kernel does not change.
+
+**Why.** A host with signals keeps its cells between evaluations, and a change of its store computes only the attributes that read it. The default path keeps the plain memo of each node, with no new allocation for each attribute.
+
+**Public types.** New: `treeNodeEvaluator`, `TreeOptions`, `AttributeCell` and `AttributeAnswer`. This is a new feature, thus the next release is MINOR.
+
+**Changed expected values.** None. Without a cell, the evaluator is the standard code, and each test of TREE.* stays the same.
+
+**Limits.**
+
+- A document that gives two nodes in one evaluation, for example in two contexts, gives one key to both nodes. With the cells of a host, the second node gets the answers of the first.
+- A node of an earlier evaluation computes again with its own context and in its own evaluation. Thus the reads of a kept attribute are not in the list of reads of a later evaluation.
+- A tree node inside an equation has the place of the cached plan of the equation (TREE.PLAN). That place is the same in each plan of the machine.
+- The kit cannot tell the cycle error of a signal library from another exception of the cell. Each such exception gives `#CYCLE!`.
+
+## D109 (2026-11-02): `encodeValue` uses the codec of the most specific domain
+
+**Context.** K142, from K140. Since D40, the domains with a codec go in the order of their names, and the first domain that holds a value encodes it. A domain under a parent with a codec holds only members of the parent. Thus the parent wins when its name is first, and the codec of the subdomain does not get its own members.
+
+**Decision.**
+
+- The line of a domain is the domain and each parent, through each level (`lineOf` of the check of types). The membership test `member` reads the same line.
+- A cycle of parents ends at a name that the line already has. A parent that is not a domain ends its branch of the line, and it adds no codec.
+- The depth of a domain with a codec is the count of the other domains with a codec in its line. A domain without a codec in the chain adds no depth, but the chain through it counts.
+- `encodeValue` tries the domains with a codec in the order of their depth, the deepest first. Between domains of the same depth, the order of the names decides (EXT.TIE).
+- Thus a domain comes before each domain with a codec above it (EXT.SPECIFIC). The deeper line holds the line of the parent and the parent, thus its count is larger.
+- Domains in a cycle of parents have the same line, thus the same members and the same depth. Their names decide.
+- `encodeValue` computes the order one time for each call, as before. When no domain with a codec has a parent, the order of the names stays. That test costs one step for each codec.
+- `decodeValue` does not change. The document names its domain, and the result of the codec must be a member of that domain.
+
+**Rejected.**
+
+- The order of the names alone. A parent with an early name hides the codec of each subdomain.
+- The first topological order by names: at each step, the first name with no remaining domain under it. Its rule is hard to state, and it also changes the order of unrelated domains.
+- A choice for each value: the first name of the domains with no other domain that holds the value under them. Each value then tests each codec, and the cost of a large table grows.
+- An order by the order of the table. Two merges in another order give the same machine (WORLD.LAWS, D40).
+- A cache of the order for each machine. A table is a plain record that a host can change, and the order costs little.
+
+**Why.** The most specific codec gets its own members, whatever the names. A new domain with a codec under a domain of another language does not need a special name. The depth gives one stable order with a short rule.
+
+**Public types.** No change. `lineOf` gets an export inside the package, and the root of the package does not export it.
+
+**Changed expected values.** None of the existing tests. A table with a codec domain under another codec domain can give a new document. Thus this change goes into the next MINOR release.
+
+**Limits.**
+
+- Two unrelated domains of different depth that both hold a value give the document of the deeper domain, not of the first name.
+- The cost of the order grows as the square of the count of the domains with a codec, when a table has such a parent.

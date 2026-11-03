@@ -13,10 +13,14 @@ import {
   ok,
   prepare,
   reference,
+  treeNodeEvaluator,
   verifyReads,
+  type AttributeAnswer,
+  type AttributeCell,
   type EvalFn,
   type Evaluator,
   type Json,
+  type Key,
   type Kind,
   type Machine,
   type Plan,
@@ -356,5 +360,135 @@ describe("the checks of attributes (L2d, D106)", () => {
       const place = result.ok ? [] : result.error.place;
       expect(check(machine, doc)).toMatchObject([{ code: "#N/A", place }]);
     }
+  });
+});
+
+describe("the memo cells of a host (L2c, D108)", () => {
+  /**
+   * This function makes the cells of a host that keeps each answer by the identity of the place and by the name. It
+   * records each computation. The function `forget` drops the kept cells of some attributes, as a change of a store.
+   */
+  const keptCells = () => {
+    const kept = new Map<readonly Key[], Map<string, AttributeAnswer>>();
+    const computed: string[] = [];
+    const text = (place: readonly Key[], attribute: string): string => `${attribute} at [${place.join(", ")}]`;
+    const cell: AttributeCell = (place, attribute, compute) => {
+      let byName = kept.get(place);
+      if (byName === undefined) {
+        byName = new Map();
+        kept.set(place, byName);
+      }
+      let answer = byName.get(attribute);
+      if (answer === undefined) {
+        computed.push(text(place, attribute));
+        answer = compute();
+        byName.set(attribute, answer);
+      }
+      return answer;
+    };
+    const forget = (...names: string[]): void => {
+      for (const [place, byName] of kept) for (const attribute of [...byName.keys()]) if (names.includes(text(place, attribute))) byName.delete(attribute);
+    };
+    return { cell, computed, forget };
+  };
+  const sum = { unit: 0, combine: add(path("names", "acc"), path("names", "item")) };
+  const kinds = { stack: treeKind({ down: { x: add(path("self", "x"), 1) }, attributes: { total: { fold: sum } } }), item: treeKind() };
+  const plain = withKinds(kinds);
+  const hosted = (cell: AttributeCell): Machine => withKinds(kinds, { "tree.node": treeNodeEvaluator({ cell }) });
+  const doc = (width: number): Json =>
+    node("stack", {
+      x: 0,
+      width,
+      sum: path("self", "total"),
+      children: list(node("item", { total: 2, width: path("self", "parent", "width"), at: path("self", "x") }), node("item", { total: path("self", "parent", "children", 0, "total") })),
+    });
+  const demanded = [
+    "at at [children, 0]",
+    "children at []",
+    "sum at []",
+    "total at [children, 0]",
+    "total at [children, 1]",
+    "total at []",
+    "width at [children, 0]",
+    "width at []",
+    "x at [children, 0]",
+    "x at []",
+  ];
+
+  it("[TREE.CELL] a counting cell shows one computation for each node and attribute that the evaluation demands", () => {
+    const { cell, computed } = keptCells();
+    const result = prepare(hosted(cell), doc(10)).evaluate();
+    expect(result).toEqual(prepare(plain, doc(10)).evaluate());
+    expect(result).toMatchObject({ ok: true, value: { sum: 4, children: [{ width: 10, at: 1 }, { total: 2 }] } });
+    expect([...computed].sort()).toEqual([...demanded].sort());
+    // Without a cell, the evaluator is the standard code.
+    expect(treeNodeEvaluator()).toBe(STD_MACHINE.evaluators["tree.node"]);
+  });
+
+  it("[TREE.CELL-KEPT] a second evaluation of the plan with kept cells computes nothing and gives the same result", () => {
+    const { cell, computed } = keptCells();
+    const plan = prepare(hosted(cell), doc(10));
+    const first = plan.evaluate();
+    computed.length = 0;
+    expect(plan.evaluate()).toEqual(first);
+    expect(computed).toEqual([]);
+  });
+
+  it("[TREE.CELL-PLAN] a new plan gives new places, thus a changed document does not reuse a kept cell", () => {
+    const { cell, computed } = keptCells();
+    const machine = hosted(cell);
+    expect(prepare(machine, doc(10)).evaluate()).toMatchObject({ ok: true, value: { width: 10 } });
+    computed.length = 0;
+    // The same document in a new plan computes each attribute again.
+    expect(prepare(machine, doc(10)).evaluate()).toMatchObject({ ok: true, value: { width: 10 } });
+    expect([...computed].sort()).toEqual([...demanded].sort());
+    // A changed document gives its new values, not the values of the kept cells.
+    expect(prepare(machine, doc(20)).evaluate()).toMatchObject({ ok: true, value: { width: 20, children: [{ width: 20 }, {}] } });
+  });
+
+  it("[TREE.CELL-STORE] a change of a store computes again only the attributes whose cells the host drops", () => {
+    const { cell, computed, forget } = keptCells();
+    const store = { w: 10 };
+    const shared = node("stack", { width: path("names", "store", "w"), children: list(node("item", { width: path("self", "parent", "width") }), node("item", { width: 3 })) });
+    const plan = prepare(hosted(cell), shared);
+    expect(plan.evaluate(makeContext({ store }))).toEqual(ok({ width: 10, children: [{ width: 10 }, { width: 3 }] }));
+    store.w = 20;
+    computed.length = 0;
+    // A host with signals drops the cells that read the store. A node of the earlier evaluation reads the new cell.
+    forget("width at []", "width at [children, 0]");
+    expect(plan.evaluate(makeContext({ store }))).toEqual(ok({ width: 20, children: [{ width: 20 }, { width: 3 }] }));
+    expect(computed).toEqual(["width at []", "width at [children, 0]"]);
+  });
+
+  it("[TREE.CELL-CYCLE] a cycle through the cells of a host gives #CYCLE! with its chain, as the plain memo does", () => {
+    const cycles = [
+      node("panel", { width: path("self", "width") }),
+      node("panel", { width: path("self", "children", 0, "width"), children: list(node("box", { width: path("self", "parent", "width") })) }),
+    ];
+    for (const cyclic of cycles) {
+      const { cell, computed } = keptCells();
+      const plan = prepare({ ...STD_MACHINE, evaluators: { ...STD_MACHINE.evaluators, "tree.node": treeNodeEvaluator({ cell }) } }, cyclic);
+      const expected = prepare(STD_MACHINE, cyclic).evaluate();
+      expect(expected).toMatchObject({ ok: false, error: { code: "#CYCLE!" } });
+      expect(plan.evaluate()).toEqual(expected);
+      computed.length = 0;
+      expect(plan.evaluate()).toEqual(expected);
+      expect(computed).toEqual([]);
+    }
+  });
+
+  it("[TREE.CELL-CYCLE] an exception of the cell, for example the cycle error of a signal library, gives #CYCLE! with the chain", () => {
+    const own = new Error("The signal reads itself.");
+    const cell: AttributeCell = (_place, attribute, compute) => {
+      if (attribute === "height") throw own;
+      return compute();
+    };
+    const machine: Machine = { ...STD_MACHINE, evaluators: { ...STD_MACHINE.evaluators, "tree.node": treeNodeEvaluator({ cell }) } };
+    const result = prepare(machine, node("panel", { width: path("self", "height"), height: 1 })).evaluate();
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "#CYCLE!", place: ["width"], reason: "The cells of the host found a cycle in the demands: width of panel at [] -> height of panel at []." },
+    });
+    expect(result.ok ? undefined : result.error.cause).toBe(own);
   });
 });

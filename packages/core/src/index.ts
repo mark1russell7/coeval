@@ -164,9 +164,12 @@ export {
   run,
 } from "./evaluate.ts";
 export {
+  type AttributeAnswer,
+  type AttributeCell,
   type AttributeRung,
   type AttributeTrace,
   type NearestOptions,
+  type TreeOptions,
   ATTRIBUTE_RUNGS,
   STD_CAPS,
   STD_EVALUATORS,
@@ -178,6 +181,7 @@ export {
   attributeTrace,
   nearestWalker,
   placeOf,
+  treeNodeEvaluator,
 } from "./stdlib.ts";
 export {
   type Edge,
