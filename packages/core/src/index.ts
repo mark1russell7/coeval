@@ -164,9 +164,12 @@ export {
   run,
 } from "./evaluate.ts";
 export {
+  type AttributeAnswer,
+  type AttributeCell,
   type AttributeRung,
   type AttributeTrace,
   type NearestOptions,
+  type TreeOptions,
   ATTRIBUTE_RUNGS,
   STD_CAPS,
   STD_EVALUATORS,
@@ -178,6 +181,7 @@ export {
   attributeTrace,
   nearestWalker,
   placeOf,
+  treeNodeEvaluator,
 } from "./stdlib.ts";
 export {
   type Edge,
@@ -281,6 +285,15 @@ export {
   agreeSchedule,
 } from "./meaning.ts";
 export { type GraphCycle, type GraphEdge, type GraphNode, type GraphOptions, type NodeGraph, components, cycles, heights, necessary, nodeLayers } from "./graph.ts";
+export {
+  type AttributeCycle,
+  type AttributeEdge,
+  type AttributeGraph,
+  type AttributeGraphOptions,
+  type AttributeVertex,
+  attributeGraph,
+  attributeVertexId,
+} from "./instances.ts";
 export {
   type Recorder,
   type ReplayCausePartsJson,
