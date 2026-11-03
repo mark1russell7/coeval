@@ -3953,7 +3953,6 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 
 **Why.** Without `drives`, nothing changes: the check keeps its assumption, and `conform` keeps its C6 finding. The evaluation path does not change, because the run already fails only on a real wait (D38).
 
-
 ## D121 (2026-11-03): a walker holds the type rule of its step
 
 **Context.** K72, from K25. A path with a step document had the type `unknown` after the step. Thus a later step and the parent of the reference got no type, and the check found no issue there.
