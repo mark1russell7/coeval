@@ -1,6 +1,7 @@
-import { type Json, type Key, docEquals, isKey, isRecord } from "./doc.ts";
+import { type Json, type Key, docEquals, isKey, isRecord, typeName } from "./doc.ts";
+import { partsOf as docParts } from "./parts.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
-import { type CompiledPath, type Context, type Resolution, compilePath, valueOfThing } from "./deref.ts";
+import { type CompiledPath, type Context, type Resolution, compilePath, valueOfThing, walkerOf } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled, totalCode } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
@@ -278,6 +279,29 @@ function paramsOf(value: unknown): readonly string[] {
   return Array.isArray(params) ? params.filter((param): param is string => typeof param === "string") : [];
 }
 
+/** This function gives the text of a step of a path: a key, or the kind of a step document in parentheses. */
+function stepText(step: unknown): string {
+  if (isKey(step)) return String(step);
+  return isRecord(step) ? `(${typeName(step["type"] as Parameters<typeof typeName>[0])})` : "(step)";
+}
+
+/**
+ * This function gives the type of what a step document reaches (TYPE.WALKER, D121). The type rule of its walker gives
+ * it. A step document with parts gets its data in the run, thus its type is `unknown`, as for a walker without a rule.
+ *
+ * @param input - The input of the rule of the reference.
+ * @param step - The step document.
+ * @param here - The type before the step.
+ * @returns The type of what the step reaches.
+ */
+function walkType(input: TypeInput, step: unknown, here: ValueType): ValueType {
+  const rule = walkerOf(input.machine, step)?.type;
+  if (rule === undefined) return "unknown";
+  const read = docParts(input.machine.world, step);
+  if (!read.ok || !read.split.ok || read.split.parts.length > 0) return "unknown";
+  return input.contract(rule({ data: read.doc.value, here }), `type of the step ${typeName(read.doc.type)}`);
+}
+
 /**
  * This function makes the type rules of the formula kit for one profile (TYPE.SYNTH, D25). Each evaluator of the kit
  * holds its rule. The rules read the rules of the profile that change a type: `truthy`, `truthType`, `logic`,
@@ -395,12 +419,14 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
           if (isUnknown(type, domains) || (!plain && holdsEnvelope(type, domains))) return "unknown";
           if (index >= path.length) return type;
           const step = path[index];
-          // A step document gives what its walker reaches. It has no type yet.
-          if (!isKey(step)) return "unknown";
+          if (!isKey(step)) {
+            type = walkType(input, step, type);
+            continue;
+          }
           const next = stepType(type, step, domains, input.contract);
           if ("missing" in next) {
             const fields = next.missing.length === 0 ? "" : ` Its fields are ${listText(next.missing)}.`;
-            report({ reason: `The value at ${path.slice(0, index).map(String).join(".")} has no field ${String(step)}.${fields}` });
+            report({ reason: `The value at ${path.slice(0, index).map(stepText).join(".")} has no field ${String(step)}.${fields}` });
             return "unknown";
           }
           type = next.type;

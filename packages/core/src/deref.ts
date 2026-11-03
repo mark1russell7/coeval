@@ -2,6 +2,7 @@ import { type Envelope, type Json, type JsonRecord, type Key, type TypeRef, fiel
 import { type Kind, type World, entriesAsJson, lookupKind } from "./world.ts";
 import { answerOf } from "./ladder.ts";
 import type { ErrorCode } from "./errors.ts";
+import type { ValueType } from "./types.ts";
 
 /**
  * The brand of a host thing: an object of the host that answers the steps of a path itself. The brand is a
@@ -169,8 +170,37 @@ export interface WalkInput {
   readonly visit?: (key: Key, thing: Thing) => void;
 }
 
-/** A walker: the code of the verb `step` of a kind of step documents. */
-export type Walker = (input: WalkInput) => WalkResult;
+/** The input of the type rule of a walker: the data of the step document, and the type of the thing before the step. */
+export interface WalkTypeInput {
+  /** The value of the step document. A step document with parts has no type rule, thus this value holds no part. */
+  readonly data: Json;
+  /** The type of the thing that the path reached before this step. */
+  readonly here: ValueType;
+}
+
+/**
+ * A walker: the code of the verb `step` of a kind of step documents. A plain function is a walker.
+ *
+ * A walker can hold a type rule in its field `type` (TYPE.WALKER, D121). The rule gives the type of each thing that
+ * the walker reaches from a thing of the type `here`. It must be sound, as the rule of an evaluator. A walker
+ * without a rule reaches the type `unknown`. A host gives the rule with `Object.assign(walker, { type })`.
+ */
+export interface Walker {
+  /**
+   * This function answers the step document on the thing that the path reached.
+   *
+   * @param input - The data of the step document, the thing before the step and the ladder.
+   * @returns What the step reached, or the reason of a failure.
+   */
+  (input: WalkInput): WalkResult;
+  /**
+   * This optional function gives the type of what the walker reaches.
+   *
+   * @param input - The data of the step document and the type before the step.
+   * @returns The type of each thing that the walker reaches.
+   */
+  readonly type?: (input: WalkTypeInput) => ValueType;
+}
 
 /**
  * What a resolution needs: the world, and the code of the `deref` evaluators and of the walkers.

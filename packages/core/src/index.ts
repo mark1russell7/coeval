@@ -108,6 +108,7 @@ export {
   type Thing,
   type WalkInput,
   type WalkResult,
+  type WalkTypeInput,
   type Walker,
   ROOTS,
   THING,

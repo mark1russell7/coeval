@@ -16,6 +16,10 @@ import {
   type TraceNode,
   type TypeRule,
   type ValueType,
+  type WalkInput,
+  type WalkResult,
+  type WalkTypeInput,
+  type Walker,
   type WorldIssue,
   CAPS_TYPE,
   MergeError,
@@ -728,6 +732,38 @@ describe("the types of the roots, of the names and of the paths", () => {
     const data = swapMachine(TYPED, { plain: true });
     expect(typeIssuesOf(data, envelope).map((issue) => issue.reason)).toEqual(["The value at names.e has no field a. Its fields are type and value."]);
     expect(evaluate(data, envelope).result).toMatchObject({ ok: false, error: { code: "#N/A" } });
+  });
+
+  it("[TYPE.WALKER] the type rule of a walker gives the type of what a step document reaches", () => {
+    /** A walker that steps by the key of its document. */
+    const walk = ({ data, here, deref }: WalkInput): WalkResult => {
+      const reached = deref(here, data as Key);
+      return reached === undefined ? { ok: false, reason: "No such field." } : { ok: true, thing: reached };
+    };
+    // The rule gives the type of the field of a record. Each other type gives unknown.
+    const field = ({ data, here }: WalkTypeInput): ValueType =>
+      typeof here === "object" && "record" in here ? (here.record[String(data)] ?? "unknown") : "unknown";
+    const withWalker = (code: Walker): Machine =>
+      mergeMachines(typed, {
+        world: { kinds: { pick: { verbs: { step: "test.pick" } }, pickOf: { verbs: { step: "test.pick" }, parts: { shape: "term", of: "lit" } } } },
+        walkers: { "test.pick": code },
+      });
+    const machine = withWalker(Object.assign((input: WalkInput) => walk(input), { type: field }));
+    const options = { ...LIT, rootTypes: { world: { record: { box: { record: { w: "number" }, closed: true } } } } };
+    const pick = (key: string): Json => ({ type: "pick", value: key });
+    // The type flows through the step document to the next step, and the run agrees.
+    expect(typeCheck(machine, ref("world", pick("box"), "w"), options)).toMatchObject({ type: "number", issues: [] });
+    expect(evaluate(machine, ref("world", pick("box"), "w"), context({ world: { box: { w: 3 } } })).result).toEqual(ok(3));
+    expect(typeIssuesOf(machine, op("add", ref("world", pick("box")), 1), options).map((issue) => issue.place)).toEqual([[0]]);
+    // A key after the step document finds a missing field, and the reason names the step by its kind.
+    expect(typeIssuesOf(machine, ref("world", pick("box"), "h"), options).map((issue) => issue.reason)).toEqual(["The value at world.(pick) has no field h. Its fields are w."]);
+    // A walker without a rule reaches unknown.
+    expect(typeCheck(withWalker(walk), ref("world", pick("box"), "w"), options)).toMatchObject({ type: "unknown", issues: [] });
+    // A step document with parts gets its data in the run, thus it reaches unknown.
+    expect(typeCheck(machine, ref("world", { type: "pickOf", value: { type: "lit", value: "box" } }, "w"), options).type).toBe("unknown");
+    // The check examines the type that a rule gives.
+    const bad = withWalker(Object.assign((input: WalkInput) => walk(input), { type: (): ValueType => ({ bogus: 1 }) as unknown as ValueType }));
+    expect(typeIssuesOf(bad, ref("world", pick("box")), options).length).toBeGreaterThan(0);
   });
 
   it("[TYPE.CLOSED] a field that a closed record does not have is a type issue, and an open record or unknown gives unknown", () => {
