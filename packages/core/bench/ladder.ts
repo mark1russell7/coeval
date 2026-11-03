@@ -28,10 +28,15 @@
  *
  * The script prints two tables and one line `MEASURE {json}`. With `LADDER_JSON`, it also writes the slopes of each
  * round to that file. `LADDER_RUN` names the run. The mode `merge` reads the files of some runs, pools their slopes
- * and gives the verdict. That mode uses only the modules of Node, and Node removes its types. Thus the verdict job
- * does not install the packages. The workflow `measure.yml` runs the ladder in CI, because a shared machine gives
- * unreliable numbers.
+ * and gives the verdict. Node removes the types of this script. The verdict job installs the packages, because the
+ * script imports `@mark1russell7/rigor-statistics` (D114). The workflow `measure.yml` runs the ladder in CI, because
+ * a shared machine gives unreliable numbers.
+ *
+ * The statistics come from `@mark1russell7/rigor-statistics`: the median, the quantiles, the least squares fit, the
+ * mean and the standard deviation (D114). The verdicts and the t quantile stay here, because the shared packages do not
+ * have them. A comment names the issue of each gap.
  */
+import { leastSquares, mean, median, quantile, sd } from "@mark1russell7/rigor-statistics";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { GCProfiler, setFlagsFromString } from "node:v8";
@@ -86,50 +91,38 @@ const PASSES = 5;
 const WARM_ROUNDS = 2;
 /** The claim is linear when the interval contains 1 and its upper end is less than this value. */
 const UPPER = 1.2;
-/** The one-sided quantile of 0.95 of the t distribution for 1 to 10 degrees of freedom: a 90 % interval. */
+/**
+ * The one-sided quantile of 0.95 of the t distribution for 1 to 10 degrees of freedom: a 90 % interval.
+ *
+ * GAP (mark1russell7/rigor#36): rigor-statistics has no t quantile. Thus this table stays.
+ */
 const T95 = [6.314, 2.92, 2.353, 2.132, 2.015, 1.943, 1.895, 1.86, 1.833, 1.812] as const;
 
-function median(values: readonly number[]): number {
-  return quantile(values, 0.5);
-}
-
-/** This function gives a quantile with linear steps between the sorted values (the type 7 of Hyndman and Fan). */
-function quantile(values: readonly number[], q: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (sorted.length === 0) return Number.NaN;
-  const at = (sorted.length - 1) * q;
-  const low = Math.floor(at);
-  const high = Math.ceil(at);
-  return (sorted[low] as number) + ((sorted[high] as number) - (sorted[low] as number)) * (at - low);
-}
-
-/** This function gives the slope of the least squares line of log y against log x. */
+/** This function gives the slope of the least squares line of log y against log x: `leastSquares` of rigor-statistics. */
 function slope(xs: readonly number[], ys: readonly number[]): number {
-  const lx = xs.map(Math.log);
-  const ly = ys.map(Math.log);
-  const mx = lx.reduce((a, b) => a + b, 0) / lx.length;
-  const my = ly.reduce((a, b) => a + b, 0) / ly.length;
-  let top = 0;
-  let bottom = 0;
-  for (let index = 0; index < lx.length; index += 1) {
-    top += ((lx[index] as number) - mx) * ((ly[index] as number) - my);
-    bottom += ((lx[index] as number) - mx) ** 2;
-  }
-  return top / bottom;
+  return leastSquares(xs.map((x) => [Math.log(x)]), ys.map(Math.log)).coefficients[1] as number;
 }
 
-/** This function gives the mean and the half width of its 90 % interval: t times the standard error. */
+/**
+ * This function gives the mean and the half width of its 90 % interval: t times the standard error.
+ *
+ * GAP (mark1russell7/rigor#36): rigor-statistics has no interval of a mean with the t distribution.
+ */
 function meanInterval(values: readonly number[]): { readonly mean: number; readonly half: number } {
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  if (values.length < 2) return { mean, half: Number.NaN };
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1);
+  const center = mean(values);
+  if (values.length < 2) return { mean: center, half: Number.NaN };
   const t = T95[Math.min(values.length - 1, T95.length) - 1] as number;
-  return { mean, half: t * Math.sqrt(variance / values.length) };
+  return { mean: center, half: (t * sd(values)) / Math.sqrt(values.length) };
 }
 
 function fixed(value: number, digits = 3): number {
   return Number(value.toFixed(digits));
 }
+
+/*
+ * GAP (mark1russell7/rigor#35): rigor-bench has no verdict of a slope claim and no A/A check of a ladder run. Thus
+ * `verdict`, `memoryVerdict` and `counts` stay here.
+ */
 
 /** This function gives the verdict of an interval: linear when it contains 1 and its upper end is under `UPPER`. */
 function verdict(low: number, high: number): string {

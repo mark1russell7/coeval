@@ -113,6 +113,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D110 | `checkWorld` with the option `types` examines each value type of a machine before a document exists. Each bad term gives one `#TYPE!` with its owner and its keys. |
 | D111 | `factsOf` with a verb other than `eval` gives the effects of the entry of the verb in `verbEffects`. A kind is on the run side for that verb when its entry declares an effect. A kind without an entry adds nothing. |
 | D112 | `printReads` keeps a print of the value of each read, and the option `prints` of `verifyReads` compares it. Thus a host finds a value that changed in place. Without the option, the verification does no new work. |
+| D114 | The bench uses the shared bench core `@mark1russell7/rigor-bench`. A new process starts each arm, and the verdict of a case is "same", "faster", "slower" or "cannot decide". The two runs pool their rounds. |
 
 ## Open
 

@@ -196,6 +196,12 @@ importers:
       '@mark1russell7/cue':
         specifier: ^1.0.2
         version: 1.1.0
+      '@mark1russell7/rigor-bench':
+        specifier: ^0.2.1
+        version: 0.2.1
+      '@mark1russell7/rigor-statistics':
+        specifier: ^0.1.5
+        version: 0.1.5
       '@types/node':
         specifier: ^26.6.4
         version: 26.6.6
@@ -846,6 +852,18 @@ packages:
     resolution: {integrity: sha512-R9pjuWNFqd/LSfOI8uY7w8E2Dri8UQFGLodBuV4d2E0pwzWM5ISVXWVhC7+aYgrR1GXSMzbyo5ZLWvqyQCwdIg==}
     engines: {node: '>=22'}
     hasBin: true
+
+  '@mark1russell7/rigor-bench@0.2.1':
+    resolution: {integrity: sha512-cPqzcEtATs0BlmMQOzAET9E0wQ6wCxRctF4kL/o8eou1chvIabXQrMCFevq3MffwemeURf0oBlhpa3TUk8agdw==}
+    engines: {node: '>=22'}
+
+  '@mark1russell7/rigor-generators@0.1.1':
+    resolution: {integrity: sha512-N5o3II0AClHgsWCWtzuBzckQdReydJnLUS8Kdt9hWXVpTzb0dxucrN1bWdDN+75YompOR1rAmsIX8zuHqoQdqA==}
+    engines: {node: '>=22'}
+
+  '@mark1russell7/rigor-statistics@0.1.5':
+    resolution: {integrity: sha512-dGglFXiUGindagWAGLGpHjncvv/+DDdw+4ClFqAnNUTHXvNVbUZtBAA1reV8TY1q6iR6BsWCSV+vQoHIO3s7FA==}
+    engines: {node: '>=22'}
 
   '@mark1russell7/ste-lint@0.1.1':
     resolution: {integrity: sha512-NXRB3PimE1PfXT+SuGZAEXt35EdWAXQMd4Dyn6Ep+6Yzf7YBvpHN0+xo4vHpYhmg3CHNGuNvCmspLodXi8/JQg==}
@@ -3073,6 +3091,17 @@ snapshots:
   '@mark1russell7/conventions@0.14.1': {}
 
   '@mark1russell7/cue@1.1.0': {}
+
+  '@mark1russell7/rigor-bench@0.2.1':
+    dependencies:
+      '@mark1russell7/rigor-generators': 0.1.1
+      '@mark1russell7/rigor-statistics': 0.1.5
+
+  '@mark1russell7/rigor-generators@0.1.1': {}
+
+  '@mark1russell7/rigor-statistics@0.1.5':
+    dependencies:
+      '@mark1russell7/rigor-generators': 0.1.1
 
   '@mark1russell7/ste-lint@0.1.1':
     dependencies:
