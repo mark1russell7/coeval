@@ -33,13 +33,106 @@ const NOTES: ReadonlySet<string> = /* @__PURE__ */ new Set([
 ]);
 
 /** The keywords that the reading reads. Each other keyword gives an issue and tests nothing. */
-const READ: ReadonlySet<string> = /* @__PURE__ */ new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "anyOf", "oneOf"]);
+const READ: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "type",
+  "properties",
+  "required",
+  "additionalProperties",
+  "items",
+  "enum",
+  "const",
+  "anyOf",
+  "oneOf",
+  "allOf",
+  "$ref",
+]);
 
 /**
- * The keywords that can permit more values than the other keywords permit. Older drafts ignore each keyword beside
- * `$ref`, and `nullable` of OpenAPI 3.0 permits `null`. Thus a schema with one of them reads as `unknown`.
+ * The keywords that can permit more values than the other keywords permit. A dynamic reference can reach a schema
+ * outside this schema, and `nullable` of OpenAPI 3.0 permits `null`. Thus a schema with one of them reads as `unknown`.
  */
-const WIDENING: ReadonlySet<string> = /* @__PURE__ */ new Set(["$ref", "$dynamicRef", "$recursiveRef", "nullable"]);
+const WIDENING: ReadonlySet<string> = /* @__PURE__ */ new Set(["$dynamicRef", "$recursiveRef", "nullable"]);
+
+/** The keywords of an object without the keyword `type`. They test only the values that are records. */
+const OBJECT_KEYS: readonly string[] = ["properties", "required", "additionalProperties"];
+
+/** The form of a local reference: a definition in `$defs` or `definitions` of the root schema. */
+const LOCAL_REF = /^#\/(\$defs|definitions)\/([^/]*)$/;
+
+/** The most pairs of members that the meet of two unions builds. A larger meet keeps the first type, which is sound. */
+const MAX_MEET_PAIRS = 64;
+
+/** The keywords of one JSON type without the keyword `type`: they test only the records or only the lists. */
+interface Condition {
+  readonly on: "record" | "list";
+  readonly type: ValueType;
+  readonly at: readonly Key[];
+}
+
+/** A record type of the reading. */
+type RecordType = Extract<ValueType, { readonly record: unknown }>;
+
+/** This function tells if a field of a record type can be absent. */
+function isOptional(type: RecordType, key: string): boolean {
+  return type.optional?.includes(key) === true;
+}
+
+/**
+ * This function gives the meet of two types of a reading: a type that holds each value of both types. A schema is
+ * the conjunction of its keywords, thus its type is the meet of their types. The meet is exact for the forms that a
+ * reading makes: base types, lists, records, unions and `one`. A meet of two different forms is `never`.
+ */
+function meet(a: ValueType, b: ValueType, depth: number): ValueType {
+  if (depth > MAX_SCHEMA_DEPTH) return a;
+  if (isUnknown(a, undefined)) return b;
+  if (isUnknown(b, undefined)) return a;
+  if (a === "never" || b === "never") return "never";
+  if (typeof a !== "string" && "one" in a) return { one: a.one.filter((value) => member(value, b)) };
+  if (typeof b !== "string" && "one" in b) return { one: b.one.filter((value) => member(value, a)) };
+  if (typeof b !== "string" && "union" in b && !(typeof a !== "string" && "union" in a)) return meet(b, a, depth);
+  if (typeof a !== "string" && "union" in a) {
+    const others = typeof b !== "string" && "union" in b ? b.union : [b];
+    if (a.union.length * others.length > MAX_MEET_PAIRS) return a;
+    return unionOf(a.union.flatMap((item) => others.map((other) => meet(item, other, depth + 1))));
+  }
+  if (typeof a === "string" || typeof b === "string") return a === b ? a : "never";
+  if ("list" in a && "list" in b) return { list: meet(a.list, b.list, depth + 1) };
+  if ("record" in a && "record" in b) return meetRecords(a, b, depth + 1);
+  // A list and a record have no common value. Each other pair keeps the first type, which is sound.
+  return ("list" in a || "record" in a) && ("list" in b || "record" in b) ? "never" : a;
+}
+
+/**
+ * This function gives the meet of two record types. A field of both records gets the meet of its types, and it is
+ * optional only when both records permit its absence. A closed record has no other field, thus a field of only the
+ * other record is absent. When the other record needs that field, no value fits both records.
+ */
+function meetRecords(a: RecordType, b: RecordType, depth: number): ValueType {
+  const fields: Record<string, ValueType> = {};
+  const optional: string[] = [];
+  const keys = [...Object.keys(a.record), ...Object.keys(b.record).filter((key) => !Object.hasOwn(a.record, key))];
+  for (const key of keys) {
+    const inA = Object.hasOwn(a.record, key);
+    const inB = Object.hasOwn(b.record, key);
+    if ((!inA && a.closed === true) || (!inB && b.closed === true)) {
+      if ((inA && !isOptional(a, key)) || (inB && !isOptional(b, key))) return "never";
+      continue;
+    }
+    const type = inA && inB ? meet(a.record[key] as ValueType, b.record[key] as ValueType, depth) : ((inA ? a.record[key] : b.record[key]) as ValueType);
+    setOwn(fields, key, type);
+    if ((!inA || isOptional(a, key)) && (!inB || isOptional(b, key))) optional.push(key);
+  }
+  const closed = a.closed === true || b.closed === true;
+  return { record: fields, ...(optional.length === 0 ? {} : { optional }), ...(closed ? { closed: true } : {}) };
+}
+
+/** This function applies a condition to a type: each member of the JSON type of the condition meets its type. */
+function narrow(type: ValueType, condition: Condition): ValueType {
+  if (typeof type === "string") return type;
+  if ("union" in type) return unionOf(type.union.map((item) => narrow(item, condition)));
+  if ("one" in type) return { one: type.one.filter((value) => !(condition.on === "list" ? Array.isArray(value) : isRecord(value)) || member(value, condition.type)) };
+  return condition.on in type ? meet(type, condition.type, 0) : type;
+}
 
 /** The base type of each name of the keyword `type`. */
 const BASES: Readonly<Record<string, ValueType>> = { null: "null", boolean: "bool", number: "number", integer: "number", string: "text" };
@@ -55,25 +148,55 @@ function unionOf(types: readonly ValueType[]): ValueType {
   return types.reduce<ValueType>((all, type) => join(all, type), "never");
 }
 
-/** The state of one reading of a schema: the issues that it found. */
+/** The state of one reading of a schema: the root, the issues and the definitions that it read. */
 class SchemaReader {
   readonly issues: TypeIssue[] = [];
+  /** The type of each definition that a reference reached. Each reading of a definition is sound, thus the first stays. */
+  readonly defs = new Map<string, ValueType>();
+  /** The definitions that the reading has not finished. A reference to one of them is a cycle. */
+  readonly open = new Set<string>();
+  /** The number of schemas with an own `$id` around the current schema. A reference inside them has another base. */
+  inner = 0;
+
+  constructor(readonly root: unknown) {}
 
   issue(at: readonly Key[], reason: string): void {
     this.issues.push({ at, reason });
   }
 
-  /** This method reads one schema. */
+  /** This method reads one schema: the meet of the types of its keywords, then its conditions. */
   read(schema: unknown, at: readonly Key[], depth: number): ValueType {
+    const types: ValueType[] = [];
+    const conditions: Condition[] = [];
+    this.parts(schema, at, depth, types, conditions);
+    let type = types.reduce<ValueType>((all, item) => meet(all, item, 0), "unknown");
+    for (const condition of conditions) {
+      if (isUnknown(type, undefined)) {
+        this.issue(condition.at, "The schema has no keyword type. Thus a value of each JSON type fits it, and the type reads it as unknown.");
+        break;
+      }
+      type = narrow(type, condition);
+    }
+    return type;
+  }
+
+  /**
+   * This method adds the type of each keyword of a schema to `types`, and its conditions to `conditions`. Each type
+   * holds each value that the schema accepts. The parts of `allOf` add their keywords too.
+   */
+  parts(schema: unknown, at: readonly Key[], depth: number, types: ValueType[], conditions: Condition[]): void {
     if (depth > MAX_SCHEMA_DEPTH) {
       this.issue(at, `The schema is deeper than ${MAX_SCHEMA_DEPTH} levels. The type reads it as unknown.`);
-      return "unknown";
+      return;
     }
-    if (schema === true) return "unknown";
-    if (schema === false) return "never";
+    if (schema === true) return;
+    if (schema === false) {
+      types.push("never");
+      return;
+    }
     if (!isRecord(schema)) {
       this.issue(at, "A schema is a record or a truth value. The type reads this value as unknown.");
-      return "unknown";
+      return;
     }
     let widens = false;
     for (const key of Object.keys(schema)) {
@@ -85,31 +208,85 @@ class SchemaReader {
         this.issue([...at, key], `The type does not read the keyword ${key}. It does not test what the keyword tests.`);
       }
     }
-    if (widens) return "unknown";
-    // A schema is the conjunction of its keywords. The reading keeps one of them, and each one alone holds each value.
-    const sides: { readonly key: string; readonly type: ValueType }[] = [];
-    if (Object.hasOwn(schema, "type")) sides.push({ key: "type", type: this.byType(schema, at, depth) });
-    else if (["properties", "required", "additionalProperties", "items"].some((key) => Object.hasOwn(schema, key)) && !["enum", "const", "anyOf", "oneOf"].some((key) => Object.hasOwn(schema, key))) {
-      this.issue(at, "The schema has no keyword type. Thus a value of each JSON type fits it, and the type reads it as unknown.");
+    if (widens) return;
+    const nested = schema !== this.root && Object.hasOwn(schema, "$id");
+    if (nested) this.inner += 1;
+    try {
+      this.keywords(schema, at, depth, types, conditions);
+    } finally {
+      if (nested) this.inner -= 1;
     }
-    for (const key of ["anyOf", "oneOf"]) {
+  }
+
+  /** This method reads the keywords of a schema that does not permit more values (WIDENING). */
+  keywords(schema: Readonly<Record<string, unknown>>, at: readonly Key[], depth: number, types: ValueType[], conditions: Condition[]): void {
+    if (Object.hasOwn(schema, "$ref")) {
+      // Older drafts ignore each keyword beside $ref. The target alone holds each value in each draft.
+      for (const key of Object.keys(schema)) if (READ.has(key) && key !== "$ref") this.issue([...at, key], `The type reads only the target of $ref. It does not test the keyword ${key} beside it.`);
+      const type = this.target(schema["$ref"], [...at, "$ref"], depth);
+      if (type !== undefined) types.push(type);
+      return;
+    }
+    if (Object.hasOwn(schema, "type")) types.push(this.byType(schema, at, depth));
+    else {
+      if (OBJECT_KEYS.some((key) => Object.hasOwn(schema, key))) conditions.push({ on: "record", type: this.object(schema, at, depth), at });
+      if (Object.hasOwn(schema, "items")) conditions.push({ on: "list", type: this.array(schema, at, depth), at });
+    }
+    for (const key of ["anyOf", "oneOf", "allOf"]) {
       if (!Object.hasOwn(schema, key)) continue;
       const items = schema[key];
       if (!Array.isArray(items)) {
         this.issue([...at, key], `The value of ${key} is a list of schemas.`);
         continue;
       }
+      // Each part of allOf holds each value of the schema, thus its keywords join the keywords of the schema.
+      if (key === "allOf") for (const [index, item] of items.entries()) this.parts(item, [...at, key, index], depth + 1, types, conditions);
       // A union holds each value of oneOf too. It does not test that only one schema fits.
-      sides.push({ key, type: unionOf(items.map((item, index) => this.read(item, [...at, key, index], depth + 1))) });
+      else types.push(unionOf(items.map((item, index) => this.read(item, [...at, key, index], depth + 1))));
     }
-    // A finite set of values meets each other keyword exactly: the type keeps each value that each side holds.
     const values = this.values(schema, at);
-    if (values !== undefined) return { one: values.filter((value) => sides.every((side) => member(value, side.type))) };
-    const known = sides.filter((side) => !isUnknown(side.type, undefined));
-    const kept = known[0];
-    if (kept === undefined) return "unknown";
-    for (const side of known.slice(1)) this.issue([...at, side.key], `The type reads the keyword ${kept.key}, and not the keyword ${side.key}.`);
-    return kept.type;
+    if (values !== undefined) types.push({ one: values });
+  }
+
+  /** This method reads the target of a reference: a definition of the root schema, or `undefined` for each value. */
+  target(ref: unknown, at: readonly Key[], depth: number): ValueType | undefined {
+    const match = typeof ref === "string" ? LOCAL_REF.exec(ref) : null;
+    let name: string | undefined;
+    try {
+      // The name is a step of a JSON Pointer in a URI fragment.
+      name = match === null ? undefined : decodeURIComponent(match[2] ?? "").replace(/~1/g, "/").replace(/~0/g, "~");
+    } catch {
+      name = undefined;
+    }
+    if (match === null || name === undefined) {
+      this.issue(at, "The type reads only a $ref to #/$defs/<name> or #/definitions/<name> of the same schema. Thus it reads the schema as unknown.");
+      return undefined;
+    }
+    if (this.inner > 0) {
+      this.issue(at, "A $ref inside a schema with its own $id has another base. Thus the type reads the schema as unknown.");
+      return undefined;
+    }
+    const group = match[1] as string;
+    const defs = isRecord(this.root) ? this.root[group] : undefined;
+    if (!isRecord(defs) || !Object.hasOwn(defs, name)) {
+      this.issue(at, `The schema has no definition ${String(ref)}. Thus the type reads the reference as unknown.`);
+      return undefined;
+    }
+    const key = `${group}/${name}`;
+    const known = this.defs.get(key);
+    if (known !== undefined) return known;
+    if (this.open.has(key)) {
+      this.issue(at, `The reference ${String(ref)} is in a cycle. The type reads this reference as unknown.`);
+      return undefined;
+    }
+    this.open.add(key);
+    try {
+      const type = this.read(defs[name], [group, name], depth + 1);
+      this.defs.set(key, type);
+      return type;
+    } finally {
+      this.open.delete(key);
+    }
   }
 
   /** This method reads `enum` and `const`: the values that the schema permits, or `undefined` without them. */
@@ -196,17 +373,20 @@ class SchemaReader {
  * - `properties`, `required` and `additionalProperties` give a record. `false` closes it, and a property that is not
  *   in `required` is optional.
  * - `items` gives a list. `enum` and `const` give `one`. `anyOf` and `oneOf` give a union.
+ * - `$ref` reads a definition in `$defs` or `definitions` of the same schema (TYPE.SCHEMA-REF). Another reference, a
+ *   missing definition and a reference in a cycle read as `unknown`.
+ * - `allOf` and the other keywords of a schema give the meet of their types (TYPE.SCHEMA-ALLOF). Records merge their
+ *   fields, and a closed part keeps the merge closed.
  *
  * The type holds each value that the schema accepts. Each keyword that the function does not read tests nothing, as
- * `unknown`, and the issues name it. Examples are `minimum`, `pattern` and `allOf`. A schema with `$ref` or `nullable`
- * reads as `unknown`, because these keywords can permit more values. A schema with more than one of `type`, `anyOf`
- * and `oneOf` gives the type of the first, and an issue for each other. The function does not throw.
+ * `unknown`, and the issues name it. Examples are `minimum` and `pattern`. A schema with `nullable` or `$dynamicRef`
+ * reads as `unknown`, because these keywords can permit more values. The function does not throw.
  *
  * @param schema - The schema, as JSON.
  * @returns The type, and the problems of the reading with their keys in the schema.
  */
 export function typeFromSchema(schema: unknown): TypeReading {
-  const reader = new SchemaReader();
+  const reader = new SchemaReader(schema);
   try {
     return { type: reader.read(schema, [], 0), issues: reader.issues };
   } catch (error) {

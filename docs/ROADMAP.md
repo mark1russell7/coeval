@@ -214,7 +214,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K70 | A step into a base type of the kernel, a function, or a list with a key that is not an index or `length`, is a type issue. Today it gives `unknown`, and the run gives `#N/A` there. From K25. | done (2026-11-03, D120) | K25 |
 | K71 | A type provider for `world` that gives the type of a path on demand, for a large store. Today the host gives one type for the whole root. From K25. | later | K25 |
 | K72 | A walker declares the type of what it reaches, thus a path with a step document gets a type. Today a step document gives `unknown`. From K25. | done (2026-11-03, D121) | K25 |
-| K73 | `typeFromSchema` reads `$ref` into `$defs` of the same schema, and `allOf` of records. Today a schema with `$ref` reads as `unknown`, and `allOf` tests nothing. From K25. | later | K25 |
+| K73 | `typeFromSchema` reads `$ref` into `$defs` of the same schema, and `allOf` of records. Today a schema with `$ref` reads as `unknown`, and `allOf` tests nothing. From K25. | done (2026-11-03, D123) | K25 |
 | K74 | The tree kit gives its kinds type rules with `PartType.roots`, thus an attribute of a node knows the type of `self`. Today the parts of a node get `unknown` roots. From K25. | later | K25, L2b |
 | K75 | A language compiles its own paths: an export of `compilePath`, and a route through `Runtime` that records the reads, for the second tier of a language (D13). Today only the formula kit uses compiled paths. From K12. | later | K12 |
 | K76 | The mark "total" for compiled code: `compileNode` does not wrap the code of `lit` in `placedCode`, thus a literal costs one call (R1 P2). From K12. | done (2026-10-28, released in the next batch, D50) | K12 |

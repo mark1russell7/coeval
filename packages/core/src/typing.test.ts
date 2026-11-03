@@ -37,6 +37,7 @@ import {
   formulaEvaluators,
   formulaMachine,
   generate,
+  isRecord,
   jsTruthy,
   member,
   mergeMachines,
@@ -849,15 +850,14 @@ describe("the types of the roots, of the names and of the paths", () => {
     }
     // A keyword that can permit more values makes the schema unknown. Each other keyword that the reading does not read tests nothing.
     const partial: readonly (readonly [unknown, ValueType, readonly (readonly Key[])[]])[] = [
-      [{ $ref: "#/$defs/a", type: "string" }, "unknown", [["$ref"]]],
+      [{ $ref: "#/$defs/a", type: "string" }, "unknown", [["type"], ["$ref"]]],
       [{ type: "string", nullable: true }, "unknown", [["nullable"]]],
       [{ type: "object", properties: { a: { type: "number" } }, additionalProperties: false, patternProperties: { "^x": {} } }, { record: { a: "number" }, optional: ["a"] }, [["patternProperties"]]],
       [{ type: "object", additionalProperties: { type: "number" } }, { record: {} }, [["additionalProperties"]]],
       [{ type: "array", prefixItems: [{ type: "number" }], items: { type: "string" } }, { list: "unknown" }, [["prefixItems"], ["items"]]],
       [{ type: "array", items: [{ type: "number" }] }, { list: "unknown" }, [["items"]]],
-      [{ allOf: [{ type: "number" }], type: "string" }, "text", [["allOf"]]],
       [{ properties: { a: { type: "number" } } }, "unknown", [[]]],
-      [{ type: "number", anyOf: [{ type: "string" }] }, "number", [["anyOf"]]],
+      [{ type: "number", anyOf: [{ type: "string" }] }, "never", []],
       [{ type: "date" }, "unknown", [["type"]]],
       [1, "unknown", [[]]],
     ];
@@ -879,15 +879,91 @@ describe("the types of the roots, of the names and of the paths", () => {
     expect(typeFromSchema(broken)).toEqual({ type: "unknown", issues: [{ at: [], reason: "The schema cannot be read: No type." }] });
   });
 
+  it("[TYPE.SCHEMA-REF] a $ref reads a definition of the same schema, and another reference, a missing definition or a cycle reads as unknown", () => {
+    const store = { $defs: { id: { type: "string" } }, type: "object", properties: { a: { $ref: "#/$defs/id" }, b: { $ref: "#/$defs/id" } }, required: ["a"] };
+    expect(typeFromSchema(store)).toEqual({ type: { record: { a: "text", b: "text" }, optional: ["b"] }, issues: [] });
+    // A name is a step of a JSON Pointer in a URI fragment.
+    expect(typeFromSchema({ definitions: { "a/b~%": { type: "number" } }, $ref: "#/definitions/a~1b~0%25" })).toEqual({ type: "number", issues: [] });
+    // The reading reads each definition one time, thus its issues come one time, at the keys of the definition.
+    const twice = typeFromSchema({ $defs: { n: { type: "number", minimum: 0 } }, type: "array", items: { anyOf: [{ $ref: "#/$defs/n" }, { $ref: "#/$defs/n" }] } });
+    expect(twice).toEqual({ type: { list: "number" }, issues: [{ at: ["$defs", "n", "minimum"], reason: "The type does not read the keyword minimum. It does not test what the keyword tests." }] });
+    // Each definition reads one time, thus a chain of definitions with two references each does not grow.
+    const chain: Record<string, unknown> = { d0: { type: "number" } };
+    for (let index = 1; index <= 40; index += 1) chain[`d${index}`] = { anyOf: [{ $ref: `#/$defs/d${index - 1}` }, { $ref: `#/$defs/d${index - 1}` }] };
+    expect(typeFromSchema({ $defs: chain, $ref: "#/$defs/d40" })).toEqual({ type: "number", issues: [] });
+    // A keyword beside $ref tests nothing, because older drafts ignore it.
+    expect(typeFromSchema({ $defs: { s: { type: "string" } }, $ref: "#/$defs/s", type: "number" })).toEqual({
+      type: "text",
+      issues: [{ at: ["type"], reason: "The type reads only the target of $ref. It does not test the keyword type beside it." }],
+    });
+    const tree = typeFromSchema({ $defs: { node: { type: "object", properties: { kids: { type: "array", items: { $ref: "#/$defs/node" } } } } }, $ref: "#/$defs/node" });
+    expect(tree).toEqual({
+      type: { record: { kids: { list: "unknown" } }, optional: ["kids"] },
+      issues: [{ at: ["$defs", "node", "properties", "kids", "items", "$ref"], reason: "The reference #/$defs/node is in a cycle. The type reads this reference as unknown." }],
+    });
+    const unknowns: readonly (readonly [unknown, readonly Key[]])[] = [
+      [{ $ref: "#/$defs/none", $defs: { a: true } }, ["$ref"]],
+      [{ $ref: "other.json#/$defs/a" }, ["$ref"]],
+      [{ $ref: "#/properties/a" }, ["$ref"]],
+      [{ $ref: "#/$defs/a%", $defs: { "a%": { type: "number" } } }, ["$ref"]],
+      [{ $ref: 3 }, ["$ref"]],
+      [{ $defs: { a: { $ref: "#/$defs/b" }, b: { $ref: "#/$defs/a" } }, $ref: "#/$defs/a" }, ["$defs", "b", "$ref"]],
+      [{ $defs: { s: { type: "string" } }, allOf: [{ $id: "inner.json", $ref: "#/$defs/s" }] }, ["allOf", 0, "$ref"]],
+      [{ $defs: { s: { type: "string" } }, $dynamicRef: "#/$defs/s" }, ["$dynamicRef"]],
+    ];
+    for (const [input, at] of unknowns) {
+      expect(typeFromSchema(input), JSON.stringify(input)).toEqual({ type: "unknown", issues: [expect.objectContaining({ at })] });
+    }
+  });
+
+  it("[TYPE.SCHEMA-ALLOF] allOf and the other keywords of a schema give the meet of their types, and records merge their fields", () => {
+    const $defs = { base: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } };
+    expect(typeFromSchema({ $defs, allOf: [{ $ref: "#/$defs/base" }, { type: "object", properties: { n: { type: "number" } } }] })).toEqual({
+      type: { record: { id: "text", n: "number" }, optional: ["n"] },
+      issues: [],
+    });
+    // A part without the keyword type tests only the records, thus it narrows the record of another part.
+    expect(typeFromSchema({ $defs, allOf: [{ $ref: "#/$defs/base" }, { properties: { n: { type: "number" } }, required: ["n"] }] })).toEqual({ type: { record: { id: "text", n: "number" } }, issues: [] });
+    const cases: readonly (readonly [unknown, ValueType])[] = [
+      // A closed part has no other field, thus a field of only the other part is absent, or no value fits when it is needed.
+      [{ allOf: [{ type: "object", properties: { a: { type: "number" } }, additionalProperties: false }, { type: "object", properties: { b: { type: "string" } } }] }, { record: { a: "number" }, optional: ["a"], closed: true }],
+      [{ allOf: [{ type: "object", properties: { a: { type: "number" } }, additionalProperties: false }, { type: "object", required: ["b"] }] }, "never"],
+      [{ allOf: [{ type: "object", properties: { a: { type: ["number", "string"] } } }, { type: "object", properties: { a: { type: "number" } }, required: ["a"] }] }, { record: { a: "number" } }],
+      [{ allOf: [{ type: "number" }], type: "string" }, "never"],
+      [{ allOf: [{ type: ["number", "null"] }, { type: "number" }] }, "number"],
+      [{ allOf: [{ enum: [1, "a"] }, { type: "string" }] }, { one: ["a"] }],
+      [{ type: "array", allOf: [{ items: { type: ["number", "string"] } }, { items: { type: "number" } }] }, { list: "number" }],
+      [{ anyOf: [{ type: "object" }, { type: "null" }], required: ["a"] }, { union: [{ record: { a: "unknown" } }, "null"] }],
+      [{ enum: [{ a: 1 }, { b: 2 }, 3], required: ["a"] }, { one: [{ a: 1 }, 3] }],
+      [{ allOf: [true, { type: "boolean" }] }, "bool"],
+      [{ allOf: [false, { type: "boolean" }] }, "never"],
+    ];
+    for (const [input, type] of cases) {
+      expect(typeFromSchema(input), JSON.stringify(input)).toEqual({ type, issues: [] });
+    }
+    // A part that can permit more values tests nothing, and a part without a type alone reads as unknown.
+    const partial: readonly (readonly [unknown, ValueType, readonly (readonly Key[])[]])[] = [
+      [{ allOf: [{ type: "string", nullable: true }, { type: "string" }] }, "text", [["allOf", 0, "nullable"]]],
+      [{ allOf: [{ properties: { a: { type: "number" } } }] }, "unknown", [["allOf", 0]]],
+      [{ allOf: 3, type: "number" }, "number", [["allOf"]]],
+    ];
+    for (const [input, type, at] of partial) {
+      const read = typeFromSchema(input);
+      expect(read.type, JSON.stringify(input)).toEqual(type);
+      expect(read.issues.map((issue) => issue.at), JSON.stringify(input)).toEqual(at);
+    }
+  });
+
   it("[TYPE.SCHEMA] each value that a generated schema accepts is a member of the type of the schema", () => {
     const rng = random(SEED * 11 + 5);
     let values = 0;
     for (let index = 0; index < COUNT; index += 1) {
-      const schema = genSchema(rng, 3);
+      // Half of the schemas hold a definition, and a leaf can refer to it, also from inside the definition.
+      const schema = rng.chance(0.5) ? { $defs: { d: genSchema(rng, 2) }, allOf: [genSchema(rng, 3)] } : genSchema(rng, 3);
       const { type } = typeFromSchema(schema);
       for (let draw = 0; draw < 4; draw += 1) {
-        const value = valueOfSchema(schema, rng);
-        if (value === NONE) continue;
+        const value = valueOfSchema(schema, rng, schema);
+        if (value === NONE || !accepts(schema, value, schema, 0)) continue;
         values += 1;
         expect(member(value, type), `${JSON.stringify(value)} fits ${JSON.stringify(schema)}, but not ${typeText(type)}`).toBe(true);
       }
@@ -1161,9 +1237,20 @@ const NONE: unique symbol = Symbol("none");
 /** This function makes a random schema of the subset that typeFromSchema reads, sometimes with a keyword that only tests more. */
 function genSchema(rng: Random, depth: number): unknown {
   const leaf = (): unknown =>
-    rng.pick<unknown>([{ type: "null" }, { type: "boolean" }, { type: "number", minimum: 0 }, { type: "integer" }, { type: "string", maxLength: 3 }, { enum: [1, "a", null] }, { const: { a: 1 } }, true]);
+    rng.pick<unknown>([
+      { type: "null" },
+      { type: "boolean" },
+      { type: "number", minimum: 0 },
+      { type: "integer" },
+      { type: "string", maxLength: 3 },
+      { enum: [1, "a", null] },
+      { const: { a: 1 } },
+      true,
+      { $ref: "#/$defs/d" },
+    ]);
   if (depth <= 0 || rng.chance(0.3)) return leaf();
-  const form = rng.int(5);
+  const form = rng.int(6);
+  if (form === 5) return { allOf: [genSchema(rng, depth - 1), genSchema(rng, depth - 1)] };
   if (form === 0) return { type: "array", items: genSchema(rng, depth - 1) };
   if (form === 1) return { [rng.pick(["anyOf", "oneOf"])]: [genSchema(rng, depth - 1), genSchema(rng, depth - 1)] };
   if (form === 2) return { type: ["string", "null"] };
@@ -1173,14 +1260,29 @@ function genSchema(rng: Random, depth: number): unknown {
   return { type: "object", properties, required, ...(rng.chance(0.5) ? { additionalProperties: false } : {}) };
 }
 
-/** This function makes a random value that a generated schema accepts, or `NONE`. */
-function valueOfSchema(schema: unknown, rng: Random): Json | typeof NONE {
+/** This function gives the definition of a generated reference, or `false` without it. */
+function defOf(root: unknown): unknown {
+  return (root as { $defs?: { d?: unknown } } | undefined)?.$defs?.d ?? false;
+}
+
+/**
+ * This function makes a random value that a generated schema can accept, or `NONE`. A value of `allOf` merges the
+ * values of its parts, thus `accepts` tests it.
+ */
+function valueOfSchema(schema: unknown, rng: Random, root: unknown, level = 0): Json | typeof NONE {
   if (schema === true) return jsonValue(rng, 2);
-  if (typeof schema !== "object" || schema === null) return NONE;
+  if (typeof schema !== "object" || schema === null || level > 8) return NONE;
   const s = schema as Readonly<Record<string, unknown>>;
+  if (Object.hasOwn(s, "$ref")) return valueOfSchema(defOf(root), rng, root, level + 1);
+  if (Array.isArray(s["allOf"])) {
+    const parts = (s["allOf"] as unknown[]).map((part) => valueOfSchema(part, rng, root, level + 1));
+    if (parts.some((part) => part === NONE)) return NONE;
+    const records = parts.every((part) => isRecord(part));
+    return records ? Object.assign({}, ...(parts as Json[])) : (parts[0] as Json);
+  }
   if (Array.isArray(s["enum"])) return rng.pick(s["enum"] as Json[]);
   if (Object.hasOwn(s, "const")) return s["const"] as Json;
-  for (const key of ["anyOf", "oneOf"]) if (Array.isArray(s[key])) return valueOfSchema(rng.pick(s[key] as unknown[]), rng);
+  for (const key of ["anyOf", "oneOf"]) if (Array.isArray(s[key])) return valueOfSchema(rng.pick(s[key] as unknown[]), rng, root, level + 1);
   const type = Array.isArray(s["type"]) ? rng.pick(s["type"] as string[]) : (s["type"] as string);
   if (type === "null") return null;
   if (type === "boolean") return rng.chance(0.5);
@@ -1190,7 +1292,7 @@ function valueOfSchema(schema: unknown, rng: Random): Json | typeof NONE {
   if (type === "array") {
     const items: Json[] = [];
     for (let index = rng.int(3); index > 0; index -= 1) {
-      const item = valueOfSchema(s["items"], rng);
+      const item = valueOfSchema(s["items"], rng, root, level + 1);
       if (item !== NONE) items.push(item);
     }
     return items;
@@ -1200,7 +1302,7 @@ function valueOfSchema(schema: unknown, rng: Random): Json | typeof NONE {
   const out: Record<string, Json> = {};
   for (const key of Object.keys(properties)) {
     if (!required.includes(key) && rng.chance(0.4)) continue;
-    const value = valueOfSchema(properties[key], rng);
+    const value = valueOfSchema(properties[key], rng, root, level + 1);
     if (value === NONE) {
       if (required.includes(key)) return NONE;
       continue;
@@ -1209,6 +1311,38 @@ function valueOfSchema(schema: unknown, rng: Random): Json | typeof NONE {
   }
   if (s["additionalProperties"] !== false && rng.chance(0.4)) out["zz"] = jsonValue(rng, 1);
   return out;
+}
+
+/**
+ * This function tells if a generated schema accepts a value. It reads `oneOf` as `anyOf`, which accepts more values,
+ * thus the test stays sound. A deep reference gives `false`, and the test then skips the value.
+ */
+function accepts(schema: unknown, value: Json, root: unknown, level: number): boolean {
+  if (typeof schema === "boolean") return schema;
+  if (typeof schema !== "object" || schema === null || level > 16) return false;
+  const s = schema as Readonly<Record<string, unknown>>;
+  if (Object.hasOwn(s, "$ref")) return accepts(defOf(root), value, root, level + 1);
+  const next = (part: unknown, item: Json): boolean => accepts(part, item, root, level + 1);
+  if (Array.isArray(s["allOf"]) && !(s["allOf"] as unknown[]).every((part) => next(part, value))) return false;
+  for (const key of ["anyOf", "oneOf"]) if (Array.isArray(s[key]) && !(s[key] as unknown[]).some((part) => next(part, value))) return false;
+  if (Array.isArray(s["enum"]) && !(s["enum"] as Json[]).some((item) => JSON.stringify(item) === JSON.stringify(value))) return false;
+  if (Object.hasOwn(s, "const") && JSON.stringify(s["const"]) !== JSON.stringify(value)) return false;
+  if (typeof s["minimum"] === "number" && typeof value === "number" && value < s["minimum"]) return false;
+  if (typeof s["maxLength"] === "number" && typeof value === "string" && value.length > s["maxLength"]) return false;
+  const types = s["type"] === undefined ? undefined : ([] as unknown[]).concat(s["type"]);
+  const kind = value === null ? "null" : Array.isArray(value) ? "array" : typeof value === "object" ? "object" : typeof value;
+  if (types !== undefined && !types.some((name) => name === kind || (name === "integer" && Number.isInteger(value)))) return false;
+  if (Array.isArray(value) && s["items"] !== undefined) return value.every((item) => next(s["items"], item));
+  if (isRecord(value)) {
+    const properties = (s["properties"] ?? {}) as Readonly<Record<string, unknown>>;
+    if (((s["required"] ?? []) as string[]).some((key) => !Object.hasOwn(value, key))) return false;
+    for (const key of Object.keys(value)) {
+      if (Object.hasOwn(properties, key)) {
+        if (!next(properties[key], value[key] as Json)) return false;
+      } else if (s["additionalProperties"] === false) return false;
+    }
+  }
+  return true;
 }
 
 /** This function makes a random JSON value: base values, lists and records. */
