@@ -4,12 +4,15 @@
  * The script `paths.ts` bundles this file with each copy of the kernel. Each bundle runs in its own process:
  *
  *   node <bundle> measure [<calls of each case as JSON> [<indexes of some cases as JSON>]]
+ *   node <bundle> child <index of one case> <calls of that case>
  *
- * The process prints one line of JSON: for each case, the result, the calls in one sample and the median time of one
- * call. Without the calls, the process calibrates them. With the indexes, the process runs only those cases, in that
- * order (K210, D98). The process measures only its own copy, thus no other copy changes its type feedback, its inline
- * caches or its heap.
+ * The mode `measure` prints one line of JSON: for each case, the result, the calls in one sample and the median time
+ * of one call. Without the calls, the process calibrates them. With the indexes, the process runs only those cases, in
+ * that order (K210, D98). The mode `child` measures one case for the fresh runner of `@mark1russell7/rigor-bench`
+ * (D114). It prints the line `{"ms": <time of one call>, "hash": <result>}`. The process measures only its own copy,
+ * thus no other copy changes its type feedback, its inline caches or its heap.
  */
+import { median } from "@mark1russell7/rigor-statistics";
 import * as kernel from "../src/index.ts";
 import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
@@ -244,6 +247,11 @@ export const CASES: readonly Case[] = [
   },
 ];
 
+/*
+ * GAP (mark1russell7/rigor#37): rigor-bench has no timed samples of one arm in a child process. Thus `calibrate`,
+ * `measure` and the sample loop of `run` stay here.
+ */
+
 /** This function gives the number of calls that take approximately the target time. */
 export function calibrate(fn: () => unknown): number {
   let n = 1000;
@@ -261,12 +269,6 @@ export function measure(fn: () => unknown, n: number): number {
   const start = performance.now();
   for (let index = 0; index < n; index += 1) fn();
   return ((performance.now() - start) * 1e6) / n;
-}
-
-export function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? (sorted[middle] as number) : ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
 }
 
 export function show(value: unknown): string {
@@ -297,4 +299,11 @@ if (process.argv[2] === "measure") {
   const only = process.argv[4] === undefined ? undefined : (JSON.parse(process.argv[4]) as number[]);
   if (only?.some((index) => CASES[index] === undefined)) throw new Error(`A case is absent: ${String(process.argv[4])}.`);
   process.stdout.write(`${JSON.stringify(run(counts, only))}\n`);
+}
+
+if (process.argv[2] === "child") {
+  const [index, calls] = [Number(process.argv[3]), Number(process.argv[4])];
+  if (CASES[index] === undefined || !Number.isInteger(calls) || calls < 1) throw new Error(`Give the index of a case and its calls: ${String(process.argv[3])} ${String(process.argv[4])}.`);
+  const [measured] = run(CASES.map(() => calls), [index]) as [Measured];
+  process.stdout.write(`${JSON.stringify({ ms: measured.ns / 1e6, hash: measured.result })}\n`);
 }
