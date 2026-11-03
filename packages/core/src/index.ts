@@ -260,6 +260,7 @@ export {
   jsTruthy,
 } from "./formula.ts";
 export { decodeDomain, decodeValue, encodeValue } from "./codec.ts";
+export { type CodecFinding, type CodecLaw, type CodecLawsOptions, type CodecProbe, codecLaws } from "./codec-laws.ts";
 export {
   type ParseResult,
   type SyntaxAssoc,
