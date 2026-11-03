@@ -7,7 +7,8 @@
  * (`BENCH_JSON`). This script reads the two files and prints one table with the change, the noise and the verdict of
  * each run.
  *
- * The shared bench core `@mark1russell7/rigor-bench` gives the verdict of each case (D114). Its rule `difference`
+ * The shared bench core `@mark1russell7/rigor-bench` gives the verdict of each case (D114). The margin and the noise cap
+ * of each case come from the A/A records of its family (`limits.ts`, D117). Its rule `difference`
  * compares the head with the A/A pair: two processes of the base. The outcome is "same", "faster", "slower" or "cannot
  * decide". The verdict of a case is the `pooledVerdict` of the rounds of the two runs. A run that gives the opposite
  * direction makes the verdict "cannot decide". The same case can take 107 ns on one runner and 206 ns on another
@@ -19,6 +20,7 @@
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { pooledVerdict, timeVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { FAMILIES, limitsOf, limitsRecord, percentOf, type Family } from "./limits.ts";
 
 /** The measurement of one case in one run. The change and the noise are percents. */
 export interface BenchCase {
@@ -58,8 +60,9 @@ export interface BenchRun {
 }
 
 /**
- * The options of each time verdict of the bench (D114). The margin of the rule `difference` is the floor of the old
- * bound (D50, D70): 1.5 %, on a log scale.
+ * The options of a time verdict without the limits of a family (D114). The margin of the rule `difference` is the floor
+ * of the old bound (D50, D70): 1.5 %, on a log scale. The mode run `mode.ts` uses these options. The bench gives each
+ * case the limits of its family (`limitsOf`, D117).
  */
 export const VERDICT: VerdictOptions = { margin: Math.log(1.015) };
 
@@ -73,9 +76,12 @@ export function roundsAsCases<T extends PairedTime>(records: readonly T[]): T[] 
   return records.map((record) => ({ ...record, case: `${record.case} (round ${String(record.round)})` }));
 }
 
-/** This function gives the time verdict of one case in one run: the rounds of the head against the rounds of the A/A pair. */
-export function caseVerdict(head: readonly PairedTime[], aa: readonly PairedTime[]): TimeVerdict {
-  return timeVerdict(roundsAsCases(head), roundsAsCases(aa), VERDICT);
+/**
+ * This function gives the time verdict of one case in one run: the rounds of the head against the rounds of the A/A
+ * pair. Without options, the verdict uses `VERDICT`.
+ */
+export function caseVerdict(head: readonly PairedTime[], aa: readonly PairedTime[], options: VerdictOptions = VERDICT): TimeVerdict {
+  return timeVerdict(roundsAsCases(head), roundsAsCases(aa), options);
 }
 
 /** The verdict of one case over the two runs. */
@@ -88,16 +94,18 @@ function hasPairs(item: BenchCase | undefined): item is BenchCase & { readonly h
 
 /** This function gives the outcome of one case in one run. A case without paired times cannot decide. */
 export function outcomeOf(item: BenchCase): TimeOutcome {
-  return hasPairs(item) ? caseVerdict(item.head, item.aa).outcome : "cannot decide";
+  return hasPairs(item) ? caseVerdict(item.head, item.aa, limitsOf(item.name).options).outcome : "cannot decide";
 }
 
 /**
  * This function gives the pooled verdict of one case over the runs: the rounds of all runs, one job for each run.
  * The label of a job is the name of its run. A record of the fresh runner keeps the same label in its field `job`.
+ * Without options, the verdict uses the limits of the family of the case (D117).
  */
-export function pooledCase(runs: readonly { readonly run: string; readonly item: BenchCase }[]): PooledVerdict | undefined {
+export function pooledCase(runs: readonly { readonly run: string; readonly item: BenchCase }[], options?: VerdictOptions): PooledVerdict | undefined {
   const jobs = runs.flatMap(({ run, item }) => (hasPairs(item) ? [{ job: run, candidate: roundsAsCases(item.head), aa: roundsAsCases(item.aa) }] : []));
-  return jobs.length === 0 ? undefined : pooledVerdict(jobs, VERDICT);
+  const name = runs[0]?.item.name;
+  return jobs.length === 0 || name === undefined ? undefined : pooledVerdict(jobs, options ?? limitsOf(name).options);
 }
 
 /** This function gives the verdict of one case over two runs: the outcome of `pooledCase`. */
@@ -111,10 +119,15 @@ function percent(change: number): string {
   return `${change >= 0 ? "+" : ""}${change.toFixed(1)} %`;
 }
 
+/** This function gives the mark of a verdict with the fallback limits, or an empty text. */
+export function fallbackMark(name: string): string {
+  return limitsOf(name).fallback ? " (fallback limits)" : "";
+}
+
 function cells(item: BenchCase | undefined): string {
   if (item === undefined) return " | | ";
   if (item.different !== undefined) return `different results | ${item.different} | `;
-  return `${percent(item.change)} | ${percent(item.noise)} | ${outcomeOf(item)}`;
+  return `${percent(item.change)} | ${percent(item.noise)} | ${outcomeOf(item)}${fallbackMark(item.name)}`;
 }
 
 function read(file: string | undefined): BenchRun | undefined {
@@ -139,12 +152,19 @@ export function describeRun(run: BenchRun | undefined, index: number): string {
 
 /** The lines that tell how the bench gives a verdict. `paths.ts` and this script print them. */
 export function verdictRule(): string[] {
-  const margin = ((Math.exp(VERDICT.margin ?? 0) - 1) * 100).toFixed(1);
+  const record = limitsRecord();
+  const families = (Object.keys(FAMILIES) as Family[]).map((family) => {
+    const limits = record.limits[family];
+    return `${family} ${percentOf(limits.margin)} and ${percentOf(limits.noiseCap)}${limits.source === "fallback" ? " (fallback)" : ""}`;
+  });
+  const runs = record.runs.map((run) => String(run.id)).join(", ");
   return [
     "The verdict of a case in a run is the `timeVerdict` of `@mark1russell7/rigor-bench`, with the rule `difference` (D114).",
     "It compares the median ratio of the head to the base with the median ratio of the A/A pair, over the rounds of the case.",
-    `The case is "same" when the bootstrap interval of the difference is inside ${margin} %. Else it is "faster" or "slower" when the interval is wholly on one side of 1.`,
-    'Else the case is "cannot decide".',
+    'The case is "same" when the bootstrap interval of the difference is inside the margin. Else it is "faster" or "slower" when the interval is wholly on one side of 1.',
+    'Else the case is "cannot decide". An A/A spread or an A/A median above the noise cap also gives "cannot decide".',
+    `The margin and the noise cap of each family come from the A/A records of the Speed runs ${runs} (D117): ${families.join(", ")}.`,
+    `A case without a family uses the fallback limits ${percentOf(record.fallback.margin)} and ${percentOf(record.fallback.noiseCap)}, and its verdict says "(fallback limits)".`,
   ];
 }
 
@@ -167,7 +187,7 @@ function main(): void {
     const [first, second] = runs.map((run) => run?.cases.find((item) => item.name === name));
     const verdict = verdictOf(first, second, [runs[0]?.run ?? "1", runs[1]?.run ?? "2"]);
     counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
-    lines.push(`| ${name} | ${cells(first)} | ${cells(second)} | ${verdict} |`);
+    lines.push(`| ${name} | ${cells(first)} | ${cells(second)} | ${verdict}${fallbackMark(name)} |`);
   }
   lines.push("", `Verdicts: ${[...counts].map(([verdict, count]) => `${String(count)} ${verdict}`).join(", ")}.`);
   const text = lines.join("\n");
