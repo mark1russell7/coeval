@@ -144,13 +144,37 @@ export interface KindFacts {
  * - `default`: the term that gives the value when no rung before it answers and the declaration has no fold.
  * - `circular`: a cycle of this attribute gives its fixed point, not `#CYCLE!` (TREE.CIRCULAR, D113). Only a cycle
  *   whose attributes each declare `circular` gives a fixed point.
+ * - `collect`: the value of a node without an answer of the first four rungs and without a fold. The node combines
+ *   the contributions of each node of its subtree (TREE.COLLECT, D122).
  */
 export interface AttributeDeclaration {
   readonly copy?: boolean;
   readonly fold?: { readonly unit: Json; readonly combine: Json };
   readonly default?: Json;
   readonly circular?: CircularDeclaration;
+  readonly collect?: CollectDeclaration;
 }
+
+/**
+ * The declaration `collect` of an attribute (TREE.COLLECT, D122). The node of the attribute visits each node of its
+ * subtree. It visits the node itself first. Then it visits the nodes in its list `children`, in the order of the list.
+ *
+ * - `{ unit, combine }`: the collection starts with the term `unit`. The term `combine` then adds the contribution
+ *   of each node, with the names `acc` and `item`. A node contributes when its kind has an equation for the
+ *   attribute in `tree.contributes`.
+ * - `"names"`: the registry of binding names. Its value is a record from the header name of each node to its node
+ *   (TREE.NAMED). Two nodes with one name give `#VALUE!` at the read of the registry.
+ */
+export type CollectDeclaration = { readonly unit: Json; readonly combine: Json } | "names";
+
+/** A declaration `collect` that the kit can use, or the reason of a bad declaration (D122). */
+export type CollectRule =
+  | { readonly ok: true; readonly names: true }
+  | { readonly ok: true; readonly names: false; readonly unit: Json; readonly combine: Json }
+  | { readonly ok: false; readonly reason: string };
+
+/** The rule of the registry of binding names. */
+const NAMES_RULE: CollectRule = /* @__PURE__ */ Object.freeze({ ok: true, names: true });
 
 /**
  * The declaration `circular` of an attribute (TREE.CIRCULAR, D113). The attribute that a cycle reaches first leads it.
@@ -209,6 +233,21 @@ export function circularOf(declared: unknown): CircularRule {
 }
 
 /**
+ * This function reads the declaration `collect` of an attribute (D122). The tree kit, the reference, `check` and the
+ * graph of attribute instances read it with this one function.
+ *
+ * @param declared - The value of the field `collect`.
+ * @returns The rule of the collection, or the reason when the declaration has no correct form.
+ */
+export function collectOf(declared: unknown): CollectRule {
+  if (declared === "names") return NAMES_RULE;
+  if (!isRecord(declared) || !Object.hasOwn(declared, "unit") || !Object.hasOwn(declared, "combine")) {
+    return { ok: false, reason: 'The declaration collect needs the text "names" or a record with the fields unit and combine.' };
+  }
+  return { ok: true, names: false, unit: field(declared, "unit") as Json, combine: field(declared, "combine") as Json };
+}
+
+/**
  * The tree contract of a kind (D42): the equations of the attributes of its nodes. Each equation is a document that
  * evaluates with the node as `self` and without capabilities. A bare equation gets the type `of` of the parts of the
  * kind.
@@ -217,11 +256,14 @@ export function circularOf(declared: unknown): CircularRule {
  * - `down`: the attributes of each child of the node. `self` is this node. An equation sees the names `child`,
  *   `index` and `prev` (TREE.DOWN).
  * - `attributes`: the declarations of the attributes of the node, for the rungs `copy` and `default`.
+ * - `contributes`: the contribution of the node to each collection of an attribute (TREE.COLLECT, D122). An
+ *   equation sees no names.
  */
 export interface TreeContract {
   readonly equations?: Readonly<Record<string, Json>>;
   readonly down?: Readonly<Record<string, Json>>;
   readonly attributes?: Readonly<Record<string, AttributeDeclaration>>;
+  readonly contributes?: Readonly<Record<string, Json>>;
 }
 
 /**

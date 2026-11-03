@@ -1,5 +1,5 @@
 import { type Json, type Key, field, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, equationType } from "./world.ts";
+import { type CollectRule, type Kind, collectOf, equationType } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { isRef, walkerOf } from "./deref.ts";
 import type { Machine } from "./evaluate.ts";
@@ -460,7 +460,56 @@ function rungReads(b: Builder, id: string): void {
     termReads(b, termRefs(b, node.kind, `tree.attributes.${key}.fold.combine`, fold.combine), node, undefined, combined ? later : { ...later, lazy: true });
     return;
   }
+  const collect = declared?.collect === undefined ? undefined : collectOf(declared.collect);
+  if (collect?.ok === true) {
+    collectReads(b, node, key, collect, later);
+    return;
+  }
   if (declared?.default !== undefined) termReads(b, termRefs(b, node.kind, `tree.attributes.${key}.default`, declared.default), node, undefined, later);
+}
+
+/** This function gives the list children of a node before the run. A node without a rung for it has no children. */
+function childrenOf(b: Builder, at: NodeInfo): Value {
+  const part = at.parts.get("children");
+  if (part !== undefined) return valueOf(part);
+  const tree = at.kind.tree;
+  if (hasOwnEntry(tree?.equations, "children") || hasOwnEntry(tree?.attributes, "children")) return "unknown";
+  if (at.up === undefined) return downNames(b.machine.world).has("children") ? "unknown" : "data";
+  return at.up !== null && hasOwnEntry(at.up.kind.tree?.down, "children") ? "unknown" : "data";
+}
+
+/**
+ * This function adds the reads of a collection (TREE.COLLECT, D122), in the order of the run. Each node of the subtree
+ * gives the reads of its contribution and of its list `children`. A list that only the run knows gives an edge with an
+ * unknown source. The registry of names reads only the lists `children`.
+ */
+function collectReads(b: Builder, node: NodeInfo, key: string, rule: CollectRule & { readonly ok: true }, later: Reader): void {
+  if (!rule.names) termReads(b, termRefs(b, node.kind, `tree.attributes.${key}.collect.unit`, rule.unit), node, undefined, later);
+  let combined = false;
+  const done = new Set<NodeInfo>();
+  const stack: NodeInfo[] = [node];
+  while (stack.length > 0) {
+    const at = stack.pop() as NodeInfo;
+    if (done.has(at)) continue;
+    done.add(at);
+    const term = rule.names || !hasOwnEntry(at.kind.tree?.contributes, key) ? undefined : at.kind.tree?.contributes?.[key];
+    if (term !== undefined) {
+      termReads(b, termRefs(b, at.kind, `tree.contributes.${key}`, term), at, undefined, later);
+      combined = true;
+    }
+    edge(b, vertexOf(b, at, "children"), later);
+    const children = childrenOf(b, at);
+    if (children === "unknown") edge(b, undefined, later);
+    else if (typeof children === "object" && "list" in children) {
+      const items = itemsOf(children.list);
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        const child = items[index]?.node;
+        if (child !== undefined && child.up === at) stack.push(child);
+      }
+    }
+  }
+  // The combine evaluates once for each contribution, thus without a known contribution its reads are lazy.
+  if (!rule.names) termReads(b, termRefs(b, node.kind, `tree.attributes.${key}.collect.combine`, rule.combine), node, undefined, combined ? later : { ...later, lazy: true });
 }
 
 /** The vertices and the edges of a document, and the roots of the demand of the run: the own parts of each tree root. */

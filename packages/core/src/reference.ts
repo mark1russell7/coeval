@@ -1,6 +1,6 @@
 import { type Envelope, type Json, type Key, docEquals, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { ask } from "./ladder.ts";
-import { type AttributeDeclaration, type CapsRule, type CircularRule, type Kind, type TreeContract, circularOf, equationType, lookupKind } from "./world.ts";
+import { type AttributeDeclaration, type CapsRule, type CircularRule, type Kind, type TreeContract, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, ROOTS, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
 import { type AttributeRung, STD_EVALUATORS } from "./stdlib.ts";
@@ -754,6 +754,8 @@ interface RefTree {
 interface RefNode {
   readonly tree: RefTree;
   readonly kind: string;
+  /** The binding name from the header of the document of the node (TREE.NAMED). */
+  readonly name: string | undefined;
   readonly place: readonly Key[];
   readonly parts: readonly Part[];
   readonly ctx: Context;
@@ -832,6 +834,52 @@ function foldOf(node: RefNode, name: string, fold: NonNullable<AttributeDeclarat
 }
 
 /**
+ * TREE.COLLECT and TREE.NAMED: the node, then each node of this tree in each list `children`, in the order of the
+ * lists. Each node counts one time. The registry `names` maps each binding name to its node.
+ */
+function collectIn(node: RefNode, name: string, declared: unknown): Result {
+  const rule = collectOf(declared);
+  if (!rule.ok) return fail("#VALUE!", `The attribute ${nameOfAttribute(node, name)} has a bad declaration collect. ${rule.reason}`);
+  const registry: Record<string, unknown> = {};
+  const first = new Map<string, RefNode>();
+  let acc: Result = rule.names ? ok(registry) : equationOf(node, rule.unit, {});
+  if (!acc.ok) return acc;
+  const done: RefNode[] = [];
+  // The contribution of a node comes before the nodes of its list children. A failure ends the collection.
+  const visit = (at: RefNode): Result | undefined => {
+    if (done.includes(at)) return undefined;
+    done.push(at);
+    if (rule.names && at.name !== undefined) {
+      const earlier = first.get(at.name);
+      if (earlier !== undefined) {
+        return fail("#VALUE!", `Two nodes have the name ${at.name} in the registry ${nameOfAttribute(node, name)}: ${earlier.kind} at [${earlier.place.join(", ")}] and ${at.kind} at [${at.place.join(", ")}].`);
+      }
+      first.set(at.name, at);
+      Object.defineProperty(registry, at.name, { value: at.thing, enumerable: true, writable: true, configurable: true });
+    }
+    const term = rule.names ? undefined : termIn(at.contract?.contributes, name);
+    if (!rule.names && term !== undefined) {
+      const item = equationOf(at, term, {});
+      if (!item.ok) return item;
+      acc = equationOf(node, rule.combine, { acc: acc.ok ? acc.value : null, item: item.value });
+      if (!acc.ok) return acc;
+    }
+    const children = attributeOf(at, "children");
+    if (children === undefined) return undefined;
+    if (!children.ok) return children;
+    if (!Array.isArray(children.value)) return fail("#VALUE!", `The collection of ${name} needs a list in children of ${at.kind} at [${at.place.join(", ")}].`);
+    for (const item of children.value) {
+      const child = refNodeOf(item);
+      if (child === undefined || child.tree !== node.tree) continue;
+      const failed = visit(child);
+      if (failed !== undefined) return failed;
+    }
+    return undefined;
+  };
+  return visit(node) ?? acc;
+}
+
+/**
  * TREE.LADDER: the rungs of the ladder of an attribute, in their order. A rung gives `undefined` when it does not
  * answer, and the next rung then tries.
  */
@@ -860,6 +908,7 @@ const REF_RUNGS: readonly (readonly [AttributeRung, (node: RefNode, name: string
     (node, name) => {
       const declared = termIn(node.contract?.attributes, name);
       if (declared?.fold !== undefined) return foldOf(node, name, declared.fold);
+      if (declared?.collect !== undefined) return collectIn(node, name, declared.collect);
       return declared?.default === undefined ? undefined : equationOf(node, declared.default, {});
     },
   ],
@@ -1065,7 +1114,7 @@ function plainValue(value: unknown, open: readonly object[]): Result {
  * tree gives its JSON. A step on the thing reads an attribute, and a failed attribute throws its own error. The node
  * reads `self` only through `resolve` (C4, TREE.SELF).
  */
-const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath, resolve: walk }) => {
+const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath, resolve: walk, doc }) => {
   const reached = walk(["self"]);
   const parent: Thing | undefined = reached.ok ? reached.thing : undefined;
   const outer = refNodeOf(parent);
@@ -1076,6 +1125,7 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath
   const node: RefNode = {
     tree: nested ? outer.tree : { open: true },
     kind,
+    name: doc.name,
     place,
     parts,
     ctx: context,

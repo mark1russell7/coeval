@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type LazyRule, type World, type WorldEntry, circularOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
+import { type Kind, type LazyRule, type World, type WorldEntry, circularOf, collectOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { answerOf, ask } from "./ladder.ts";
 import { type PartSlot, partsOf, rulesCover, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
@@ -675,7 +675,8 @@ const FOLD_NAMES: readonly string[] = /* @__PURE__ */ Object.freeze(["acc", "ite
 
 /**
  * This function gives each equation of the tree contract of a kind, with the names that it sees (D42). An equation of
- * `equations`, a `unit` and a `default` see no names. `check` and `factsOf` read the equations with this one function.
+ * `equations`, a `unit`, a `default` and a contribution see no names. `check` and `factsOf` read the equations with
+ * this one function.
  */
 export function equationsOf(kind: Kind): readonly Equation[] {
   const tree = kind.tree;
@@ -689,7 +690,14 @@ export function equationsOf(kind: Kind): readonly Equation[] {
       out.push({ label: `tree.attributes.${name}.fold.combine`, term: declared.fold.combine, names: FOLD_NAMES, attribute: name, down: false });
     }
     if (declared.default !== undefined) out.push({ label: `tree.attributes.${name}.default`, term: declared.default, names: [], attribute: name, down: false });
+    const collect = declared.collect === undefined ? undefined : collectOf(declared.collect);
+    if (collect?.ok === true && !collect.names) {
+      out.push({ label: `tree.attributes.${name}.collect.unit`, term: collect.unit, names: [], attribute: name, down: false });
+      out.push({ label: `tree.attributes.${name}.collect.combine`, term: collect.combine, names: FOLD_NAMES, attribute: name, down: false });
+    }
   }
+  // A contribution is not the attribute of its node, thus an own part of its name does not hide it (D122).
+  for (const [name, term] of Object.entries(tree.contributes ?? {})) out.push({ label: `tree.contributes.${name}`, term, names: [], attribute: name, down: false, contributes: true });
   return out;
 }
 
@@ -703,6 +711,8 @@ export interface Equation {
   readonly attribute: string;
   /** `true` for an equation of `down`: it gives the attribute of a child. */
   readonly down: boolean;
+  /** `true` for an equation of `contributes`: it gives a contribution to a collection (TREE.COLLECT). */
+  readonly contributes?: true;
 }
 
 /**
@@ -875,7 +885,7 @@ export function answered(world: World, node: SeenNode, name: string): boolean {
   if (hasEntry(tree?.equations, name)) return true;
   if (node.parent === undefined ? downNames(world).has(name) : hasEntry(node.parent.kind.tree?.down, name)) return true;
   const declared = tree?.attributes !== undefined && Object.hasOwn(tree.attributes, name) ? tree.attributes[name] : undefined;
-  return declared !== undefined && (declared.copy === true || declared.fold !== undefined || declared.default !== undefined);
+  return declared !== undefined && (declared.copy === true || declared.fold !== undefined || declared.collect !== undefined || declared.default !== undefined);
 }
 
 /**
@@ -891,10 +901,10 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
   state.needs.set(kind, needs);
   for (const name of Object.keys(kind.tree?.attributes ?? {})) needs.push({ name, why: "the kind declares it", hidden: undefined });
   const self: SeenNode = { kind, text: kindText, own: undefined, parent: undefined };
-  for (const { label, term, names, attribute, down } of equationsOf(kind)) {
+  for (const { label, term, names, attribute, down, contributes } of equationsOf(kind)) {
     const inner: CheckOptions = { names, ...(of === undefined ? {} : { declaredType: of }), ...(options.caps === undefined ? {} : { caps: [] }) };
     const read = (name: string): void => {
-      needs.push({ name, why: `the equation ${label} reads it`, hidden: down ? undefined : attribute });
+      needs.push({ name, why: `the equation ${label} reads it`, hidden: down || contributes === true ? undefined : attribute });
     };
     for (const issue of checkAll(machine, term, inner, undefined, state, { node: self, read })) {
       out.push({ code: issue.code, place: [], reason: `In the equation ${label} of the kind ${kindText}: ${issue.reason}` });
@@ -906,12 +916,13 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
 /**
  * This function finds the issues of the contract of a tree kind (TREE.CHECK-RESERVED). An attribute with the name of a
  * structural step gets no read. A tree kind of the run side contradicts the evaluation on demand of its attributes. A
- * declaration `circular` without a start value or with a bad limit gives `#VALUE!` (TREE.CIRCULAR-CHECK).
+ * declaration `circular` without a start value or with a bad limit gives `#VALUE!` (TREE.CIRCULAR-CHECK). A declaration
+ * `collect` without its form gives `#VALUE!` too (TREE.COLLECT).
  */
 function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
   const out: Issue[] = [];
   const tree = kind.tree;
-  for (const table of ["equations", "down", "attributes"] as const) {
+  for (const table of ["equations", "down", "attributes", "contributes"] as const) {
     for (const name of Object.keys(tree?.[table] ?? {})) {
       const why = Object.hasOwn(STRUCTURAL, name) ? STRUCTURAL[name] : undefined;
       if (why !== undefined) out.push({ code: "#NAME?", place: [], reason: `The kind ${kindText} gives the reserved attribute tree.${table}.${name}: ${why}.` });
@@ -921,6 +932,8 @@ function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
   for (const [name, declared] of Object.entries(tree?.attributes ?? {})) {
     const rule = declared.circular === undefined ? undefined : circularOf(declared.circular);
     if (rule !== undefined && !rule.ok) out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad declaration tree.attributes.${name}.circular. ${rule.reason}` });
+    const collect = declared.collect === undefined ? undefined : collectOf(declared.collect);
+    if (collect !== undefined && !collect.ok) out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad declaration tree.attributes.${name}.collect. ${collect.reason}` });
   }
   if (kind.side === "run") {
     out.push({ code: "#CALC!", place: [], reason: `The tree kind ${kindText} is on the run side: a node evaluates its attributes on demand, thus in no fixed order.` });
