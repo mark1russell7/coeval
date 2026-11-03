@@ -941,6 +941,8 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
           // Each application counts one level on the runtime of its evaluation, and the count goes down after it (FORMULA.CALL-DEPTH).
           const level = (clock.applying ?? 0) + 1;
           if (level > limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
+          // WORK.LIMIT: an application is a place where work can multiply, thus each one counts one point (D134).
+          rt.spend?.(1);
           clock.applying = level;
           try {
             const scope: Record<string, unknown> = { ...ctx.names };

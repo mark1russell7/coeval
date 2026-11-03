@@ -182,6 +182,7 @@ export {
   prepare,
   resolveCompiled,
   run,
+  WORK_LIMIT,
 } from "./evaluate.ts";
 export {
   type AttributeAnswer,

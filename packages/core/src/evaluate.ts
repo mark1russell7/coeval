@@ -461,6 +461,25 @@ export function placeText(place: readonly Key[]): string {
 type Recorded = { -readonly [K in keyof Effect]: Effect[K] };
 
 /**
+ * The most work of one evaluation for a machine without its own `maxWork` (WORK.LIMIT, D134). One application of a
+ * closure is one point.
+ */
+export const WORK_LIMIT = 200000;
+
+/** The work of one node that an equation makes (WORK.NODE, D134). A node costs more than an application. */
+export const NODE_WORK = 8;
+
+/**
+ * This function gives the error of the limit of work. Each tier gives this error (WORK.AGREES).
+ *
+ * @param limit - The limit of the machine.
+ * @returns The error.
+ */
+export function workFailure(limit: number): EvalError {
+  return fail("#WORK!", `The work of one evaluation is more than ${limit} points. The field maxWork of the machine sets the limit.`).error;
+}
+
+/**
  * The runtime of one evaluation or run. Compiled code gets it with the context, and asks it to resolve paths and
  * to cause effects.
  */
@@ -468,6 +487,15 @@ export interface Runtime {
   readonly machine: Machine;
   /** `true` in a run: the host does each effect, and a part that waits needs a parent that can wait. */
   readonly running: boolean;
+  /** `true` when a node that this runtime makes costs work: in an equation of a tree (WORK.NODE) and in a fold. */
+  readonly nested?: boolean;
+  /**
+   * This optional function adds work to the count of the evaluation (WORK.LIMIT). A runtime without it counts nothing.
+   *
+   * @param points - The work.
+   * @throws {Failure} The error `#WORK!`, when the count is over the limit of the machine.
+   */
+  spend?(points: number): void;
   /**
    * This function resolves a path from a context.
    *
@@ -759,6 +787,7 @@ export type Runner = RunFn | CompiledRunner;
  * A machine: a world of kinds, and the code of each evaluator name, of each `deref` and of each walker.
  *
  * - `maxDepth`: the deepest nesting of documents. The default is 1000.
+ * - `maxWork`: the most work of one evaluation (WORK.LIMIT, D134). The default is `WORK_LIMIT`.
  * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities. A run,
  *   `check` and `effectsOf` ask it (CAP.PERMITS). In a check, its context has only the capabilities and the world.
  * - `known`: the names that the evaluators know, for `check`. Without it, `check` does not check such names.
@@ -770,6 +799,7 @@ export interface Machine extends Navigator {
   /** The runners, by evaluator name. A runner wins over an evaluator of the same name. */
   readonly runners?: Readonly<Record<string, Runner>>;
   readonly maxDepth?: number;
+  readonly maxWork?: number;
   readonly permits?: (caps: readonly Cap[], kind: readonly Key[], context: Context) => boolean;
   /**
    * This function tells if an evaluator knows the name in the path of a kind. An example is the operation
@@ -1049,6 +1079,13 @@ function readingOf(list: Read[] | undefined, root: Context): Reading | undefined
 
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
+  /**
+   * The count of the work, on the runtime of the root of the evaluation (WORK.LIMIT). The first count adds the field,
+   * thus an evaluation without a counted point has no field.
+   */
+  declare work?: number;
+  /** The count of the applications of closures that run at this time. `formula.fn` writes it (FORMULA.CALL-DEPTH). */
+  declare applying?: number;
   /** The list of the effects. It is made at the first effect, thus an evaluation without effects makes no list. */
   private list: Effect[] | undefined;
   tick = 0;
@@ -1083,10 +1120,38 @@ class Session implements Runtime {
      * shares the record of the evaluation around it (READS.EQUATION).
      */
     readonly reading: Reading | undefined = undefined,
+    /**
+     * The runtime of the root, for the runtime of an equation of a tree (WORK.EQUATION). A root holds `undefined`
+     * during its evaluation, and it holds itself after the end (WORK.AFTER).
+     */
+    public top: Session | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
+  }
+
+  /** This getter gives `true` for the runtime of an equation of a tree (WORK.NODE). */
+  get nested(): boolean {
+    const top = this.top;
+    return top !== undefined && top !== this;
+  }
+
+  /**
+   * This function adds work to the count of the evaluation (WORK.LIMIT). One count is on the runtime of the root, thus
+   * each equation of a tree adds to it. After the end of the evaluation, each entry from the host starts a new count
+   * (WORK.AFTER).
+   *
+   * @param points - The work.
+   * @throws {Failure} The error `#WORK!`, when the count is over the limit of the machine.
+   */
+  spend(points: number): void {
+    const top = this.top ?? this;
+    const entry = top.top === top && (this.applying ?? 0) === 0;
+    const work = (entry ? 0 : (top.work ?? 0)) + points;
+    top.work = work;
+    const limit = this.machine.maxWork ?? WORK_LIMIT;
+    if (work > limit) throw new Failure(workFailure(limit));
   }
 
   /** The effects of the evaluation, in their order. */
@@ -1836,6 +1901,8 @@ class Probe implements Runtime {
   readonly running = false;
   /** `true` after the part asked for something that a fold cannot give. */
   refused = false;
+  /** A node in a fold costs work, thus a tree stops the fold before it evaluates an equation (WORK.PREPARE). */
+  readonly nested = true;
   /** The count of the names that the part read. */
   reads = 0;
   /**
@@ -1902,6 +1969,12 @@ class Probe implements Runtime {
 
   keepsContext(): void {
     this.refused = true;
+  }
+
+  /** This function stops the fold at the first point of work, thus `prepare` does no such work (WORK.PREPARE). */
+  spend(): void {
+    this.refused = true;
+    throw new Failure(workFailure(0));
   }
 }
 
@@ -2235,8 +2308,8 @@ export interface InputWithRuntime extends EvalInput {
 /**
  * This function evaluates a plan inside the evaluation of another runtime, for example an equation of a tree inside
  * the evaluation of its tree (READS.EQUATION). The plan gets its own runtime, as in `plan.evaluate`. The reads of the
- * plan go in the record of the reads of `outer`. The context at the root of `outer` tells which reads are free
- * (READS.FREE). Without such a record, the function gives `plan.evaluate(context)`.
+ * plan go in the record of the reads of `outer`, and its work goes in the count of `outer` (WORK.EQUATION). The context
+ * at the root of `outer` tells which reads are free (READS.FREE). Without a session, the function gives `plan.evaluate(context)`.
  *
  * @param plan - The plan.
  * @param context - The context of the plan.
@@ -2244,11 +2317,10 @@ export interface InputWithRuntime extends EvalInput {
  * @returns The result.
  */
 export function evaluateWithin(plan: Plan, context: Context, outer: Runtime | undefined): Result {
-  const reading = outer instanceof Session ? outer.reading : undefined;
-  if (reading === undefined || !(plan instanceof CompiledPlan)) return plan.evaluate(context);
+  if (!(outer instanceof Session) || !(plan instanceof CompiledPlan)) return plan.evaluate(context);
   const machine = plan.machine;
   const ctx = rootContext(machine, context);
-  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, reading));
+  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.reading, outer.top ?? outer));
 }
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
@@ -2409,14 +2481,18 @@ class CompiledPlan implements Plan {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
     const s = new Session(machine, ctx.caps, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
-    return this.code(ctx, s);
+    const result = this.code(ctx, s);
+    s.top = s;
+    return result;
   }
 
   run(context: Context = makeContext(), runOptions: PlanRunOptions = {}): Promise<Result> {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
     const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
-    return driveWaiting(this.runCode()(ctx, s), runOptions.signal);
+    return driveWaiting(this.runCode()(ctx, s), runOptions.signal).finally(() => {
+      s.top = s;
+    });
   }
 }
 
@@ -2485,6 +2561,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
   const ctx = rootContext(machine, context);
   const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
   const result = (plan as CompiledPlan).code(ctx, s);
+  s.top = s;
   return record(s, result);
 }
 
@@ -2508,6 +2585,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
   const ctx = rootContext(machine, context);
   const s = new Session(machine, ctx.caps, true, true, options.perform, options.signal, undefined, readingOf(options.reads, ctx));
   const result = await driveWaiting((plan as CompiledPlan).runCode()(ctx, s), options.signal);
+  s.top = s;
   return record(s, result);
 }
 

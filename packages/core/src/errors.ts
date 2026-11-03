@@ -16,6 +16,7 @@ export type KernelCode =
   | "#CAP!"
   | "#CALC!"
   | "#DEPTH!"
+  | "#WORK!"
   | "#ABORT"
   | "#REPLAY!"
   | "#TYPE!";

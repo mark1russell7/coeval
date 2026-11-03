@@ -4124,3 +4124,44 @@ The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-A
 **Alternatives.** A method of `Schedule`. Each user of `schedule` then bundles the analysis of `graph.ts`, and an object that a host types as `Schedule` fails to compile. An option of `check` that takes a schedule. Then `check` gets a second form of input, and `static.ts` depends on the schedule. An issue for each node of a cycle. A ring of 100000 nodes then gives 100000 issues for one fault. The order of the graph for `nodes`. The order then depends on the order of the `set` calls, and a host that compares two answers finds a false change. An issue for a possible cycle with a second severity. `Issue` has no severity, and D107 refuses such a false positive. A cache of the answer for each structure epoch. The map of `graph()` already stays for an epoch, and a host calls `checkCycles` only when it needs the answer.
 
 **Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
+
+## D134 (2026-11-03): one count of work for one evaluation gives `#WORK!` in each tier
+
+**Context.** `maxDepth` and the clock of `call` (D125) bound the depth, not the count of steps. A recursion with two branches doubles its work at each level. The measure of K216 on the plan gives 2507 ms at 20 levels. A kind with two `higher` attributes (D126) grows at the same rate.
+
+The merge gate of the bench refuses a slower case. Thus a count at each document of the compiled code is not a choice. The first idea was this: a document without a closure, a generation or a read through a name is linear in its size. A check of the code corrected the idea in four ways.
+
+- A chain of `names` that doubles does not double the evaluation. A reference in a list stays data, and the hops of one resolution share the bound `MAX_COLLAPSE`. The measure gives 0 ms at 24 levels.
+- Equations double without `higher`. An equation can give a node of its own kind, and `GENERATION_LIMIT` counts only `higher` and `forwards`. The measure gives 160 ms at 14 levels.
+- The JSON of a tree doubles on shared values. An attribute `a0` with the list `[self.a1, self.a1]`, and so on, gives a graph of lists, and the walk visits each path. The measure gives 520 ms at 22 levels, without one closure.
+- `prepare` did the work too. A closure refuses a fold, but the probe of the fold still ran the code to its end.
+
+**Decision.** One evaluation has one count of work, and the new field `maxWork` of a machine is its limit (WORK.LIMIT, WORK.OPTION). The count adds points only at the places that can multiply work:
+
+- each application of a closure of `fn`, by `call` or by an operation of the host, costs 1 point (WORK.HOST)
+- each node that an equation makes costs `NODE_WORK`, 8 points (WORK.NODE, WORK.HIGHER)
+- each second visit of a node, a list or a record in the JSON of a tree costs 1 point (WORK.SHARED)
+
+The point past the limit gives the new code `#WORK!`, as a `Failure` at the same place as the clock of D125. The new code is additive. When more than one part of an operator fails, the code stays `#WORK!`, because each later point fails too.
+
+The plan keeps the count on the runtime of the root. A runtime of an equation holds the root in its field `top` (WORK.EQUATION). The reference keeps a shared `Meter`. A root sets `top` to itself at its end. Then each entry from the host starts a new count, thus a closure that leaves its evaluation does not collect an error (WORK.AFTER).
+
+A fold stops at the first point (WORK.PREPARE). The probe has `nested` set, thus a node stops the fold before an equation. A recursion of 40 levels prepares at once. The bench has no document in which `prepare` does this work.
+
+The default `WORK_LIMIT` is 200000 points. It comes from a measure and a target. The worst measure of the plan is 2507 ms for 2^21 applications, 1.2 µs for each one. A target of 0.25 s gives 208333 points, and the value rounds down to 200000. A node costs 7.7 µs in the measure of two `higher` attributes. Thus 0.25 s gives 32000 nodes, 6.2 points for each one, and the value rounds up to 8. Thus 25000 nodes reach the limit. The default stops the 20 levels of `call` in 65 to 76 ms on a loaded machine. It stops the 20 levels of `higher` in 102 to 183 ms. Both times include `prepare`. The reference costs 11 µs for each application, thus it needs approximately 2 s.
+
+**Alternatives.** A count at each document costs the read path, and the gate refuses it. A wall clock is simple, but two tiers stop at different places, and one tier stops at different places in two runs. `#DEPTH!` is an existing code. But the code tells a host to change `maxDepth`, and a schedule forgets it (D15). A memo of the JSON of a shared value removes the doubling, but a result in a cycle depends on the path. A count of each instance of `tree.at` stops a large honest document, because instances with literal arguments cannot multiply.
+
+**Limits.** This is a change of behaviour. Some evaluations gave a value before, and they give `#WORK!` at this time. They have more than 200000 applications, 25000 nodes from equations or 200000 second visits in the JSON. A higher `maxWork` gives the value again. A flat `map` over more than 200000 items is an example.
+
+The count is not complete.
+
+- An operation of the host has its own cost. Only the applications of closures count.
+- A step `tree.at` of a host with computed arguments can make new instances, and an instance counts only through its closures and nodes.
+- Other work stays polynomial, not exponential, and it does not count: `collect` on a chain, and the copies of the names in a nested `let`.
+- Other walks do not count. A document that `higher` generates can share its parts, and `documentKey` and the compiler walk each path. A step key from `argsKey`, the comparison of `agree` and a `JSON.stringify` of the host do the same.
+- A second visit costs a point also for a small value. Thus 200000 nodes that read one list reach the limit.
+- A cell of the host keeps `#WORK!` as it keeps each other result, and a kept cell costs no work. Thus two evaluations with cells can spend different counts.
+- Each node of a schedule has its own evaluation and its own count. Thus its cache keeps `#WORK!`, as it keeps each other result that depends on the node.
+
+**Why.** The count stays off the read path. A document without a counted point adds one test in `treeNode` and one store at its end. One limit covers each source of doubling that the check found, and a host raises it as it raises `maxDepth`.

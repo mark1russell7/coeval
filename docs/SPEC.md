@@ -337,7 +337,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.CHECK | `check` finds the problems of a document before a run. Each problem has its place. |
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
-| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless a host thing without `has` answers the names (DEREF.HOST-UNDEFINED). A `#DEPTH!` from an overflow of the stack of the host or from the clock of `call` (FORMULA.CALL-DEPTH) is not an error of `check`. For the read of an unknown attribute of a node, it gives the same code and place (TREE.CHECK-UNKNOWN). |
+| STATIC.AGREES | A document that checks evaluates without the errors that `check` finds. When a run gives `#NAME?` for an unknown operation, or `#VALUE!` for a value without its shape, `check` gives the same code, place and reason. For a name that nothing binds, it gives the same code and place, unless a host thing without `has` answers the names (DEREF.HOST-UNDEFINED). A `#DEPTH!` from an overflow of the stack of the host or from the clock of `call` (FORMULA.CALL-DEPTH) is not an error of `check`, and `#WORK!` (WORK.LIMIT) is not one. For the read of an unknown attribute of a node, it gives the same code and place (TREE.CHECK-UNKNOWN). |
 | STATIC.NARROW | `check` tests each effect against the capabilities of its own document: the capabilities at the root, narrowed by the rules of the kinds around it. |
 | STATIC.LINEAR | A walk takes time and memory linear in the size of the document. A visit knows its parent and the path of its part. A log-log ladder of 250 to 2000 levels measures the time of `refsOf` and `walk` on 5 CI runners (K208, D97). The slope of log t against log n was 0.998 and 1.000, with 90 % intervals inside 0.92 to 1.07. A memory phase after the timed rounds measures the bytes that one call allocates (K209, D105). A collection in the call loses no bytes. Its verdict is an upper bound: the upper end of the 90 % interval of the memory slope is at most 1.2. In the Measure run 41526166950, the memory slope of both walks was 0.991, with 90 % intervals inside 0.98 to 1.00. |
 | STATIC.PATH | `check` finds a reference whose value is not a path: a list that starts with a root. |
@@ -517,6 +517,23 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | FORMULA.CALL-DEPTH | Each application of a closure of `fn` counts one level on the evaluation that made the closure. An application by `call` and by an operation of the host both count. The count goes down after each application. More than a quarter of `maxDepth` levels (250 by default) give `#DEPTH!` at the document that applies the closure. The plan, the traced plan and the reference give the same code, place and reason (D125). |
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. The bench measures the time (K200). |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
+
+## The limit of work
+
+| ID | Rule |
+| --- | --- |
+| WORK.LIMIT | One evaluation has one count of work, and the field `maxWork` of the machine is its limit. Each application of a closure of `fn` counts one point, after the clock of FORMULA.CALL-DEPTH. The point past the limit gives `#WORK!`, with one code, place and reason in each tier. When more than one part of an operator fails, `#WORK!` stays the code of the result, and the code is not `#ARGS`. |
+| WORK.DEFAULT | The default limit is `WORK_LIMIT`, 200000 points. It stops a recursion of 20 levels with two branches, and a recursion of 16 levels stays legal (D134). |
+| WORK.OPTION | The field `maxWork` sets the limit, and `Infinity` removes it. `mergeMachines` keeps it as one value (MACHINE.MERGE). |
+| WORK.HOST | An application of a closure by an operation of the host counts one point, as an application by `call` does. |
+| WORK.RUN | A run has the count and the error of an evaluation. `plan.run`, `run` and `referenceRun` give the same result. |
+| WORK.AFTER | A closure can leave its evaluation. After the end of the evaluation, each entry from the host starts a new count. Thus an application by the host stops only for its own work. |
+| WORK.PREPARE | `prepare` does no counted work. A fold stops at the first counted point, and a node is a counted point in a fold. Thus a recursion or a tree costs no time in `prepare`. |
+| WORK.HIGHER | A kind with `higher` attributes that generate two subtrees at each level gives `#WORK!`, because each generated node counts (WORK.NODE). |
+| WORK.NODE | A node that an equation makes counts 8 points, the constant `NODE_WORK`. A generated document and an equation that gives a node both make such nodes. A node of the text of the root document counts nothing. |
+| WORK.EQUATION | An equation of a tree has its own runtime, and its work goes in the count of the evaluation around it. |
+| WORK.SHARED | The JSON of a tree counts one point for each second visit of a node, a list or a record. Thus a chain of shared values gives `#WORK!`, and the walk does not double at each level without a limit. |
+| WORK.AGREES | `agree` in strict mode finds no difference between the tiers on generated documents, at each limit around the true work of the document. |
 
 ## The codec of values
 
