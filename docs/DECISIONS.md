@@ -3931,3 +3931,15 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 **Why.** The rule of the gate limits is the worst of 5 or more CI jobs plus their spread, with the runs beside it. A fixed margin had no source. The limits of each family keep a quiet family strict, and they give a noisy family a wider margin.
 
 **End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again.
+
+**A suspect case (rigor #48).** 12 of the 16 deciding A/A verdicts between jobs come from one case: `factsOf` of a tree with an equation. That is a bias of one case between jobs, and the run-level test of rigor #30 does not find it. Thus the verdicts of that case are suspect until rigor #48 lands. The caps of plan and tree are near 30 % because one noisy job gives each of them. rigor #48 replays the records of the 90 days.
+
+## D118 (2026-11-03): the hook `facts` gives the effects of a code, also for an own entry
+
+**Context.** K64, from K18. An own entry of a document can name another evaluator than the kind. The contract of the kind does not describe that code. Thus `effectsOf` and `check` did not see its effects, and a host granted capabilities without the full list.
+
+**Decision.** `KindFacts` gets the optional field `effects`, in the form of the field `effects` of a kind. For the verb `eval`, the answer of the hook `facts` for the code of a document wins over the contract (CAP.OWN-EFFECTS). `declaredEffects` reads it, thus `effectsOf`, `checkLatent`, `check` and `factsOf` use one declaration (D27). The probes of `conform` and the purity of a compiled document read the same answer.
+
+**Alternatives.** A field in the envelope document can declare the effects of its own entry. But a document cannot vouch for code of the host. The language that has the code knows its effects. A second hook can give the effects. But the hook `facts` already describes the code of a name, with its reads and its purity.
+
+**Why.** An answer without the field changes nothing, thus each old hook keeps its results. An empty list in an answer removes the effects of the contract, because the hook describes the code of its name. Another verb than `eval` keeps the table `verbEffects` of the kind (D49).

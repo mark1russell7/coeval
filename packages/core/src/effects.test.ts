@@ -384,6 +384,32 @@ function outcomeOf(config: Config): Promise<Outcome> {
   return outcome;
 }
 
+describe("the effects of an own entry", () => {
+  it("[CAP.OWN-EFFECTS] the hook facts gives the effects of an own entry for another evaluator, and its answer wins over the contract", () => {
+    // The contract of add declares no effect. Its own entry names the code test.all, which the contract does not describe.
+    const doc = { type: "add", value: [1, 2], own: { eval: "test.all" } };
+    const hooked: Machine = { ...effectsMachine, facts: (path, code) => (code === "test.all" ? { effects: ["log"] } : effectsMachine.facts?.(path, code)) };
+    // Without an answer, nothing changes: the effects come from the contract (D27).
+    expect(effectsOf(effectsMachine, doc)).toEqual([]);
+    expect(factsOf(effectsMachine, doc).effects).toEqual([]);
+    expect(check(effectsMachine, doc, { caps: [] })).toEqual([]);
+    // The answer of the hook gives the effect to effectsOf, factsOf, check and checkLatent (D118).
+    expect(effectsOf(hooked, doc)).toEqual(["log"]);
+    expect(effectsOf(hooked, doc, { caps: ["write"] })).toEqual([]);
+    expect(factsOf(hooked, doc)).toMatchObject({ effects: ["log"], pure: false });
+    expect(check(hooked, doc, { caps: ["write"] })).toEqual([{ code: "#CAP!", place: [], reason: "The capabilities do not permit the effect log.", at: [] }]);
+    expect(check(hooked, doc, { caps: ["log"] })).toEqual([]);
+    expect(checkLatent(hooked, [], doc).map((issue) => issue.code)).toEqual(["#CAP!"]);
+    // An answer with an empty list removes the effects of the contract: the hook describes the code of the name.
+    const quiet: Machine = { ...effectsMachine, facts: (path, code) => (code === "test.put" ? { effects: [] } : effectsMachine.facts?.(path, code)) };
+    expect(effectsOf(effectsMachine, { type: "put", value: [1] })).toEqual(["write"]);
+    expect(effectsOf(quiet, { type: "put", value: [1] })).toEqual([]);
+    // The text type gives the type of the document as the kind of the effect.
+    const typed: Machine = { ...effectsMachine, facts: (path, code) => (code === "test.all" ? { effects: "type" } : effectsMachine.facts?.(path, code)) };
+    expect(effectsOf(typed, doc)).toEqual(["add"]);
+  });
+});
+
 describe("the soundness of the effects", () => {
   for (const config of CONFIGS) {
     it("[CAP.EFFECTS-SOUND] each effect that an evaluation or a run gives the host is in effectsOf: " + config.name, async () => {

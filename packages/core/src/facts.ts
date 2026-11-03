@@ -4,7 +4,7 @@ import { answerOf } from "./ladder.ts";
 import { pathMatches, splitParts } from "./parts.ts";
 import { type Root, ROOTS, isRef } from "./deref.ts";
 import type { Machine } from "./evaluate.ts";
-import { type DocVisit, type WalkOptions, declaredEffects, equationsOf, walk } from "./static.ts";
+import { type DocVisit, type WalkOptions, declaredEffects, effectKeys, equationsOf, walk } from "./static.ts";
 
 /**
  * One read of a document: a free reference, with its marks (FACTS.READS). A plan resolves the path of the reference
@@ -272,7 +272,8 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
         }
         // check and effectsOf read the declared effects with the same function (D27). The verb of the facts selects the
         // declaration: effects for eval, and the entry of verbEffects for another verb (D49, D111).
-        const declared = declaredEffects(v, verb);
+        // The answer of the hook for the code of eval wins over the contract, also for an own entry (D118).
+        const declared = verb === "eval" && answer?.effects !== undefined ? effectKeys(v, answer.effects) : declaredEffects(v, verb);
         // The field side gives the side of eval. For another verb, a declared effect needs a runner, as in check, thus
         // the run side (FACTS.VERB-SIDE).
         const runs = verb === "eval" ? kind.side === "run" : declared.length > 0;

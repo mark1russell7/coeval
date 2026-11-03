@@ -498,7 +498,8 @@ function typesNaming(world: World, name: string, verb: string): readonly TypeRef
 function contractOf(env: Env, kind: Kind, typePath: readonly Key[], caps: readonly Cap[] | undefined): Contract {
   const facts = env.machine.facts?.(typePath, env.name);
   // A verb without a declaration keeps the effects of eval for the capabilities of the probes, as before D49.
-  const own = effectsOfVerb(kind, env.verb);
+  // For eval, the effects of the answer of the hook win over the contract, as in check (D118).
+  const own = (env.verb === "eval" ? facts?.effects : undefined) ?? effectsOfVerb(kind, env.verb);
   const effects = own ?? kind.effects;
   const declared: readonly Cap[] = effects === undefined ? [] : effects === "type" ? [typePath] : effects;
   return {

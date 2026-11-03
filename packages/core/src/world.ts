@@ -116,12 +116,16 @@ export interface LazyRule {
  * - `lazy`: the parts that an evaluation can skip and still give a value.
  * - `reads`: the roots that the code of the kind resolves as a whole, with the path of one root. The static facts
  *   give a read of each root at each document of the kind (D44). The tree node reads `self` this way.
+ * - `effects`: the effects that the code of `eval` can cause, in the form of the field `effects` of a kind (D27). In
+ *   the answer of the hook `facts`, it gives the effects of the code of a name. The contract of a kind does not
+ *   describe an own entry for another evaluator, thus only the hook can give its effects (CAP.OWN-EFFECTS, D118).
  */
 export interface KindFacts {
   readonly pure?: boolean;
   readonly volatile?: boolean;
   readonly lazy?: readonly LazyRule[];
   readonly reads?: readonly Root[];
+  readonly effects?: "type" | readonly string[];
 }
 
 /**
