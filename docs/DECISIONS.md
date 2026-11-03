@@ -3747,7 +3747,9 @@ Magnusson and Hedin (2007) evaluate such a cycle on demand. A demand in the cycl
 
 **Why.** The demand algorithm needs no static analysis of the cycle, thus a cycle through a lazy read also becomes stable. The equal test of DOC.EQUALS is the same test that the other layers use. The rule for mixed cycles keeps each old document correct: a document without `circular` evaluates as before.
 
-**Cost.** A tree without `circular` keeps the code of its demands as before. Each node makes only the closures of the old code. A node does one more test: a cached flag of its contract and the open fixed point. The code of a fixed point is in module functions, and a node makes their record only at its first circular demand.
+**Cost.** A tree without `circular` keeps the code of its demands as before. The function `read` of a node and the function of its host cells each get one test. The test reads a flag of the contract and the open fixed point. The code of a fixed point is in module functions. They get the node from its state, thus a node makes no new closure.
+
+The first form of L2f made the bytecode of `read` too large for the inlining limit of V8 (460 bytes). The trace gave 10 refusals with reason 5, the size limit. Thus `read` stopped being inlined into `deref`, `derefStep` and `json`, and the Speed bench gave a slower tree. At this time `read` has 435 bytes, 426 on main, and V8 inlines it at the same places as on main.
 
 **Public types.** New exports: `CircularDeclaration`, `CircularRule`, `CIRCULAR_LIMIT` and `circularOf`. New optional fields: `AttributeDeclaration.circular`, `AttributeVertex.circular` and `AttributeCycle.circular`. This is a feature for the next MINOR release.
 

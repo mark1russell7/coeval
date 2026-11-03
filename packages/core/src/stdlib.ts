@@ -270,12 +270,8 @@ export interface AttributeTrace {
 }
 
 /** The state of a node behind its brand. */
-interface NodeState {
+interface NodeState extends LoopNode {
   readonly build: TreeBuild;
-  readonly type: string;
-  readonly place: readonly Key[];
-  /** The tree contract of the kind of the node (D42). */
-  readonly tree: TreeContract | undefined;
   /**
    * This function gives an attribute through its ladder (TREE.LADDER).
    *
@@ -491,16 +487,20 @@ interface FixedPoint {
 let openPoint: FixedPoint | undefined;
 
 /**
- * What the code of a fixed point needs of a node (D113). A node makes this record only at its first demand in a
- * fixed point or of a circular attribute. Thus a tree without `circular` pays nothing for it.
+ * What the code of a fixed point needs of a node (D113). The state of each node holds it, thus the functions of a
+ * fixed point are module functions, and a node makes no closure for them.
  */
 interface LoopNode {
-  readonly marks: Map<string, Cell>;
-  readonly cells: Map<string, Cell>;
-  readonly host: AttributeCell | undefined;
-  readonly tree: TreeContract | undefined;
   readonly type: string;
   readonly place: readonly Key[];
+  /** The tree contract of the kind of the node (D42). */
+  readonly tree: TreeContract | undefined;
+  /** The marks of the attributes in evaluation. Without the cells of a host, they are the plain memo. */
+  readonly marks: Map<string, Cell>;
+  /** The plain memo of the node. With the cells of a host, it keeps the last answer only for `has` and `trace`. */
+  readonly cells: Map<string, Cell>;
+  readonly host: AttributeCell | undefined;
+  /** This function visits the rungs of the ladder of an attribute in their order, until one answers (TREE.LADDER). */
   readonly climb: (key: string) => AttributeAnswer | undefined;
 }
 
@@ -679,14 +679,52 @@ function localIn(n: LoopNode, key: string, rule: (CircularRule & { readonly ok: 
   return answer.result;
 }
 
-/** The answer of `circularRead` for a leader of a node with host cells: its demand goes through the cell of the host. */
-const ON_HOST: unique symbol = /* @__PURE__ */ Symbol("coeval.tree.on-host") as never;
+/**
+ * This function answers a demand that reached an attribute in evaluation (TREE.CYCLE). Outside a fixed point, it gives
+ * `#CYCLE!` with the chain. In an open fixed point, `reachedIn` answers (TREE.CIRCULAR).
+ */
+function busyAt(n: LoopNode, key: string): Result | undefined {
+  const loop = openPoint;
+  return loop === undefined ? cycleAt(n.marks, key, attributeText(key, n.type, n.place)) : reachedIn(loop, n, key);
+}
+
+/**
+ * This function evaluates the leader of a fixed point through the cell of the host (TREE.CELL, D113). The cell of the
+ * leader gets the final value of the fixed point, from a computation that contains each round.
+ */
+function leaderOnHost(n: LoopNode, key: string, rule: CircularRule & { readonly ok: true }, host: AttributeCell): Result | undefined {
+  const text = attributeText(key, n.type, n.place);
+  n.marks.set(key, BUSY);
+  demands.push({ cells: n.marks, key, text });
+  let thrown: unknown = NOT_THROWN;
+  let answer: AttributeAnswer;
+  try {
+    answer = host(n.place, key, () => {
+      try {
+        return roundsOf(n, key, rule);
+      } catch (error) {
+        thrown = error;
+        throw error;
+      }
+    });
+  } catch (error) {
+    // An exception of the kit or of the stack goes on, as without a host. Another exception is a cycle of the host.
+    if (error === thrown) throw error;
+    const chain = demands.map((demand) => demand.text).join(" -> ");
+    answer = { result: fail("#CYCLE!", `The cells of the host found a cycle in the demands: ${chain}.`, { cause: error }), by: undefined };
+  } finally {
+    demands.pop();
+    n.marks.delete(key);
+  }
+  n.cells.set(key, { busy: false, result: answer.result, by: answer.by });
+  return answer.result;
+}
 
 /**
  * This function gives an attribute of a node with circular attributes, or an attribute in an open fixed point (D113).
  * The memo and the marks of the node do not hold the attribute. An open fixed point does not use the cells of the host.
  */
-function circularRead(n: LoopNode, key: string): Result | undefined | typeof ON_HOST {
+function circularRead(n: LoopNode, key: string): Result | undefined {
   const rule = circularRule(n.tree, key);
   if (rule !== undefined && !rule.ok) {
     const result = fail("#VALUE!", `The attribute ${attributeText(key, n.type, n.place)} has a bad declaration circular. ${rule.reason}`);
@@ -701,7 +739,7 @@ function circularRead(n: LoopNode, key: string): Result | undefined | typeof ON_
     return localIn(n, key, undefined);
   }
   if (rule === undefined || n.host === undefined) return localIn(n, key, rule);
-  return ON_HOST;
+  return leaderOnHost(n, key, rule, n.host);
 }
 
 function attributeText(key: string, type: string, place: readonly Key[]): string {
@@ -832,26 +870,18 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined,
     return undefined;
   };
 
-  /** The record of the node for the code of a fixed point (D113). The node makes it at its first such demand. */
-  let loopNode: LoopNode | undefined;
-
   /**
    * This function gives an attribute through the cell of the host (TREE.CELL). The cell is the memo. The node keeps
-   * the last answer only for `has` and `trace`. The cell of a leader gets the final value of its fixed point (D113).
+   * the last answer only for `has` and `trace`.
    */
   const through =
     host === undefined
       ? undefined
       : (key: string): Result | undefined => {
           const text = attributeText(key, type, place);
-          if (marks.has(key)) return openPoint === undefined ? cycleAt(marks, key, text) : reachedIn(openPoint, (loopNode ??= { marks, cells, host, tree, type, place, climb }), key);
+          if (marks.has(key)) return busyAt(state, key);
           if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
-          let rule: (CircularRule & { readonly ok: true }) | undefined;
-          if (circular || openPoint !== undefined) {
-            const got = circularRead((loopNode ??= { marks, cells, host, tree, type, place, climb }), key);
-            if (got !== ON_HOST) return got;
-            rule = circularRule(tree, key) as CircularRule & { readonly ok: true };
-          }
+          if (circular || openPoint !== undefined) return circularRead(state, key);
           marks.set(key, BUSY);
           demands.push({ cells: marks, key, text });
           let thrown: unknown = NOT_THROWN;
@@ -859,7 +889,7 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined,
           try {
             answer = host(place, key, () => {
               try {
-                return rule === undefined ? (climb(key) ?? NO_ANSWER) : roundsOf(loopNode as LoopNode, key, rule);
+                return climb(key) ?? NO_ANSWER;
               } catch (error) {
                 thrown = error;
                 throw error;
@@ -878,20 +908,14 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined,
           return answer.result;
         };
 
-  /**
-   * This function gives an attribute through its memo (TREE.MEMO) or the cell of the host (TREE.CELL). A node with a
-   * circular attribute and each demand in an open fixed point go to `circularRead` (TREE.CIRCULAR).
-   */
   const read = (key: string): Result | undefined => {
     if (through !== undefined) return through(key);
     const cell = cells.get(key);
-    if (cell !== undefined) {
-      if (!cell.busy) return cell.result;
-      return openPoint === undefined ? cycleAt(cells, key, attributeText(key, type, place)) : reachedIn(openPoint, (loopNode ??= { marks, cells, host, tree, type, place, climb }), key);
-    }
+    if (cell !== undefined) return cell.busy ? busyAt(state, key) : cell.result;
     // A node without a contract has only its parts, as before D42. Thus a missing part needs no cell.
     if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
-    if (circular || openPoint !== undefined) return circularRead((loopNode ??= { marks, cells, host, tree, type, place, climb }), key) as Result | undefined;
+    // A circular attribute and each demand in an open fixed point take the code of D113 (TREE.CIRCULAR).
+    if (circular || openPoint !== undefined) return circularRead(state, key);
     cells.set(key, BUSY);
     demands.push({ cells, key, text: attributeText(key, type, place) });
     let answer: { readonly result: Result; readonly by: AttributeRung } | undefined;
@@ -913,6 +937,10 @@ function treeThing(input: EvalInput, build: TreeBuild, outer: Thing | undefined,
     type,
     place,
     tree,
+    marks,
+    cells,
+    host,
+    climb,
     read,
     equation(term, names) {
       if (machine === undefined) return fail("#NOEVAL", "The evaluation of an equation needs the machine.");
