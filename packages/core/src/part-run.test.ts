@@ -95,7 +95,7 @@ describe("the steps of a part (D132)", () => {
         return (ctx, rt) => ok(copies.map((copy) => done(copy.run(ctx, rt))));
       },
     };
-    expect(prepare(hostMachine({ evaluator: copying }), { type: "host", value: [SUM, 5] }).evaluate()).toEqual(ok([ok(3), ok(5)]));
+    expect(prepare(hostMachine({ evaluator: copying }), { type: "host", value: [SUM, TWO] }).evaluate()).toEqual(ok([ok(3), ok(2)]));
   });
 
   it("[PLAN.PART-RUN] a copy with other code keeps the steps of the code of the original", () => {
