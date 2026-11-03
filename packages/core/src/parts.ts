@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, docEquals, isEnvelope, isRecord, typeName, typePath } from "./doc.ts";
-import { type Kind, type NamesSource, type ScopeRule, type Shape, type World, lookupKind } from "./world.ts";
+import { type Kind, type LazyRule, type NamesSource, type ScopeRule, type Shape, type World, lookupKind } from "./world.ts";
 import type { ValueType } from "./types.ts";
 
 /** One part of a value: its place in the value, the JSON of the part, and the type that its position declares. */
@@ -267,6 +267,35 @@ export function pathMatches(path: readonly Key[], pattern: readonly Key[]): bool
     if (want !== "*" && String(want) !== String(path[index])) return false;
   }
   return true;
+}
+
+/**
+ * This function tells if a list of rules in the form of the lazy rules covers a part (D24, D119). A rule without
+ * `in` covers each part. With `after: n`, a rule covers only the parts after the first `n` parts that it matches.
+ *
+ * @param rules - The rules.
+ * @param shape - The shape of the parts of the parent.
+ * @param value - The value of the parent.
+ * @param slot - The path of the part in the value.
+ * @returns `true` when a rule covers the part.
+ */
+export function rulesCover(rules: readonly LazyRule[], shape: Shape | undefined, value: Json, slot: readonly Key[]): boolean {
+  for (const rule of rules) {
+    if (rule.in !== undefined && !rule.in.some((pattern) => pathMatches(slot, pattern))) continue;
+    const after = rule.after ?? 0;
+    if (after <= 0) return true;
+    const split = splitParts(shape, value);
+    let count = 0;
+    for (const part of split.ok ? split.parts : []) {
+      if (rule.in !== undefined && !rule.in.some((pattern) => pathMatches(part.path, pattern))) continue;
+      if (part.path.length === slot.length && pathMatches(part.path, slot)) {
+        if (count >= after) return true;
+        break;
+      }
+      count += 1;
+    }
+  }
+  return false;
 }
 
 function valueAt(value: unknown, path: readonly Key[]): unknown {

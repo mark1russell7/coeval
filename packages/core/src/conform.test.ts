@@ -345,7 +345,11 @@ describe("the obligations of host code", () => {
     };
     const k65 = conforms(machineWith({ quick: listKind("quick") }, {}, { quick }), "quick");
     expect(obligations(k65)).toEqual(["C6"]);
-    expect(k65[0]?.reason).toContain("K65");
+    expect(k65[0]?.reason).toContain("drives (D119)");
+    // A contract that declares the parts in drives permits the code of those parts (RUN.DRIVES).
+    expect(conforms(machineWith({ quick: listKind("quick", { drives: [{}] }) }, {}, { quick }), "quick")).toEqual([]);
+    // A rule for the first part only does not cover the other parts.
+    expect(obligations(conforms(machineWith({ quick: listKind("quick", { drives: [{ in: [[0]] }] }) }, {}, { quick }), "quick"))).toEqual(["C6"]);
     // The same runner with the steps of its parts conforms.
     const steps: CompiledRunner = {
       compileRun: ({ parts }) =>

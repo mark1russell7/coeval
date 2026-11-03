@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type World, type WorldEntry, circularOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
+import { type Kind, type LazyRule, type World, type WorldEntry, circularOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { answerOf, ask } from "./ladder.ts";
-import { type PartSlot, partsOf, scopesOf } from "./parts.ts";
+import { type PartSlot, partsOf, rulesCover, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits, waitedReason } from "./evaluate.ts";
@@ -403,6 +403,19 @@ export interface Typing {
   readonly issues: readonly Issue[];
   /** The type of each document, in the order of the document. */
   readonly places: readonly Typed[];
+}
+
+/**
+ * This function gives the parts that the code of a runner evaluates itself, without a wait (RUN.DRIVES, D119). The
+ * answer of the hook `facts` for the code wins over the contract. The contract describes only the code of its kind for
+ * `eval`. Without a declaration, the runner passes each wait of its parts through.
+ */
+function driveRules(machine: Machine, v: DocVisit, kind: Kind, name: string, rung: string | undefined, verb: string): readonly LazyRule[] | undefined {
+  if (verb !== "eval") return undefined;
+  const hook = machine.facts?.(v.typePath ?? [], name)?.drives;
+  if (hook !== undefined) return hook;
+  const described = v.declared || rung !== "own" || name === answerOf(machine.world, undefined, kind, verb)?.name;
+  return described ? kind.drives : undefined;
 }
 
 /** The least authority: the capability `[]` permits each effect (CAP.KEYS). */
@@ -996,6 +1009,9 @@ function checkAll(
   // run, and a drive for a runner under an evaluator. A document without code fails before its parts, thus it is not
   // in the map.
   const waits = options.run === true ? new Map<DocVisit, Waits>() : undefined;
+  // The parts that the code of a runner evaluates itself, without a wait (RUN.DRIVES). They get no wait, as under an
+  // evaluator. Only a runner that declares `drives` is in the map.
+  const driven = new Map<DocVisit, readonly LazyRule[]>();
   const drives: Drive[] = [];
   const maxDepth = machine.maxDepth ?? 1000;
   const anyName = options.names === "any";
@@ -1060,7 +1076,9 @@ function checkAll(
       }
       if (waits !== undefined && coded) {
         // The parent of the root is the driver of the run, and it can wait. An evaluator gives its parts no wait.
-        const up = v.parent === undefined ? true : waits.get(v.parent);
+        let up = v.parent === undefined ? true : waits.get(v.parent);
+        const rules = v.parent === undefined ? undefined : driven.get(v.parent);
+        if (up !== false && rules !== undefined && v.parent !== undefined && rulesCover(rules, v.parent.kind?.parts, v.parent.doc.value as Json, v.slot)) up = false;
         let chain: Waits = false;
         if (runner && up === false) {
           // The run drives a runner under an evaluator, and only a real wait fails (RUN.DRIVE-NESTED). Its issue goes in
@@ -1072,6 +1090,10 @@ function checkAll(
           chain = up ?? true;
         }
         waits.set(v, chain);
+        if (runner && v.kind !== undefined) {
+          const own = driveRules(machine, v, v.kind, name, answer.rung, verb);
+          if (own !== undefined && own.length > 0) driven.set(v, own);
+        }
         // A runner waits only for an effect that reaches the host (C6). A refused effect gives #CAP! without a wait. A
         // runner without a declaration for the verb can cause each effect, thus it can wait.
         if (typeof chain === "object" && !chain.wait) {

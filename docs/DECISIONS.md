@@ -3943,6 +3943,16 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 **Alternatives.** A field in the envelope document can declare the effects of its own entry. But a document cannot vouch for code of the host. The language that has the code knows its effects. A second hook can give the effects. But the hook `facts` already describes the code of a name, with its reads and its purity.
 
 **Why.** An answer without the field changes nothing, thus each old hook keeps its results. An empty list in an answer removes the effects of the contract, because the hook describes the code of its name. Another verb than `eval` keeps the table `verbEffects` of the kind (D49).
+## D119 (2026-11-03): a kind declares in `drives` the parts that its runner evaluates without a wait
+
+**Context.** K65, from K19. A compiled runner can evaluate a part with its code, and that code does not wait. The check of the waits assumed that a runner passes each wait of its parts through. Since K110, such a part fails in a run only when it really waits. But `check` did not find that failure, and `conform` refused each such runner (C6).
+
+**Decision.** `KindFacts` gets the optional field `drives`, in the form of the lazy rules (RUN.DRIVES). It names the parts that the runner evaluates with its code. The answer of the hook `facts` for the code wins over the contract. The contract describes only the code of its kind for `eval`. In a check of a run, such a part gets no wait, as under an evaluator. Thus a runner under it gives the `#CALC!` of the run (RUN.DRIVE-NESTED). `conform` accepts the code of a part that `drives` covers.
+
+**Alternatives.** A mark on the runner can name the parts. But the parts are a fact of the kind, as the lazy parts are. The check can find the calls by a probe. But a probe sees only its samples, and the check is static.
+
+**Why.** Without `drives`, nothing changes: the check keeps its assumption, and `conform` keeps its C6 finding. The evaluation path does not change, because the run already fails only on a real wait (D38).
+
 
 ## D121 (2026-11-03): a walker holds the type rule of its step
 
