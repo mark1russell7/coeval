@@ -18,7 +18,7 @@ import {
 import { Failure } from "./errors.ts";
 import { type Cap, type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
-import { type AttributeDeclaration, type CircularRule, type TreeContract, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
+import { type AttributeDeclaration, type CircularRule, type TreeContract, atArgsOf, atRuleOf, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
 import { STD_DOMAINS } from "./types.ts";
 import type { SyntaxProfile } from "./syntax.ts";
 
@@ -73,6 +73,11 @@ export const STD_WORLD: World = {
           verbs: { step: "walk.named", view: "view.card" },
           pure: true,
           summary: "A step of a path: it goes up to the nearest registry of names, and it gives the node with the name (TREE.NAMED).",
+        },
+        at: {
+          verbs: { step: "walk.tree.at", view: "view.card" },
+          pure: true,
+          summary: "A step of a path: it reads an attribute with parameters of the node before it, with the arguments of the step (TREE.AT).",
         },
       },
     },
@@ -177,6 +182,7 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "box", kind: "box", args: "named", fields: ["width", "height", "children"] },
       { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
       { name: "tree.named", kind: "tree.named", args: "named", fields: ["name", "in"] },
+      { name: "tree.at", kind: "tree.at", args: "named", fields: ["attr", "args"] },
       // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
       { name: "add", kind: "add" },
       { name: "multiply", kind: "multiply" },
@@ -342,6 +348,10 @@ export interface AttributeAnswer {
  *
  * A new plan gives new arrays. Thus a host keeps its cells by the identity of `place` and by `attribute`.
  * A host that keeps its cells by the keys of `place` can give the answer of another node or a stale answer.
+ *
+ * An attribute with parameters gets one cell for each key of its arguments (TREE.AT-CELL, D124). Its `place` is a
+ * second array with the same keys, one for each key of a node. Its `attribute` is the JSON text of the name and the
+ * arguments, for example `["height",{"width":200}]`.
  *
  * The function gives the answer of `compute`, or a kept answer. A host with signals gives a computed signal: a change
  * of its store then makes only the attributes that read the store compute again. Each demand gives a new `compute`, and
@@ -916,6 +926,80 @@ function collected(root: HostThing, key: string, declared: unknown): Result {
   return acc;
 }
 
+/** A function from the name of an attribute and the arguments to the result, or `undefined` when no rung answers (D124). */
+export type AtReader = (attr: string, args: unknown) => Result | undefined;
+
+/**
+ * The host things that answer the step `tree.at` with their own function (D124). A node of the reference is in it, and
+ * its fields do not change. The walker reads the state of a node of the kit.
+ */
+export const AT_READERS: WeakMap<object, AtReader> = /* @__PURE__ */ new WeakMap();
+
+/** The memo of the instances of the attributes with parameters of each node, without the cells of a host (TREE.AT). */
+const atMemos = /* @__PURE__ */ new WeakMap<NodeState, Map<string, Cell>>();
+
+/** The second key of each key of a node, for the cells of the attributes with parameters (TREE.AT-CELL). */
+const atPlaces = /* @__PURE__ */ new WeakMap<readonly Key[], readonly Key[]>();
+
+/**
+ * This function gives an instance of an attribute with parameters of a node (TREE.AT, D124). The equation in
+ * `tree.at` of the kind of the node evaluates with the arguments as names. The memo keeps one result for each key of
+ * the arguments, and a demand of an instance in evaluation gives `#CYCLE!`. The function is outside the code of
+ * `read`, thus a node without such attributes does no new work.
+ */
+function atRead(n: NodeState, attr: string, args: unknown): Result | undefined {
+  const declared: unknown = entryOf(n.tree?.at, attr);
+  if (declared === undefined) return undefined;
+  const rule = atRuleOf(declared);
+  if (!rule.ok) return fail("#VALUE!", `The attribute ${attributeText(attr, n.type, n.place)} has a bad entry tree.at. ${rule.reason}`);
+  const given = atArgsOf(rule.params, args);
+  if (!given.ok) return fail("#VALUE!", `The step tree.at of ${attributeText(attr, n.type, n.place)} has bad arguments. ${given.reason}`);
+  // An open fixed point does not use the cells of the host (D113).
+  const host = openPoint === undefined ? n.host : undefined;
+  const place = n.host === undefined ? n.place : keptAt(atPlaces, n.place, () => Object.freeze([...n.place]));
+  let marks: Map<string, Cell> | undefined = n.host === undefined ? atMemos.get(n) : keptAt(marksByPlace, place, () => new Map<string, Cell>());
+  if (marks === undefined) {
+    marks = new Map();
+    atMemos.set(n, marks);
+  }
+  const key = `[${JSON.stringify(attr)},${given.key}]`;
+  const text = attributeText(`${attr} with ${given.key}`, n.type, n.place);
+  const cell = marks.get(key);
+  if (cell !== undefined) return cell.busy ? cycleAt(marks, key, text) : cell.result;
+  const demand: Demand = { cells: marks, key, text };
+  const loop = openPoint;
+  const compute = (): AttributeAnswer => ({ result: n.equation(rule.equation, given.names), by: "kind" });
+  marks.set(key, BUSY);
+  demands.push(demand);
+  let thrown: unknown = NOT_THROWN;
+  let answer: AttributeAnswer;
+  try {
+    answer =
+      host === undefined
+        ? compute()
+        : host(place, key, () => {
+            try {
+              return compute();
+            } catch (error) {
+              thrown = error;
+              throw error;
+            }
+          });
+  } catch (error) {
+    marks.delete(key);
+    // An exception of the kit or of the stack goes on. Another exception of the cell is a cycle of the host (D108).
+    if (host === undefined || error === thrown) throw error;
+    const chain = demands.map((item) => item.text).join(" -> ");
+    answer = { result: fail("#CYCLE!", `The cells of the host found a cycle in the demands: ${chain}.`, { cause: error }), by: undefined };
+  } finally {
+    demands.pop();
+  }
+  // A result that read an approximation is not final. With the cells of a host, the cell is the memo.
+  if (n.host !== undefined || loop?.tentative.has(demand) === true) marks.delete(key);
+  else marks.set(key, { busy: false, result: answer.result, by: answer.by });
+  return answer.result;
+}
+
 /**
  * This function makes a node of the decorated tree. A step `parent` gives the self of the context of the node, and a
  * step `type` gives its type. Another step reads an attribute through its ladder (TREE.LADDER). The rungs are a part of
@@ -1256,8 +1340,25 @@ const named: Walker = ({ data, here, deref }) => {
   return { ok: false, reason: `No registry ${registry} is on the way.` };
 };
 
+/**
+ * The walker of the step `tree.at` (TREE.AT, D124). The field `attr` names an attribute with parameters, and the
+ * field `args` gives the arguments. The thing before the step is a node. A failed instance throws its own error.
+ */
+const at: Walker = ({ data, here }) => {
+  const attr = isRecord(data) ? field(data, "attr") : undefined;
+  if (typeof attr !== "string") return { ok: false, code: "#VALUE!", reason: "The step tree.at needs a text attr." };
+  const args = isRecord(data) && Object.hasOwn(data, "args") ? field(data, "args") : {};
+  const state = stateOf(here);
+  const reader = state === undefined && typeof here === "object" && here !== null ? AT_READERS.get(here) : undefined;
+  if (state === undefined && reader === undefined) return { ok: false, reason: `The step tree.at reads ${attr} of a thing that is not a node of a tree.` };
+  const result = state === undefined ? (reader as AtReader)(attr, args) : atRead(state, attr, args);
+  if (result === undefined) return { ok: false, reason: `No rung gives the attribute ${attr} with parameters.` };
+  if (!result.ok) throw new Failure(result.error);
+  return { ok: true, thing: result.value as Thing };
+};
+
 /** The walkers of the standard world, by name. */
-export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest, "walk.named": named };
+export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest, "walk.named": named, "walk.tree.at": at };
 
 /** This function evaluates parts one after the other, and stops at the first error. */
 function* inOrder(parts: readonly RunPart[]): Generator<Promise<unknown>, { readonly values: readonly unknown[] } | { readonly error: Result }, unknown> {

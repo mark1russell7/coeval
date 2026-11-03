@@ -36,6 +36,9 @@ export {
 } from "./errors.ts";
 export {
   type Alias,
+  type AtArgs,
+  type AtEquation,
+  type AtRule,
   type AttributeDeclaration,
   type CapsRule,
   type CircularDeclaration,
@@ -57,6 +60,9 @@ export {
   type World,
   type WorldEntry,
   CIRCULAR_LIMIT,
+  argsKey,
+  atArgsOf,
+  atRuleOf,
   circularOf,
   collectOf,
   effectsOfVerb,
