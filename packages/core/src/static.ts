@@ -7,6 +7,7 @@ import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits, waitedReason } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
 import { type RootTypes, type TypeNode, type Typed, machineTypeIssues, typePass } from "./typing.ts";
+import { cycleIssues } from "./instances.ts";
 
 /** One document that a walk visits. */
 export interface DocVisit {
@@ -694,14 +695,19 @@ const KEEPS_SELF: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "effect.write",
 ]);
 
+/** This function tells if standard code gives its parts the self of its own context (D106). */
+export function keepsSelf(evaluator: string | undefined): boolean {
+  return evaluator !== undefined && KEEPS_SELF.has(evaluator);
+}
+
 /** The name of the standard code of a node of the decorated tree. */
-const TREE_NODE = "tree.node";
+export const TREE_NODE = "tree.node";
 
 /** The name of the standard code of a reference. */
-const REF_CODE = "ref.resolve";
+export const REF_CODE = "ref.resolve";
 
 /** A node of the decorated tree that `check` knows (D106): the self of the code of its parts. */
-interface SeenNode {
+export interface SeenNode {
   readonly kind: Kind;
   /** The name of the kind, for the reason of an issue. */
   readonly text: string;
@@ -709,6 +715,66 @@ interface SeenNode {
   readonly own: ReadonlySet<string> | undefined;
   /** The parent node. It is `undefined` when `check` does not know the parent. */
   readonly parent: SeenNode | undefined;
+}
+
+/** The self of the code of each document of one walk, for the checks of attributes and the graph of attribute instances (D106, D107). */
+export interface Selves {
+  /**
+   * This function tells if a document is a node of the decorated tree whose attributes the walk knows.
+   *
+   * @param v - The visit of the document.
+   * @param evaluator - The evaluator that the ladder gives for the document.
+   */
+  isNode(v: DocVisit, evaluator: string | undefined): boolean;
+  /**
+   * This function gives the self of the code of a document, and its node when the document is a node. It records the
+   * self that the parts of the document get. The walk visits a document before its parts.
+   *
+   * @param v - The visit of the document.
+   * @param evaluator - The evaluator that the ladder gives for the document.
+   */
+  enter(v: DocVisit, evaluator: string | undefined): { readonly self: SeenNode | undefined; readonly node: SeenNode | undefined };
+}
+
+/**
+ * This function makes the selves of one walk (D106). Only `eval` reads attributes, and only when the root `self` is
+ * open. A node gets the self of its code as its parent. The standard code that keeps self gives its parts its own self.
+ * Other code gives its parts a self that the walk does not know.
+ *
+ * @param machine - The machine.
+ * @param verb - The verb of the walk.
+ * @param root - The self of the root document: the node of an equation, or `undefined`.
+ * @returns The selves.
+ */
+export function selvesOf(machine: Machine, verb: string, root: SeenNode | undefined): Selves {
+  const roots: readonly string[] = machine.roots ?? ROOTS;
+  const on = verb === "eval" && roots.includes("self") && hasEntry(machine.evaluators, TREE_NODE) && !hasEntry(machine.runners, TREE_NODE);
+  const selves = new Map<DocVisit, SeenNode | undefined>();
+  const isNode = (v: DocVisit, evaluator: string | undefined): boolean => on && evaluator === TREE_NODE && v.kind !== undefined;
+  return {
+    isNode,
+    enter(v, evaluator) {
+      const self = v.parent === undefined ? root : selves.get(v.parent);
+      if (!isNode(v, evaluator) || v.kind === undefined) {
+        selves.set(v, keepsSelf(evaluator) ? self : undefined);
+        return { self, node: undefined };
+      }
+      // The own parts are the parts of the split, as in a run. A field without a part is data, and no step reads it.
+      const read = partsOf(machine.world, v.declared ? v.doc.value : v.doc, v.declared ? typeName(v.doc.type) : undefined);
+      const own = read.ok && read.split.ok ? new Set(read.split.parts.map((part) => part.key)) : undefined;
+      const node: SeenNode = { kind: v.kind, text: typeName(v.doc.type), own, parent: self };
+      selves.set(v, node);
+      return { self, node };
+    },
+  };
+}
+
+/**
+ * This function tells if a name is a structural step of a node of the decorated tree: `parent` or `type` (D106). An
+ * attribute with such a name gets no read.
+ */
+export function isStructural(name: string): boolean {
+  return Object.hasOwn(STRUCTURAL, name);
 }
 
 /** One attribute that a kind needs at each of its nodes: a declaration, or a read in an equation (TREE.CHECK-COMPLETE). */
@@ -733,7 +799,7 @@ const DOWNS = /* @__PURE__ */ new WeakMap<World, ReadonlySet<string>>();
  * This function gives each name that an equation of `down` of a kind of the world gives. The kinds include the kinds
  * of the namespaces and each fallback kind (WORLD.OPEN). A parent that `check` does not know has one of these kinds.
  */
-function downNames(world: World): ReadonlySet<string> {
+export function downNames(world: World): ReadonlySet<string> {
   const known = DOWNS.get(world);
   if (known !== undefined) return known;
   const out = new Set<string>();
@@ -765,7 +831,7 @@ function hasEntry(table: Readonly<Record<string, unknown>> | undefined, name: st
  * be a node of each kind of the world, thus each name of `down` in the world can answer. A copy can always answer,
  * because `check` does not know a node without a parent.
  */
-function answered(world: World, node: SeenNode, name: string): boolean {
+export function answered(world: World, node: SeenNode, name: string): boolean {
   if (node.own?.has(name) === true) return true;
   const tree = node.kind.tree;
   if (hasEntry(tree?.equations, name)) return true;
@@ -904,11 +970,11 @@ function checkAll(
   const anyName = options.names === "any";
   const roots: readonly string[] = machine.roots ?? ROOTS;
   const has = (table: Readonly<Record<string, unknown>> | undefined, name: string): boolean => table !== undefined && Object.hasOwn(table, name);
-  // The checks of attributes know the self of the code of each document (D106). The map gives the self of the parts of
-  // a document: a node of the decorated tree, or undefined when the check does not know it. Only eval reads attributes.
+  // The checks of attributes know the self of the code of each document (D106). Only eval reads attributes.
   const attributes = verb === "eval" && roots.includes("self");
-  const selves = new Map<DocVisit, SeenNode | undefined>();
-  const treeCode = has(machine.evaluators, TREE_NODE) && !has(machine.runners, TREE_NODE);
+  const selves = selvesOf(machine, verb, rootSelf?.node);
+  // A document with a node of the decorated tree gets the check of the cycles of its attributes (D107).
+  let trees = false;
   walk(
     machine.world,
     doc,
@@ -931,24 +997,16 @@ function checkAll(
         return "skip";
       }
       // The equations of a kind are code of the kind. The check walks them at the first document of the kind (D42).
-      const node = attributes && treeCode && answer.evaluator === TREE_NODE && v.kind !== undefined;
+      const node = selves.isNode(v, answer.evaluator);
       if (v.kind !== undefined && (v.kind.tree !== undefined || node) && !seen.has(v.kind)) {
         seen.add(v.kind);
         const kindText = typeName(v.doc.type);
         for (const issue of [...contractIssues(v.kind, kindText), ...equationIssues(machine, v.kind, kindText, options, state)]) push({ ...issue, place: v.place, at: v.at });
       }
       // The self of the code of this document, and the self that its parts get (D106).
-      const self = v.parent === undefined ? rootSelf?.node : selves.get(v.parent);
-      if (node && v.kind !== undefined) {
-        // The own parts are the parts of the split, as in a run. A field without a part is data, and no step reads it.
-        const read = partsOf(machine.world, v.declared ? v.doc.value : v.doc, v.declared ? typeName(v.doc.type) : undefined);
-        const own = read.ok && read.split.ok ? new Set(read.split.parts.map((part) => part.key)) : undefined;
-        const here: SeenNode = { kind: v.kind, text: typeName(v.doc.type), own, parent: self };
-        selves.set(v, here);
-        if (own !== undefined) for (const issue of nodeIssues(machine, here, state, v)) push(issue);
-      } else {
-        selves.set(v, answer.evaluator !== undefined && KEEPS_SELF.has(answer.evaluator) ? self : undefined);
-      }
+      const { self, node: here } = selves.enter(v, answer.evaluator);
+      if (here !== undefined) trees = true;
+      if (here?.own !== undefined) for (const issue of nodeIssues(machine, here, state, v)) push(issue);
       const name = answer.evaluator;
       if (current !== undefined) current.evaluator = name;
       // A runner hides the evaluator of its name (MACHINE.RUNNER), as in the compilation of a plan.
@@ -1058,5 +1116,7 @@ function checkAll(
     issues.splice(drive.index, 0, drive.issue);
     if (drive.node !== undefined) drive.node.marked = true;
   }
+  // The cycles of the attributes come after the issues of the walk (TREE.GRAPH-CYCLE). An equation gets none here.
+  if (trees && rootSelf === undefined) for (const issue of cycleIssues(machine, doc, options)) issues.push(issue);
   return issues;
 }

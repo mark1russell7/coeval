@@ -144,6 +144,9 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | TREE.CELL-CYCLE | A cycle through the cells of a host gives the same `#CYCLE!` as the plain memo, because the kit marks an attribute before it uses its cell. An exception of a cell that `compute` did not throw gives `#CYCLE!` with the chain of the demands. The exception is its cause. |
 | TREE.PLAN | The equations of a kind compile one time for each machine, through a cached planner. The plan of a document does not keep them, and a new plan uses the same compiled equations. |
 | TREE.SELF | A node of a tree reads `self` only through `resolve` (C4), in the plan and in the reference. The read is in the list of reads, and `factsOf` gives it. A closed node does not fold. A machine that closes the root `self` makes each node the root of a new tree. |
+| TREE.GRAPH | `attributeGraph` gives one vertex for each attribute of each node, and one edge for each read. A read of `self`, of the parent, of the previous sibling and of a `fold` gives an edge from a known vertex. A read through a value gives an edge with an unknown source. |
+| TREE.GRAPH-CYCLE | `check` gives `#CYCLE!` before a run for each certain cycle that the eager reads reach, at the place and with the reason of the run. A cycle through a lazy branch or an unknown read is not an issue. |
+| TREE.GRAPH-AGREES | In the generated trees, each read of a run along a static edge is an edge of the graph. A run that gives a value gets no `#CYCLE!` from `check`. |
 
 ## Evaluation and plans
 
@@ -332,7 +335,11 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | FACTS.PURE | A document is pure when each kind in it declares `pure`, and it has no effect and is not volatile. An unknown kind and an own entry for another evaluator are not pure. A pure document gives the same result when each value that no read reaches changes. |
 | FACTS.VOLATILE | A document is volatile when a kind, an operation or a kind of step documents declares `volatile`. A read that the host marks also makes it volatile. A read of `event` and an effect do not. |
 | FACTS.HOOK | The hook `facts` of a machine gives the facts of the code of a name. Each field of its answer wins over the contract. `mergeMachines` composes the hooks in order, and a hook does not answer for replaced code. |
-| FACTS.VERB | The option `verb` names the verb whose code the facts describe. The default is `eval`. A contract describes the code of `eval`, and of `step` for a step document. Only the hook describes the code of another verb. The reads, the side and the effects do not depend on the verb. |
+| FACTS.VERB | The option `verb` names the verb whose code the facts describe. The default is `eval`. The marks `pure`, `volatile` and `lazy` of a contract describe the code of `eval`, and of `step` for a step document. Only the hook describes the code of another verb. The roots and the keys of the reads do not depend on the verb. |
+| FACTS.VERB-EFFECTS | For a verb other than `eval`, the effects of a document are the effects that the entry of the verb in `verbEffects` declares (D111). The field `effects` counts only for `eval`. The entry `"type"` gives the type of the document. |
+| FACTS.VERB-SIDE | For a verb other than `eval`, a kind is on the run side when its entry in `verbEffects` declares an effect. The field `side` counts only for `eval`. |
+| FACTS.VERB-UNDECLARED | For a verb other than `eval`, a kind without an entry in `verbEffects` declares nothing. It adds no effect and does not put the document on the run side. `check` also tests no effect for it (VERB.EFFECTS). Its code is not pure without an answer of the hook. |
+| FACTS.VERB-CHECK | The facts and `check` agree for each verb. `check` without capabilities refuses each effect of the facts and no other effect. With the option `run`, an evaluator needs a runner when the facts give the run side. |
 | FACTS.PROFILE | `formulaMachine` gives the hook `facts` of its profile. A lazy operation has a lazy rule for each argument. The profile names its pure and volatile operations. A standard extension is pure. An extension of the profile is pure only when the profile names it in `pureExt` (D47). The mark `pure: true` covers only the operations. |
 | FACTS.SOUND | In each evaluation, each path that a plan resolves has a static read at the place of its document. The read has the root of the path, and its keys start the path. An exact read has the full path. |
 

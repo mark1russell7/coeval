@@ -3478,6 +3478,46 @@ The behavior changes for a caller only with the new field. A check with types th
 - A read of the parent of the node of an equation goes to an unknown node, thus `check` does not examine it.
 - The cycles of attributes wait for the graph of attribute instances (L2e).
 
+## D107 (2026-11-02): the graph of attribute instances, and `check` finds the certain cycles of a tree
+
+**Context.** L2e, from R3 P5. D106 gave `check` the unknown attributes of a tree, and it left the cycles to the graph of attribute instances. A cycle of attributes gave its `#CYCLE!` only in a run.
+
+**Decision.**
+
+- The module `instances.ts` lives beside `order.ts`. It uses the walk and the rules of `static.ts` (D106) and the analysis of `graph.ts`. It has no walk and no cycle finder of its own.
+- A vertex is one attribute of one node. Its id is the JSON text of the place of the node with the attribute after it, for example `["children",0,"width"]`.
+- `attributeGraph(machine, doc)` gives the vertices, the edges, the `NodeGraph` of the edges, the edges with an unknown source and the cycles.
+- An edge comes from each read of a reference in the code of an attribute. A path from `self` reads the node, and the step `parent` goes to the known parent.
+- A list index goes to the item, and the step `nearest` of the standard walker goes up the known nodes by their type.
+- The rungs give edges too. An equation of `down` reads the list `children` of the parent, and `names.prev` reads the previous sibling. A `fold` reads the list `children` and the attribute of each child.
+- A copy reads the same attribute of the parent. A rung after a rung that can answer first is lazy (FACTS.LAZY).
+- The value of a reference to a node is its JSON (TREE.RESULT), thus the read gets an edge from each attribute of the node.
+- A step after a value that only the run knows gives an edge with an unknown source. Other walkers, and names that a kind binds, give such edges too. `AttributeGraph.unknown` lists them as not known before the run.
+- `check` gives `#CYCLE!` only for a certain cycle (GRAPH.CYCLE) that eager reads reach from the own parts of a tree root. A run reads each of these, thus each such cycle fails the run.
+- The issue has the place and the reason of the run: the first read that closes the cycle, in the order of the JSON. Thus STATIC.AGREES stays true, and the harness compares the issue with the run.
+- A possible cycle is not an issue. It goes through a lazy branch or an edge with an unknown source, and the run can give a value.
+- The exports `attributeGraph`, `attributeVertexId` and the types of the graph are public. Thus the next release is MINOR. The evaluator of the kernel does not use the graph (D3).
+
+**Rejected.**
+
+- A second walk of the document for the graph. It copies the rules of D106, and the two walks can disagree.
+- An issue for each possible cycle. The run of such a document can give a value, thus the issue is a false positive.
+- A new error code for a static cycle. The run gives `#CYCLE!`, and STATIC.AGREES compares the code and the place.
+- An issue for each edge with an unknown source. A generated document that checks has many of them, and none is a problem.
+
+**Why.** Before D107, a cycle of attributes gave its `#CYCLE!` only in a run. At this time, `check` finds each certain cycle before a run, at the place where the run fails. The graph is also the first concrete graph for the schedule layer.
+
+**Public types.** New: `AttributeVertex`, `AttributeEdge`, `AttributeCycle`, `AttributeGraph` and `AttributeGraphOptions`, with the functions `attributeGraph` and `attributeVertexId`.
+
+**Changed expected values.** None. A document with a certain cycle gave `#CYCLE!` in its run before D107. At this time, `check` gives the same issue.
+
+**Limits.**
+
+- `check` finds the cycles only when the root starts a new tree. A context whose `self` is an open node gives no static cycle.
+- A node document inside an equation is not a vertex. Its reads are not in the graph.
+- The JSON of a node that an unknown value holds is not in the graph.
+- A run stops at its first error. Thus the harness asks only that a run with a value gets no static cycle.
+
 ## D108 (2026-11-02): a host gives the tree kit its own memo cells, keyed by the place of a plan
 
 **Context.** L2c, from R3 P3. The decorated tree of D16 keeps one memo for each node and attribute, for one evaluation (TREE.MEMO). Each evaluation makes new nodes, thus a host computes each attribute again in each evaluation. A host with signals wants to keep the cell of each attribute. A change of its store then computes only the attributes that read the store.
@@ -3592,3 +3632,40 @@ D45 made `checkWorld` the check of a world before a document exists. The design 
 - A restricted machine without `formula.if` does not examine the truth type before a document exists.
 - A type of the option `rootTypes` of `check` and the `expect` of a check are not part of a machine. `check` still examines them.
 - The check of `kinds` against `expect` reads only the term shapes. A shape with `of` and `expect` does not get it.
+
+## D111 (2026-11-03): `factsOf` reads the side and the effects of a verb from the entry of the verb in `verbEffects`
+
+**Context.** K55, from S1a (D24) and K56 (D49). `factsOf` takes the option `verb` since D24. For a verb other than `eval`, the facts gave the side and the effects of `eval`. D24 called this an over-approximation, because a contract declared effects only for `eval`.
+
+D49 gave the field `verbEffects`, and `check` tests the effects of each verb by it. The facts still read only `effects`. Thus a fact and a check of the same verb did not agree. The verb `format` of a kind `log` gave the effect `log` in the facts, and `check` gave no effect issue. The run of `format` causes no effect. The design calls are the effects of a verb, its side, and the facts of a kind without an entry for the verb.
+
+**Decision.**
+
+- For `eval`, the facts do not change. The field `effects` gives the effects, and the field `side` gives the side.
+- For another verb, the effects of a document come from `declaredEffects(v, verb)`. This is the one function that `check` reads (D27). Thus the effects are the effects of the entry of the verb in `verbEffects` (FACTS.VERB-EFFECTS). The entry `"type"` gives the type of the document, as for `eval`.
+- For another verb, a kind is on the run side when its entry declares at least one effect (FACTS.VERB-SIDE). With the option `run`, `check` already asks a runner for such a kind, and code with a runner is code of the run side.
+- A kind without an entry for the verb has no declaration (D49). It adds no effect, and it does not put the document on the run side (FACTS.VERB-UNDECLARED). `check` also tests no effect of that kind for the verb.
+- The marks `pure`, `volatile` and `lazy` of a contract still describe only `eval` (D24, D49). For another verb, only the hook `facts` describes the code. Thus a document is pure for another verb only when the hook answers `pure` for its code. A kind without an entry for the verb is then also not pure.
+- The equations of a tree kind evaluate with `eval`. Their facts do not change.
+- The test FACTS.VERB-CHECK compares the facts and `check` for the verbs `eval` and `format`. `check` without capabilities refuses each effect of the facts and no other effect. With the option `run`, the evaluator of `format` needs a runner exactly when the facts give the run side.
+
+**Rejected.**
+
+- The side and the effects of `eval` for a kind without an entry, as before. Then a fact and a check of the same verb do not agree. The effects of `eval` also say nothing about the code of another verb.
+- The run side for a kind without an entry, as an unknown. Then each verb of each existing world is on the run side, for example `format` of the formula kit. The mark `pure` already keeps a host from a cache of such code.
+- A new contract field `verbSides`, by verb. It is a second declaration beside `verbEffects`, and the two can disagree. The run side of `eval` without an effect, as for `seq`, orders the effects of its parts. The parts of such a document give the run side of the document for another verb too.
+- A change of `effectsOf` and `checkLatent` in this item. They read the latent effects of `eval`, and the least authority of another verb is a separate question (D49 Limits).
+
+**Why.** A fact and a check of the same verb read the same declaration with the same function. Thus a host that schedules a verb `format` gets the effects that `check` tests. A document whose run causes no effect gets no effect in its facts.
+
+**Public types.** No change. The option `verb` and the fields of `DocFacts` keep their types.
+
+**Changed expected values.** One assertion of FACTS.VERB. The verb `format` of a sequence with a `log` gave the run side and the effect `log`. It gives the derive side and no effect, because the standard kinds declare no effect for `format`.
+
+A call of `factsOf` without `verb`, or with `verb: "eval"`, gives the same facts. A call with another verb can give other facts. This is a change of behavior, thus it goes into the next MINOR release.
+
+**Limits.**
+
+- A hook answer gives no side and no effects. Thus code of another verb that the hook describes gets its side and effects only from the contract.
+- A fold of a plan for another verb still reads the field `side` and the field `effects` of `eval`. That is an over-approximation: it folds less code, not more.
+- `effectsOf` and `checkLatent` still read only the effects of `eval`.

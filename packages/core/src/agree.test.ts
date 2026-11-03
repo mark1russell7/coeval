@@ -27,6 +27,7 @@ import {
   type Runtime,
   type StaticRead,
   type Steps,
+  type Thing,
   type TierInput,
   type TierResult,
   Failure,
@@ -36,6 +37,8 @@ import {
   THING,
   agree,
   agreeRun,
+  attributeGraph,
+  attributeVertexId,
   check,
   context,
   docEquals,
@@ -55,6 +58,7 @@ import {
   nodeAt,
   ok,
   permits,
+  placeOf,
   prepare,
   random,
   recorder,
@@ -861,7 +865,152 @@ describe("one meaning", () => {
     const trees = outcomeOf(CONFIGS.find((config) => config.name === "trees") as Config);
     expect(trees.codes.get("#CYCLE!") ?? 0, show(Object.fromEntries(trees.codes))).toBeGreaterThan(0);
   });
+
+  // Few generated references reach a tree before an error, thus the harness takes more documents. The documents took
+  // 13 s in CI at COUNT 2000, thus each test examines one part of 1000 documents (D96). The last test checks the totals.
+  const graphTotal = COUNT * 4;
+  const graphParts = Math.ceil(graphTotal / 1000);
+  const graph = { reads: 0, values: 0, cycles: 0, parts: 0 };
+  for (let part = 0; part < graphParts; part += 1) {
+    it(`[TREE.GRAPH-AGREES] in the generated trees, each read of a run along a static edge is an edge of the graph, and a run with a value has no static cycle: part ${part + 1} of ${graphParts}`, () => {
+      const config = CONFIGS.find((item) => item.name === "trees") as Config;
+      const outcome = graphHarness(config, part * 1000, Math.min(graphTotal, (part + 1) * 1000));
+      expect(outcome.misses.slice(0, 5)).toEqual([]);
+      graph.reads += outcome.reads;
+      graph.values += outcome.values;
+      graph.cycles += outcome.cycles;
+      graph.parts += 1;
+    });
+  }
+
+  it("[TREE.GRAPH-AGREES] the parts are not empty: reads along static edges, runs with a value, and cycles that check finds before the run", () => {
+    expect(graph.parts, "parts that finished").toBe(graphParts);
+    expect(graph.reads, show(graph)).toBeGreaterThan(COUNT / 10);
+    expect(graph.values, show(graph)).toBeGreaterThan(COUNT / 2);
+    expect(graph.cycles, show(graph)).toBeGreaterThan(0);
+  });
 });
+
+/** What the harness of the graph of attribute instances found (TREE.GRAPH-AGREES). */
+interface GraphOutcome {
+  readonly misses: readonly string[];
+  /** The reads of the runs along a static edge. */
+  readonly reads: number;
+  /** The runs with a value. `check` gave none of them a cycle. */
+  readonly values: number;
+  /** The runs with #CYCLE! for which `check` found a cycle before the run. */
+  readonly cycles: number;
+}
+
+/**
+ * This function compares two nodes of a tree by their places. The spy machine and the plain machine have separate plans,
+ * thus each one gives its own node things, and identity cannot compare them.
+ */
+function sameNode(a: unknown, b: unknown): boolean | undefined {
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return undefined;
+  const from = placeOf(a as Thing);
+  const to = placeOf(b as Thing);
+  return from === undefined || to === undefined ? undefined : docEquals(from, to);
+}
+
+/**
+ * This function compares the graph of attribute instances with the reads of a run (TREE.GRAPH-AGREES). A spy of the
+ * code of a reference wraps the self of the reference. The wrapper records each read of an attribute of a node that a
+ * static step reaches, and the attributes that the JSON of such a node reads. A node that a value of the run holds is
+ * not static, thus the wrapper does not record its reads.
+ */
+function graphHarness(config: Config, from: number, to: number): GraphOutcome {
+  const plain = STD_MACHINE.evaluators?.["ref.resolve"] as EvalFn;
+  const seen: { readonly place: readonly Key[]; readonly from: string }[] = [];
+  const targets = new WeakMap<object, object>();
+  /** This function wraps a thing that a static step reaches. A node is static when its place is the place that the step expects. */
+  const wrap = (thing: unknown, expect: readonly Key[] | undefined, place: readonly Key[]): unknown => {
+    if (typeof thing !== "object" || thing === null) return thing;
+    if (Array.isArray(thing)) {
+      const proxy = new Proxy(thing, {
+        get: (target, key, receiver) => {
+          const item: unknown = Reflect.get(target, key, receiver);
+          return typeof key === "string" && /^\d+$/.test(key) ? wrap(item, expect === undefined ? undefined : [...expect, Number(key)], place) : item;
+        },
+      });
+      targets.set(proxy, thing);
+      return proxy;
+    }
+    const at = placeOf(thing as HostThing);
+    if (at === undefined || (expect !== undefined && !docEquals(at, expect))) return thing;
+    const node = thing as HostThing;
+    return new Proxy(node, {
+      get: (target, key, receiver) => {
+        if (key === "deref") {
+          return (step: Key): unknown => {
+            const name = String(step);
+            if (name === "parent") return wrap(target.deref(step), undefined, place);
+            if (name === "type") return target.deref(step);
+            seen.push({ place, from: attributeVertexId(at, name) });
+            return wrap(target.deref(step), [...at, name], place);
+          };
+        }
+        if (key === "toJson") {
+          return (): unknown => {
+            const json = target.toJson();
+            for (const name of Object.keys(json as object)) seen.push({ place, from: attributeVertexId(at, name) });
+            return json;
+          };
+        }
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+  };
+  const spy: EvalFn = (input) =>
+    plain({
+      ...input,
+      resolve: (path, given) => {
+        const ctx = { ...input.context, self: wrap(input.context.self, undefined, input.place) as Thing };
+        const found = resolve(STD_MACHINE, ctx, path, given);
+        if (!found.ok || typeof found.thing !== "object" || found.thing === null) return found;
+        return { ...found, thing: (targets.get(found.thing) ?? found.thing) as Thing };
+      },
+    });
+  const machine: Machine = { ...config.machine, evaluators: { ...config.machine.evaluators, "ref.resolve": spy } };
+  const misses: string[] = [];
+  let reads = 0;
+  let values = 0;
+  let cycles = 0;
+  for (let index = from; index < to; index += 1) {
+    const seed = SEED * 1_000_003 + index;
+    const ctx = CONTEXTS[index % CONTEXTS.length] as Context;
+    const generated = generate(config.machine.world, { ...config.options, seed });
+    // A tree around three generated documents gives their references a tree to read. Few of these runs give a value.
+    const part = (offset: number): Json => generate(config.machine.world, { ...config.options, seed: seed * 3 + offset }) as Json;
+    const box = (width: Json): Json => ({ type: "box", value: { width, height: 2 } });
+    const tree = { type: "panel", value: { children: { type: "list", value: [box(part(0)), box(part(1))] }, width: part(2), height: 3 } };
+    for (const doc of [generated, tree]) {
+      seen.length = 0;
+      const result = evaluate(machine, doc, ctx).result;
+      const expected = evaluate(config.machine, doc, ctx).result;
+      if (!sameResult(result, expected, sameNode)) {
+        misses.push(`seed ${seed}: the spy changes the result ${show(expected)} to ${show(result)}.`);
+        continue;
+      }
+      const graph = attributeGraph(config.machine, doc);
+      const edges = new Set(graph.edges.map((e) => `${e.from ?? "?"} ${JSON.stringify(e.place)}`));
+      const unknown = new Set(graph.unknown.map((e) => JSON.stringify(e.place)));
+      for (const read of seen) {
+        if (unknown.has(JSON.stringify(read.place))) continue;
+        if (edges.has(`${read.from} ${JSON.stringify(read.place)}`)) reads += 1;
+        else misses.push(`seed ${seed}: the reference at [${read.place.join(", ")}] reads ${read.from}, and the graph has no such edge.`);
+      }
+      const issues = check(config.machine, doc, { names: Object.keys(ctx.names), caps: ctx.caps }).filter((issue) => issue.code === "#CYCLE!");
+      if (result.ok) {
+        values += 1;
+        if (issues.length > 0) misses.push(`seed ${seed}: the run gives a value, and check finds the cycle ${issues[0]?.reason ?? ""}`);
+      } else if (result.error.code === "#CYCLE!" && issues.length > 0) {
+        cycles += 1;
+      }
+    }
+  }
+  return { misses, reads, values, cycles };
+}
 
 describe("one meaning of runs", () => {
   for (const config of RUN_CONFIGS) {
