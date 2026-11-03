@@ -170,6 +170,14 @@ describe("the formula kit", () => {
     // A deep recursion under the limit gives its value in each tier: 250 applications, and 248 through the host map.
     for (const result of tiers(machine, recursion(again), 249)) expect(result).toEqual(ok(249));
     for (const result of tiers(machine, recursion(viaMap), 124)) expect(result).toEqual(ok(JSON.parse(`${"[".repeat(124)}124${"]".repeat(124)}`)));
+    // The margin of the host stack. With twice the default limit, the reference still gives each value and no RangeError.
+    // The limit of D125 came from one measure: the reference overflowed after 937 applications on Node.js 24.21.0.
+    // A Node.js version with a smaller stack fails here first, not at the default limit of a user.
+    const wide: Machine = { ...machine, maxDepth: 2000 };
+    const wideCtx = (limit: number) => context({ names: { limit } });
+    expect(reference(wide, recursion(again), wideCtx(499), { definitions })).toEqual(ok(499));
+    expect(reference(wide, recursion(viaMap), wideCtx(249), { definitions })).toEqual(ok(JSON.parse(`${"[".repeat(249)}249${"]".repeat(249)}`)));
+    expect(reference(wide, recursion(again), wideCtx(Number.MAX_SAFE_INTEGER), { definitions })).toEqual(deep(500, ["bind", "f", "body", "then"]));
     // The limit follows maxDepth. The count goes down after each return, thus a host loop of many applications stays under it.
     const small: Machine = { ...machine, maxDepth: 40 };
     for (const result of tiers(small, recursion(again), 9)) expect(result).toEqual(ok(9));
