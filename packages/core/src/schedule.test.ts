@@ -14,6 +14,7 @@ import {
   Held,
   STD_MACHINE,
   agreeSchedule,
+  checkCycles,
   context,
   cycles,
   edgesOf,
@@ -23,6 +24,7 @@ import {
   isClosure,
   isHostThing,
   jsTruthy,
+  necessary,
   ok,
   random,
   sameResult,
@@ -795,5 +797,224 @@ describe("one meaning across schedules", () => {
     };
     const outcome = agreeSchedule(one, { count: 10 });
     expect(outcome).toMatchObject({ ok: true, counts: { machines: 0 } });
+  }, 120_000);
+});
+
+/** This function gives the reason of the `#CYCLE!` of a node. */
+const reasonOf = (id: string): string => `The node ${id} is on a cycle of reads.`;
+
+/** This function makes a schedule with the documents, in the order of the record. */
+function nodes(docs: Readonly<Record<string, Json>>, options: ScheduleOptions = LIT): Schedule {
+  const s = schedule(strictMachine, options);
+  for (const id of Object.keys(docs)) s.set(id, docs[id]);
+  return s;
+}
+
+/**
+ * This function gives a generated graph. Only a read of a cycle can fail, thus each failed node shows a cycle. With
+ * `lazy`, some nodes read under an `if`, and the graph can have possible cycles.
+ */
+function cycleFamily(rng: Random, lazy: boolean): Readonly<Record<string, Json>> {
+  const names = NODES.slice(0, 2 + rng.int(NODES.length - 1));
+  const node = (): Json => ref("world", rng.pick(names));
+  const docs: Record<string, Json> = {};
+  for (const id of names) {
+    const roll = rng.int(lazy ? 5 : 4);
+    if (roll === 0) docs[id] = rng.int(9);
+    else if (roll === 1) docs[id] = node();
+    else if (roll === 4) docs[id] = { type: "if", value: { test: ref("names", "flag"), then: node(), else: 1 } };
+    else docs[id] = op("pair", node(), node());
+  }
+  return docs;
+}
+
+/**
+ * This function makes schedules for `agreeSchedule`, and it examines each answer against `checkCycles`. A node of a
+ * certain cycle gives no value, for each kind of document that the harness generates.
+ */
+function issueChecked(found: string[], counts: { certain: number }): ScheduleEngineFactory {
+  return (machine, start) => {
+    const s = schedule(machine, start);
+    return {
+      set: (id, doc) => s.set(id, doc),
+      remove: (id) => s.remove(id),
+      changeData: (next) => s.changeData(next),
+      changeMachine: (next) => s.changeMachine(next),
+      read(id) {
+        const got = s.read(id);
+        if (checkCycles(s).some((issue) => issue.nodes.includes(id))) {
+          counts.certain += 1;
+          if (got.ok) found.push(`node ${id} gives ${show(got)}\n  docs ${show([...s.graph()].map(([key, info]) => [key, info.doc]))}`);
+        }
+        return got;
+      },
+    };
+  };
+}
+
+describe("the certain cycles of a schedule", () => {
+  it("[SCHED.CYCLE-ISSUES] checkCycles gives one issue for each certain cycle before a run, with no evaluation, and a read gives the same #CYCLE!", async () => {
+    expect(checkCycles(schedule(strictMachine, LIT))).toEqual([]);
+    expect(checkCycles(nodes({ p: ref("world", "q"), q: 1 }))).toEqual([]);
+
+    const s = nodes({
+      a: op("add", ref("world", "b"), 1),
+      b: op("add", ref("world", "a"), 1),
+      self: op("add", ref("world", "self"), 1),
+      free: op("add", ref("world", "a"), 1),
+      plain: 1,
+    });
+    const issues = checkCycles(s);
+    expect(issues).toEqual([
+      { code: "#CYCLE!", place: ["a"], reason: reasonOf("a"), nodes: ["a", "b"] },
+      { code: "#CYCLE!", place: ["self"], reason: reasonOf("self"), nodes: ["self"] },
+    ]);
+    // The answer needs no evaluation, thus the host has it before a run.
+    expect(s.counts).toMatchObject({ evaluations: 0, ahead: 0 });
+    expect(checkCycles(s)).toEqual(issues);
+
+    // Each node of a ring gives its #CYCLE! in a read. The first node gives the reason of the issue.
+    for (const issue of issues) {
+      expect(s.read(issue.nodes[0] as string)).toEqual(fail(issue.code, issue.reason));
+      for (const id of issue.nodes) expect(s.read(id), id).toEqual(cycle(id));
+    }
+    expect(await s.run("a")).toMatchObject({ ok: false, error: { code: "#CYCLE!" } });
+    // A reader of a cycle is not on the cycle: it gets the error at its reference, and it has no issue.
+    expect(s.read("free")).toEqual(fail("#CYCLE!", reasonOf("a"), { place: [0] }));
+    expect(s.read("plain")).toEqual(ok(1));
+
+    // A change of the structure changes the answer.
+    s.set("b", 2);
+    expect(checkCycles(s).map((issue) => issue.place)).toEqual([["self"]]);
+    s.remove("self");
+    expect(checkCycles(s)).toEqual([]);
+    expect(s.read("a")).toEqual(ok(3));
+
+    // The argument is a graph, thus a ring of 100000 nodes needs no schedule, and it does not overflow.
+    const size = 100_000;
+    const ring = new Map(Array.from({ length: size }, (_, index) => [`n${index}`, { edges: [{ to: `n${(index + 1) % size}`, lazy: false }] }]));
+    const large = checkCycles({ graph: () => ring });
+    expect(large.map((issue) => [issue.place, issue.nodes.length])).toEqual([[["n0"], size]]);
+    // A sink has no cycle: an edge to a node on the run side is no edge of the analysis.
+    const sink = new Map([["act", { side: "run" as const, edges: [{ to: "act", lazy: false }] }]]);
+    expect(checkCycles({ graph: () => sink })).toEqual([]);
+  });
+
+  it("[SCHED.CYCLE-CERTAIN] a possible cycle gives no issue, a certain cycle inside it gives one, and a failure before the read still gives no value", () => {
+    // A cycle under an if is possible. The run can skip the read.
+    const flagged = nodes(
+      { p: { type: "if", value: { test: ref("names", "flag"), then: ref("world", "q"), else: 1 } }, q: op("add", ref("world", "p"), 1) },
+      { ...LIT, context: context({ names: { flag: false } }) },
+    );
+    expect(cycles(flagged.graph())).toEqual([{ nodes: ["p", "q"], certain: false }]);
+    expect(checkCycles(flagged)).toEqual([]);
+    expect(flagged.read("q")).toEqual(ok(2));
+    // The issues are not complete: the run can take the lazy read, and it then gives #CYCLE! without an issue.
+    flagged.changeData(context({ names: { flag: true } }));
+    expect(checkCycles(flagged)).toEqual([]);
+    expect(flagged.read("q")).toEqual(cycle("q"));
+
+    // A lazy edge that the certain cycle does not need: only the nodes of the eager edges are in the issue.
+    const inside = nodes({
+      x: op("add", ref("world", "y"), 1),
+      y: op("add", ref("world", "x"), op("ifError", ref("world", "z"), 0)),
+      z: op("add", ref("world", "x"), 1),
+    });
+    expect(cycles(inside.graph()).map((found) => [found.nodes, found.certain])).toEqual([
+      [["x", "y", "z"], false],
+      [["x", "y"], true],
+    ]);
+    expect(checkCycles(inside)).toEqual([{ code: "#CYCLE!", place: ["x"], reason: reasonOf("x"), nodes: ["x", "y"] }]);
+
+    // A lazy read of the own node, an edge without a target and the closure of a function give no issue.
+    expect(checkCycles(nodes({ lazy: op("ifError", ref("world", "lazy"), 0) }))).toEqual([]);
+    expect(checkCycles(nodes({ all: ref("world") }))).toEqual([]);
+    const closure = nodes({ f: { type: "fn", value: { params: ["v"], body: op("add", ref("names", "v"), ref("world", "f")) } } });
+    expect(checkCycles(closure)).toEqual([]);
+    expect(closure.read("f").ok).toBe(true);
+
+    // A read can fail before it reaches the cycle (D33). The issue stays, and the node gives no value.
+    const early = nodes({ a: ref("world", "b"), b: op("pair", ref("world", "gone"), ref("world", "a")) });
+    expect(checkCycles(early).map((issue) => issue.nodes)).toEqual([["a", "b"]]);
+    for (const id of ["a", "b"]) expect(early.read(id), id).toMatchObject({ ok: false, error: { code: "#N/A" } });
+  });
+
+  it("[SCHED.CYCLE-ORDER] the order of the set calls does not change the issues: each node list is sorted, and the issues are sorted by their first nodes", () => {
+    const docs: Readonly<Record<string, Json>> = {
+      z: op("add", ref("world", "y"), 1),
+      y: op("add", ref("world", "z"), 1),
+      m: op("add", ref("world", "c"), 1),
+      c: op("add", ref("world", "k"), 1),
+      k: op("add", ref("world", "m"), 1),
+      // The cycle of b reads the cycle of y and z, thus `cycles` gives the deep cycle first. The sort gives the name first.
+      b: op("pair", ref("world", "b"), ref("world", "z")),
+    };
+    const want = [
+      { code: "#CYCLE!", place: ["b"], reason: reasonOf("b"), nodes: ["b"] },
+      { code: "#CYCLE!", place: ["c"], reason: reasonOf("c"), nodes: ["c", "k", "m"] },
+      { code: "#CYCLE!", place: ["y"], reason: reasonOf("y"), nodes: ["y", "z"] },
+    ];
+    const ids = Object.keys(docs);
+    for (const order of [ids, [...ids].reverse(), [...ids].sort(), ["k", "b", "y", "m", "z", "c"]]) {
+      const s = schedule(strictMachine, LIT);
+      for (const id of order) s.set(id, docs[id]);
+      expect(checkCycles(s), order.join(" ")).toEqual(want);
+    }
+    // A node that a host removes and sets again goes to the end of the graph, and the answer stays.
+    const s = nodes(docs);
+    s.remove("c");
+    s.set("c", docs["c"]);
+    expect(checkCycles(s)).toEqual(want);
+    // The answer of `cycles` keeps the order of the graph: the sort is the work of `checkCycles`.
+    expect(cycles(s.graph()).map((found) => found.nodes[0])).not.toEqual(want.map((issue) => issue.nodes[0]));
+  });
+
+  it("[SCHED.CYCLE-AGREES] for generated graphs the issues agree with the demand: each node of an issue gives no value, and a #CYCLE! with no lazy read has an issue", () => {
+    const counts = { issues: 0, exact: 0, alone: 0, possible: 0 };
+    for (let seed = 1; seed <= COUNT * 2; seed += 1) {
+      const rng = random(seed);
+      const lazy = seed % 2 === 0;
+      const docs = cycleFamily(rng, lazy);
+      const s = nodes(docs, { ...LIT, context: context({ names: { flag: rng.chance(0.5) } }) });
+      const issues = checkCycles(s);
+      const listed = new Set(issues.flatMap((issue) => issue.nodes));
+      const reasons = new Set([...listed].map(reasonOf));
+      const label = `seed ${seed} ${show(docs)}`;
+      expect(s.counts.evaluations, label).toBe(0);
+      counts.issues += issues.length;
+      if (cycles(s.graph()).some((found) => !found.certain)) counts.possible += 1;
+      for (const id of Object.keys(docs)) {
+        const got = s.read(id);
+        if (listed.has(id)) expect(got, `${label} node ${id}`).toMatchObject({ ok: false, error: { code: "#CYCLE!" } });
+        if (sameResult(got, cycle(id))) counts.exact += 1;
+        if (lazy) continue;
+        // With only eager reads, each read of a demand is an edge of `checkCycles`.
+        if (!got.ok) expect(reasons.has(got.error.reason), `${label} node ${id}`).toBe(true);
+        if (sameResult(got, cycle(id))) expect(listed.has(id), `${label} node ${id}`).toBe(true);
+      }
+      if (lazy) continue;
+      // An issue that reaches no other issue has only its own failures: each reason names a node of that issue.
+      for (const issue of issues) {
+        const reached = necessary(s.graph(), issue.nodes, { eager: true });
+        if (issues.some((other) => other !== issue && other.nodes.some((id) => reached.has(id)))) continue;
+        counts.alone += 1;
+        const own = new Set(issue.nodes.map(reasonOf));
+        for (const id of issue.nodes) {
+          const got = s.read(id);
+          expect(!got.ok && own.has(got.error.reason), `${label} node ${id}`).toBe(true);
+        }
+      }
+    }
+    for (const [name, value] of Object.entries(counts)) expect(value, `${name} in ${show(counts)}`).toBeGreaterThan(COUNT / 4);
+
+    // Each configuration of the harness: other kinds of documents, edits, removed nodes, new machines and failed reads.
+    for (const config of CONFIGS) {
+      const found: string[] = [];
+      const seen = { certain: 0 };
+      const outcome = agreeSchedule(issueChecked(found, seen), { ...config.options, count: COUNT, steps: STEPS, equal });
+      expect(told(outcome), config.name).toEqual([]);
+      expect(found.slice(0, 3), config.name).toEqual([]);
+      expect(seen.certain, config.name).toBeGreaterThan(COUNT / 4);
+    }
   }, 120_000);
 });

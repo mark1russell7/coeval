@@ -4,7 +4,8 @@ import { type Failed, type Result, Failure, fail } from "./errors.ts";
 import { type Machine, type Perform, type StopSignal, rootContext } from "./evaluate.ts";
 import { type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 import type { DocFacts, StaticRead } from "./facts.ts";
-import { deepestFirst } from "./graph.ts";
+import { type NodeGraph, cycles, deepestFirst } from "./graph.ts";
+import type { Issue } from "./static.ts";
 import type { Side } from "./world.ts";
 
 /*
@@ -184,6 +185,41 @@ function missing(id: string): Failed {
 interface Epoch {
   readonly context: Context;
   readonly values: Map<string, Result>;
+}
+
+/**
+ * One certain cycle of a schedule, in the form of an issue of `check` (SCHED.CYCLE-ISSUES). The first node of `nodes`
+ * gives the place and the reason. The place is the key of that node under the root `world`, and the reason has the
+ * text of `#CYCLE!` for that node.
+ */
+export interface CycleIssue extends Issue {
+  readonly code: "#CYCLE!";
+  /** The nodes of the cycle, sorted by name as the record of the root `world` sorts them. */
+  readonly nodes: readonly string[];
+}
+
+/**
+ * This function gives the certain cycles of a schedule before a run (SCHED.CYCLE-ISSUES, D131). It reads only `graph()`,
+ * thus it evaluates no node. A host calls it when it needs the answer. A run does not call it.
+ *
+ * - Each certain cycle of `cycles` gives one issue. The issue has the place `[id]` of its first node.
+ * - A possible cycle gives no issue, because a run can skip its lazy read (SCHED.CYCLE-CERTAIN).
+ * - The order of the `set` calls does not change the answer (SCHED.CYCLE-ORDER).
+ * - No node of an issue gives a value. A read can fail before it reaches the cycle, and the node then gives that
+ *   error (SCHED.CYCLE-AGREES). Thus the demand of D33 still gives the result of each node.
+ *
+ * @param target - The schedule, or another object that gives a graph of nodes.
+ * @returns One issue for each certain cycle, sorted by the first node of each issue.
+ */
+export function checkCycles(target: { graph(): NodeGraph<string> }): readonly CycleIssue[] {
+  const out: CycleIssue[] = [];
+  for (const cycle of cycles(target.graph())) {
+    if (!cycle.certain) continue;
+    const nodes = [...cycle.nodes].sort();
+    const first = nodes[0] as string;
+    out.push({ code: "#CYCLE!", place: [first], reason: cycleOf(first).error.reason, nodes });
+  }
+  return out.sort((a, b) => ((a.nodes[0] as string) < (b.nodes[0] as string) ? -1 : 1));
 }
 
 /**

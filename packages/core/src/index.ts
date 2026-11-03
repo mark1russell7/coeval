@@ -289,12 +289,14 @@ export { sameResult } from "./same.ts";
 export { type PrintOptions, type ReadPrints, type ReadsCheck, type VerifyOptions, printReads, verifyReads } from "./reads.ts";
 export { type Durable, type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 export {
+  type CycleIssue,
   type NodeEdge,
   type NodeInfo,
   type NodeRunOptions,
   type Schedule,
   type ScheduleCounts,
   type ScheduleOptions,
+  checkCycles,
   edgesOf,
   schedule,
 } from "./schedule.ts";
