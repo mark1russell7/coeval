@@ -3592,6 +3592,47 @@ The behavior changes for a caller only with the new field. A check with types th
 - Two unrelated domains of different depth that both hold a value give the document of the deeper domain, not of the first name.
 - The cost of the order grows as the square of the count of the domains with a codec, when a table has such a parent.
 
+## D110 (2026-11-03): `checkWorld` with the option `types` examines each value type of a machine before a document exists
+
+**Context.** K52, from K24 and K36. Since D25, `check` examines each value type of a contract and of a signature with `typeIssues`. It reports a problem only at the first document that uses the type. Thus a bad type that no document uses stays hidden, and a fix needs a document for each type.
+
+D45 made `checkWorld` the check of a world before a document exists. The design calls are where the new check goes, what a bad type is, and where an issue points.
+
+**Decision.**
+
+- `checkWorld(machine, verbs, options)` gets the option `types` (TYPE.WORLD). Thus one function checks a machine before a document exists. The default is `false`, and the check then gives the same issues as before.
+- With `types: true`, the check examines each value type of the machine with `typeIssues`. These are the `result` and each `expect` of each kind, the parents and the steps of each domain, and the declarations of each type rule.
+- A type issue is a `WorldIssue` with the code `#TYPE!` and the verb `eval`, because the value types describe `eval` (D25). The type issues come after the issues of the verbs.
+- Each problem of `typeIssues` gives one issue. The field `at` holds the keys of the bad term in its owner. The owner is a kind (`kind` and `fallback`), a domain (`domain`) or a type rule (`evaluator`).
+- The reason of a bad type is the reason that `check` gives at the first use of the type. Thus a host finds the same text before and after a document exists.
+- A type rule lists its declarations with the new optional function `declared`. A declaration is a value type with its keys and what it is, or a problem with its keys. A rule that throws gives one issue at its evaluator.
+- The formula kit declares each signature of a record `sigs` and each type of `extTypes` for an own extension. It also declares the `truthType` of a profile with an own `truthy`. Only the rule of `formula.if` declares the truth type, thus one bad truth type gives one issue.
+- The check finds only the problems that it can decide exactly. A bad type is a term that `typeIssues` refuses. A signature that is not a record with `params` and `to` is a problem too. So are an entry of `domains` without a test `is` and a parent in `under` that is not a domain.
+- An overload with the same parameters and rest parameter as an earlier overload is a problem. The earlier overload fits each time that the later one fits. Thus the later one does not give its own result at any time.
+- A term shape with `kinds` and `expect` gets a problem for each kind of its list whose `result` does not fit `expect`. `check` gives `#TYPE!` at each document of that kind there. Only a kind at the path itself counts.
+- The standard machines and the profiles of the tests give no issue (TYPE.WORLD-CLEAN). A path of `kinds` that goes to a fallback kind (WORLD.OPEN) or through an alias gives no issue.
+
+**Rejected.**
+
+- A new export, for example `checkTypes(machine)`. `checkWorld` already takes the machine, and D45 kept it for K52. One function and one issue type keep the checks of a machine together.
+- Types in `checkWorld` by default. A host that does not read types then gets new issues, as D25 rejected for `check`.
+- One issue for each value type, with only its first problem, as `check` does. A machine has no document to show the next problem, thus each bad term gets its own issue and its keys.
+- An overload that a set of earlier overloads covers by `fits`. `fits` is not complete, and an argument with `unknown` fits each overload. Thus such a claim is not exact.
+- A `result` that only some members of `expect` refuse, or a path of `kinds` through a fallback kind or an alias. A real document there can fit, thus such an issue can be false.
+- A table of declarations in the machine. The rule follows its evaluator in a merge and in a restriction (D25), thus its declarations go with it.
+- A walk of a function `sigs`. The check cannot list its names, thus a function of signatures declares nothing.
+
+**Why.** A language finds a bad type when it builds its machine, not when a user writes a document. The keys of each issue point at the term to fix. The opt-in keeps each existing call of `checkWorld` unchanged.
+
+**Public types.** `WorldIssue` gets the code `#TYPE!` and the optional fields `domain`, `evaluator` and `at`. `TypeRule` gets the optional function `declared`. The new exports are `WorldOptions` and `Declared`. These are features, thus the change goes into the next MINOR release.
+
+**Limits.**
+
+- A function `sigs` and the signatures of a profile without the kit are not examined before a document exists. `check` still examines them at their first use.
+- A restricted machine without `formula.if` does not examine the truth type before a document exists.
+- A type of the option `rootTypes` of `check` and the `expect` of a check are not part of a machine. `check` still examines them.
+- The check of `kinds` against `expect` reads only the term shapes. A shape with `of` and `expect` does not get it.
+
 ## D111 (2026-11-03): `factsOf` reads the side and the effects of a verb from the entry of the verb in `verbEffects`
 
 **Context.** K55, from S1a (D24) and K56 (D49). `factsOf` takes the option `verb` since D24. For a verb other than `eval`, the facts gave the side and the effects of `eval`. D24 called this an over-approximation, because a contract declared effects only for `eval`.

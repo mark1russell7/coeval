@@ -1,7 +1,8 @@
 import { type Envelope, type Key, isRecord, typeName } from "./doc.ts";
 import type { Machine } from "./evaluate.ts";
-import type { DocVisit, Issue } from "./static.ts";
-import { type ValueType, fits, isUnknown, typeIssues, typeText } from "./types.ts";
+import type { DocVisit, Issue, WorldIssue } from "./static.ts";
+import { type ValueType, domainOf, fits, isUnknown, typeIssues, typeText } from "./types.ts";
+import { type Kind, type Shape, eachKind, kindAt } from "./world.ts";
 
 /*
  * The check of value types (R5 P3, D25). The pass reads the documents that the walk of `check` visited. It goes down
@@ -133,7 +134,35 @@ export interface TypeRule {
    * @returns The type of the document.
    */
   readonly synth: (input: TypeInput, report: (problem: TypeProblem) => void) => ValueType;
+  /**
+   * This function lists the declarations that the rule reads, for example the signatures of a formula profile
+   * (TYPE.WORLD, D110). `checkWorld` with the option `types` examines each one before a document exists. A rule
+   * without this function declares nothing.
+   *
+   * @returns The value types that the rule reads, and the problems that the rule finds in its declarations.
+   */
+  readonly declared?: () => readonly Declared[];
 }
+
+/**
+ * One declaration of a type rule (TYPE.WORLD, D110). It is a value type that the rule reads, with what it is. Or it is
+ * a problem that the rule finds in a declaration, for example an overload that the check does not select at any time.
+ */
+export type Declared =
+  | {
+      /** The keys of the declaration in the declarations of the rule, for example `["sigs", "add", "to"]`. */
+      readonly at: readonly Key[];
+      /** The value type. `checkWorld` examines it with `typeIssues`. */
+      readonly type: unknown;
+      /** What the type is, for the reason of an issue, for example "result of a signature of ops.add". */
+      readonly what: string;
+    }
+  | {
+      /** The keys of the declaration in the declarations of the rule. */
+      readonly at: readonly Key[];
+      /** The reason of the problem. */
+      readonly problem: string;
+    };
 
 /** The type of one document of a check of types. */
 export interface Typed {
@@ -206,7 +235,7 @@ function pathKey(path: readonly Key[]): string {
 }
 
 /** This function gives the type rule of an evaluator name. A runner hides the evaluator of its name, and a runner has no rule yet (K29). */
-function ruleOf(machine: Machine, name: string | undefined): TypeRule | undefined {
+export function ruleOf(machine: Machine, name: string | undefined): TypeRule | undefined {
   if (name === undefined || (machine.runners !== undefined && Object.hasOwn(machine.runners, name))) return undefined;
   const evaluator = Object.hasOwn(machine.evaluators, name) ? machine.evaluators[name] : undefined;
   const rule = typeof evaluator === "object" && evaluator !== null ? (evaluator as { readonly type?: unknown }).type : undefined;
@@ -387,4 +416,115 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
   });
   const issues = found.sort((a, b) => a.index - b.index).map((item) => item.issue);
   return { type: types[0] ?? "unknown", issues, places };
+}
+
+/** The owner of a value type of a machine: a kind, a domain or a type rule. */
+type Owner = Pick<WorldIssue, "kind" | "fallback" | "domain" | "evaluator">;
+
+/**
+ * This function examines each value type of a machine before a document exists (TYPE.WORLD, D110). It reads the
+ * `result` and each `expect` of each kind, the parents and the steps of each domain, and the declarations of each type
+ * rule. Each problem of `typeIssues` gives one issue with the keys of the bad term.
+ *
+ * A term shape with `kinds` and `expect` also gets an issue for each kind of its list whose `result` does not fit
+ * `expect`. A check of types gives `#TYPE!` at each document of that kind there.
+ *
+ * @param machine - The machine.
+ * @returns The issues: the kinds in the order of the world, then the domains, then the type rules.
+ */
+export function machineTypeIssues(machine: Machine): readonly WorldIssue[] {
+  const domains = machine.domains;
+  const world = machine.world;
+  const out: WorldIssue[] = [];
+  const add = (owner: Owner, at: readonly Key[], reason: string): void => {
+    out.push({ code: "#TYPE!", ...owner, verb: "eval", at, reason });
+  };
+  /** This function examines one value type. It gives `true` when the type has no problem. */
+  const examine = (owner: Owner, at: readonly Key[], type: unknown, what: string): boolean => {
+    const problems = typeIssues(type, domains);
+    for (const problem of problems) add(owner, [...at, ...problem.at], `The ${what} is not a correct value type. ${problem.reason}`);
+    return problems.length === 0;
+  };
+  /**
+   * This function finds each kind of the list `kinds` of a term whose result does not fit the `expect` of the term.
+   * Only a kind at the path itself counts. A path through an alias or to a fallback kind gives no issue.
+   */
+  const results = (owner: Owner, kinds: readonly (readonly Key[])[], at: readonly Key[], expect: ValueType): void => {
+    if (isUnknown(expect, domains)) return;
+    kinds.forEach((path, index) => {
+      const found: Kind | undefined = Array.isArray(path) ? kindAt(world, path) : undefined;
+      const result = found?.result;
+      if (result === undefined || typeIssues(result, domains).length > 0 || fits(result, expect, domains)) return;
+      const text = path.join(".");
+      add(owner, [...at, "kinds", index], `The kind ${text} has the result ${typeText(result)}, and the part needs the type ${typeText(expect)}. Each document of ${text} here gets #TYPE!.`);
+    });
+  };
+
+  eachKind(world, (kind, path, fallback) => {
+    const owner: Owner = fallback ? { kind: path, fallback: true } : { kind: path };
+    const name = fallback ? (path.length === 0 ? "fallback kind of the world" : `fallback kind of ${path.join(".")}`) : `kind ${path.join(".")}`;
+    if (kind.result !== undefined) examine(owner, ["result"], kind.result, `result of the ${name}`);
+    // The set holds the shapes on the way, thus a shape that holds itself does not loop.
+    const way = new Set<Shape>();
+    const shape = (spec: Shape | undefined, at: readonly Key[]): void => {
+      if (typeof spec !== "object" || spec === null || way.has(spec)) return;
+      way.add(spec);
+      const expect = (spec as { readonly expect?: unknown }).expect;
+      const where = [...at, "expect"];
+      if (expect !== undefined && examine(owner, where, expect, `expected type at ${where.join(".")} of the ${name}`) && spec.shape === "term" && Array.isArray(spec.kinds)) {
+        results(owner, spec.kinds, at, expect as ValueType);
+      }
+      if (spec.shape === "list" || spec.shape === "map") shape(spec.item, [...at, "item"]);
+      if (spec.shape === "record") {
+        const fields: unknown = spec.fields;
+        if (typeof fields === "object" && fields !== null && !Array.isArray(fields)) {
+          for (const key of Object.keys(fields)) shape((fields as Readonly<Record<string, Shape>>)[key], [...at, "fields", key]);
+        }
+        shape(spec.rest, [...at, "rest"]);
+      }
+      way.delete(spec);
+    };
+    shape(kind.parts, ["parts"]);
+  });
+
+  const table = domains ?? {};
+  for (const name of Object.keys(table)) {
+    // A table entry with the name of the top or the bottom has no effect (TYPE.OPEN).
+    if (name === "unknown" || name === "never") continue;
+    const owner: Owner = { kind: [], domain: name };
+    const domain = domainOf(name, domains);
+    if (domain === undefined) {
+      add(owner, ["is"], `The domain ${name} has no test is. Each use of the name ${name} reads as unknown.`);
+      continue;
+    }
+    const under: unknown = domain.under;
+    if (Array.isArray(under)) {
+      under.forEach((parent: unknown, index) => {
+        if (parent === "unknown" || parent === "never") return;
+        if (typeof parent !== "string" || domainOf(parent, domains) === undefined) add(owner, ["under", index], `The parent ${String(parent)} of the domain ${name} is not a domain of the machine.`);
+      });
+    }
+    const steps: unknown = domain.steps;
+    if (typeof steps === "object" && steps !== null) {
+      for (const key of Object.keys(steps)) examine(owner, ["steps", key], (steps as Readonly<Record<string, unknown>>)[key], `type of the step ${key} of the domain ${name}`);
+    }
+  }
+
+  for (const name of Object.keys(machine.evaluators)) {
+    const declared = ruleOf(machine, name)?.declared;
+    if (typeof declared !== "function") continue;
+    const owner: Owner = { kind: [], evaluator: name };
+    let list: readonly Declared[];
+    try {
+      list = declared();
+    } catch (error) {
+      add(owner, [], `The type rule of ${name} fails: ${message(error)}`);
+      continue;
+    }
+    for (const item of list) {
+      if ("problem" in item) add(owner, item.at, item.problem);
+      else examine(owner, item.at, item.type, item.what);
+    }
+  }
+  return out;
 }
