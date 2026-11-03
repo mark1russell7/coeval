@@ -113,6 +113,8 @@ interface Env {
   scope: Scope;
   /** The count of the drives without a wait that are active. In a run, an effect under one does not reach the host (RUN.HELD). */
   held: number;
+  /** The count of the applications of closures that run at this time: the clock of `call` (FORMULA.CALL-DEPTH, D125). */
+  applying: number;
   /** The record of the reads. A nested evaluation for an equation of a tree keeps the record of its tree. */
   readonly reading: Reading | undefined;
 }
@@ -674,6 +676,7 @@ function envOf(machine: Machine, options: ReferenceOptions, running: boolean, ro
     verb: options.verb ?? "eval",
     scope: { prefix: "", counts: new Map(), alls: 0 },
     held: 0,
+    applying: 0,
     reading: outer ?? (options.reads === undefined ? undefined : { list: options.reads, root }),
   };
 }
@@ -1333,13 +1336,22 @@ export function formulaDefinitions(profile: FormulaProfile = {}): Definitions {
     }
     const names = params as readonly string[];
     const body = partNamed(parts, "body") as Part;
+    // FORMULA.CALL-DEPTH: the evaluation that makes the closure counts its applications. A quarter of maxDepth is the limit.
+    const clock = activeEnvs[activeEnvs.length - 1] ?? { applying: 0, maxDepth: 1000 };
+    const limit = Math.ceil(clock.maxDepth / 4);
     const closure = (...args: readonly unknown[]): unknown => {
-      const scope: Record<string, unknown> = {};
-      for (const key of Object.keys(context.names)) setField(scope, key, context.names[key]);
-      names.forEach((name, index) => setField(scope, name, args[index]));
-      const result = body.evaluate({ ...context, names: scope });
-      if (!result.ok) throw new Failure(result.error);
-      return result.value;
+      if (clock.applying >= limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
+      clock.applying += 1;
+      try {
+        const scope: Record<string, unknown> = {};
+        for (const key of Object.keys(context.names)) setField(scope, key, context.names[key]);
+        names.forEach((name, index) => setField(scope, name, args[index]));
+        const result = body.evaluate({ ...context, names: scope });
+        if (!result.ok) throw new Failure(result.error);
+        return result.value;
+      } finally {
+        clock.applying -= 1;
+      }
     };
     Object.defineProperty(closure, CLOSURE, { value: { params: names } });
     return ok(closure);

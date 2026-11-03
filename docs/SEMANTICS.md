@@ -503,10 +503,12 @@ F-LET  [FORMULA.LET]
     bi = qi()        for each binding xi, in order: each binding sees the names around the let
     F(let)⟨q̄⟩ = q_body(Γ with names = Γ.names + {xi: ui when bi = ok(ui), and held(e) when bi = err(e)})
 
-F-FN  [FORMULA.FN, FORMULA.FN-PARAMS, CAP.LATENT]
+F-FN  [FORMULA.FN, FORMULA.FN-PARAMS, FORMULA.CALL-DEPTH, CAP.LATENT]
     params is a list of different texts x̄, else err(#VALUE!)
     F(fn)⟨q̄⟩ = ok(f), and f(ū) = u when q_body(Γ with names = Γ.names + {x̄: ū}) = ok(u)
     f(ū) throws Failure(e) when the body gives err(e)
+    each application of f counts one level of the evaluation that made f, and the count goes down after it
+    f(ū) throws Failure(err(#DEPTH!)) when ceil(maxDepth / 4) applications of that evaluation are active (D125)
     the closure keeps Γ, thus it keeps the capabilities of the document that made it
 
 F-CALL  [FORMULA.FN]
@@ -840,4 +842,4 @@ Why each law holds:
 - The rules of `check`, of the types and of the facts. Each one is an abstract version of a rule of this page (R5).
 - The schedule and the durable cache. They evaluate documents by the judgment 4 (D30, D31).
 - The kinds of the standard world other than the tree and `seq`. Their evaluators are host code, as each evaluator of a language is.
-- A recursion of `fn` through `call` meets only the stack of the host, thus each tier stops at a different depth (K94).
+- A body with more nested documents than the clock of `call` permits for each application. Its recursion can meet the stack of the host first, and each tier then stops at a different depth (VALUE.DEPTH, D125).

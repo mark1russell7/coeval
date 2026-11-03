@@ -569,6 +569,9 @@ let unknownReads = 0;
 /** The codes that `check` finds before a run. A document that `check` passes does not give them (STATIC.AGREES). */
 const STATIC_CODES = new Set(["#KIND?", "#PART?", "#NOEVAL", "#CAP!", "#DEPTH!"]);
 
+/** The reason of the clock of `call`. A run finds it, and `check` does not (FORMULA.CALL-DEPTH, D125). */
+const CALL_DEPTH = /^The applications of functions nest deeper than d+ levels.$/;
+
 /**
  * This function tells if `check` must give the error of a run at the same place (STATIC.AGREES). An unknown
  * operation or extension (STATIC.KNOWN) and a value without its shape (FORMULA.FN-PARAMS) also have the same reason.
@@ -663,8 +666,8 @@ function harness(config: Config, total: number): Outcome {
     if (result.ok) continue;
     const error = result.error;
     const same = sameInCheck(config.machine, doc, error, declared);
-    // An overflow of the stack of the host gives #DEPTH! too, but check finds only a nesting deeper than the limit.
-    const staticCode = STATIC_CODES.has(error.code) && !(error.code === "#DEPTH!" && isStackOverflow(error.cause));
+    // An overflow of the stack of the host and the clock of call give #DEPTH! too, but check finds only a nesting deeper than the limit.
+    const staticCode = STATIC_CODES.has(error.code) && !(error.code === "#DEPTH!" && (isStackOverflow(error.cause) || CALL_DEPTH.test(error.reason)));
     if (!staticCode && same === undefined) continue;
     const issues = check(config.machine, doc, { ...declared, names: Object.keys(ctx.names), caps: ctx.caps });
     if (staticCode && issues.length === 0) {
@@ -1782,7 +1785,8 @@ describe("the disagreements that the harness found", () => {
 
   it("[VALUE.DEPTH] an endless recursion gives #DEPTH!, also when the test of the overflow overflows the stack itself", () => {
     const profile: FormulaProfile = { ops: { loop: (fn: (self: unknown) => unknown) => fn(fn) } };
-    const machine = formulaMachine(profile);
+    // The clock of call permits more levels than the stack of the host holds, thus the recursion overflows (FORMULA.CALL-DEPTH).
+    const machine: Machine = { ...formulaMachine(profile), maxDepth: 4_000_000 };
     const body = { type: ["ops", "loop"], value: [{ type: "ref", value: ["names", "g"] }] };
     const doc = { type: ["ops", "loop"], value: [{ type: "fn", value: { params: ["g"], body } }] };
     for (let pad = 0; pad < 8; pad += 1) {

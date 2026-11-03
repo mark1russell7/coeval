@@ -116,6 +116,12 @@ export function isClosure(value: unknown): value is Closure {
 }
 
 /**
+ * The runtime of an evaluation with the clock of `call` (FORMULA.CALL-DEPTH, D125): the count of the applications of
+ * closures that run at this time. The first application adds the field, thus an evaluation without one has no field.
+ */
+type Clocked = Runtime & { applying?: number };
+
+/**
  * The standard extensions: the values that JSON cannot write. `ext.domain` reads a member of a domain through the
  * codec of the domain (EXT.DOMAIN, D40).
  */
@@ -925,15 +931,26 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
         }
         return known;
       };
+      // The clock of call permits a quarter of the depth limit, because an application nests its body (D125).
+      const limit = Math.ceil((machine.maxDepth ?? 1000) / 4);
       return (ctx, rt) => {
         // A closure keeps the context for each later use, thus the list of reads gets each path that it can read (READS.CLOSURE).
         rt.keepsContext?.(ctx, reads);
+        const clock = rt as Clocked;
         const closure = (...args: readonly unknown[]): unknown => {
-          const scope: Record<string, unknown> = { ...ctx.names };
-          names.forEach((name, index) => setOwn(scope, name, args[index]));
-          const result = body.code({ ...ctx, names: scope }, rt);
-          if (!result.ok) throw new Failure(result.error);
-          return result.value;
+          // Each application counts one level on the runtime of its evaluation, and the count goes down after it (FORMULA.CALL-DEPTH).
+          const level = (clock.applying ?? 0) + 1;
+          if (level > limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
+          clock.applying = level;
+          try {
+            const scope: Record<string, unknown> = { ...ctx.names };
+            names.forEach((name, index) => setOwn(scope, name, args[index]));
+            const result = body.code({ ...ctx, names: scope }, rt);
+            if (!result.ok) throw new Failure(result.error);
+            return result.value;
+          } finally {
+            clock.applying = level - 1;
+          }
         };
         Object.defineProperty(closure, CLOSURE, { value: { params: names } });
         return ok(closure);
