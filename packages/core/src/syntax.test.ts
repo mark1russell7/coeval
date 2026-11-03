@@ -511,6 +511,7 @@ const WORLD_TEXTS: Readonly<Record<string, string>> = {
   if: 'if(size > 10, "big", log("small"))',
   ref: "self.parent.width",
   nearest: 'nearest(type: "panel")',
+  "tree.named": 'tree.named(name: "title")',
   panel: "panel(width: 300, children: list(box(width: self.parent.width + -20)))",
   box: "box(height: 20)",
   "math.sum": "math.sum(1, 2)",

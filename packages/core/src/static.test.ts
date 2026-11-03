@@ -498,9 +498,9 @@ describe("the static kit", () => {
     expect(checkWorld(coverage, [])).toEqual([]);
     // A document of a kind in the list gives #NOEVAL in check with the same verb.
     expect(check(coverage, { type: "note", value: "x" }, { verb: "view" }).map((issue) => issue.code)).toEqual(["#NOEVAL"]);
-    // Each standard kind has a view. The step kind nearest has no eval, because only a path walks it.
+    // Each standard kind has a view. The step kinds nearest and tree.named have no eval, because only a path walks them.
     expect(checkWorld(STD_MACHINE, ["view"])).toEqual([]);
-    expect(checkWorld(STD_MACHINE, ["eval", "view"]).map((issue) => `${issue.kind.join(".")}:${issue.verb}`)).toEqual(["nearest:eval"]);
+    expect(checkWorld(STD_MACHINE, ["eval", "view"]).map((issue) => `${issue.kind.join(".")}:${issue.verb}`)).toEqual(["nearest:eval", "tree.named:eval"]);
   });
 });
 

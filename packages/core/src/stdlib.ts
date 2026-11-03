@@ -18,7 +18,7 @@ import {
 import { Failure } from "./errors.ts";
 import { type Cap, type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
-import { type AttributeDeclaration, type CircularRule, type TreeContract, circularOf, equationType, lookupKind } from "./world.ts";
+import { type AttributeDeclaration, type CircularRule, type TreeContract, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
 import { STD_DOMAINS } from "./types.ts";
 import type { SyntaxProfile } from "./syntax.ts";
 
@@ -66,6 +66,15 @@ export const STD_WORLD: World = {
       verbs: { step: "walk.nearest", view: "view.card" },
       pure: true,
       summary: "A step of a path: it follows a key again and again, until it reaches a node of a type.",
+    },
+    tree: {
+      kinds: {
+        named: {
+          verbs: { step: "walk.named", view: "view.card" },
+          pure: true,
+          summary: "A step of a path: it goes up to the nearest registry of names, and it gives the node with the name (TREE.NAMED).",
+        },
+      },
     },
     panel: {
       verbs: { eval: "tree.node", view: "view.op" },
@@ -167,6 +176,7 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "panel", kind: "panel", args: "named", fields: ["width", "height", "children"] },
       { name: "box", kind: "box", args: "named", fields: ["width", "height", "children"] },
       { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
+      { name: "tree.named", kind: "tree.named", args: "named", fields: ["name", "in"] },
       // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
       { name: "add", kind: "add" },
       { name: "multiply", kind: "multiply" },
@@ -272,6 +282,8 @@ export interface AttributeTrace {
 /** The state of a node behind its brand. */
 interface NodeState extends LoopNode {
   readonly build: TreeBuild;
+  /** The binding name from the header of the document of the node, for the registry of names (TREE.NAMED). */
+  readonly name: string | undefined;
   /**
    * This function gives an attribute through its ladder (TREE.LADDER).
    *
@@ -854,6 +866,57 @@ function plainOf(value: unknown, path: Set<object>): Result {
 }
 
 /**
+ * This function gives the collection of an attribute of a node (TREE.COLLECT, D122). It visits the node, then each node
+ * of the same tree in each list `children`, in the order of the lists. Each node is visited one time.
+ * The registry of names (TREE.NAMED) gives a record from each binding name to its node.
+ */
+function collected(root: HostThing, key: string, declared: unknown): Result {
+  const top = stateOf(root) as NodeState;
+  const rule = collectOf(declared);
+  if (!rule.ok) return fail("#VALUE!", `The attribute ${attributeText(key, top.type, top.place)} has a bad declaration collect. ${rule.reason}`);
+  const registry: Record<string, unknown> = {};
+  const owners = new Map<string, NodeState>();
+  let acc = rule.names ? ok(registry) : top.equation(rule.unit, NO_NAMES);
+  if (!acc.ok) return acc;
+  const seen = new Set<NodeState>();
+  const stack: unknown[] = [root];
+  while (stack.length > 0) {
+    const thing = stack.pop();
+    const at = stateOf(thing);
+    // An item that is not a node of this tree does not count, and a node counts one time.
+    if (at === undefined || at.build !== top.build || seen.has(at)) continue;
+    seen.add(at);
+    if (rule.names) {
+      const name = at.name;
+      const earlier = name === undefined ? undefined : owners.get(name);
+      if (earlier !== undefined) {
+        const both = `${earlier.type} at [${earlier.place.join(", ")}] and ${at.type} at [${at.place.join(", ")}]`;
+        return fail("#VALUE!", `Two nodes have the name ${name} in the registry ${attributeText(key, top.type, top.place)}: ${both}.`);
+      }
+      if (name !== undefined) {
+        owners.set(name, at);
+        putField(registry, name, thing);
+      }
+    } else {
+      const term = entryOf(at.tree?.contributes, key);
+      if (term !== undefined) {
+        const item = at.equation(term, NO_NAMES);
+        if (!item.ok) return item;
+        acc = top.equation(rule.combine, { acc: acc.value, item: item.value });
+        if (!acc.ok) return acc;
+      }
+    }
+    const children = at.read("children");
+    if (children === undefined) continue;
+    if (!children.ok) return children;
+    if (!Array.isArray(children.value)) return fail("#VALUE!", `The collection of ${key} needs a list in children of ${at.type} at [${at.place.join(", ")}].`);
+    const list = children.value as readonly unknown[];
+    for (let index = list.length - 1; index >= 0; index -= 1) stack.push(list[index]);
+  }
+  return acc;
+}
+
+/**
  * This function makes a node of the decorated tree. A step `parent` gives the self of the context of the node, and a
  * step `type` gives its type. Another step reads an attribute through its ladder (TREE.LADDER). The rungs are a part of
  * the node, an equation of its kind and an equation `down` of the kind of its parent. A copy from the parent, then a
@@ -916,6 +979,7 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
       if (copied !== undefined) return { result: copied, by: "copy" };
     }
     if (declared?.fold !== undefined) return { result: fold(key, declared.fold), by: "default" };
+    if (declared?.collect !== undefined) return { result: collected(node, key, declared.collect), by: "default" };
     if (declared?.default !== undefined) return { result: state.equation(declared.default, NO_NAMES), by: "default" };
     return undefined;
   };
@@ -984,6 +1048,7 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
 
   const state: NodeState = {
     build,
+    name: input.doc.name,
     type,
     place,
     tree,
@@ -1170,8 +1235,29 @@ export function nearestWalker(options: NearestOptions = {}): Walker {
 
 const nearest: Walker = /* @__PURE__ */ nearestWalker();
 
+/**
+ * The walker of the step `tree.named` (TREE.NAMED, D122). It goes up from the thing before the step through the key
+ * `parent`, to the first thing that answers the registry. The field `in` names the registry, and the default is
+ * `names`. The walker gives the node with the field `name` in that registry.
+ */
+const named: Walker = ({ data, here, deref }) => {
+  const name = isRecord(data) ? field(data, "name") : undefined;
+  if (typeof name !== "string") return { ok: false, code: "#VALUE!", reason: "The step tree.named needs a text name." };
+  const registry = isRecord(data) && typeof field(data, "in") === "string" ? String(field(data, "in")) : "names";
+  let at: Thing | undefined = here;
+  for (let hops = 0; hops < 256 && at !== undefined && at !== null; hops += 1) {
+    const found = deref(at, registry);
+    if (found !== undefined) {
+      if (!isRecord(found) || !Object.hasOwn(found, name)) return { ok: false, reason: `The registry ${registry} has no node with the name ${name}.` };
+      return { ok: true, thing: field(found, name) as Thing };
+    }
+    at = deref(at, "parent");
+  }
+  return { ok: false, reason: `No registry ${registry} is on the way.` };
+};
+
 /** The walkers of the standard world, by name. */
-export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest };
+export const STD_WALKERS: Readonly<Record<string, Walker>> = { "walk.nearest": nearest, "walk.named": named };
 
 /** This function evaluates parts one after the other, and stops at the first error. */
 function* inOrder(parts: readonly RunPart[]): Generator<Promise<unknown>, { readonly values: readonly unknown[] } | { readonly error: Result }, unknown> {

@@ -255,7 +255,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | L2d | Static checks of attributes: unknown names, names outside `down`, reserved names and completeness (R3 P4) | done (2026-11-02, D106) | L2b |
 | L2e | The graph of attribute instances: `check` finds each cycle before a run, and the schedule layer gets its first concrete graph (R3 P5) | done (2026-11-02, D107) | L2b |
 | L2f | Circular attributes: a cycle evaluates again until no value changes, or it gives `#CYCLE!` at a limit (R3 P6) | done (2026-11-03, D113) | L2a |
-| L2g | Collection attributes and a registry of binding names, so that `tree.named` finds each node of a subtree (R3 P7) | later | L2b |
+| L2g | Collection attributes and a registry of binding names, so that `tree.named` finds each node of a subtree (R3 P7) | done (2026-11-03, D122) | L2b |
 | L2h | Attributes with parameters, for example the height of a node at a given width (R3 P8) | later | L2a |
 | L2i | Higher-order attributes and forwarding: an equation gives a document, and the kit puts it under the node (R3 P9) | later | L2b |
 | L3 | The reaction kit: an event starts a run, and a change of data does not repeat a run | later | L1 |
