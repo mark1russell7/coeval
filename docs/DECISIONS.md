@@ -3943,3 +3943,13 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 **Alternatives.** A field in the envelope document can declare the effects of its own entry. But a document cannot vouch for code of the host. The language that has the code knows its effects. A second hook can give the effects. But the hook `facts` already describes the code of a name, with its reads and its purity.
 
 **Why.** An answer without the field changes nothing, thus each old hook keeps its results. An empty list in an answer removes the effects of the contract, because the hook describes the code of its name. Another verb than `eval` keeps the table `verbEffects` of the kind (D49).
+
+## D121 (2026-11-03): a walker holds the type rule of its step
+
+**Context.** K72, from K25. A path with a step document had the type `unknown` after the step. Thus a later step and the parent of the reference got no type, and the check found no issue there.
+
+**Decision.** A walker can hold a type rule in its field `type` (TYPE.WALKER). The rule gets the data of the step document and the type before the step. It gives the type of each thing that the walker reaches. The check examines that type, and the path goes on from it. A plain function stays a walker, and a walker without a rule gives `unknown`. A step document with parts gives `unknown`, because it gets its data in the run. The reason of a missing field names a step document by its kind in parentheses.
+
+**Alternatives.** The kind of the step document can declare the type. But the type depends on the type before the step, and the kind holds data, not code. A table of step rules in the machine can hold the rules. But then a merge must keep the rule and the walker together. The field `has` of a deref code (DEREF.KIND-UNDEFINED) is the same pattern.
+
+**Why.** The rule follows its walker through the ladder, as the rule of an evaluator follows the evaluator (TYPE.RULE). The evaluation path does not change, and each old walker keeps its results.
