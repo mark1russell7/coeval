@@ -1,5 +1,5 @@
 import { type Json, type Key, isEnvelope, isKey } from "./doc.ts";
-import { type Kind, type LazyRule, type Side, type World, equationType, lookupKind } from "./world.ts";
+import { type Kind, type KindFacts, type LazyRule, type Side, type World, equationType, lookupKind } from "./world.ts";
 import { answerOf } from "./ladder.ts";
 import { pathMatches, splitParts } from "./parts.ts";
 import { type Root, ROOTS, isRef } from "./deref.ts";
@@ -97,7 +97,7 @@ function tight<T>(list: readonly T[]): readonly T[] {
 }
 
 /** What a document gives to its parts: its own lazy mark, and the lazy rules of its kind for the parts. */
-interface Above {
+export interface Above {
   readonly lazy: boolean;
   readonly rules: readonly LazyRule[] | typeof EACH | undefined;
   /** The position of each part among the parts that a rule `after` covers. It is made at the first need. */
@@ -141,7 +141,7 @@ function positionOf(above: Above, parent: DocVisit, rule: LazyRule, slot: readon
 }
 
 /** This function tells if the lazy rules of a document cover one of its parts. */
-function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean {
+export function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean {
   const rules = above.rules;
   if (rules === undefined) return false;
   if (rules === EACH) return true;
@@ -151,6 +151,32 @@ function partLazy(above: Above, parent: DocVisit, slot: readonly Key[]): boolean
     if (after <= 0 || positionOf(above, parent, rule, slot) >= after) return true;
   }
   return false;
+}
+
+/** The code of a document for the facts: the answer of the hook, and the lazy rules that the code gives its parts. */
+export interface CodeFacts {
+  /** `true` when the contract of the kind describes the code. */
+  readonly described: boolean;
+  /** The answer of the hook `facts` of the machine for the code. */
+  readonly answer: KindFacts | undefined;
+  /** The lazy rules of the parts (FACTS.LAZY). Code that the contract and the hook do not describe makes each part lazy. */
+  readonly rules: Above["rules"];
+}
+
+/**
+ * This function gives the code of a document of a kind for the facts (FACTS.LAZY). `factsOf` and the graph of
+ * attribute instances read the lazy rules with this one function (D107).
+ *
+ * @param machine - The world and the hook `facts`.
+ * @param v - The visit of the document.
+ * @param kind - The kind of the document.
+ * @param verb - The verb whose code the facts describe.
+ * @returns The answer of the hook and the lazy rules.
+ */
+export function codeFactsOf(machine: Machine, v: DocVisit, kind: Kind, verb: string): CodeFacts {
+  const code = codeOf(machine.world, v.declared ? undefined : v.doc.own, kind, verb, "eval");
+  const answer = code.name === undefined ? undefined : machine.facts?.(v.typePath ?? [], code.name);
+  return { described: code.described, answer, rules: code.described ? (answer?.lazy ?? kind.lazy) : (answer?.lazy ?? EACH) };
 }
 
 /**
@@ -227,17 +253,15 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
           above.set(v, { lazy, rules: undefined });
           return undefined;
         }
-        const code = codeOf(world, v.declared ? undefined : v.doc.own, kind, verb, "eval");
-        const answer = code.name === undefined ? undefined : hook?.(v.typePath ?? [], code.name);
+        const { described, answer, rules } = codeFactsOf(machine, v, kind, verb);
+        above.set(v, { lazy, rules });
         let roots: readonly Root[] | undefined;
-        if (code.described) {
+        if (described) {
           note(answer?.pure ?? kind.pure, answer?.volatile ?? kind.volatile);
-          above.set(v, { lazy, rules: answer?.lazy ?? kind.lazy });
           roots = answer?.reads ?? kind.reads;
         } else {
           // The contract of the kind does not describe this code. Only the hook can.
           note(answer?.pure, answer?.volatile);
-          above.set(v, { lazy, rules: answer?.lazy ?? EACH });
           roots = answer?.reads;
         }
         // The code of the kind resolves each of these roots as a whole, at the place of its document (FACTS.KIND-READS).

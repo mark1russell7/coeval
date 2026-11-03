@@ -3478,6 +3478,46 @@ The behavior changes for a caller only with the new field. A check with types th
 - A read of the parent of the node of an equation goes to an unknown node, thus `check` does not examine it.
 - The cycles of attributes wait for the graph of attribute instances (L2e).
 
+## D107 (2026-11-02): the graph of attribute instances, and `check` finds the certain cycles of a tree
+
+**Context.** L2e, from R3 P5. D106 gave `check` the unknown attributes of a tree, and it left the cycles to the graph of attribute instances. A cycle of attributes gave its `#CYCLE!` only in a run.
+
+**Decision.**
+
+- The module `instances.ts` lives beside `order.ts`. It uses the walk and the rules of `static.ts` (D106) and the analysis of `graph.ts`. It has no walk and no cycle finder of its own.
+- A vertex is one attribute of one node. Its id is the JSON text of the place of the node with the attribute after it, for example `["children",0,"width"]`.
+- `attributeGraph(machine, doc)` gives the vertices, the edges, the `NodeGraph` of the edges, the edges with an unknown source and the cycles.
+- An edge comes from each read of a reference in the code of an attribute. A path from `self` reads the node, and the step `parent` goes to the known parent.
+- A list index goes to the item, and the step `nearest` of the standard walker goes up the known nodes by their type.
+- The rungs give edges too. An equation of `down` reads the list `children` of the parent, and `names.prev` reads the previous sibling. A `fold` reads the list `children` and the attribute of each child.
+- A copy reads the same attribute of the parent. A rung after a rung that can answer first is lazy (FACTS.LAZY).
+- The value of a reference to a node is its JSON (TREE.RESULT), thus the read gets an edge from each attribute of the node.
+- A step after a value that only the run knows gives an edge with an unknown source. Other walkers, and names that a kind binds, give such edges too. `AttributeGraph.unknown` lists them as not known before the run.
+- `check` gives `#CYCLE!` only for a certain cycle (GRAPH.CYCLE) that eager reads reach from the own parts of a tree root. A run reads each of these, thus each such cycle fails the run.
+- The issue has the place and the reason of the run: the first read that closes the cycle, in the order of the JSON. Thus STATIC.AGREES stays true, and the harness compares the issue with the run.
+- A possible cycle is not an issue. It goes through a lazy branch or an edge with an unknown source, and the run can give a value.
+- The exports `attributeGraph`, `attributeVertexId` and the types of the graph are public. Thus the next release is MINOR. The evaluator of the kernel does not use the graph (D3).
+
+**Rejected.**
+
+- A second walk of the document for the graph. It copies the rules of D106, and the two walks can disagree.
+- An issue for each possible cycle. The run of such a document can give a value, thus the issue is a false positive.
+- A new error code for a static cycle. The run gives `#CYCLE!`, and STATIC.AGREES compares the code and the place.
+- An issue for each edge with an unknown source. A generated document that checks has many of them, and none is a problem.
+
+**Why.** Before D107, a cycle of attributes gave its `#CYCLE!` only in a run. At this time, `check` finds each certain cycle before a run, at the place where the run fails. The graph is also the first concrete graph for the schedule layer.
+
+**Public types.** New: `AttributeVertex`, `AttributeEdge`, `AttributeCycle`, `AttributeGraph` and `AttributeGraphOptions`, with the functions `attributeGraph` and `attributeVertexId`.
+
+**Changed expected values.** None. A document with a certain cycle gave `#CYCLE!` in its run before D107. At this time, `check` gives the same issue.
+
+**Limits.**
+
+- `check` finds the cycles only when the root starts a new tree. A context whose `self` is an open node gives no static cycle.
+- A node document inside an equation is not a vertex. Its reads are not in the graph.
+- The JSON of a node that an unknown value holds is not in the graph.
+- A run stops at its first error. Thus the harness asks only that a run with a value gets no static cycle.
+
 ## D108 (2026-11-02): a host gives the tree kit its own memo cells, keyed by the place of a plan
 
 **Context.** L2c, from R3 P3. The decorated tree of D16 keeps one memo for each node and attribute, for one evaluation (TREE.MEMO). Each evaluation makes new nodes, thus a host computes each attribute again in each evaluation. A host with signals wants to keep the cell of each attribute. A change of its store then computes only the attributes that read the store.
