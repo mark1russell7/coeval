@@ -3805,7 +3805,7 @@ The functions of the shared packages replace the local code as follows:
 
 - Local copies of the new rules. The rule of the repository is one home for each area, and the bench core is the home of the bench.
 - A verdict of each run, then the agreement of D71. It needs two outcomes in the same direction, thus it loses power. `pooledVerdict` uses all rounds, and it still refuses an opposite direction.
-- A cap of the A/A noise (`noiseCap`). A cap needs a limit from five or more CI starts of the job with the new records. The job has no such records yet.
+- A cap of the A/A noise (`noiseCap`). A cap needs a limit from five or more CI starts of the job with the new records. The job has no such records yet. See D116.
 - The fresh runner for `mode.ts`. Its arm IN ORDER measures all cases in one process, and `freshRun` starts one case in each process. Thus `mode.ts` keeps its own runner.
 
 **Why.** One home gives one tested rule for each bench. A fix of the core then reaches each repository. The new rule can also give "same", and the old bound could not prove that a case did not change.

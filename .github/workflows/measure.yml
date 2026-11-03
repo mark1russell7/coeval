@@ -119,7 +119,7 @@ jobs:
           name: ladder-run-${{ matrix.run }}
           path: ${{ runner.temp }}/ladder-${{ matrix.run }}.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
 
   ladder-verdict:
     needs: [changes, ladder]
@@ -176,7 +176,7 @@ jobs:
           name: mode-part-${{ matrix.part }}
           path: ${{ runner.temp }}/mode-${{ matrix.part }}.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
 
   mode-verdict:
     needs: [changes, mode]

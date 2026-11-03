@@ -11,8 +11,8 @@
  *
  * The script prints the median time of one call for each case and each copy. The change is the median ratio of the
  * head to the base in the same round, and the noise is the same ratio of the A/A pair. The verdict of each case is the
- * `timeVerdict` of the bench core (`merge.ts`). The script asserts only that the copies give the same results. The
- * workflow `bench.yml` runs it in CI, because a shared machine gives unreliable numbers.
+ * `timeVerdict` of the bench core (`merge.ts`), with the limits of the family of the case (`limits.ts`, D116). The
+ * script asserts only that the copies give the same results. The workflow `bench.yml` runs it in CI, because a shared machine gives unreliable numbers.
  *
  * The workflow starts the script in two jobs, thus on two runners (K167, D71). With `BENCH_JSON`, the script also
  * writes its table and its paired times as JSON to that file, and `merge.ts` gives the verdict of the two runs.
@@ -44,7 +44,8 @@ import { caseRatios, type PairedTime } from "@mark1russell7/rigor-bench";
 import { freshRun, type FreshArm, type FreshRecord } from "@mark1russell7/rigor-bench/fresh";
 import { median } from "@mark1russell7/rigor-statistics";
 import type { Measured } from "./cases.ts";
-import { caseVerdict, verdictRule, type BenchCase, type BenchMode, type BenchRun } from "./merge.ts";
+import { limitsOf } from "./limits.ts";
+import { caseVerdict, fallbackMark, verdictRule, type BenchCase, type BenchMode, type BenchRun } from "./merge.ts";
 import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
 /** The rounds. A local smoke test can make them small, for example `BENCH_ROUNDS=1 BENCH_SAMPLES=1`. */
@@ -172,7 +173,7 @@ async function main(): Promise<void> {
     // The records keep the time of one call in milliseconds, and the table gives nanoseconds.
     const [baseNs, headNs] = [median(head.map((record) => record.a)) * 1e6, median(head.map((record) => record.b)) * 1e6];
     cases.push({ name, baseNs, headNs, change: (change - 1) * 100, noise: (noise - 1) * 100, head, aa });
-    lines.push(`| ${name} | ${baseNs.toFixed(1)} | ${headNs.toFixed(1)} | ${percent(change)} | ${percent(noise)} | ${caseVerdict(head, aa).outcome} |`);
+    lines.push(`| ${name} | ${baseNs.toFixed(1)} | ${headNs.toFixed(1)} | ${percent(change)} | ${percent(noise)} | ${caseVerdict(head, aa, limitsOf(name).options).outcome}${fallbackMark(name)} |`);
   });
   const text = lines.join("\n");
   console.log(text);
