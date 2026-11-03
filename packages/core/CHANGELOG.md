@@ -2,6 +2,25 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.20.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. A node with the cells of a host gets a new key, and the place of such a node is a new array. Circular attributes are a new feature. No export goes.
+
+### Changes of behavior
+
+- **The cells of a host are kept for each node in its scope (D115).** In 0.19.0, the nodes that an equation plan makes had the same place in each document. A host that keeps cells by place thus gave the cell of one document to another, and two cards of one document shared one cell. In 0.20.0, the kit gives each node one key in its scope. The type of `AttributeCell` does not change. A host that keys cells by the identity of `place`, as D108 tells, needs no change.
+- **A nested evaluation gets its own cycle marks (D115).** In 0.19.0, a cell compute that evaluated a second document of the same plan could get a false `#CYCLE!`. In 0.20.0, the marks and the tree of a root use the key of the node.
+- **The place of a node with host cells is its key (D115).** `placeOf` and the place of an error give an array with the same items as before, but a new array.
+
+### New features
+
+- **Circular attributes (D113).** An attribute that declares `circular: { start, limit }` evaluates its cycle again until no value changes, by the demand algorithm of Magnusson and Hedin. A cycle that is not stable at the limit gives `#CYCLE!`. The default limit is 100 rounds. A cycle with a plain attribute gives `#CYCLE!` as before.
+- **`check` and `attributeGraph` know circular cycles (D113).** They accept a certain cycle only when each of its attributes is circular. The new exports are `CircularDeclaration`, `CircularRule`, `CIRCULAR_LIMIT` and `circularOf`. Documents without `circular` evaluate as before.
+
+### Tests and CI
+
+These changes are not in the package. The bench uses `@mark1russell7/rigor-bench` for its runner, its orders, its medians, the A/A noise, the bound and the pooled verdict (D114). Its verdicts are same, faster, slower and cannot decide.
+
 ## 0.19.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. `check` finds more issues in trees, `encodeValue` can give a different document, and `factsOf` gives other facts for a verb other than `eval`. The type of `WorldIssue.code` gets a second value. No export goes.
