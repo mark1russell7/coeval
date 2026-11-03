@@ -2,7 +2,7 @@ import type { Context } from "./deref.ts";
 import type { Result } from "./errors.ts";
 import { type Machine, type Plan, type PrepareOptions, type Read, prepare } from "./evaluate.ts";
 import { type DocFacts, type FactsOptions, factsOf } from "./facts.ts";
-import { type VerifyOptions, verifyReads } from "./reads.ts";
+import { type PrintOptions, type ReadPrints, type VerifyOptions, printReads, verifyReads } from "./reads.ts";
 
 /*
  * Two levels of durability (R4 P7, D30). The plan and the facts of a document depend only on the structure: the
@@ -42,6 +42,11 @@ export interface DurableOptions {
   readonly volatile?: FactsOptions["volatile"];
   /** The rule of the host for two things, as in `verifyReads`. */
   readonly equal?: VerifyOptions["equal"];
+  /**
+   * The check of changes in place (READS.IN-PLACE, D112). With it, the cache keeps the prints of the reads of each
+   * pure document, and a verification compares them. `true` gives the default limit. Without it, the cache makes no prints.
+   */
+  readonly inPlace?: true | PrintOptions;
 }
 
 /**
@@ -154,10 +159,11 @@ function byDocument<T>(make: (doc: unknown) => T): (doc: unknown) => T {
  *   and each result (DURABLE.STRUCTURE).
  *
  * The host keeps two promises. In one data epoch, the context of a key gives the same data. The values of a
- * context and the documents do not change in place, as PLAN.CACHE and `verifyReads` say.
+ * context and the documents do not change in place, as PLAN.CACHE and `verifyReads` say. The option `inPlace`
+ * finds a change in place of a value that a pure document read (READS.IN-PLACE).
  *
  * @param machine - The machine of the first structure epoch.
- * @param options - The type of a bare root value, the verb, the volatile reads and the rule of the host for two things.
+ * @param options - The type of a bare root value, the verb, the volatile reads, the rule of the host and the check of changes in place.
  * @returns The cache.
  */
 export function durable(machine: Machine, options: DurableOptions = {}): Durable {
@@ -167,6 +173,9 @@ export function durable(machine: Machine, options: DurableOptions = {}): Durable
   };
   const factsOptions: FactsOptions = { ...prepareOptions, ...(options.volatile === undefined ? {} : { volatile: options.volatile }) };
   const verifyOptions: VerifyOptions = options.equal === undefined ? {} : { equal: options.equal };
+  const printOptions: PrintOptions | undefined = options.inPlace === true ? {} : options.inPlace;
+  // The prints of the reads of each entry, only with the option `inPlace`. Thus an entry keeps its shape (PLAN.LEAN).
+  const printsOf = printOptions === undefined ? undefined : new WeakMap<Entry, ReadPrints>();
   const counts = { compiles: 0, facts: 0, evaluations: 0, verifications: 0, reuses: 0 };
   const results = new Map<unknown, Entry>();
   let current = machine;
@@ -205,7 +214,8 @@ export function durable(machine: Machine, options: DurableOptions = {}): Durable
         }
         if (entry.reads !== undefined) {
           counts.verifications += 1;
-          if (verifyReads(plan, entry.reads, context, verifyOptions).same) {
+          const prints = printsOf?.get(entry);
+          if (verifyReads(plan, entry.reads, context, prints === undefined ? verifyOptions : { ...verifyOptions, prints }).same) {
             entry.data = epochs.data;
             counts.reuses += 1;
             return entry.result;
@@ -217,7 +227,9 @@ export function durable(machine: Machine, options: DurableOptions = {}): Durable
       counts.evaluations += 1;
       const result = plan.evaluate(context, reads === undefined ? undefined : { reads });
       // A list that grows by push keeps room for more reads. A copy of a short list is smaller (PLAN.LEAN).
-      results.set(key, { plan, result, reads: reads === undefined ? undefined : reads.length === 0 ? NO_READS : reads.slice(), data: epochs.data });
+      const made: Entry = { plan, result, reads: reads === undefined ? undefined : reads.length === 0 ? NO_READS : reads.slice(), data: epochs.data };
+      results.set(key, made);
+      if (printsOf !== undefined && made.reads !== undefined) printsOf.set(made, printReads(made.reads, printOptions));
       return result;
     },
     changeData() {

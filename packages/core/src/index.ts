@@ -263,7 +263,7 @@ export { type Definitions, type ReferenceOptions, type ReferenceRunOptions, STD_
 export { type AgreeOptions, type AgreeRunOptions, type Agreement, type Tier, type TierInput, type TierResult, agree, agreeRun, sameValue } from "./agree.ts";
 export { type ConformOptions, type ConformProbe, type Finding, type Obligation, conforms } from "./conform.ts";
 export { sameResult } from "./same.ts";
-export { type ReadsCheck, type VerifyOptions, verifyReads } from "./reads.ts";
+export { type PrintOptions, type ReadPrints, type ReadsCheck, type VerifyOptions, printReads, verifyReads } from "./reads.ts";
 export { type Durable, type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 export {
   type NodeEdge,
