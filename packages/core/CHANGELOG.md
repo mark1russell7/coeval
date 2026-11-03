@@ -2,6 +2,28 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.21.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `typeFromSchema` gives a narrower type for a schema with more than one of `type`, `anyOf` and `oneOf`. `check` finds more type issues. No export goes.
+
+### Changes of behavior
+
+- **`typeFromSchema` gives the meet of the keywords of a schema (D123).** In 0.20.1, a schema with more than one of `type`, `anyOf` and `oneOf` gave the type of the first keyword, with an issue. This rule came from D28. In 0.21.0, the type is the meet of all the keywords. For example, `{type:"number", anyOf:[{type:"string"}]}` was `number`, and in 0.21.0 it is `never`. Each reading only narrows, and each reading stays sound.
+- **A step that reaches nothing in each run is a type issue (D120).** In 0.20.1, some steps gave the type `unknown` with no issue. They are a field step on a kernel base type, a step on a function, and an unknown step on a list. In 0.21.0, `check` gives the issue of a missing field, as for a closed record (TYPE.NO-STEP).
+- **The reason of a missing field names a step document by its kind (D121).** In 0.20.1, the reason showed `[object Object]` for a step document. In 0.21.0, it shows the kind in parentheses.
+
+### New features
+
+- **`typeFromSchema` reads local references and `allOf` (D123).** A `$ref` to `#/$defs/<name>` or `#/definitions/<name>` reads that definition of the root schema. A reference to another file, a missing definition and a cycle of references read as `unknown`. The parts of `allOf` add their keywords to the schema.
+- **Collection attributes and a registry of names (D122).** A declaration `collect: { unit, combine }` combines the contributions of a subtree. A kind contributes through its equation in `tree.contributes`. The form `collect: "names"` gives a registry from the header name of each node to its node. The new standard step `tree.named` reads the registry. Two nodes with one name give `#VALUE!` at the read of the registry. The new exports are `CollectDeclaration`, `CollectRule` and `collectOf`.
+- **A walker holds the type rule of its step (D121).** A walker can hold an optional rule in its field `type`. The check then knows the type of what the walker reaches. A plain function stays a walker. The new export is `WalkTypeInput`.
+- **A kind declares the parts that its runner drives (D119).** `KindFacts` gets the optional field `drives`. In a check of a run, a part that `drives` names gets no wait.
+- **The hook `facts` gives the effects of a code (D118).** `KindFacts` gets the optional field `effects`. For the verb `eval`, the answer of the hook for the code wins over the contract. `effectsOf`, `check` and `factsOf` use that one declaration.
+
+### Tests and CI
+
+These changes are not in the package. The margin and the noise cap of each case family of the bench come from the A/A records of CI (D117).
+
 ## 0.20.1
 
 PATCH: before `1.0.0`, a new feature increases PATCH. The new exports change nothing that exists.
