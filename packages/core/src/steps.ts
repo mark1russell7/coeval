@@ -161,7 +161,7 @@ export function stepOf<N, S extends string>(ladder: StepLadder<S>, walk: StepWal
 /**
  * This function compares the step of a document with the highest step that the host accepts (STEPS.MAX). The limit
  * changes only which documents the host accepts. The language evaluates an accepted document as before, thus a limit
- * never changes a value.
+ * does not change a value.
  *
  * @param ladder - The ladder of the language.
  * @param need - The step of the document, from `stepOf`.
