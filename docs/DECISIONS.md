@@ -3747,6 +3747,8 @@ Magnusson and Hedin (2007) evaluate such a cycle on demand. A demand in the cycl
 
 **Why.** The demand algorithm needs no static analysis of the cycle, thus a cycle through a lazy read also becomes stable. The equal test of DOC.EQUALS is the same test that the other layers use. The rule for mixed cycles keeps each old document correct: a document without `circular` evaluates as before.
 
+**Cost.** A tree without `circular` keeps the code of its demands as before. Each node makes only the closures of the old code. A node does one more test: a cached flag of its contract and the open fixed point. The code of a fixed point is in module functions, and a node makes their record only at its first circular demand.
+
 **Public types.** New exports: `CircularDeclaration`, `CircularRule`, `CIRCULAR_LIMIT` and `circularOf`. New optional fields: `AttributeDeclaration.circular`, `AttributeVertex.circular` and `AttributeCycle.circular`. This is a feature for the next MINOR release.
 
 **Changed expected values.** None. A document without `circular` gives the same result and the same issues.
