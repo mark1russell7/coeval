@@ -1,5 +1,6 @@
 import {
   STD_CAPS,
+  STD_DEFINITIONS,
   STD_MACHINE,
   evaluate,
   fromJson,
@@ -58,10 +59,11 @@ export function stepText(step: Json): string {
   return typeof wanted === "string" ? `${typeName(envelope.type)} ${wanted}` : typeName(envelope.type);
 }
 
-/** This function wraps one evaluator of a machine. A compiled evaluator is not a function, thus it stays as it is. */
+/** This function wraps one evaluator of a machine. A compiled evaluator is not a function, thus the wrapper calls its standard definition. */
 function wrap(machine: Machine, name: string, around: (base: EvalFn) => EvalFn): Readonly<Record<string, Evaluator>> {
-  const base = machine.evaluators[name];
-  if (typeof base !== "function") return machine.evaluators;
+  const own = machine.evaluators[name];
+  const base = typeof own === "function" ? own : STD_DEFINITIONS.evaluators?.[name];
+  if (base === undefined) return machine.evaluators;
   return { ...machine.evaluators, [name]: around(base) };
 }
 
