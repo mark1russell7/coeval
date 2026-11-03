@@ -32,7 +32,7 @@ jobs:
       match: ${{ steps.changes.outputs.match }}
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@20dea158bc3a00838428ea75cbe6ff88b25606bb # main
+        uses: mark1russell7/template/.github/actions/changes@4df6a2d5a4de464ab3f8b50c20df52c234794af6 # main
         with:
           paths: |
             .github/workflows/measure.yml
@@ -50,7 +50,7 @@ jobs:
       match: ${{ steps.changes.outputs.match }}
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@20dea158bc3a00838428ea75cbe6ff88b25606bb # main
+        uses: mark1russell7/template/.github/actions/changes@4df6a2d5a4de464ab3f8b50c20df52c234794af6 # main
         with:
           paths: |
             packages/core/src/**
@@ -207,7 +207,7 @@ jobs:
     # The action "gate-summary" reads one job of the action "changes". Thus each step gets one filter and its jobs.
     steps:
       - name: The jobs of the filter "changes"
-        uses: mark1russell7/template/.github/actions/gate-summary@20dea158bc3a00838428ea75cbe6ff88b25606bb # main
+        uses: mark1russell7/template/.github/actions/gate-summary@4df6a2d5a4de464ab3f8b50c20df52c234794af6 # main
         with:
           needs: >-
             {"changes": ${{ toJSON(needs.changes) }}, "ladder": ${{ toJSON(needs.ladder) }},
@@ -216,7 +216,7 @@ jobs:
       # This step also runs when the first step failed, thus the summary shows both verdicts.
       - name: The jobs of the filter "core-changes"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@20dea158bc3a00838428ea75cbe6ff88b25606bb # main
+        uses: mark1russell7/template/.github/actions/gate-summary@4df6a2d5a4de464ab3f8b50c20df52c234794af6 # main
         with:
           changes: core-changes
           needs: >-
