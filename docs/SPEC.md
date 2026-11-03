@@ -139,6 +139,9 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | TREE.CHECK-COMPLETE | `check` examines each node of a document by the needs of its kind: each declared attribute, and each attribute of the node that an equation of the kind reads. When no rung answers a need, `check` gives `#N/A` at the node. An own part hides the equation of its name. |
 | TREE.PLAN | The equations of a kind compile one time for each machine, through a cached planner. The plan of a document does not keep them, and a new plan uses the same compiled equations. |
 | TREE.SELF | A node of a tree reads `self` only through `resolve` (C4), in the plan and in the reference. The read is in the list of reads, and `factsOf` gives it. A closed node does not fold. A machine that closes the root `self` makes each node the root of a new tree. |
+| TREE.GRAPH | `attributeGraph` gives one vertex for each attribute of each node, and one edge for each read. A read of `self`, of the parent, of the previous sibling and of a `fold` gives an edge from a known vertex. A read through a value gives an edge with an unknown source. |
+| TREE.GRAPH-CYCLE | `check` gives `#CYCLE!` before a run for each certain cycle that the eager reads reach, at the place and with the reason of the run. A cycle through a lazy branch or an unknown read is not an issue. |
+| TREE.GRAPH-AGREES | In the generated trees, each read of a run along a static edge is an edge of the graph. A run that gives a value gets no `#CYCLE!` from `check`. |
 
 ## Evaluation and plans
 
