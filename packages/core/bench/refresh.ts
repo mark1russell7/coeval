@@ -13,9 +13,10 @@
  *
  * Then the script replays the verdicts with the new limits over the downloaded records. It prints the pooled verdict
  * of each case of each run, with the margin of D114 and with the new limits. In a run of `SAME_CODE_RUNS`, the head has
- * the product code of the base. Its head pair is thus a second A/A pair. There, the script also gives the verdict of
- * the A/A pair against the head pair in each job. A verdict "slower" or "faster" of such a run is false, and the
- * script fails.
+ * the product code of the base. Its head pair is thus a second A/A pair. A pooled verdict "slower" or "faster" of such
+ * a run is false, and the script fails, because the gate of `bench.yml` uses the pooled verdict (D114). The script also
+ * prints the verdict of each job alone, and the verdict of the A/A pair against the head pair. These verdicts are not
+ * the gate, thus they do not fail the script. D117 gives the result.
  *
  * The script also prints a harder count: the verdict of each A/A pair against the A/A pair of each other job. This
  * comparison mixes two runners, thus it does not fail the script. D117 gives the result.
@@ -132,6 +133,7 @@ function main(): void {
 
   // The pooled verdict of each case of each run, with the old options and with the new limits.
   const wrong: string[] = [];
+  const single: string[] = [];
   for (const run of runs) {
     const own = jobs.filter((job) => job.id === run.id);
     const names = [...new Set(own.flatMap((job) => job.record.cases.map((item) => item.name)))];
@@ -150,12 +152,14 @@ function main(): void {
         ...pooled.jobs.map((job) => [`head of job ${job.job}`, job.verdict.outcome] as const),
         ...items.map(({ run: job, item }) => [`A/A of job ${job}`, caseVerdict(item.aa ?? [], item.head ?? [], options).outcome] as const),
       ] as const;
-      for (const [arm, outcome] of outcomes) if (decided(outcome)) wrong.push(`${String(run.id)} ${name}, ${arm}: ${outcome}`);
+      for (const [arm, outcome] of outcomes) if (decided(outcome)) (arm === "pooled" ? wrong : single).push(`${String(run.id)} ${name}, ${arm}: ${outcome}`);
     }
     console.log(`Run ${String(run.id)}: with the margin of D114 ${count(before)}. With the limits of D117 ${count(after)}.`);
   }
-  console.log(`The runs of the same code ${SAME_CODE_RUNS.join(", ")}: ${String(wrong.length)} false verdicts.`);
+  console.log(`The runs of the same code ${SAME_CODE_RUNS.join(", ")}: ${String(wrong.length)} false pooled verdicts.`);
   for (const line of wrong) console.log(`  ${line}`);
+  console.log(`The same runs, each job alone: ${String(single.length)} false verdicts. They are not the gate.`);
+  for (const line of single) console.log(`  ${line}`);
 
   // Each A/A arm against the A/A arm of each other job: the same code in both pairs.
   const nulls: TimeOutcome[] = [];
