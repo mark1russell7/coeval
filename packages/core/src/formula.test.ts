@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type FormulaProfile, type Result, check, context, fail, formulaDefinitions, formulaMachine, isClosure, jsTruthy, ok, prepare, reference } from "./index.ts";
+import { type FormulaProfile, type Machine, type Result, agree, check, context, evaluate, fail, formulaDefinitions, formulaMachine, isClosure, jsTruthy, ok, prepare, reference } from "./index.ts";
 
 const ref = (...path: unknown[]): unknown => ({ type: "ref", value: path });
 const op = (name: string, ...args: unknown[]): unknown => ({ type: ["ops", ...name.split(".")], value: args });
@@ -142,6 +142,41 @@ describe("the formula kit", () => {
     let doc: unknown = 0;
     for (let index = 0; index < 900; index += 1) doc = op("add", doc, 1);
     expect(strict(doc)).toEqual(ok(900));
+  });
+
+  it("[FORMULA.CALL-DEPTH] each application of a closure counts one level, thus an endless recursion gives one #DEPTH! in each tier", () => {
+    const ops = { ...OPS, lt: (a: number, b: number) => a < b };
+    const definitions = formulaDefinitions({ ops });
+    // f(self, n) applies itself until n reaches the name limit. The name step chooses the application: call or the host map.
+    const again = { type: "call", value: { fn: ref("names", "self"), args: [ref("names", "self"), op("add", ref("names", "n"), 1)] } };
+    const viaMap = op("map", { type: "fn", value: { params: ["m"], body: { type: "call", value: { fn: ref("names", "self"), args: [ref("names", "self"), ref("names", "m")] } } } }, { type: "list", value: [op("add", ref("names", "n"), 1)] });
+    const recursion = (step: unknown): unknown => {
+      const body = { type: "if", value: { test: op("lt", ref("names", "n"), ref("names", "limit")), then: step, else: ref("names", "n") } };
+      return { type: "let", value: { bind: { f: { type: "fn", value: { params: ["self", "n"], body } } }, body: { type: "call", value: { fn: ref("names", "f"), args: [ref("names", "f"), 0] } } } };
+    };
+    const tiers = (machine: Machine, doc: unknown, limit: number): readonly Result[] => {
+      const ctx = context({ names: { limit } });
+      const plan = prepare(machine, doc);
+      return [plan.evaluate(ctx), plan.evaluate(ctx), evaluate(machine, doc, ctx).result, reference(machine, doc, ctx, { definitions })];
+    };
+    const deep = (levels: number, place: readonly (string | number)[]): Result => fail("#DEPTH!", `The applications of functions nest deeper than ${levels} levels.`, { place });
+    const machine = formulaMachine({ ops });
+    // The default limit is a quarter of maxDepth: 250 nested applications. An endless recursion stops at the application past it.
+    for (const limit of [Number.MAX_SAFE_INTEGER, 250]) {
+      for (const result of tiers(machine, recursion(again), limit)) expect(result).toEqual(deep(250, ["bind", "f", "body", "then"]));
+      for (const result of tiers(machine, recursion(viaMap), limit)) expect(result).toEqual(deep(250, ["bind", "f", "body", "then", 0, "body"]));
+      expect(agree(machine, recursion(again), context({ names: { limit } }), { definitions, strict: true })).toMatchObject({ ok: true, result: { ok: false } });
+    }
+    // A deep recursion under the limit gives its value in each tier: 250 applications, and 248 through the host map.
+    for (const result of tiers(machine, recursion(again), 249)) expect(result).toEqual(ok(249));
+    for (const result of tiers(machine, recursion(viaMap), 124)) expect(result).toEqual(ok(JSON.parse(`${"[".repeat(124)}124${"]".repeat(124)}`)));
+    // The limit follows maxDepth. The count goes down after each return, thus a host loop of many applications stays under it.
+    const small: Machine = { ...machine, maxDepth: 40 };
+    for (const result of tiers(small, recursion(again), 9)) expect(result).toEqual(ok(9));
+    for (const result of tiers(small, recursion(again), 10)) expect(result).toEqual(deep(10, ["bind", "f", "body", "then"]));
+    const items = Array.from({ length: 1000 }, (_, index) => index);
+    const loop = op("map", { type: "fn", value: { params: ["x"], body: op("add", ref("names", "x"), 1) } }, { type: "lit", value: items });
+    for (const result of tiers(small, loop, 0)) expect(result).toEqual(ok(items.map((x) => x + 1)));
   });
 
   it("[PLAN.COMPILE-SPEED] a compilation without a trace records no trace, and a record keeps a field named __proto__", () => {
