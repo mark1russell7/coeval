@@ -1,5 +1,5 @@
 /*
- * The limits of the time verdict of each case: the margin and the noise cap of its family (K214, D116).
+ * The limits of the time verdict of each case: the margin and the noise cap of its family (K214, D117).
  *
  * The file `limits.json` keeps the A/A statistics of each case in each CI bench job, and the limits that come from
  * them. `refresh.ts` writes it from the downloaded records of the Speed workflow. This file reads it, and it gives the

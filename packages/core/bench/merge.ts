@@ -8,7 +8,7 @@
  * each run.
  *
  * The shared bench core `@mark1russell7/rigor-bench` gives the verdict of each case (D114). The margin and the noise cap
- * of each case come from the A/A records of its family (`limits.ts`, D116). Its rule `difference`
+ * of each case come from the A/A records of its family (`limits.ts`, D117). Its rule `difference`
  * compares the head with the A/A pair: two processes of the base. The outcome is "same", "faster", "slower" or "cannot
  * decide". The verdict of a case is the `pooledVerdict` of the rounds of the two runs. A run that gives the opposite
  * direction makes the verdict "cannot decide". The same case can take 107 ns on one runner and 206 ns on another
@@ -62,7 +62,7 @@ export interface BenchRun {
 /**
  * The options of a time verdict without the limits of a family (D114). The margin of the rule `difference` is the floor
  * of the old bound (D50, D70): 1.5 %, on a log scale. The mode run `mode.ts` uses these options. The bench gives each
- * case the limits of its family (`limitsOf`, D116).
+ * case the limits of its family (`limitsOf`, D117).
  */
 export const VERDICT: VerdictOptions = { margin: Math.log(1.015) };
 
@@ -100,7 +100,7 @@ export function outcomeOf(item: BenchCase): TimeOutcome {
 /**
  * This function gives the pooled verdict of one case over the runs: the rounds of all runs, one job for each run.
  * The label of a job is the name of its run. A record of the fresh runner keeps the same label in its field `job`.
- * Without options, the verdict uses the limits of the family of the case (D116).
+ * Without options, the verdict uses the limits of the family of the case (D117).
  */
 export function pooledCase(runs: readonly { readonly run: string; readonly item: BenchCase }[], options?: VerdictOptions): PooledVerdict | undefined {
   const jobs = runs.flatMap(({ run, item }) => (hasPairs(item) ? [{ job: run, candidate: roundsAsCases(item.head), aa: roundsAsCases(item.aa) }] : []));
@@ -163,7 +163,7 @@ export function verdictRule(): string[] {
     "It compares the median ratio of the head to the base with the median ratio of the A/A pair, over the rounds of the case.",
     'The case is "same" when the bootstrap interval of the difference is inside the margin. Else it is "faster" or "slower" when the interval is wholly on one side of 1.',
     'Else the case is "cannot decide". An A/A spread or an A/A median above the noise cap also gives "cannot decide".',
-    `The margin and the noise cap of each family come from the A/A records of the Speed runs ${runs} (D116): ${families.join(", ")}.`,
+    `The margin and the noise cap of each family come from the A/A records of the Speed runs ${runs} (D117): ${families.join(", ")}.`,
     `A case without a family uses the fallback limits ${percentOf(record.fallback.margin)} and ${percentOf(record.fallback.noiseCap)}, and its verdict says "(fallback limits)".`,
   ];
 }

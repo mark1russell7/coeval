@@ -1,5 +1,5 @@
 /*
- * The refresh of the limits of the bench verdict (K214, D116).
+ * The refresh of the limits of the bench verdict (K214, D117).
  *
  *   gh run download <run id> -R mark1russell7/coeval -D <dir>/<run id>     (for each Speed run, 5 or more jobs in all)
  *   node packages/core/bench/refresh.ts <dir>
@@ -18,7 +18,7 @@
  * script fails.
  *
  * The script also prints a harder count: the verdict of each A/A pair against the A/A pair of each other job. This
- * comparison mixes two runners, thus it does not fail the script. D116 gives the result.
+ * comparison mixes two runners, thus it does not fail the script. D117 gives the result.
  *
  * With the run 41579105529 in `<dir>`, the script also writes the fixture `replay.json` of the case "a tree with an
  * equation". The test `limits.test.ts` replays it in CI.
@@ -152,7 +152,7 @@ function main(): void {
       ] as const;
       for (const [arm, outcome] of outcomes) if (decided(outcome)) wrong.push(`${String(run.id)} ${name}, ${arm}: ${outcome}`);
     }
-    console.log(`Run ${String(run.id)}: with the margin of D114 ${count(before)}. With the limits of D116 ${count(after)}.`);
+    console.log(`Run ${String(run.id)}: with the margin of D114 ${count(before)}. With the limits of D117 ${count(after)}.`);
   }
   console.log(`The runs of the same code ${SAME_CODE_RUNS.join(", ")}: ${String(wrong.length)} false verdicts.`);
   for (const line of wrong) console.log(`  ${line}`);

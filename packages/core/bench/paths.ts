@@ -11,7 +11,7 @@
  *
  * The script prints the median time of one call for each case and each copy. The change is the median ratio of the
  * head to the base in the same round, and the noise is the same ratio of the A/A pair. The verdict of each case is the
- * `timeVerdict` of the bench core (`merge.ts`), with the limits of the family of the case (`limits.ts`, D116). The
+ * `timeVerdict` of the bench core (`merge.ts`), with the limits of the family of the case (`limits.ts`, D117). The
  * script asserts only that the copies give the same results. The workflow `bench.yml` runs it in CI, because a shared machine gives unreliable numbers.
  *
  * The workflow starts the script in two jobs, thus on two runners (K167, D71). With `BENCH_JSON`, the script also

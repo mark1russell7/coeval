@@ -76,7 +76,7 @@ jobs:
           BENCH_RUN: ${{ matrix.run }}
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
       # A run with different results also gives its table to the verdict.
-      # The records stay 90 days, because the limits of the verdict come from them (K214, D116).
+      # The records stay 90 days, because the limits of the verdict come from them (K214, D117).
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:

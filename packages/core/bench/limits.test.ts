@@ -13,7 +13,7 @@ function benchCase(job: ReplayFixture["jobs"][number]): BenchCase {
   return { name: fixture.case, baseNs: 0, headNs: 0, change: 0, noise: 0, head: fromFixture(fixture.case, job.job, job.head), aa: fromFixture(fixture.case, job.job, job.aa) };
 }
 
-describe("the limits of each family come from the A/A records of CI (K214, D116)", () => {
+describe("the limits of each family come from the A/A records of CI (K214, D117)", () => {
   it("gives each case of cases.ts a family", () => {
     expect(CASES.map((item) => [item.name, familyOf(item.name)]).filter(([, family]) => family === undefined)).toEqual([]);
   });
@@ -48,7 +48,7 @@ describe("the limits of each family come from the A/A records of CI (K214, D116)
   });
 });
 
-describe(`the replay of the run ${String(REPLAY_RUN)} (K214, D116)`, () => {
+describe(`the replay of the run ${String(REPLAY_RUN)} (K214, D117)`, () => {
   const own = fixture.jobs;
 
   it("holds the two jobs of the run, a run of the same code", () => {
