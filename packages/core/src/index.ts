@@ -106,6 +106,7 @@ export {
 export { type StepKey, type StepLadder, type StepNeed, type StepReason, type StepRefusal, type StepWalk, checkStep, isStep, stepLadder, stepOf, stepRank } from "./steps.ts";
 export {
   type Cap,
+  type CompiledPath,
   type Context,
   type DerefCode,
   type Hop,
@@ -123,6 +124,7 @@ export {
   type Walker,
   ROOTS,
   THING,
+  compilePath,
   context,
   derefStep,
   isHostThing,
@@ -178,6 +180,7 @@ export {
   permits,
   planner,
   prepare,
+  resolveCompiled,
   run,
 } from "./evaluate.ts";
 export {

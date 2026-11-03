@@ -74,8 +74,11 @@ describe("the decisions", () => {
     expect("domains" in STD_MACHINE.world).toBe(false);
   });
 
-  it("[D29] compilePath is not an export of the package", () => {
-    expect("compilePath" in api).toBe(false);
+  it("[D129] compilePath is an export of the package with its route through the runtime, and the class of the kernel is not", () => {
+    expect(typeof api.compilePath).toBe("function");
+    expect(typeof api.resolveCompiled).toBe("function");
+    expect("StaticPath" in api).toBe(false);
+    expect("Session" in api).toBe(false);
   });
 
   it("[D32] the grant of a context is a private symbol: not shared through Symbol.for, and not an export", () => {

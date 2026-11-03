@@ -522,7 +522,8 @@ function walkQuick(start: unknown, path: readonly unknown[], plain: boolean, key
 /**
  * A compiled path: one static path for one navigator (PLAN.PATH). `compilePath` reads the root, the open roots and
  * the steps one time. It asks the ladder of the verb `step` for each step document one time. Each resolution then
- * examines only the values of the context.
+ * examines only the values of the context. Code of a language reads a compiled path with `resolveCompiled`, thus the
+ * list of reads gets the read (PLAN.PATH-READS).
  */
 export interface CompiledPath {
   /** The steps of the path, as the document gives them. The list of reads records these steps. */
@@ -530,7 +531,8 @@ export interface CompiledPath {
   /** The navigator of the compilation. A runtime with another navigator resolves the steps again. */
   readonly nav: Navigator;
   /**
-   * This function resolves the path from a context, without a record of hops.
+   * This function resolves the path from a context, without a record of hops. It records no read and it does not
+   * apply the grant of the evaluation, as `resolve` does not. Use it only outside an evaluation.
    *
    * @param ctx - The context.
    * @returns The same resolution as `resolve(nav, ctx, path, { hops: false })`.
@@ -592,8 +594,11 @@ class StaticPath implements CompiledPath {
  * - The walker of each step document comes from the ladder one time, here. The navigator and the step document do
  *   not change, thus the answer does not change either.
  *
+ * An evaluator of a language calls this function in its `compile`, with the field `machine` of the input, and reads the
+ * result with `resolveCompiled` (PLAN.PATH-EXPORT).
+ *
  * @param nav - The navigator. A plan compiles its paths for its machine.
- * @param path - The steps. The first step is a root.
+ * @param path - The steps. The first step is a root. The compiled path keeps this list, thus the host must not change it.
  * @returns The compiled path.
  */
 export function compilePath(nav: Navigator, path: readonly unknown[]): CompiledPath {
