@@ -1210,7 +1210,7 @@ export function stepType(
 }
 
 /** The answer of `stepType` for a type whose members have no step with the key, and no fields to name. */
-const NO_STEP: StepType = /* @__PURE__ */ Object.freeze({ missing: Object.freeze([]) as readonly string[] });
+const NO_STEP: StepType = { missing: [] };
 
 /** A term that `typeIssues` reads later: the term, its keys from the root and its depth. */
 interface Pending {
