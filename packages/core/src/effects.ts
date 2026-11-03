@@ -46,7 +46,7 @@ function reaching(machine: Machine, doc: unknown, options: EffectsOptions): read
     doc,
     (v) => {
       const caps = v.caps ?? EACH;
-      for (const kind of declaredEffects(v)) if (rule(caps, kind)) out.push({ kind, visit: v });
+      for (const kind of declaredEffects(v, "eval", machine)) if (rule(caps, kind)) out.push({ kind, visit: v });
       return undefined;
     },
     { caps: options.caps ?? EACH, ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }) },
@@ -65,7 +65,9 @@ function reaching(machine: Machine, doc: unknown, options: EffectsOptions): read
  *
  * The result covers each effect that an evaluation or a run gives the host (CAP.EFFECTS-SOUND). A procedure value keeps
  * the capabilities of the document that made it, thus the effects of its body count at the body (CAP.LATENT). The
- * contract describes the code of its kind. The code of an own entry for another evaluator is outside the result.
+ * contract describes the code of its kind. The contract does not describe the code of an own entry for another
+ * evaluator. The answer of the hook `facts` for that code gives its effects (CAP.OWN-EFFECTS, D118). Without an
+ * answer, its effects are outside the result.
  *
  * @param machine - The world and its contracts, and the hook `permits`.
  * @param doc - The document, as JSON.

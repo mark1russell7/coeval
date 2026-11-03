@@ -1792,6 +1792,8 @@ function pureCode(c: Compiler, envelope: Envelope | undefined, kind: Kind, typeP
   } catch {
     return false;
   }
+  // The effects of the answer of the hook make the code not pure, also for an own entry (D118).
+  if (answer?.effects !== undefined && answer.effects.length > 0) return false;
   // The contract of the kind describes the code of its own name, or an own entry that names the same code (D24).
   const described = c.verb === "eval" && (envelope === undefined || quick?.rung !== "own" || name === answerOf(c.machine.world, undefined, kind, c.verb)?.name);
   const pure = described ? (answer?.pure ?? kind.pure) : answer?.pure;

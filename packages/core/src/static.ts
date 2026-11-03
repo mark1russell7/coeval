@@ -1,6 +1,6 @@
 import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
 import { type Kind, type World, type WorldEntry, circularOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
-import { ask } from "./ladder.ts";
+import { answerOf, ask } from "./ladder.ts";
 import { type PartSlot, partsOf, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
@@ -412,16 +412,42 @@ const EACH: readonly Cap[] = /* @__PURE__ */ Object.freeze([[]]);
 const NO_EFFECTS: readonly (readonly Key[])[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
- * This function gives the effects that the contract of the kind of a visit declares for a verb, as keys
- * (FACTS.EFFECTS, VERB.EFFECTS). The text `"type"` gives the type of the document after each alias. A visit without a
- * kind declares no effect. `check`, `factsOf` and `effectsOf` read the declarations with this one function (D27).
+ * This function gives the effects that the code of a visit declares for a verb, as keys (FACTS.EFFECTS, VERB.EFFECTS).
+ * The text `"type"` gives the type of the document after each alias. A visit without a kind declares no effect.
+ * `check`, `factsOf`, `effectsOf` and `checkLatent` read the declarations with this one function (D27).
+ *
+ * For `eval`, the answer of the hook `facts` of the machine for the code of the visit wins over the contract of the
+ * kind (CAP.OWN-EFFECTS, D118). Thus a language gives the effects of an own entry for another evaluator. Without a
+ * machine, or without the field `effects` in the answer, the contract gives the effects.
  *
  * @param v - The visit.
  * @param verb - The verb. The default is `eval`. A kind without a declaration for the verb gives no effect.
- * @returns The keys of each declared effect, in the order of the contract.
+ * @param machine - The machine with the hook `facts`, when the caller has it.
+ * @param name - The name of the evaluator of the visit, when the caller knows it. Else the ladder gives it.
+ * @returns The keys of each declared effect, in the order of the declaration.
  */
-export function declaredEffects(v: DocVisit, verb = "eval"): readonly (readonly Key[])[] {
-  return verbDeclared(v, verb) ?? NO_EFFECTS;
+export function declaredEffects(v: DocVisit, verb = "eval", machine?: Machine, name?: string): readonly (readonly Key[])[] {
+  return hookEffects(v, verb, machine, name) ?? verbDeclared(v, verb) ?? NO_EFFECTS;
+}
+
+/**
+ * This function gives the effects that the hook `facts` gives for the code of a visit, as keys (D118). The result is
+ * `undefined` for another verb than `eval`, without the hook, or when the answer has no field `effects`.
+ */
+function hookEffects(v: DocVisit, verb: string, machine: Machine | undefined, name: string | undefined): readonly (readonly Key[])[] | undefined {
+  if (verb !== "eval" || machine?.facts === undefined || v.kind === undefined) return undefined;
+  const code = name ?? answerOf(machine.world, v.declared ? undefined : v.doc.own, v.kind, "eval")?.name;
+  const effects = code === undefined ? undefined : machine.facts(v.typePath ?? [], code)?.effects;
+  return effects === undefined ? undefined : effectKeys(v, effects);
+}
+
+/**
+ * This function gives the keys of a declaration of effects at a visit (D27). The text `"type"` gives the type of the
+ * document after each alias.
+ */
+export function effectKeys(v: DocVisit, effects: "type" | readonly string[]): readonly (readonly Key[])[] {
+  if (effects.length === 0) return NO_EFFECTS;
+  return effects === "type" ? [v.typePath ?? []] : effects.map((kind) => kind.split("."));
 }
 
 /**
@@ -433,8 +459,7 @@ function verbDeclared(v: DocVisit, verb: string): readonly (readonly Key[])[] | 
   if (v.kind === undefined) return verb === "eval" ? NO_EFFECTS : undefined;
   const effects = effectsOfVerb(v.kind, verb);
   if (effects === undefined) return undefined;
-  if (effects.length === 0) return NO_EFFECTS;
-  return effects === "type" ? [v.typePath ?? []] : effects.map((kind) => kind.split("."));
+  return effectKeys(v, effects);
 }
 
 /**
@@ -1026,7 +1051,7 @@ function checkAll(
         if (known !== true) push({ code: "#NAME?", place: v.place, reason: known, at: v.at });
       }
       const caps = v.caps;
-      const stated = verbDeclared(v, verb);
+      const stated = hookEffects(v, verb, machine, name) ?? verbDeclared(v, verb);
       const declared = stated ?? NO_EFFECTS;
       if (allowed !== undefined && caps !== undefined) {
         for (const kind of declared) {
