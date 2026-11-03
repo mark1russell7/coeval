@@ -214,6 +214,8 @@ interface Sample {
   readonly otherSplit: SplitOk;
   /** `true` for each part that a lazy rule covers. */
   readonly lazy: readonly boolean[];
+  /** `true` for each part that a rule `drives` covers: the runner can evaluate it with its code (D119). */
+  readonly driven: readonly boolean[];
   /** The names that the scope rules give each part. */
   readonly names: readonly (readonly string[])[];
 }
@@ -282,6 +284,8 @@ interface Contract {
   readonly declared: readonly Cap[];
   readonly pure: boolean;
   readonly lazy: readonly LazyRule[] | undefined;
+  /** The parts that the runner evaluates with its code, without a wait (RUN.DRIVES). */
+  readonly drives: readonly LazyRule[] | undefined;
   /** `true` when the facts describe the verb: they describe only `eval`. */
   readonly describes: boolean;
   /** `true` when the contract declares the effects of the verb: for `eval`, and for a verb in `verbEffects`. */
@@ -315,6 +319,8 @@ class Shot implements Runtime {
     readonly context: Context,
     /** The key of each part, for the reasons. */
     readonly keys: readonly string[],
+    /** `true` for each part that the runner can evaluate with its code, by the rules `drives` (D119). */
+    private readonly driven: readonly boolean[],
     private readonly perform: Perform | undefined,
     /** The resolutions of an earlier evaluation. Each resolution with the same path gets the same answer (C4). */
     private readonly replay: readonly Asked[] | undefined,
@@ -334,8 +340,8 @@ class Shot implements Runtime {
     this.calls.push({ part, via, context: ctx, later: this.afterwards });
     const key = this.keys[part] ?? String(part);
     if (via === "run" && !this.runner) this.problems.push(`The code of an evaluator starts the steps of the part ${key}. Only a runner waits.`);
-    if (via === "code" && this.runner && this.running) {
-      this.problems.push(`The runner evaluates the part ${key} with its code, and that code cannot wait. A runner evaluates a part with its steps (K65).`);
+    if (via === "code" && this.runner && this.running && this.driven[part] !== true) {
+      this.problems.push(`The runner evaluates the part ${key} with its code, and that code cannot wait. A runner evaluates a part with its steps, or its contract declares the part in drives (D119).`);
     }
     return this.scenario.results[part] ?? NO_RESULT;
   }
@@ -506,6 +512,7 @@ function contractOf(env: Env, kind: Kind, typePath: readonly Key[], caps: readon
     declared,
     pure: (facts?.pure ?? kind.pure) === true,
     lazy: facts?.lazy ?? kind.lazy,
+    drives: env.verb === "eval" ? (facts?.drives ?? kind.drives) : undefined,
     describes: env.verb === "eval",
     declares: own !== undefined,
     caps: caps ?? [...declared, "probe"],
@@ -638,6 +645,7 @@ function samplesOf(type: TypeRef, typePath: readonly Key[], kind: Kind, contract
       other: { type, value: otherValue },
       otherSplit,
       lazy: split.parts.map((_slot, index) => contract.lazy?.some((rule) => covers(rule, split.parts, index)) === true),
+      driven: split.parts.map((_slot, index) => contract.drives?.some((rule) => covers(rule, split.parts, index)) === true),
       names: scopesOf(kind.scope, value, split.parts).sees,
     });
   }
@@ -770,7 +778,7 @@ function instanceOf(env: Env, under: Under, doc: Envelope, split: SplitOk, sampl
 /** This function evaluates a probe document one time in a new shot. */
 function shoot(env: Env, instance: Instance, sample: Sample, scenario: Scenario, more: { readonly context?: Context; readonly replay?: readonly Asked[] } = {}): Shot {
   const context = more.context ?? rootContext(env.machine, makeContext(env.names, scenario.caps));
-  const shot = new Shot(env.machine, env.runner, scenario, context, sample.split.parts.map((slot) => slot.key), env.perform, more.replay);
+  const shot = new Shot(env.machine, env.runner, scenario, context, sample.split.parts.map((slot) => slot.key), sample.driven, env.perform, more.replay);
   instance(shot);
   return shot;
 }

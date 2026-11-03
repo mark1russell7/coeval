@@ -119,6 +119,9 @@ export interface LazyRule {
  * - `effects`: the effects that the code of `eval` can cause, in the form of the field `effects` of a kind (D27). In
  *   the answer of the hook `facts`, it gives the effects of the code of a name. The contract of a kind does not
  *   describe an own entry for another evaluator, thus only the hook can give its effects (CAP.OWN-EFFECTS, D118).
+ * - `drives`: the parts that the code of a runner evaluates itself, without a wait, in the form of the lazy rules. A
+ *   step under such a part cannot wait for the host. The check of a run then refuses a part that can wait there
+ *   (RUN.DRIVES, D119). Without `drives`, the check assumes that the runner passes each wait of its parts through.
  */
 export interface KindFacts {
   readonly pure?: boolean;
@@ -126,6 +129,7 @@ export interface KindFacts {
   readonly lazy?: readonly LazyRule[];
   readonly reads?: readonly Root[];
   readonly effects?: "type" | readonly string[];
+  readonly drives?: readonly LazyRule[];
 }
 
 /**

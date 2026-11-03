@@ -3,6 +3,7 @@ import {
   type Effect,
   type Json,
   type Machine,
+  type CompiledRunner,
   type Runner,
   type Steps,
   type TraceNode,
@@ -142,6 +143,46 @@ describe("a run", () => {
     const answers = (): string => "done";
     const atOnce = await run(STD_MACHINE, outer(false), ctx, { perform: answers });
     expect(atOnce.result).toEqual(waited.result);
+  });
+
+  it("[RUN.DRIVES] a runner that evaluates a part with its code declares it in drives, and the check of the waits is exact", async () => {
+    const ctx = makeContext({}, STD_CAPS);
+    // The runner evaluates its first part with its code, without a wait, and runs its second part with its steps.
+    const mixed: CompiledRunner = {
+      compileRun: ({ parts }) =>
+        function* (inner, rt) {
+          const first = parts[0]?.code(inner, rt);
+          if (first === undefined || !first.ok) return first ?? ok(null);
+          const second = parts[1] === undefined ? ok(null) : yield* parts[1].run(inner, rt);
+          if (!second.ok) return second;
+          return ok([first.value, second.value]);
+        },
+    };
+    const kind = (drives?: readonly { readonly in?: readonly (readonly number[])[] }[]): Machine => ({
+      ...STD_MACHINE,
+      world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, mixed: { verbs: { eval: "test.mixed" }, parts: { shape: "list" }, ...(drives === undefined ? {} : { drives }) } } },
+      runners: { ...STD_MACHINE.runners, "test.mixed": mixed },
+    });
+    const log: Json = { type: "log", value: ["x"] };
+    const doc: Json = { type: "mixed", value: [log, log] };
+    const waits = (): Promise<unknown> => Promise.resolve("done");
+    // Without drives, the check assumes that the runner passes each wait through. Only the run finds the wait.
+    expect(check(kind(), doc, { run: true })).toEqual([]);
+    const done = await run(kind(), doc, ctx, { perform: waits });
+    expect(done.result).toMatchObject({ ok: false, error: { code: "#CALC!", place: [0] } });
+    // With drives for the first part, the check gives the #CALC! of the run, at the same place and with the same reason.
+    const marked = kind([{ in: [[0]] }]);
+    const issues = check(marked, doc, { run: true });
+    expect(issues).toEqual([{ code: "#CALC!", place: [0], reason: "log waits for effects, and its parent cannot wait. Give the parent a runner.", at: ["value", 0] }]);
+    const again = await run(marked, doc, ctx, { perform: waits });
+    expect(again.result).toEqual({ ok: false, error: expect.objectContaining({ code: "#CALC!", place: [0], reason: issues[0]?.reason }) });
+    // A part that does not wait under drives gives no issue, and the run gives its value.
+    const quiet: Json = { type: "mixed", value: [{ type: "number", value: 1 }, log] };
+    expect(check(marked, quiet, { run: true })).toEqual([]);
+    expect((await run(marked, quiet, ctx, { perform: waits })).result).toEqual(ok([1, "done"]));
+    // The hook facts can declare drives for the code of a name. Its answer wins over the contract.
+    const hooked: Machine = { ...kind(), facts: (path, code) => (code === "test.mixed" ? { drives: [{ in: [[0]] }] } : STD_MACHINE.facts?.(path, code)) };
+    expect(check(hooked, doc, { run: true })).toEqual(issues);
   });
 
   it("[RUN.HELD] in a run, an effect under a parent that cannot wait does not reach the host, and keeps #CALC!", async () => {

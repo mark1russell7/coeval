@@ -246,6 +246,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.NESTED-WAIT | A step that waits inside a part that cannot wait gives `#CALC!`. |
 | RUN.HELD | In a run, an effect under a runner whose parent cannot wait does not reach the host. The effect keeps `#CALC!`. |
 | RUN.NEEDS-RUNNER | In a run, an effect of an evaluator gives `#CALC!` before the test of its capability, also when the host does not wait. |
+| RUN.DRIVES | A kind declares in `drives` the parts that its runner evaluates with its code, without a wait, in the form of the lazy rules. The answer of the hook `facts` for the code wins. A check of a run gives such a part no wait, as under an evaluator. Thus its `#CALC!` is the `#CALC!` of the run. `conform` accepts the code of such a part in a runner (C6). |
 | RUN.DRIVE-NESTED | A run drives a runner under an evaluator without a wait, as an evaluation does. Only a step that really waits gives `#CALC!`. A branch that does not run does not wait. |
 | RUN.WAIT | A part that waits under an evaluator gives `#CALC!`. The error has the place of the part. |
 | RUN.CAN-WAIT | With the option `run`, `check` gives `#CALC!` for a runner under a parent without a runner, when an effect of its runners can reach the host. It also gives `#CALC!` for a kind that declares effects and has no runner. The issue has the place and the reason of the run. A document that passes this check gives no such `#CALC!` in a run. |
