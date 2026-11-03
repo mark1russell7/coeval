@@ -1,4 +1,4 @@
-import { type Envelope, type Json, type Key, type TypeRef, field, isRecord, typePath } from "./doc.ts";
+import { type Envelope, type Json, type JsonRecord, type Key, type TypeRef, field, isRecord, typePath } from "./doc.ts";
 import type { Cap, Root } from "./deref.ts";
 import type { ValueType } from "./types.ts";
 
@@ -258,12 +258,96 @@ export function collectOf(declared: unknown): CollectRule {
  * - `attributes`: the declarations of the attributes of the node, for the rungs `copy` and `default`.
  * - `contributes`: the contribution of the node to each collection of an attribute (TREE.COLLECT, D122). An
  *   equation sees no names.
+ * - `at`: the attributes with parameters of the node (TREE.AT, D124). Only the step `tree.at` reads them, and the
+ *   equation sees each parameter as a name.
  */
 export interface TreeContract {
   readonly equations?: Readonly<Record<string, Json>>;
   readonly down?: Readonly<Record<string, Json>>;
   readonly attributes?: Readonly<Record<string, AttributeDeclaration>>;
   readonly contributes?: Readonly<Record<string, Json>>;
+  readonly at?: Readonly<Record<string, AtEquation>>;
+}
+
+/**
+ * An attribute with parameters (TREE.AT, D124), as `paramAttr` in Kiama. The step `tree.at` gives the arguments. The
+ * equation evaluates with the node as `self`, and it sees each parameter as a name, for example `names.width`.
+ */
+export interface AtEquation {
+  /** The names of the parameters. The step gives an argument for each of them, and no other argument. */
+  readonly params: readonly string[];
+  readonly equation: Json;
+}
+
+/** An entry of `tree.at` that the kit can use, or the reason of a bad entry (D124). */
+export type AtRule = { readonly ok: true; readonly params: readonly string[]; readonly equation: Json } | { readonly ok: false; readonly reason: string };
+
+/**
+ * This function reads an entry of the table `tree.at` (D124). The tree kit, the reference, `check` and the graph of
+ * attribute instances read it with this one function.
+ *
+ * @param declared - The entry.
+ * @returns The rule, or the reason when the entry has no correct form.
+ */
+export function atRuleOf(declared: unknown): AtRule {
+  const params = isRecord(declared) ? field(declared, "params") : undefined;
+  const good = Array.isArray(params) && params.every((name, index) => typeof name === "string" && params.indexOf(name) === index);
+  if (!good || !Object.hasOwn(declared as object, "equation")) {
+    return { ok: false, reason: "An entry of tree.at needs a list params of different texts and the field equation." };
+  }
+  return { ok: true, params: params as readonly string[], equation: field(declared as JsonRecord, "equation") as Json };
+}
+
+/** The arguments of a step `tree.at` (D124): the names of the equation and their key, or the reason of bad arguments. */
+export type AtArgs = { readonly ok: true; readonly names: Readonly<Record<string, Json>>; readonly key: string } | { readonly ok: false; readonly reason: string };
+
+/**
+ * This function examines the arguments of a step `tree.at` (D124). The step gives an argument for each parameter, and
+ * no other argument. Each argument is JSON data. The key is the text of `argsKey`, thus two equal arguments give one key.
+ *
+ * @param params - The parameters of the attribute.
+ * @param args - The field `args` of the step.
+ * @returns The names of the equation and the key, or the reason.
+ */
+export function atArgsOf(params: readonly string[], args: unknown): AtArgs {
+  if (!isRecord(args)) return { ok: false, reason: "The arguments are a record." };
+  const extra = Object.keys(args).find((name) => !params.includes(name));
+  if (extra !== undefined) return { ok: false, reason: `The attribute has no parameter ${extra}.` };
+  const names: Record<string, Json> = {};
+  for (const name of params) {
+    if (!Object.hasOwn(args, name)) return { ok: false, reason: `The step gives no argument ${name}.` };
+    const value = field(args, name);
+    if (argsKey(value) === undefined) return { ok: false, reason: `The argument ${name} is not JSON data.` };
+    Object.defineProperty(names, name, { value, enumerable: true, writable: true, configurable: true });
+  }
+  return { ok: true, names, key: argsKey(names) as string };
+}
+
+/**
+ * This function gives the key of a JSON value (D124). The fields of a record are in the order of their names. Two
+ * values have the same key only when they are equal by DOC.EQUALS, thus `-0` and `0` have different keys.
+ *
+ * @param value - The value.
+ * @returns The JSON text, or `undefined` for a value that is not JSON data: a number that is not finite, a host value or a cycle.
+ */
+export function argsKey(value: unknown): string | undefined {
+  return keyOf(value, new Set());
+}
+
+function keyOf(value: unknown, open: Set<object>): string | undefined {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") return !Number.isFinite(value) ? undefined : Object.is(value, -0) ? "-0" : JSON.stringify(value);
+  if (typeof value !== "object" || open.has(value) || (!Array.isArray(value) && !isRecord(value))) return undefined;
+  open.add(value);
+  try {
+    const list = Array.isArray(value);
+    const names = list ? [] : Object.keys(value).sort();
+    const items = list ? value.map((item) => keyOf(item, open)) : names.map((name) => keyOf(field(value as JsonRecord, name), open));
+    if (items.includes(undefined)) return undefined;
+    return list ? `[${items.join(",")}]` : `{${names.map((name, index) => `${JSON.stringify(name)}:${String(items[index])}`).join(",")}}`;
+  } finally {
+    open.delete(value);
+  }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { type Json, type Key, field, isKey, isRecord, typeName } from "./doc.ts";
-import { type CollectRule, type Kind, collectOf, equationType } from "./world.ts";
+import { type CollectRule, type Kind, argsKey, collectOf, equationType } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { isRef, walkerOf } from "./deref.ts";
 import type { Machine } from "./evaluate.ts";
@@ -7,13 +7,16 @@ import { type Above, codeFactsOf, partLazy } from "./facts.ts";
 import { type NodeGraph, type GraphEdge, cycles } from "./graph.ts";
 import { STD_WALKERS } from "./stdlib.ts";
 import {
+  type AtStep,
   type CheckOptions,
   type DocVisit,
   type Issue,
   type SeenNode,
   REF_CODE,
   TREE_NODE,
+  atStepOf,
   downNames,
+  isAtStep,
   isStructural,
   keepsSelf,
   selvesOf,
@@ -39,6 +42,8 @@ export interface AttributeVertex {
   readonly type: string;
   /** `true` when the kind of the node declares the attribute `circular` (TREE.CIRCULAR-CHECK). Else the field is absent. */
   readonly circular?: true;
+  /** The arguments of an instance of an attribute with parameters (TREE.AT-CHECK). Else the field is absent. */
+  readonly args?: Readonly<Record<string, Json>>;
 }
 
 /** One read of an attribute by the code of another attribute (D107). */
@@ -220,6 +225,20 @@ function vertexOf(b: Builder, node: NodeInfo, attribute: string): string {
   return id;
 }
 
+/**
+ * This function gives the vertex of an instance of an attribute with parameters (TREE.AT-CHECK, D124). Its name is the
+ * name of a plain vertex with the key of the arguments after the name of the attribute.
+ */
+function atVertexOf(b: Builder, node: NodeInfo, at: AtStep & { readonly kind: "exact" }): string {
+  const id = `${attributeVertexId(node.visit.place, at.attr).slice(0, -1)},${at.key}]`;
+  if (!b.vertices.has(id)) {
+    b.vertices.set(id, { id, place: node.visit.place, attribute: at.attr, type: node.text, args: at.names });
+    b.nodes.set(id, node);
+    b.work.push(id);
+  }
+  return id;
+}
+
 function edge(b: Builder, from: string | undefined, r: Reader, lazy = false): void {
   b.edges.push({ from, to: r.to, lazy: r.lazy || lazy, place: r.place });
   b.ats.push(r.at);
@@ -310,6 +329,15 @@ function follow(b: Builder, start: Value, path: readonly Json[], from: number, r
       }
       continue;
     }
+    // A step tree.at with literal arguments reads one instance (TREE.AT-CHECK). A step that fails gives no read.
+    if (isAtStep(b.machine, step)) {
+      const at = atStepOf(node.kind, node.text, step.value);
+      if (at.kind === "unknown") edge(b, undefined, r);
+      if (at.kind !== "exact") return;
+      edge(b, atVertexOf(b, node, at), r);
+      here = "unknown";
+      continue;
+    }
     // The standard walker nearest depends only on the structure (R3 P5). Each other walker can read each attribute.
     if (walkerOf(b.machine, step) !== STD_WALKERS["walk.nearest"]) {
       edge(b, undefined, r);
@@ -361,10 +389,11 @@ function termRefs(b: Builder, kind: Kind, label: string, term: Json): readonly T
   return out;
 }
 
-/** The names of the equation of a rung, before the run. */
+/** The names of the equation of a rung, before the run. The parameters of an attribute hold JSON data (TREE.AT). */
 interface TermNames {
   readonly child?: NodeInfo;
   readonly prev?: Value;
+  readonly params?: readonly string[];
 }
 
 /** This function adds the reads of an equation of a rung: self is a node, and the names of the rung have their values. */
@@ -386,7 +415,10 @@ function termReads(b: Builder, refs: readonly TermRef[], self: NodeInfo, names: 
     // A name that a kind inside the equation binds holds a value of the run. The others are the names of the rung.
     let start: Value;
     if (ref.bound.has(name)) start = "unknown";
-    else if (names?.child !== undefined && name === "child") start = { node: names.child };
+    else if (names?.params !== undefined) {
+      if (!names.params.includes(name)) continue;
+      start = "data";
+    } else if (names?.child !== undefined && name === "child") start = { node: names.child };
     else if (names?.prev !== undefined && name === "prev") start = names.prev;
     else if (name === "index") start = "data";
     else if (name === "acc" || name === "item") start = "unknown";
@@ -412,9 +444,16 @@ function prevOf(parent: NodeInfo, child: NodeInfo): Value {
  */
 function rungReads(b: Builder, id: string): void {
   const node = b.nodes.get(id) as NodeInfo;
-  const key = (b.vertices.get(id) as AttributeVertex).attribute;
+  const vertex = b.vertices.get(id) as AttributeVertex;
+  const key = vertex.attribute;
   const tree = node.kind.tree;
   const r: Reader = { to: id, lazy: false, place: node.visit.place, at: node.visit.at };
+  // An instance of an attribute with parameters has one rung: its equation in tree.at (TREE.AT).
+  if (vertex.args !== undefined) {
+    const at = atStepOf(node.kind, node.text, { attr: key, args: vertex.args });
+    if (at.kind === "exact") termReads(b, termRefs(b, node.kind, `tree.at.${key}`, at.equation), node, { params: at.params }, r);
+    return;
+  }
   const equation = hasOwnEntry(tree?.equations, key) ? tree?.equations?.[key] : undefined;
   if (equation !== undefined) {
     termReads(b, termRefs(b, node.kind, `tree.equations.${key}`, equation), node, undefined, r);
@@ -634,7 +673,8 @@ function allCircular(b: Builder, ids: readonly string[]): boolean {
 }
 
 function vertexText(vertex: AttributeVertex): string {
-  return `${vertex.attribute} of ${vertex.type} at [${vertex.place.join(", ")}]`;
+  const name = vertex.args === undefined ? vertex.attribute : `${vertex.attribute} with ${String(argsKey(vertex.args))}`;
+  return `${name} of ${vertex.type} at [${vertex.place.join(", ")}]`;
 }
 
 /**

@@ -1,9 +1,9 @@
 import { type Envelope, type Json, type Key, docEquals, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { ask } from "./ladder.ts";
-import { type AttributeDeclaration, type CapsRule, type CircularRule, type Kind, type TreeContract, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
+import { type AttributeDeclaration, type CapsRule, type CircularRule, type Kind, type TreeContract, atArgsOf, atRuleOf, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, ROOTS, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
-import { type AttributeRung, STD_EVALUATORS } from "./stdlib.ts";
+import { type AttributeRung, AT_READERS, STD_EVALUATORS } from "./stdlib.ts";
 import { type EvalError, type Failed, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
@@ -1069,6 +1069,53 @@ function attributeOf(node: RefNode, name: string): Result | undefined {
   return result;
 }
 
+/** TREE.AT: one instance of an attribute with parameters of a node. Its result is `undefined` while it evaluates. */
+interface RefInstance {
+  readonly attr: string;
+  readonly names: unknown;
+  result: Result | undefined;
+}
+
+/** TREE.AT: the instances of each node of the reference. Two arguments are the same instance by DOC.EQUALS. */
+const refInstances = /* @__PURE__ */ new WeakMap<RefNode, RefInstance[]>();
+
+/**
+ * TREE.AT: the instance of an attribute with parameters, or `undefined` when the kind has no entry in `tree.at`. The
+ * equation sees the arguments as names. A demand of an instance in evaluation gives `#CYCLE!`, also in a fixed point.
+ */
+function instanceOf(node: RefNode, attr: string, args: unknown): Result | undefined {
+  const declared = termIn(node.contract?.at, attr);
+  if (declared === undefined) return undefined;
+  const rule = atRuleOf(declared);
+  if (!rule.ok) return fail("#VALUE!", `The attribute ${nameOfAttribute(node, attr)} has a bad entry tree.at. ${rule.reason}`);
+  const given = atArgsOf(rule.params, args);
+  if (!given.ok) return fail("#VALUE!", `The step tree.at of ${nameOfAttribute(node, attr)} has bad arguments. ${given.reason}`);
+  const name = `${attr} with ${given.key}`;
+  const list = refInstances.get(node) ?? [];
+  refInstances.set(node, list);
+  const found = list.find((item) => item.attr === attr && docEquals(item.names, given.names));
+  if (found?.result !== undefined) return found.result;
+  if (found !== undefined) {
+    const from = inEvaluation.findIndex((entry) => entry.node === node && entry.name === name);
+    const steps = inEvaluation.slice(from).map((entry) => nameOfAttribute(entry.node, entry.name));
+    return fail("#CYCLE!", `The attributes form a cycle: ${[...steps, nameOfAttribute(node, name)].join(" -> ")}.`);
+  }
+  const item: RefInstance = { attr, names: given.names, result: undefined };
+  list.push(item);
+  const entry = { node, name, circular: false, tentative: false };
+  inEvaluation.push(entry);
+  let result: Result | undefined;
+  try {
+    result = equationOf(node, rule.equation, given.names);
+  } finally {
+    inEvaluation.pop();
+    // A result that read an approximation is not kept (TREE.CIRCULAR).
+    if (result === undefined || entry.tentative) list.splice(list.indexOf(item), 1);
+    else item.result = result;
+  }
+  return result;
+}
+
 /** TREE.RESULT: the JSON of a node. `open` holds the nodes and the containers whose JSON is in progress. */
 function jsonOfNode(node: RefNode, self: HostThing, open: readonly object[]): Result {
   const record: Record<string, unknown> = {};
@@ -1157,6 +1204,7 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath
   };
   node.thing = self;
   refNodes.set(self, node);
+  AT_READERS.set(self, (attr, args) => instanceOf(node, attr, args));
   if (nested) return ok(self);
   try {
     return jsonOfNode(node, self, []);

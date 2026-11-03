@@ -1,5 +1,5 @@
-import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type LazyRule, type World, type WorldEntry, circularOf, collectOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
+import { type Envelope, type Json, type Key, field, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
+import { type Kind, type LazyRule, type World, type WorldEntry, atArgsOf, atRuleOf, circularOf, collectOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { answerOf, ask } from "./ladder.ts";
 import { type PartSlot, partsOf, rulesCover, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
@@ -8,6 +8,7 @@ import { type Machine, partCaps, permits, waitedReason } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
 import { type RootTypes, type TypeNode, type Typed, machineTypeIssues, typePass } from "./typing.ts";
 import { cycleIssues } from "./instances.ts";
+import { STD_WALKERS } from "./stdlib.ts";
 
 /** One document that a walk visits. */
 export interface DocVisit {
@@ -698,6 +699,11 @@ export function equationsOf(kind: Kind): readonly Equation[] {
   }
   // A contribution is not the attribute of its node, thus an own part of its name does not hide it (D122).
   for (const [name, term] of Object.entries(tree.contributes ?? {})) out.push({ label: `tree.contributes.${name}`, term, names: [], attribute: name, down: false, contributes: true });
+  // An equation of an attribute with parameters sees each parameter as a name (TREE.AT, D124).
+  for (const [name, declared] of Object.entries(tree.at ?? {})) {
+    const rule = atRuleOf(declared);
+    if (rule.ok) out.push({ label: `tree.at.${name}`, term: rule.equation, names: rule.params, attribute: name, down: false, at: true });
+  }
   return out;
 }
 
@@ -713,6 +719,8 @@ export interface Equation {
   readonly down: boolean;
   /** `true` for an equation of `contributes`: it gives a contribution to a collection (TREE.COLLECT). */
   readonly contributes?: true;
+  /** `true` for an equation of `at`: it gives an attribute with parameters (TREE.AT). */
+  readonly at?: true;
 }
 
 /**
@@ -901,10 +909,10 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
   state.needs.set(kind, needs);
   for (const name of Object.keys(kind.tree?.attributes ?? {})) needs.push({ name, why: "the kind declares it", hidden: undefined });
   const self: SeenNode = { kind, text: kindText, own: undefined, parent: undefined };
-  for (const { label, term, names, attribute, down, contributes } of equationsOf(kind)) {
+  for (const { label, term, names, attribute, down, contributes, at } of equationsOf(kind)) {
     const inner: CheckOptions = { names, ...(of === undefined ? {} : { declaredType: of }), ...(options.caps === undefined ? {} : { caps: [] }) };
     const read = (name: string): void => {
-      needs.push({ name, why: `the equation ${label} reads it`, hidden: down || contributes === true ? undefined : attribute });
+      needs.push({ name, why: `the equation ${label} reads it`, hidden: down || contributes === true || at === true ? undefined : attribute });
     };
     for (const issue of checkAll(machine, term, inner, undefined, state, { node: self, read })) {
       out.push({ code: issue.code, place: [], reason: `In the equation ${label} of the kind ${kindText}: ${issue.reason}` });
@@ -917,12 +925,12 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
  * This function finds the issues of the contract of a tree kind (TREE.CHECK-RESERVED). An attribute with the name of a
  * structural step gets no read. A tree kind of the run side contradicts the evaluation on demand of its attributes. A
  * declaration `circular` without a start value or with a bad limit gives `#VALUE!` (TREE.CIRCULAR-CHECK). A declaration
- * `collect` without its form gives `#VALUE!` too (TREE.COLLECT).
+ * `collect` without its form gives `#VALUE!` too (TREE.COLLECT). So does an entry of `at` without its form (TREE.AT-CHECK).
  */
 function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
   const out: Issue[] = [];
   const tree = kind.tree;
-  for (const table of ["equations", "down", "attributes", "contributes"] as const) {
+  for (const table of ["equations", "down", "attributes", "contributes", "at"] as const) {
     for (const name of Object.keys(tree?.[table] ?? {})) {
       const why = Object.hasOwn(STRUCTURAL, name) ? STRUCTURAL[name] : undefined;
       if (why !== undefined) out.push({ code: "#NAME?", place: [], reason: `The kind ${kindText} gives the reserved attribute tree.${table}.${name}: ${why}.` });
@@ -934,6 +942,10 @@ function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
     if (rule !== undefined && !rule.ok) out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad declaration tree.attributes.${name}.circular. ${rule.reason}` });
     const collect = declared.collect === undefined ? undefined : collectOf(declared.collect);
     if (collect !== undefined && !collect.ok) out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad declaration tree.attributes.${name}.collect. ${collect.reason}` });
+  }
+  for (const [name, declared] of Object.entries(tree?.at ?? {})) {
+    const rule = atRuleOf(declared);
+    if (!rule.ok) out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad entry tree.at.${name}. ${rule.reason}` });
   }
   if (kind.side === "run") {
     out.push({ code: "#CALC!", place: [], reason: `The tree kind ${kindText} is on the run side: a node evaluates its attributes on demand, thus in no fixed order.` });
@@ -966,9 +978,14 @@ function nodeIssues(machine: Machine, node: SeenNode, state: TreeState, v: DocVi
  * This function examines a reference from the root `self` (TREE.CHECK-UNKNOWN). The steps `parent` go up the known
  * nodes. The first other key names an attribute of the node that they reach. When no rung answers the attribute, the
  * function gives the index of the step and the reason. In an equation, a read of the node of the equation goes to the
- * needs of its kind.
+ * needs of its kind. A step `tree.at` with literal arguments gets the checks of TREE.AT-CHECK.
  */
-function readIssue(machine: Machine, self: SeenNode | undefined, path: readonly Json[], rootSelf: RootSelf | undefined): { readonly index: number; readonly reason: string } | undefined {
+function readIssue(
+  machine: Machine,
+  self: SeenNode | undefined,
+  path: readonly Json[],
+  rootSelf: RootSelf | undefined,
+): { readonly index: number; readonly reason: string; readonly code?: ErrorCode } | undefined {
   let node = self;
   let index = 1;
   while (node !== undefined && index < path.length && path[index] === "parent") {
@@ -976,6 +993,10 @@ function readIssue(machine: Machine, self: SeenNode | undefined, path: readonly 
     index += 1;
   }
   const step = path[index];
+  if (node !== undefined && isAtStep(machine, step)) {
+    const at = atStepOf(node.kind, node.text, step.value);
+    return at.kind === "issue" ? { index, reason: at.reason, code: at.code } : undefined;
+  }
   if (node === undefined || !isKey(step) || Object.hasOwn(STRUCTURAL, String(step))) return undefined;
   const name = String(step);
   if (node.own === undefined) {
@@ -983,6 +1004,46 @@ function readIssue(machine: Machine, self: SeenNode | undefined, path: readonly 
     return undefined;
   }
   return answered(machine.world, node, name) ? undefined : { index, reason: `No rung gives the attribute ${name} of the kind ${node.text}.` };
+}
+
+/** This function tells if a step of a path is a step `tree.at` of the standard walker (TREE.AT, D124). */
+export function isAtStep(machine: Machine, step: unknown): step is Envelope {
+  return isEnvelope(step) && walkerOf(machine, step) === STD_WALKERS["walk.tree.at"];
+}
+
+/**
+ * A step `tree.at` of a known kind before the run (TREE.AT-CHECK, D124). An exact step names an instance. The run of a
+ * step with an issue fails at the step. Only the run knows a step with a document in its data, or a bad entry.
+ */
+export type AtStep =
+  | { readonly kind: "exact"; readonly attr: string; readonly key: string; readonly equation: Json; readonly params: readonly string[]; readonly names: Readonly<Record<string, Json>> }
+  | { readonly kind: "issue"; readonly code: ErrorCode; readonly reason: string }
+  | { readonly kind: "unknown" };
+
+/**
+ * This function examines the data of a step `tree.at` on a node of a known kind (TREE.AT-CHECK, D124). `check` and the
+ * graph of attribute instances read the step with this one function.
+ */
+export function atStepOf(kind: Kind, kindText: string, data: unknown): AtStep {
+  if (holdsDocument(data)) return { kind: "unknown" };
+  const attr = isRecord(data) ? field(data, "attr") : undefined;
+  if (typeof attr !== "string") return { kind: "issue", code: "#VALUE!", reason: "The step tree.at needs a text attr." };
+  const table = kind.tree?.at;
+  const declared = table !== undefined && Object.hasOwn(table, attr) ? table[attr] : undefined;
+  if (declared === undefined) return { kind: "issue", code: "#N/A", reason: `No rung gives the attribute ${attr} with parameters of the kind ${kindText}.` };
+  const rule = atRuleOf(declared);
+  // The issue of a bad entry is an issue of the kind (contractIssues).
+  if (!rule.ok) return { kind: "unknown" };
+  const given = atArgsOf(rule.params, isRecord(data) && Object.hasOwn(data, "args") ? field(data, "args") : {});
+  if (!given.ok) return { kind: "issue", code: "#VALUE!", reason: `The step tree.at of ${attr} of the kind ${kindText} has bad arguments. ${given.reason}` };
+  return { kind: "exact", attr, key: given.key, equation: rule.equation, params: rule.params, names: given.names };
+}
+
+/** This function tells if a value holds a document. A document in the data of a step can be a part, thus only the run knows its value. */
+function holdsDocument(value: unknown): boolean {
+  if (isEnvelope(value)) return true;
+  if (Array.isArray(value)) return value.some(holdsDocument);
+  return isRecord(value) && Object.values(value).some(holdsDocument);
 }
 
 /** The self of the root of a walk for the checks of attributes: the node of an equation, and the function for its reads. */
@@ -1149,7 +1210,7 @@ function checkAll(
       // Only the standard code of a reference reads the attribute, thus a header that changes the code hides the read.
       if (attributes && root === "self" && v.address !== true && name === REF_CODE) {
         const issue = readIssue(machine, self, path, rootSelf);
-        if (issue !== undefined) push({ code: "#N/A", place: v.place, reason: issue.reason, at: stepAt(issue.index) });
+        if (issue !== undefined) push({ code: issue.code ?? "#N/A", place: v.place, reason: issue.reason, at: stepAt(issue.index) });
       }
       path.forEach((step, index) => {
         if (index === 0 || isKey(step)) return;
