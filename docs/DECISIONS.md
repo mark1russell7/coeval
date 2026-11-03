@@ -3897,3 +3897,37 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 - The step of a construct is a fact of its name. A step that depends on the data of a node needs a construct name for each variant.
 - The reason gives one node. A host that shows each node of a step walks the document itself.
 
+
+## D117 (2026-11-03): the margin and the noise cap of each case family come from the A/A records of CI
+
+**Context.** K214, a limit of D114. The pooled verdict of the Speed run 41579105529 gave "slower" for "a tree with an equation". PR #226 changed no product code, thus the verdict was false. Job 2 gave +0.8 % for the head and -1.0 % for the A/A pair. The margin of D114 was a fixed 1.5 %, and the verdict had no noise cap.
+
+**Decision.**
+
+- Each case of `bench/cases.ts` is in one family: formula, reference, plan or tree (`bench/limits.ts`). A test makes sure that each case has a family.
+- The limits come from the A/A records of 6 CI jobs: the Speed runs 41574523074, 41579105529 and 41580821217, two jobs each. The newer runs have no bench records, because their PRs changed no bench or product file.
+- For each job and family, the script takes the largest absolute A/A median and the largest A/A spread (`aaSpread`) of its cases. Both are on a log scale.
+- The margin of a family is the largest median plus the difference of the largest and the smallest median, with a floor of ln(1.015). The noise cap is the largest spread plus the difference of the largest and the smallest spread. Each limit goes up to the next 0.0001. There is no other factor.
+- The limits are: formula 1.50 % and 4.86 %, reference 1.50 % and 11.51 %, plan 1.50 % and 31.68 %, tree 2.20 % and 30.42 %.
+- A case without a family uses the fallback limits, 2.19 % and 30.50 %, from the same formula over all cases. Its verdict says "(fallback limits)". A family with fewer than 5 jobs also uses the fallback.
+- `bench/limits.json` keeps the statistics of each case in each job and the limits. A test computes the limits again from the statistics and compares them.
+- The bench workflows keep their records 90 days, not 14. Thus a refresh and the shared bench core can use them.
+
+**The replay.** `bench/refresh.ts` gives the verdicts of the three runs again with the new limits.
+
+- Pooled, with the margin of D114: run 41574523074 gave 1 slower and 1 faster, and run 41579105529 gave 1 slower. Both runs have the product code of the base, thus these three verdicts are false.
+- Pooled, with the new limits: no slower and no faster in the three runs. The test `bench/limits.test.ts` replays the case of run 41579105529 from the fixture `bench/replay.json` in CI.
+- Each job alone, in the two runs of the same code: 3 false verdicts stay. A verdict of one job is not the gate. The gate of `bench.yml` uses the pooled verdict (D114).
+- The A/A pair of each job against the A/A pair of each other job: 16 slower or faster of 480 verdicts. Twelve are "factsOf a tree with an equation". These pairs come from two runners, thus they are not a gate.
+
+**Limits of this decision.**
+
+- A wider margin does not remove a false verdict of one job. The rule `difference` gives "slower" for an interval wholly above 1 and out of the margin. The interval of job 2 went past 2.2 %.
+- The noise caps of the plan and tree families are near 30 %, because one job of each had an A/A spread near 15 %. At that size, a cap does not stop a verdict. A cap from more jobs, or the default cap of each family in the shared bench core, can replace it.
+- The limits come from 6 jobs only. Refresh them when 5 or more new jobs have records.
+
+**How to refresh.** Download each Speed run with `gh run download <id> -R mark1russell7/coeval -D <dir>/<id>`, then start `node packages/core/bench/refresh.ts <dir>`. The script writes `limits.json`, and the fixture when the run 41579105529 is in `<dir>`. It fails for a false pooled verdict of a run of the same code, and for a job whose A/A band does not hold 1.
+
+**Why.** The rule of the gate limits is the worst of 5 or more CI jobs plus their spread, with the runs beside it. A fixed margin had no source. The limits of each family keep a quiet family strict, and they give a noisy family a wider margin.
+
+**End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again.
