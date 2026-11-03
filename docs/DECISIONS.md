@@ -3551,3 +3551,40 @@ The behavior changes for a caller only with the new field. A check with types th
 
 - Two unrelated domains of different depth that both hold a value give the document of the deeper domain, not of the first name.
 - The cost of the order grows as the square of the count of the domains with a codec, when a table has such a parent.
+
+## D111 (2026-11-03): `factsOf` reads the side and the effects of a verb from the entry of the verb in `verbEffects`
+
+**Context.** K55, from S1a (D24) and K56 (D49). `factsOf` takes the option `verb` since D24. For a verb other than `eval`, the facts gave the side and the effects of `eval`. D24 called this an over-approximation, because a contract declared effects only for `eval`.
+
+D49 gave the field `verbEffects`, and `check` tests the effects of each verb by it. The facts still read only `effects`. Thus a fact and a check of the same verb did not agree. The verb `format` of a kind `log` gave the effect `log` in the facts, and `check` gave no effect issue. The run of `format` causes no effect. The design calls are the effects of a verb, its side, and the facts of a kind without an entry for the verb.
+
+**Decision.**
+
+- For `eval`, the facts do not change. The field `effects` gives the effects, and the field `side` gives the side.
+- For another verb, the effects of a document come from `declaredEffects(v, verb)`. This is the one function that `check` reads (D27). Thus the effects are the effects of the entry of the verb in `verbEffects` (FACTS.VERB-EFFECTS). The entry `"type"` gives the type of the document, as for `eval`.
+- For another verb, a kind is on the run side when its entry declares at least one effect (FACTS.VERB-SIDE). With the option `run`, `check` already asks a runner for such a kind, and code with a runner is code of the run side.
+- A kind without an entry for the verb has no declaration (D49). It adds no effect, and it does not put the document on the run side (FACTS.VERB-UNDECLARED). `check` also tests no effect of that kind for the verb.
+- The marks `pure`, `volatile` and `lazy` of a contract still describe only `eval` (D24, D49). For another verb, only the hook `facts` describes the code. Thus a document is pure for another verb only when the hook answers `pure` for its code. A kind without an entry for the verb is then also not pure.
+- The equations of a tree kind evaluate with `eval`. Their facts do not change.
+- The test FACTS.VERB-CHECK compares the facts and `check` for the verbs `eval` and `format`. `check` without capabilities refuses each effect of the facts and no other effect. With the option `run`, the evaluator of `format` needs a runner exactly when the facts give the run side.
+
+**Rejected.**
+
+- The side and the effects of `eval` for a kind without an entry, as before. Then a fact and a check of the same verb do not agree. The effects of `eval` also say nothing about the code of another verb.
+- The run side for a kind without an entry, as an unknown. Then each verb of each existing world is on the run side, for example `format` of the formula kit. The mark `pure` already keeps a host from a cache of such code.
+- A new contract field `verbSides`, by verb. It is a second declaration beside `verbEffects`, and the two can disagree. The run side of `eval` without an effect, as for `seq`, orders the effects of its parts. The parts of such a document give the run side of the document for another verb too.
+- A change of `effectsOf` and `checkLatent` in this item. They read the latent effects of `eval`, and the least authority of another verb is a separate question (D49 Limits).
+
+**Why.** A fact and a check of the same verb read the same declaration with the same function. Thus a host that schedules a verb `format` gets the effects that `check` tests. A document whose run causes no effect gets no effect in its facts.
+
+**Public types.** No change. The option `verb` and the fields of `DocFacts` keep their types.
+
+**Changed expected values.** One assertion of FACTS.VERB. The verb `format` of a sequence with a `log` gave the run side and the effect `log`. It gives the derive side and no effect, because the standard kinds declare no effect for `format`.
+
+A call of `factsOf` without `verb`, or with `verb: "eval"`, gives the same facts. A call with another verb can give other facts. This is a change of behavior, thus it goes into the next MINOR release.
+
+**Limits.**
+
+- A hook answer gives no side and no effects. Thus code of another verb that the hook describes gets its side and effects only from the contract.
+- A fold of a plan for another verb still reads the field `side` and the field `effects` of `eval`. That is an over-approximation: it folds less code, not more.
+- `effectsOf` and `checkLatent` still read only the effects of `eval`.
