@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type World, type WorldEntry, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
+import { type Kind, type World, type WorldEntry, circularOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
@@ -867,7 +867,8 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
 
 /**
  * This function finds the issues of the contract of a tree kind (TREE.CHECK-RESERVED). An attribute with the name of a
- * structural step gets no read. A tree kind of the run side contradicts the evaluation on demand of its attributes.
+ * structural step gets no read. A tree kind of the run side contradicts the evaluation on demand of its attributes. A
+ * declaration `circular` without a start value or with a bad limit gives `#VALUE!` (TREE.CIRCULAR-CHECK).
  */
 function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
   const out: Issue[] = [];
@@ -877,6 +878,11 @@ function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
       const why = Object.hasOwn(STRUCTURAL, name) ? STRUCTURAL[name] : undefined;
       if (why !== undefined) out.push({ code: "#NAME?", place: [], reason: `The kind ${kindText} gives the reserved attribute tree.${table}.${name}: ${why}.` });
     }
+  }
+  // A declaration circular needs a start value and a correct limit (TREE.CIRCULAR-CHECK, D113).
+  for (const [name, declared] of Object.entries(tree?.attributes ?? {})) {
+    const rule = declared.circular === undefined ? undefined : circularOf(declared.circular);
+    if (rule !== undefined && !rule.ok) out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad declaration tree.attributes.${name}.circular. ${rule.reason}` });
   }
   if (kind.side === "run") {
     out.push({ code: "#CALC!", place: [], reason: `The tree kind ${kindText} is on the run side: a node evaluates its attributes on demand, thus in no fixed order.` });

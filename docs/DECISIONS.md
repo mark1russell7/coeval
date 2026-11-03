@@ -3715,3 +3715,48 @@ The rule `equal` of the host does not help: `Object.is` answers before it. D26 a
 - A host that changes a value during the evaluation, before `printReads`, gets a print of the new value. The prints are sound only for a pure document, as `verifyReads` is.
 - A new order of the fields of a record gives another print. Thus the read is changed, and the document evaluates again.
 - A value with many shared parts costs one walk for each verification. The limit bounds that cost.
+
+## D113 (2026-11-03): a circular attribute evaluates to a fixed point by the demand algorithm of Magnusson and Hedin
+
+**Context.** L2f, from R3 P6. Before L2f, each cycle of attributes gave `#CYCLE!` (TREE.CYCLE). Some layouts need a cycle. A scrollbar makes the content narrower, and narrow content can need the scrollbar. The reachable nodes of a graph with a loop are a second example.
+
+Magnusson and Hedin (2007) evaluate such a cycle on demand. A demand in the cycle gets the current approximation. The first attribute evaluates again until no value changes.
+
+**Decision.**
+
+- A kind declares an attribute circular in `tree.attributes.<name>.circular = { start, limit? }`. The value `start` is JSON data, and it does not evaluate. The value `limit` is a whole number of 1 or more. Its default is `CIRCULAR_LIMIT`, 100 rounds.
+- The first circular attribute that a demand reaches leads a fixed point. Each round evaluates the leader again. Each circular attribute that a round reaches joins the fixed point, and it evaluates one time in each round.
+- A demand that reaches a circular attribute in evaluation gets its approximation: the value of the last round, or `start`. Two approximations are the same by DOC.EQUALS. Two errors are the same when they have one code and one reason.
+- The rounds end when a round gives no new value. Each attribute of the last round keeps its value in the memo. Each other attribute that read an approximation evaluates again at its next demand.
+- An error of the leader ends the rounds, and the error is the result. After the last round of the limit, the leader gives `#CYCLE!` at the place of its node. The reason names the leader and the limit.
+- A mixed cycle gives `#CYCLE!`. A chain gets an approximation only when each attribute from the closed attribute to the demand is circular.
+- A host cell keeps only final values (D108). In a fixed point the kit does not use the cells of the host. Only the cell of the leader gets a value, from a `compute` that contains each round.
+- `check` and `attributeGraph` see the declarations. A certain cycle of circular attributes is not an issue, and each other cycle stays an issue. The graph keeps each edge, and it marks the cycle and its vertices `circular`.
+- A declaration without a start value or with a bad limit gives `#VALUE!` in `check`. The run gives the same code at its demand.
+- The reference evaluator has its own copy of the algorithm, thus `agree` compares the two.
+
+**Rejected options.**
+
+- A declaration `circular` beside the equation, in `tree.equations`. An equation of a node part then has no declaration. The table `tree.attributes` already holds the other rules of an attribute: `copy`, `fold` and `default`.
+- A start value that evaluates as a term. A start then can read another attribute, and the first round is not a known value.
+- An approximation for each chain in an open fixed point, also through a plain attribute. A mixed cycle then gives a value in one demand order and `#CYCLE!` in another order. The rule "each attribute of the chain is circular" gives `#CYCLE!` in each order.
+- A leader that is the attribute with the first name, or the first in the document. The demand algorithm needs no order of the attributes, and a monotone equation gives the same least fixed point from each leader (TREE.CIRCULAR-ORDER).
+- A write of each member to its host cell with the last value. A host that tracks reads sees the reads of the whole cycle only in the `compute` of the leader. A member cell then keeps a stale value after a change of the store.
+- A limit that gives the last approximation. A value that is not stable is not a fixed point, and a host cannot see the problem.
+- A nested fixed point for a second circular attribute in the rounds of the first. Two open fixed points of one cycle can disagree, and the cost grows with each level. All attributes of the rounds join one fixed point.
+
+**Why.** The demand algorithm needs no static analysis of the cycle, thus a cycle through a lazy read also becomes stable. The equal test of DOC.EQUALS is the same test that the other layers use. The rule for mixed cycles keeps each old document correct: a document without `circular` evaluates as before.
+
+**Cost.** A tree without `circular` keeps the code of its demands as before. The function `read` of a node and the function of its host cells each get one test. The test reads a flag of the contract and the open fixed point. The code of a fixed point is in module functions. They get the node from its state, thus a node makes no new closure.
+
+The first form of L2f made the bytecode of `read` too large for the inlining limit of V8 (460 bytes). The trace gave 10 refusals with reason 5, the size limit. Thus `read` stopped being inlined into `deref`, `derefStep` and `json`, and the Speed bench gave a slower tree. At this time `read` has 435 bytes, 426 on main, and V8 inlines it at the same places as on main.
+
+**Public types.** New exports: `CircularDeclaration`, `CircularRule`, `CIRCULAR_LIMIT` and `circularOf`. New optional fields: `AttributeDeclaration.circular`, `AttributeVertex.circular` and `AttributeCycle.circular`. This is a feature for the next MINOR release.
+
+**Changed expected values.** None. A document without `circular` gives the same result and the same issues.
+
+**Limits.**
+
+- A fixed point is sound only for monotone equations on a finite lattice. Other equations can oscillate, and the limit then gives `#CYCLE!`.
+- A round evaluates the whole cycle again. The algorithm does not use the order of the strongly connected parts.
+- One fixed point is open at a time. A circular attribute that an attribute of a round reaches through other circular attributes joins it, also when it is in another cycle.

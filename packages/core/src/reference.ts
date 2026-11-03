@@ -1,6 +1,6 @@
-import { type Envelope, type Json, type Key, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
+import { type Envelope, type Json, type Key, docEquals, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { ask } from "./ladder.ts";
-import { type AttributeDeclaration, type CapsRule, type Kind, type TreeContract, equationType, lookupKind } from "./world.ts";
+import { type AttributeDeclaration, type CapsRule, type CircularRule, type Kind, type TreeContract, circularOf, equationType, lookupKind } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, ROOTS, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
 import { type AttributeRung, STD_EVALUATORS } from "./stdlib.ts";
@@ -776,7 +776,7 @@ interface RefNode {
 const refNodes = /* @__PURE__ */ new WeakMap<object, RefNode>();
 
 /** The attributes in evaluation in the reference, in the order of their demands (TREE.CYCLE). */
-const inEvaluation: { readonly node: RefNode; readonly name: string }[] = [];
+const inEvaluation: { readonly node: RefNode; readonly name: string; readonly circular: boolean; tentative: boolean }[] = [];
 
 function nameOfAttribute(node: RefNode, name: string): string {
   return `${name} of ${node.kind} at [${node.place.join(", ")}]`;
@@ -865,29 +865,159 @@ const REF_RUNGS: readonly (readonly [AttributeRung, (node: RefNode, name: string
   ],
 ];
 
-/** TREE.ONCE, TREE.MEMO and TREE.CYCLE: the result of one attribute, or `undefined` when no rung of its ladder answers. */
+/** TREE.LADDER: the answer of the first rung that answers, or `undefined`. */
+function ladderOf(node: RefNode, name: string): Result | undefined {
+  for (const [, rung] of REF_RUNGS) {
+    const result = rung(node, name);
+    if (result !== undefined) return result;
+  }
+  return undefined;
+}
+
+/** One approximation of a circular attribute in the reference, with its round (TREE.CIRCULAR). */
+interface RefApproximation {
+  readonly result: Result | undefined;
+  readonly round: number;
+}
+
+/**
+ * TREE.CIRCULAR: a fixed point in evaluation in the reference. The first circular attribute of a demand leads it, and
+ * each circular attribute that a demand reaches during its rounds joins it.
+ */
+interface RefPoint {
+  /** The index of the leader in `inEvaluation`. */
+  readonly depth: number;
+  round: number;
+  changed: boolean;
+  readonly values: Map<RefNode, Map<string, RefApproximation>>;
+}
+
+/** The open fixed point of the reference, or `undefined`. */
+let refPoint: RefPoint | undefined;
+
+/** TREE.CIRCULAR-CHECK: the declaration `circular` of an attribute of a node, or `undefined`. */
+function circularRuleOf(node: RefNode, name: string): CircularRule | undefined {
+  const declared = termIn(node.contract?.attributes, name)?.circular;
+  return declared === undefined ? undefined : circularOf(declared);
+}
+
+/** TREE.CIRCULAR: two approximations are the same when two values are equal (DOC.EQUALS) or two errors have one code and reason. */
+function sameApproximation(a: Result | undefined, b: Result | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.ok && b.ok) return docEquals(a.value, b.value);
+  if (!a.ok && !b.ok) return a.error.code === b.error.code && a.error.reason === b.error.reason;
+  return false;
+}
+
+/** TREE.CIRCULAR: the attributes above the leader read an approximation, thus their results are not final. */
+function readApproximation(point: RefPoint): void {
+  for (const entry of inEvaluation.slice(point.depth + 1)) entry.tentative = true;
+}
+
+function approximationsOf(point: RefPoint, node: RefNode): Map<string, RefApproximation> {
+  const known = point.values.get(node);
+  if (known !== undefined) return known;
+  const made = new Map<string, RefApproximation>();
+  point.values.set(node, made);
+  return made;
+}
+
+/**
+ * TREE.CIRCULAR and TREE.CIRCULAR-LIMIT: the rounds of the leader of a fixed point. A round without a new value ends
+ * the rounds, and each circular attribute of that round keeps its value. An error ends the rounds at once. The last
+ * round of the limit gives `#CYCLE!` at the place of the node of the leader.
+ */
+function fixedPointOf(node: RefNode, name: string, rule: CircularRule & { readonly ok: true }): Result | undefined {
+  const point: RefPoint = { depth: inEvaluation.length - 1, round: 0, changed: false, values: new Map() };
+  refPoint = point;
+  try {
+    let before: Result | undefined = ok(rule.start);
+    for (;;) {
+      point.round += 1;
+      point.changed = false;
+      const result = ladderOf(node, name);
+      if (result !== undefined && !result.ok) return result;
+      if (!sameApproximation(before, result)) point.changed = true;
+      before = result;
+      approximationsOf(point, node).set(name, { result, round: point.round });
+      if (!point.changed) {
+        for (const [member, values] of point.values) {
+          for (const [key, value] of values) if (value.round === point.round && value.result !== undefined) member.values.set(key, value.result);
+        }
+        return result;
+      }
+      if (point.round >= rule.limit) {
+        return fail("#CYCLE!", `The cycle of the circular attribute ${nameOfAttribute(node, name)} does not become stable within its limit of ${rule.limit} ${rule.limit === 1 ? "round" : "rounds"}.`, {
+          place: node.place,
+        });
+      }
+    }
+  } finally {
+    refPoint = undefined;
+  }
+}
+
+/** TREE.CIRCULAR: a circular attribute in the open fixed point of another leader evaluates one time in each round. */
+function roundOf(point: RefPoint, node: RefNode, name: string, rule: CircularRule & { readonly ok: true }): Result | undefined {
+  let value = point.values.get(node)?.get(name);
+  if (value === undefined || value.round !== point.round) {
+    node.pending.add(name);
+    inEvaluation.push({ node, name, circular: true, tentative: false });
+    let result: Result | undefined;
+    try {
+      result = ladderOf(node, name);
+    } finally {
+      node.pending.delete(name);
+      inEvaluation.pop();
+    }
+    if (!sameApproximation(value === undefined ? ok(rule.start) : value.result, result)) point.changed = true;
+    value = { result, round: point.round };
+    approximationsOf(point, node).set(name, value);
+  }
+  readApproximation(point);
+  return value.result;
+}
+
+/**
+ * TREE.ONCE, TREE.MEMO, TREE.CYCLE and TREE.CIRCULAR: the result of one attribute, or `undefined` when no rung of its
+ * ladder answers. A result that read an approximation of an open fixed point is not kept.
+ */
 function attributeOf(node: RefNode, name: string): Result | undefined {
   const done = node.values.get(name);
   if (done !== undefined) return done;
   if (node.pending.has(name)) {
     const from = inEvaluation.findIndex((entry) => entry.node === node && entry.name === name);
+    const point = refPoint;
+    if (point !== undefined && from >= point.depth && inEvaluation.slice(from).every((entry) => entry.circular)) {
+      readApproximation(point);
+      const kept = point.values.get(node)?.get(name);
+      if (kept !== undefined) return kept.result;
+      const rule = circularRuleOf(node, name);
+      return ok(rule?.ok === true ? rule.start : null);
+    }
     const steps = from < 0 ? [nameOfAttribute(node, name)] : inEvaluation.slice(from).map((entry) => nameOfAttribute(entry.node, entry.name));
     return fail("#CYCLE!", `The attributes form a cycle: ${[...steps, nameOfAttribute(node, name)].join(" -> ")}.`);
   }
+  const rule = circularRuleOf(node, name);
+  if (rule !== undefined && !rule.ok) {
+    const bad = fail("#VALUE!", `The attribute ${nameOfAttribute(node, name)} has a bad declaration circular. ${rule.reason}`);
+    node.values.set(name, bad);
+    return bad;
+  }
+  const point = refPoint;
+  if (point !== undefined && rule !== undefined) return roundOf(point, node, name, rule);
+  const entry = { node, name, circular: rule !== undefined, tentative: false };
   node.pending.add(name);
-  inEvaluation.push({ node, name });
+  inEvaluation.push(entry);
+  let result: Result | undefined;
   try {
-    for (const [, rung] of REF_RUNGS) {
-      const result = rung(node, name);
-      if (result === undefined) continue;
-      node.values.set(name, result);
-      return result;
-    }
-    return undefined;
+    result = rule === undefined ? ladderOf(node, name) : fixedPointOf(node, name, rule);
   } finally {
     node.pending.delete(name);
     inEvaluation.pop();
   }
+  if (!entry.tentative && result !== undefined) node.values.set(name, result);
+  return result;
 }
 
 /** TREE.RESULT: the JSON of a node. `open` holds the nodes and the containers whose JSON is in progress. */
