@@ -1144,8 +1144,10 @@ function valueStep(value: unknown, key: Key): { readonly found: unknown } | { re
  *
  * - A record gives the type of its field. A closed record without the field has no such step. An open record gives
  *   `unknown`.
- * - A list gives the type of its items for an index, and `number` for `length`.
- * - A base type reads the steps of its domain, then of each parent (`Domain.steps`).
+ * - A list gives the type of its items for an index, and `number` for `length`. Another key has no such step.
+ * - A base type reads the steps of its domain, then of each parent (`Domain.steps`). A base type of the kernel
+ *   without such a step has no step, because its values are not objects (TYPE.NO-STEP, D120).
+ * - A function type has no step, because a step into a function reaches nothing.
  * - A union joins the steps of its types. `one` gives the values that the step reaches.
  * - Each other step gives `unknown`, and `never` gives `never`.
  *
@@ -1171,10 +1173,13 @@ export function stepType(
         const found = steps[name] as ValueType;
         return { type: examine === undefined ? found : examine(found, `type of the step ${name} of the domain ${each}`) };
       }
-      return { type: "unknown" };
+      // A value of a base type of the kernel is not an object, thus a step into it reaches nothing (TYPE.NO-STEP).
+      return Object.hasOwn(STD_DOMAINS, form.name) ? NO_STEP : { type: "unknown" };
+    case "fn":
+      return NO_STEP;
     case "list":
       if (key === "length") return { type: "number" };
-      return { type: indexOf(key) >= 0 ? form.item : "unknown" };
+      return indexOf(key) >= 0 ? { type: form.item } : NO_STEP;
     case "record":
       if (Object.hasOwn(form.fields, name)) return { type: form.fields[name] as ValueType };
       return form.closed ? { missing: Object.keys(form.fields) } : { type: "unknown" };
@@ -1203,6 +1208,9 @@ export function stepType(
       return { type: "unknown" };
   }
 }
+
+/** The answer of `stepType` for a type whose members have no step with the key, and no fields to name. */
+const NO_STEP: StepType = { missing: [] };
 
 /** A term that `typeIssues` reads later: the term, its keys from the root and its depth. */
 interface Pending {

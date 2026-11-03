@@ -3953,6 +3953,16 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 
 **Why.** Without `drives`, nothing changes: the check keeps its assumption, and `conform` keeps its C6 finding. The evaluation path does not change, because the run already fails only on a real wait (D38).
 
+## D120 (2026-11-03): a step that reaches nothing in each run is a type issue
+
+**Context.** K70, from K25. Some steps gave the type `unknown`, but each run gives `#N/A` at them. They go into a number, a text or a function, or into a list with a key that is not an index or `length`. Thus the check knew the failure and did not tell it.
+
+**Decision.** `stepType` gives no step for these types (TYPE.NO-STEP). The reference gets the issue that a closed record without the field gives (TYPE.CLOSED), and the type `unknown`. The base types of the kernel are `null`, `undefined`, `bool`, `number` and `text`. A step of a domain of such a type still gives its type (TYPE.STEPS). A union keeps only its members with the step.
+
+**Alternatives.** Each base type without a step can give the issue. But a domain outside the kernel can hold host things, and a host thing answers each step with its own code. A new error code can tell this issue from a missing field. But both issues say the same thing: the value has no such field.
+
+**Why.** The values of a kernel base type are not objects, and a function is not data. A step into them reaches nothing, thus the issue holds for each member of the type. The evaluation path does not change.
+
 ## D121 (2026-11-03): a walker holds the type rule of its step
 
 **Context.** K72, from K25. A path with a step document had the type `unknown` after the step. Thus a later step and the parent of the reference got no type, and the check found no issue there.
