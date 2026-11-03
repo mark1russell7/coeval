@@ -37,6 +37,8 @@ export interface AttributeVertex {
   readonly attribute: string;
   /** The text of the type of the node. */
   readonly type: string;
+  /** `true` when the kind of the node declares the attribute `circular` (TREE.CIRCULAR-CHECK). Else the field is absent. */
+  readonly circular?: true;
 }
 
 /** One read of an attribute by the code of another attribute (D107). */
@@ -57,6 +59,11 @@ export interface AttributeCycle {
   readonly vertices: readonly string[];
   /** `true` when the eager reads with a known source close the cycle (GRAPH.CYCLE). */
   readonly certain: boolean;
+  /**
+   * `true` when each attribute of the cycle is circular: the run gives its fixed point, thus `check` gives no issue
+   * (TREE.CIRCULAR-CHECK). Else the field is absent.
+   */
+  readonly circular?: true;
 }
 
 /** The graph of attribute instances of a document (TREE.GRAPH). */
@@ -195,11 +202,18 @@ interface Reader {
   readonly at: readonly Key[];
 }
 
+/** This function tells if the kind of a node declares an attribute `circular` (D113). */
+function isCircular(kind: Kind, attribute: string): boolean {
+  const declared = hasOwnEntry(kind.tree?.attributes, attribute) ? kind.tree?.attributes?.[attribute] : undefined;
+  return declared?.circular !== undefined;
+}
+
 /** This function gives the vertex of an attribute of a node. A new vertex goes on the work list for its rungs. */
 function vertexOf(b: Builder, node: NodeInfo, attribute: string): string {
   const id = attributeVertexId(node.visit.place, attribute);
   if (!b.vertices.has(id)) {
-    b.vertices.set(id, { id, place: node.visit.place, attribute, type: node.text });
+    const vertex: AttributeVertex = { id, place: node.visit.place, attribute, type: node.text };
+    b.vertices.set(id, isCircular(node.kind, attribute) ? { ...vertex, circular: true } : vertex);
     b.nodes.set(id, node);
     if (!node.parts.has(attribute)) b.work.push(id);
   }
@@ -558,8 +572,16 @@ export function attributeGraph(machine: Machine, doc: unknown, options: Attribut
     edges: b.edges,
     graph,
     unknown: b.edges.filter((e) => e.from === undefined),
-    cycles: cycles(graph).map((cycle) => ({ vertices: cycle.nodes, certain: cycle.certain })),
+    cycles: cycles(graph).map((cycle) => {
+      const found: AttributeCycle = { vertices: cycle.nodes, certain: cycle.certain };
+      return allCircular(b, cycle.nodes) ? { ...found, circular: true } : found;
+    }),
   };
+}
+
+/** This function tells if each vertex of a list is a circular attribute (D113). */
+function allCircular(b: Builder, ids: readonly string[]): boolean {
+  return ids.every((id) => b.vertices.get(id)?.circular === true);
 }
 
 function vertexText(vertex: AttributeVertex): string {
@@ -572,6 +594,9 @@ function vertexText(vertex: AttributeVertex): string {
  * certain cycle that these reads reach always gives `#CYCLE!`. The issue gets the place of the read that closes the
  * cycle in the order of the run, and the reason of the run. A cycle through a lazy read or an unknown read is not an issue.
  *
+ * A cycle whose attributes are each circular gives a fixed point, thus it is not an issue (TREE.CIRCULAR-CHECK). In a
+ * cycle with a plain attribute, the run gives `#CYCLE!` at the first read that closes a chain with a plain attribute.
+ *
  * @param machine - The world and the code of the evaluators.
  * @param doc - The document, as JSON.
  * @param options - The type of a bare root value.
@@ -582,7 +607,7 @@ export function cycleIssues(machine: Machine, doc: unknown, options: CheckOption
   const graph = nodeGraph(b);
   const certain = new Map<string, number>();
   cycles(graph).forEach((cycle, index) => {
-    if (cycle.certain) for (const id of cycle.nodes) certain.set(id, index);
+    if (cycle.certain && !allCircular(b, cycle.nodes)) for (const id of cycle.nodes) certain.set(id, index);
   });
   if (certain.size === 0) return [];
   // The eager reads with a known source of each vertex, in the order of its code, with the index of each edge.
@@ -627,9 +652,12 @@ export function cycleIssues(machine: Machine, doc: unknown, options: CheckOption
       // The read reaches an attribute in evaluation: the run gives #CYCLE! here, with the chain of the demands.
       const cycle = certain.get(from);
       if (cycle === undefined || reported.has(cycle)) continue;
-      reported.add(cycle);
       const first = stack.findIndex((frame) => frame.id === from);
-      const chain = [...stack.slice(first).map((frame) => frame.id), from].map((id) => vertexText(b.vertices.get(id) as AttributeVertex));
+      const ids = stack.slice(first).map((frame) => frame.id);
+      // A chain of circular attributes reads an approximation in the run, thus it does not close the cycle (D113).
+      if (allCircular(b, ids)) continue;
+      reported.add(cycle);
+      const chain = [...ids, from].map((id) => vertexText(b.vertices.get(id) as AttributeVertex));
       out.push({ code: "#CYCLE!", place: e.place, reason: `The attributes form a cycle: ${chain.join(" -> ")}.`, at: b.ats[index] as readonly Key[] });
     }
   }

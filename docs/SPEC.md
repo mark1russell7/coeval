@@ -122,7 +122,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | TREE.ONCE | An attribute of a node evaluates one time in an evaluation, also when two readers ask for it. |
 | TREE.LAZY | A node of a tree is a host thing, and each part of the node is an attribute. A node in an attribute of an open tree gives its thing. An attribute evaluates only when something reads it. |
 | TREE.SIBLING | A node reads an attribute of a sibling through its parent, for example `["self", "parent", "children", 0, "width"]`. The read does not recurse, also for a later sibling. |
-| TREE.CYCLE | A demand that reaches an attribute in evaluation gives `#CYCLE!`. The reason gives the chain of attributes. The error has the place of the reference that closed the cycle. |
+| TREE.CYCLE | A demand that reaches an attribute in evaluation gives `#CYCLE!`. The reason gives the chain of attributes. The error has the place of the reference that closed the cycle. A chain of circular attributes gets an approximation in its place (TREE.CIRCULAR). |
 | TREE.ERROR | A reference to a failed attribute gives the error of that attribute, with its code, its reason, its place and its cause. |
 | TREE.MEMO | Each node keeps one memo for each attribute, for one evaluation. Each evaluation makes new nodes, thus nothing stays from an earlier evaluation. The cells of a host change this rule (TREE.CELL). |
 | TREE.PURE | The kinds `panel` and `box` mask the capabilities of their parts. An attribute evaluates on demand, thus an effect in it gives `#CAP!`, and `check` finds it. |
@@ -147,6 +147,12 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | TREE.GRAPH | `attributeGraph` gives one vertex for each attribute of each node, and one edge for each read. A read of `self`, of the parent, of the previous sibling and of a `fold` gives an edge from a known vertex. A read through a value gives an edge with an unknown source. |
 | TREE.GRAPH-CYCLE | `check` gives `#CYCLE!` before a run for each certain cycle that the eager reads reach, at the place and with the reason of the run. A cycle through a lazy branch or an unknown read is not an issue. |
 | TREE.GRAPH-AGREES | In the generated trees, each read of a run along a static edge is an edge of the graph. A run that gives a value gets no `#CYCLE!` from `check`. |
+| TREE.CIRCULAR | An attribute with the declaration `circular: { start, limit }` evaluates to a fixed point. In its cycle, a demand gets the current approximation, and the leader evaluates again until no value changes (DOC.EQUALS). The scrollbar example becomes stable in two rounds, and the reachable nodes of a loop give the least fixed point. |
+| TREE.CIRCULAR-ORDER | For monotone equations, another order of the demands gives the same values. The attribute that a demand reaches first leads the fixed point. |
+| TREE.CIRCULAR-MIXED | A cycle with a plain attribute gives `#CYCLE!` as before, in each order of the demands. A chain gets an approximation only when each attribute from the closed one to the demand is circular. `check` gives the same issue. |
+| TREE.CIRCULAR-LIMIT | A fixed point that does not become stable within its limit gives `#CYCLE!` at the place of the node of the leader. The reason names the leader and the limit. Without a limit, the limit is `CIRCULAR_LIMIT`, 100 rounds. |
+| TREE.CIRCULAR-CHECK | `check` gives no issue for a certain cycle of circular attributes. The graph keeps its edges, and it marks the cycle and its vertices `circular`. A declaration `circular` without a start value or with a bad limit gives `#VALUE!` in `check` and at its demand. |
+| TREE.CIRCULAR-CELL | The cells of a host keep only final values. Only the cell of the leader gets a value of a fixed point, after the last round. A second evaluation with the kept cells computes nothing. |
 
 ## Evaluation and plans
 

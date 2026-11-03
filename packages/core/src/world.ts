@@ -134,11 +134,70 @@ export interface KindFacts {
  *   Then the term `combine` adds the attribute of each node in the list `children`, one at a time (TREE.FOLD).
  *   `combine` sees the names `acc` and `item`.
  * - `default`: the term that gives the value when no rung before it answers and the declaration has no fold.
+ * - `circular`: a cycle of this attribute gives its fixed point, not `#CYCLE!` (TREE.CIRCULAR, D113). Only a cycle
+ *   whose attributes each declare `circular` gives a fixed point.
  */
 export interface AttributeDeclaration {
   readonly copy?: boolean;
   readonly fold?: { readonly unit: Json; readonly combine: Json };
   readonly default?: Json;
+  readonly circular?: CircularDeclaration;
+}
+
+/**
+ * The declaration `circular` of an attribute (TREE.CIRCULAR, D113). The attribute that a cycle reaches first leads it.
+ * The leader evaluates again until no value of the cycle changes.
+ *
+ * - `start`: the value of the attribute before its first round, as JSON data. The kit does not evaluate it.
+ * - `limit`: the most rounds of the leader, a whole number of 1 or more. The default is `CIRCULAR_LIMIT`. A cycle that
+ *   is not stable after the last round gives `#CYCLE!` (TREE.CIRCULAR-LIMIT).
+ */
+export interface CircularDeclaration {
+  readonly start: Json;
+  readonly limit?: number;
+}
+
+/** The most rounds of a circular attribute without its own `limit` (TREE.CIRCULAR-LIMIT, D113). */
+export const CIRCULAR_LIMIT = 100;
+
+/** A declaration `circular` that the kit can use: its start value and its limit, or the reason of a bad declaration. */
+export type CircularRule = { readonly ok: true; readonly start: Json; readonly limit: number } | { readonly ok: false; readonly reason: string };
+
+/** This function tells if a value is JSON data: `null`, a truth value, a finite number, a text, or a container of them. */
+function isJsonData(value: unknown): boolean {
+  const stack: unknown[] = [value];
+  const seen = new Set<object>();
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (item === null || typeof item === "string" || typeof item === "boolean") continue;
+    if (typeof item === "number") {
+      if (!Number.isFinite(item)) return false;
+      continue;
+    }
+    if (!Array.isArray(item) && !isRecord(item)) return false;
+    if (seen.has(item)) continue;
+    seen.add(item);
+    for (const inner of Object.values(item)) stack.push(inner);
+  }
+  return true;
+}
+
+/**
+ * This function reads the declaration `circular` of an attribute (D113). The tree kit, the reference, `check` and the
+ * graph of attribute instances read it with this one function.
+ *
+ * @param declared - The value of the field `circular`.
+ * @returns The start value and the limit, or the reason when the declaration has no correct form.
+ */
+export function circularOf(declared: unknown): CircularRule {
+  if (!isRecord(declared) || !Object.hasOwn(declared, "start")) return { ok: false, reason: "The declaration circular needs a record with the field start." };
+  const start = field(declared, "start");
+  if (!isJsonData(start)) return { ok: false, reason: "The start value of the declaration circular must be JSON data." };
+  const limit: unknown = Object.hasOwn(declared, "limit") ? field(declared, "limit") : CIRCULAR_LIMIT;
+  if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1) {
+    return { ok: false, reason: "The limit of the declaration circular must be a whole number of 1 or more." };
+  }
+  return { ok: true, start: start as Json, limit };
 }
 
 /**
