@@ -2249,9 +2249,9 @@ export function codeReader(compile: CompiledEvaluator["compile"]): CompiledEvalu
 }
 
 /**
- * This function tells whether an evaluator reads only the field `code` of its parts.
+ * This function tells if an evaluator reads only the field `code` of its parts.
  *
- * @param evaluator - The evaluator. A plain evaluator gets handles from `interpret`, and it never sees a compiled part.
+ * @param evaluator - The evaluator. A plain evaluator gets handles from `interpret`, and it does not see a compiled part.
  * @returns `true` when no code of a host can read the steps of the parts.
  */
 export function readsOnlyCode(evaluator: Evaluator): boolean {

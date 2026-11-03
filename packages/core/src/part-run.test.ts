@@ -92,10 +92,10 @@ describe("the steps of a part (D132)", () => {
     const copying: CompiledEvaluator = {
       compile: ({ parts }) => {
         const copies = parts.map((part) => ({ ...part }));
-        return (ctx, rt) => ok(copies.map((copy) => (done(copy.run(ctx, rt)) as { readonly value: unknown }).value));
+        return (ctx, rt) => ok(copies.map((copy) => done(copy.run(ctx, rt))));
       },
     };
-    expect(prepare(hostMachine({ evaluator: copying }), { type: "host", value: [SUM, 5] }).evaluate()).toEqual(ok([3, 5]));
+    expect(prepare(hostMachine({ evaluator: copying }), { type: "host", value: [SUM, 5] }).evaluate()).toEqual(ok([ok(3), ok(5)]));
   });
 
   it("[PLAN.PART-RUN] a copy with other code keeps the steps of the code of the original", () => {
