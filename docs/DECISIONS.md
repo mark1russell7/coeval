@@ -3760,3 +3760,62 @@ The first form of L2f made the bytecode of `read` too large for the inlining lim
 - A fixed point is sound only for monotone equations on a finite lattice. Other equations can oscillate, and the limit then gives `#CYCLE!`.
 - A round evaluates the whole cycle again. The algorithm does not use the order of the strongly connected parts.
 - One fixed point is open at a time. A circular attribute that an attribute of a round reaches through other circular attributes joins it, also when it is in another cycle.
+
+## D114 (2026-11-03): The bench uses the shared bench core
+
+**Context.** K212. The scripts `paths.ts`, `merge.ts`, `mode.ts` and `ladder.ts` of `packages/core/bench` had their own copies of the bench logic. They had a runner of processes, six turned orders, medians and quantiles. They also had an A/A noise, a bound of 1.5 % or two times the noise, and a verdict. The two runs of the speed job agreed by the rule of D71.
+
+At this time, the shared bench core `@mark1russell7/rigor-bench` 0.2.1 and `@mark1russell7/rigor-statistics` 0.1.5 have these parts, with tests.
+
+**Decision.**
+
+- `paths.ts` starts each arm with `freshRun` of `@mark1russell7/rigor-bench/fresh`. Each case gets the pair (base, head) and the A/A pair (base, base) in each round. Each arm of each pair starts in a new process, and `pairOrder` turns the order. The six local `ORDERS` and the three copies of each round go.
+- `cases.ts` has a new mode `child`. It measures one case and prints one JSON line with its time and its result.
+- A first process of the head gives its results. The bench compares them with the results of the base, because `freshRun` compares the results only in one arm.
+- Run N of the speed job starts at the round (N - 1) times the rounds. The two runs then have different rounds, and their records can pool.
+- The verdict of a case is `timeVerdict` with the rule `difference`. The margin is ln(1.015): the floor of the old bound. The outcome is "same", "faster", "slower" or "cannot decide".
+- `merge.ts` pools the two runs with `pooledVerdict`. Each run is one job. The verdict "mixed" goes. A run with the opposite direction makes the verdict "cannot decide".
+- The record of a run keeps the pairs of each case in the new fields `head` and `aa`. A record from before K212 has no pairs, and its cases cannot decide.
+- `mode.ts` gives each arm the same verdict, with the pair (A1, IN ORDER) and the A/A pair (A1, A2). "no change" becomes "same", and the column Budget goes. The interval of a median comes from `caseIntervals`.
+- `ladder.ts` takes `median`, `quantile`, `leastSquares`, `mean` and `sd` from rigor-statistics.
+- The verdict jobs of `bench.yml` and `measure.yml` install the packages, because the scripts import the shared packages.
+
+The functions of the shared packages replace the local code as follows:
+
+| Local code | Replacement |
+| --- | --- |
+| the runner of `paths.ts` and its `ORDERS` | `freshRun` and `pairOrder` |
+| the medians of change and noise | `caseRatios` |
+| the bound and the verdict of `merge.ts` | `timeVerdict`, rule `difference` |
+| the agreement of two runs (D71) | `pooledVerdict` |
+| `decide`, `budget` and `FLOOR` of `mode.ts` | `timeVerdict` through `caseVerdict` |
+| `medianInterval` of `mode.ts` | `caseIntervals` |
+| `median` and `quantile` of the scripts | `median` and `quantile` of rigor-statistics |
+| the slope of `ladder.ts` | `leastSquares` |
+| the mean and the deviation of `ladder.ts` | `mean` and `sd` |
+
+**Gaps.** A comment names the issue of each piece that stays.
+
+- mark1russell7/rigor#34: `timeVerdict` gives one verdict over all cases. The adapter `roundsAsCases` gives each round the name of a case. Thus the verdict compares the rounds of one case.
+- mark1russell7/rigor#35: the core has no verdict of a slope claim and no A/A check of a ladder run. `verdict`, `memoryVerdict` and `counts` of `ladder.ts` stay.
+- mark1russell7/rigor#36: rigor-statistics has no t quantile and no interval of a mean. The table `T95` and `meanInterval` stay.
+- mark1russell7/rigor#37: the core has no timed samples of one arm in a child. `calibrate`, `measure` and the sample loop of `cases.ts` stay.
+
+**Rejected.**
+
+- Local copies of the new rules. The rule of the repository is one home for each area, and the bench core is the home of the bench.
+- A verdict of each run, then the agreement of D71. It needs two outcomes in the same direction, thus it loses power. `pooledVerdict` uses all rounds, and it still refuses an opposite direction.
+- A cap of the A/A noise (`noiseCap`). A cap needs a limit from five or more CI starts of the job with the new records. The job has no such records yet.
+- The fresh runner for `mode.ts`. Its arm IN ORDER measures all cases in one process, and `freshRun` starts one case in each process. Thus `mode.ts` keeps its own runner.
+
+**Why.** One home gives one tested rule for each bench. A fix of the core then reaches each repository. The new rule can also give "same", and the old bound could not prove that a case did not change.
+
+**Public types.** None. The bench is not a part of the package.
+
+**Changed expected values.** The verdict words change. "in bound" becomes "same" or "cannot decide", and "mixed" goes. The gate does not read the verdict: the speed job fails only on a missing run, a short run, no cases or different results. Thus "slower" still does not fail the gate.
+
+**Limits.**
+
+- With 12 rounds, a case with a noise near the margin often gives "cannot decide". More rounds give more power.
+- `TOGETHER` must stay empty. The bench refuses a group of cases in one process.
+- The speed job starts approximately four processes for each case and round. It takes more time than before.

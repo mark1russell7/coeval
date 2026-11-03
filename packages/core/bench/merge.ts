@@ -1,22 +1,24 @@
 /*
- * The verdict of two runs of the bench (K167, D71).
+ * The verdict of two runs of the bench (K167, D71, K212, D114).
  *
  *   node packages/core/bench/merge.ts <run 1 JSON> <run 2 JSON>
  *
  * The workflow `bench.yml` starts `paths.ts` in two jobs, thus on two runners. Each job writes its table as JSON
- * (`BENCH_JSON`). This script reads the two files and prints one table with the change and the noise of each run.
+ * (`BENCH_JSON`). This script reads the two files and prints one table with the change, the noise and the verdict of
+ * each run.
  *
- * A case is slower or faster only when both runs are over the bound in the same direction. The bound of a run is
- * 1.5 % or two times the noise of the case, whichever is larger (D50, D70). A case that no run puts over the bound is
- * in bound. A case that only one run puts over the bound, or that the two runs put over the bound in opposite
- * directions, is mixed. The same case can take 107 ns on one runner and 206 ns on another (D70), thus one run is not
- * sufficient.
+ * The shared bench core `@mark1russell7/rigor-bench` gives the verdict of each case (D114). Its rule `difference`
+ * compares the head with the A/A pair: two processes of the base. The outcome is "same", "faster", "slower" or "cannot
+ * decide". The verdict of a case is the `pooledVerdict` of the rounds of the two runs. A run that gives the opposite
+ * direction makes the verdict "cannot decide". The same case can take 107 ns on one runner and 206 ns on another
+ * (D70), thus one run is not sufficient.
  *
- * The script uses only the modules of Node, and Node removes its types. Thus the job does not install the packages.
- * The script fails when a run is absent or when a run found different results.
+ * Node removes the types of this script. The job installs the packages, because the script imports the bench core.
+ * The script fails when a run is absent or when a run found different results. A "slower" case does not fail it.
  */
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { pooledVerdict, timeVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
 
 /** The measurement of one case in one run. The change and the noise are percents. */
 export interface BenchCase {
@@ -27,6 +29,10 @@ export interface BenchCase {
   readonly noise: number;
   /** The different results of the copies, when the copies do not agree. */
   readonly different?: string;
+  /** The pair of the base (arm `a`) and the head (arm `b`) in each round (D114). A record from before K212 has no pairs. */
+  readonly head?: readonly PairedTime[];
+  /** The A/A pair of the base (arm `a`) and the second copy of the base (arm `b`) in each round (D114). */
+  readonly aa?: readonly PairedTime[];
 }
 
 /** The mode of one run: the flags of V8, the samples of each process and the cases that share a process (K199). */
@@ -51,25 +57,54 @@ export interface BenchRun {
   readonly cases: readonly BenchCase[];
 }
 
-/** The smallest bound in percent. */
-const FLOOR = 1.5;
+/**
+ * The options of each time verdict of the bench (D114). The margin of the rule `difference` is the floor of the old
+ * bound (D50, D70): 1.5 %, on a log scale.
+ */
+export const VERDICT: VerdictOptions = { margin: Math.log(1.015) };
 
-type Verdict = "slower" | "faster" | "mixed" | "in bound" | "different results" | "one run only";
-
-/** This function gives the direction of a case in one run: +1 over the bound and slower, -1 faster, 0 in bound. */
-function direction(item: BenchCase): number {
-  const bound = Math.max(2 * Math.abs(item.noise), FLOOR);
-  if (Math.abs(item.change) <= bound) return 0;
-  return item.change > 0 ? 1 : -1;
+/**
+ * This function gives each round of one case the name of a case of its own.
+ *
+ * GAP (mark1russell7/rigor#34): `timeVerdict` gives one verdict over all cases of a bench, and the bench needs a
+ * verdict for each case. With one case for each round, `timeVerdict` compares the rounds of one case.
+ */
+export function roundsAsCases<T extends PairedTime>(records: readonly T[]): T[] {
+  return records.map((record) => ({ ...record, case: `${record.case} (round ${String(record.round)})` }));
 }
 
-function verdictOf(first: BenchCase | undefined, second: BenchCase | undefined): Verdict {
+/** This function gives the time verdict of one case in one run: the rounds of the head against the rounds of the A/A pair. */
+export function caseVerdict(head: readonly PairedTime[], aa: readonly PairedTime[]): TimeVerdict {
+  return timeVerdict(roundsAsCases(head), roundsAsCases(aa), VERDICT);
+}
+
+/** The verdict of one case over the two runs. */
+export type Verdict = TimeOutcome | "different results" | "one run only";
+
+/** This function tells if a run has the paired times of a case. A record from before K212 has none. */
+function hasPairs(item: BenchCase | undefined): item is BenchCase & { readonly head: readonly PairedTime[]; readonly aa: readonly PairedTime[] } {
+  return item?.head !== undefined && item.aa !== undefined && item.head.length > 0;
+}
+
+/** This function gives the outcome of one case in one run. A case without paired times cannot decide. */
+export function outcomeOf(item: BenchCase): TimeOutcome {
+  return hasPairs(item) ? caseVerdict(item.head, item.aa).outcome : "cannot decide";
+}
+
+/**
+ * This function gives the pooled verdict of one case over the runs: the rounds of all runs, one job for each run.
+ * The label of a job is the name of its run. A record of the fresh runner keeps the same label in its field `job`.
+ */
+export function pooledCase(runs: readonly { readonly run: string; readonly item: BenchCase }[]): PooledVerdict | undefined {
+  const jobs = runs.flatMap(({ run, item }) => (hasPairs(item) ? [{ job: run, candidate: roundsAsCases(item.head), aa: roundsAsCases(item.aa) }] : []));
+  return jobs.length === 0 ? undefined : pooledVerdict(jobs, VERDICT);
+}
+
+/** This function gives the verdict of one case over two runs: the outcome of `pooledCase`. */
+export function verdictOf(first: BenchCase | undefined, second: BenchCase | undefined, names: readonly [string, string] = ["1", "2"]): Verdict {
   if (first?.different !== undefined || second?.different !== undefined) return "different results";
   if (first === undefined || second === undefined) return "one run only";
-  const [a, b] = [direction(first), direction(second)];
-  if (a === 0 && b === 0) return "in bound";
-  if (a === b) return a > 0 ? "slower" : "faster";
-  return "mixed";
+  return pooledCase([{ run: names[0], item: first }, { run: names[1], item: second }])?.outcome ?? "cannot decide";
 }
 
 function percent(change: number): string {
@@ -77,9 +112,9 @@ function percent(change: number): string {
 }
 
 function cells(item: BenchCase | undefined): string {
-  if (item === undefined) return " | ";
-  if (item.different !== undefined) return `different results | ${item.different}`;
-  return `${percent(item.change)} | ${percent(item.noise)}`;
+  if (item === undefined) return " | | ";
+  if (item.different !== undefined) return `different results | ${item.different} | `;
+  return `${percent(item.change)} | ${percent(item.noise)} | ${outcomeOf(item)}`;
 }
 
 function read(file: string | undefined): BenchRun | undefined {
@@ -102,6 +137,17 @@ export function describeRun(run: BenchRun | undefined, index: number): string {
   return `${head} Mode: ${flags}, ${samples} in each process, ${together}.`;
 }
 
+/** The lines that tell how the bench gives a verdict. `paths.ts` and this script print them. */
+export function verdictRule(): string[] {
+  const margin = ((Math.exp(VERDICT.margin ?? 0) - 1) * 100).toFixed(1);
+  return [
+    "The verdict of a case in a run is the `timeVerdict` of `@mark1russell7/rigor-bench`, with the rule `difference` (D114).",
+    "It compares the median ratio of the head to the base with the median ratio of the A/A pair, over the rounds of the case.",
+    `The case is "same" when the bootstrap interval of the difference is inside ${margin} %. Else it is "faster" or "slower" when the interval is wholly on one side of 1.`,
+    'Else the case is "cannot decide".',
+  ];
+}
+
 function main(): void {
   const files = process.argv.slice(2);
   const runs = [read(files[0]), read(files[1])];
@@ -110,16 +156,16 @@ function main(): void {
   const lines: string[] = [
     ...runs.map(describeRun),
     "",
-    "A case is slower or faster only when both runs are over the bound in the same direction.",
-    `The bound of a run is ${String(FLOOR)} % or two times the noise (A/A) of the case, whichever is larger.`,
+    ...verdictRule(),
+    "The verdict of a case uses the rounds of both runs. A run with the opposite direction makes it \"cannot decide\".",
     "",
-    "| Case | Change 1 | Noise 1 | Change 2 | Noise 2 | Verdict |",
-    "| --- | ---: | ---: | ---: | ---: | --- |",
+    "| Case | Change 1 | Noise 1 | Verdict 1 | Change 2 | Noise 2 | Verdict 2 | Verdict |",
+    "| --- | ---: | ---: | --- | ---: | ---: | --- | --- |",
   ];
   const counts = new Map<Verdict, number>();
   for (const name of names) {
     const [first, second] = runs.map((run) => run?.cases.find((item) => item.name === name));
-    const verdict = verdictOf(first, second);
+    const verdict = verdictOf(first, second, [runs[0]?.run ?? "1", runs[1]?.run ?? "2"]);
     counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
     lines.push(`| ${name} | ${cells(first)} | ${cells(second)} | ${verdict} |`);
   }

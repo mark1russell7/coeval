@@ -20,41 +20,42 @@
  * half and the A2 processes in the other half, in the opposite order. The halves change places in each second round.
  * The case order and the places of the IN ORDER and the GROUP processes turn in each round.
  *
- * The verdict of the split (D98) is an equivalence verdict. The ratios of a case are IN ORDER / A1 of each round.
- * The interval of the median is the 6th to the 15th of the 20 sorted ratios: P(6 <= Bin(20, 1/2) <= 14) =
- * 1005176 / 1048576 = 0.9586. The A/A interval is the same interval of the ratios A2 / A1. The effect interval E is
- * the interval of the median, made wider on each side by half the width of the A/A interval. The budget is the bound
- * of the bench (`merge.ts`, D50, D70): 1.5 % or two times the noise, whichever is larger. The noise is the median of
- * A2 / A1 minus 1. The verdict is "no change" when E is inside 1 +- budget. It is "slower" when the low end of E is
- * over 1 + budget, and "faster" when the high end of E is under 1 - budget. Else it is "cannot decide". A case stays
- * in order only with "no change". The GROUP arm gets the same verdict with its ratios GROUP / A1.
+ * The verdict of the split is the verdict of the bench (`merge.ts`, D114): `timeVerdict` of `@mark1russell7/rigor-bench`
+ * with the rule `difference`. The pair of a case is (A1, IN ORDER) in each round, and its A/A pair is (A1, A2). The
+ * verdict compares the median ratio IN ORDER / A1 with the median ratio A2 / A1. It is "same" when the bootstrap
+ * interval of the difference is inside the margin of 1.5 %. A case stays in order only with "same". The interval of the
+ * median is the distribution-free interval of `caseIntervals`: the 6th to the 15th of 20 sorted ratios (95.9 %). The
+ * GROUP arm gets the same verdict with its pair (A1, GROUP).
  *
  * The first rule of D98 stays in the table as information, because a prediction pinned it. A process is slow when its
  * IN ORDER time is over the maximum of the A1 times of the case. A case has a mode when 5 or more of 20 are slow.
  *
  * The script prints the tables and one line `MEASURE {json}`. With `MODE_JSON`, it writes each process to that file.
  * `MODE_PART` and `MODE_PARTS` select the part, and `MODE_PROCESSES` gives the rounds. The mode `merge` reads the
- * files of all parts and prints the tables for all cases. That mode uses only the modules of Node, and Node removes
- * its types. Thus the verdict job does not install the packages.
+ * files of all parts and prints the tables for all cases. Node removes the types of this script. The verdict job
+ * installs the packages, because the script imports the bench core.
  */
 import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { join } from "node:path";
+import { caseIntervals, caseRatios, type PairedTime, type TimeOutcome } from "@mark1russell7/rigor-bench";
+import { median } from "@mark1russell7/rigor-statistics";
 import type { Measured } from "./cases.ts";
+import { caseVerdict, VERDICT } from "./merge.ts";
 
 /** A case has a mode when this number or more of its IN ORDER processes are slow (the first rule of D98). */
 const MODE_LIMIT = 5;
 
 type Arm = "alone 1" | "alone 2" | "in order" | "group";
 
-/** The equivalence verdict of D98. Only "no change" keeps a case in order. */
-type Decision = "no change" | "slower" | "faster" | "cannot decide";
+/** The verdict of the bench core (D114). Only "same" keeps a case in order. */
+type Decision = TimeOutcome;
 
 /** The verdict of one arm against A1. */
 interface Effect {
   /** The interval of the median of the ratios: the 6th to the 15th sorted value of 20. */
   readonly median: Band;
-  /** The effect interval E: the interval of the median, wider on each side by half the A/A interval. */
+  /** The interval of the verdict: the median ratio of the arm over the median ratio A2 / A1 (D114). */
   readonly effect: Band;
   readonly decision: Decision;
 }
@@ -124,10 +125,8 @@ interface Verdict {
   readonly aa: Band;
   /** The median of the ratios A2 / A1 minus 1. */
   readonly noise: number;
-  /** The bound of the bench: 1.5 % or two times the noise, whichever is larger. A fraction, not a percent. */
-  readonly budget: number;
   readonly inOrder: Effect;
-  /** True when the verdict is "no change": the case can stay in order. */
+  /** True when the verdict is "same": the case can stay in order. */
   readonly stays: boolean;
   readonly slow: number;
   readonly of: number;
@@ -139,55 +138,29 @@ interface Verdict {
   readonly different?: string;
 }
 
-/** This function gives a quantile with linear steps between the sorted values (the type 7 of Hyndman and Fan). */
-function quantile(values: readonly number[], q: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (sorted.length === 0) return Number.NaN;
-  const at = (sorted.length - 1) * q;
-  const low = Math.floor(at);
-  const high = Math.ceil(at);
-  return (sorted[low] as number) + ((sorted[high] as number) - (sorted[low] as number)) * (at - low);
-}
-
-function median(values: readonly number[]): number {
-  return quantile(values, 0.5);
-}
-
-/** The bound of the bench (`merge.ts`, D50, D70) as a fraction: the floor of 1.5 %. */
-const FLOOR = 0.015;
-
-/** This function gives the ratios `top[r] / bottom[r]` of each round. */
-function ratios(top: readonly number[], bottom: readonly number[]): number[] {
-  return top.map((value, round) => value / (bottom[round] as number));
-}
+/** The margin of the verdict as a fraction (D114): the margin of the bench, 1.5 %. */
+const MARGIN = Math.exp(VERDICT.margin ?? 0) - 1;
 
 /**
- * This function gives the distribution-free interval of the median of n values: the k-th to the (n + 1 - k)-th sorted
- * value. k is the largest number with P(Bin(n, 1/2) < k) <= 0.025. For 20 values, k is 6 and the coverage is 0.9586.
+ * This function gives the pair of one case for the bench core: arm `a` in each round, against arm `b` of the same
+ * round. The times are in milliseconds. `first` names the arm in the first half of the round. In an even round, A1
+ * and IN ORDER both run in the first half, thus A1 does not always start first.
  */
-function medianInterval(values: readonly number[]): Band {
-  const sorted = [...values].sort((a, b) => a - b);
-  const n = sorted.length;
-  let [k, below, term] = [0, 0, 0.5 ** n];
-  while (k < n && below + term <= 0.025) {
-    below += term;
-    term = (term * (n - k)) / (k + 1);
-    k += 1;
-  }
-  const low = Math.max(k - 1, 0);
-  return { low: sorted[low] as number, high: sorted[Math.min(n - 1 - low, n - 1)] as number };
+function pairOf(name: string, a: readonly number[], b: readonly number[]): PairedTime[] {
+  return a.map((ns, round) => ({ case: name, round, first: round % 2 === 0 ? "a" : "b", a: ns / 1e6, b: (b[round] as number) / 1e6 }));
 }
 
-/** This function gives the equivalence verdict of D98 for the ratios of one arm against A1. */
-function decide(values: readonly number[], aa: Band, budget: number): Effect {
-  const median = medianInterval(values);
-  const half = (aa.high - aa.low) / 2;
-  const effect = { low: median.low - half, high: median.high + half };
-  let decision: Decision = "cannot decide";
-  if (effect.low >= 1 - budget && effect.high <= 1 + budget) decision = "no change";
-  else if (effect.low > 1 + budget) decision = "slower";
-  else if (effect.high < 1 - budget) decision = "faster";
-  return { median, effect, decision };
+/** This function gives the interval of the median of one pair: `caseIntervals` of the bench core. */
+function bandOf(pair: readonly PairedTime[]): Band {
+  const [interval] = caseIntervals(pair);
+  return { low: interval?.low ?? Number.NaN, high: interval?.high ?? Number.NaN };
+}
+
+/** This function gives the verdict of the bench core for one arm against A1, with the A/A pair (A1, A2). */
+function decide(pair: readonly PairedTime[], aa: readonly PairedTime[]): Effect {
+  const verdict = caseVerdict(pair, aa);
+  const effect = { low: verdict.interval?.low ?? Number.NaN, high: verdict.interval?.high ?? Number.NaN };
+  return { median: bandOf(pair), effect, decision: verdict.outcome };
 }
 
 function fixed(value: number, digits = 1): number {
@@ -206,11 +179,10 @@ function judge(item: ModeCase, part: number, split: readonly string[]): Verdict 
   const aloneMaxNs = Math.max(...item.alone);
   const slow = item.inOrder.filter((ns) => ns > aloneMaxNs).length;
   const [aloneNs, inOrderNs] = [median(item.alone), median(item.inOrder)];
-  const aaRatios = ratios(item.alone2, item.alone);
-  const aa = medianInterval(aaRatios);
-  const noise = median(aaRatios) - 1;
-  const budget = Math.max(FLOOR, 2 * Math.abs(noise));
-  const inOrder = decide(ratios(item.inOrder, item.alone), aa, budget);
+  const aaPair = pairOf(item.name, item.alone, item.alone2);
+  const aa = bandOf(aaPair);
+  const noise = (caseRatios(aaPair)[0]?.ratio ?? Number.NaN) - 1;
+  const inOrder = decide(pairOf(item.name, item.alone, item.inOrder), aaPair);
   const verdict: Verdict = {
     index: item.index,
     name: item.name,
@@ -221,18 +193,17 @@ function judge(item: ModeCase, part: number, split: readonly string[]): Verdict 
     ratio: inOrderNs / aloneNs,
     aa,
     noise,
-    budget,
     inOrder,
-    stays: inOrder.decision === "no change",
+    stays: inOrder.decision === "same",
     slow,
     of: item.inOrder.length,
     mode: slow >= MODE_LIMIT,
     split: split.includes(item.name),
   };
-  const group = item.group === undefined ? undefined : decide(ratios(item.group, item.alone), aa, budget);
+  const group = item.group === undefined ? undefined : decide(pairOf(item.name, item.alone, item.group), aaPair);
   return {
     ...verdict,
-    ...(item.group === undefined || group === undefined ? {} : { group: { ...group, ns: median(item.group), clean: group.decision === "no change" } }),
+    ...(item.group === undefined || group === undefined ? {} : { group: { ...group, ns: median(item.group), clean: group.decision === "same" } }),
     ...(item.different === undefined ? {} : { different: item.different }),
   };
 }
@@ -243,17 +214,18 @@ function range(value: Band): string {
 
 function header(): string[] {
   return [
-    "The ratios of each round are against A1. E is the interval of the median of IN ORDER / A1 (the 6th to the 15th of 20 sorted ratios, 95.9 %), wider on each side by half the same interval of A2 / A1 (the A/A column).",
-    "The budget is 1.5 % or two times the noise (the median of A2 / A1 minus 1), whichever is larger. A case stays in order only when E is inside 1 +- budget: the verdict \"no change\".",
+    "The ratios of each round are against A1. The verdict is the `timeVerdict` of `@mark1russell7/rigor-bench` with the rule `difference` (D114).",
+    "The interval is the bootstrap interval of the median of IN ORDER / A1 over the median of A2 / A1. The A/A column is the interval of the median of A2 / A1 (95.9 % for 20 rounds).",
+    `A case stays in order only when the interval is inside the margin of ${(MARGIN * 100).toFixed(1)} %: the verdict "same".`,
     `The columns Slow and Mode give the first rule of D98 as information: ${MODE_LIMIT} or more IN ORDER times over the A1 maximum.`,
     "",
-    "| Case | Part | Alone median (ns) | In order median (ns) | In order / alone | E | A/A | Budget | Verdict | Slow | Mode | Bench |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- |",
+    "| Case | Part | Alone median (ns) | In order median (ns) | In order / alone | Interval | A/A | Verdict | Slow | Mode | Bench |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- |",
   ];
 }
 
 function row(verdict: Verdict): string {
-  if (verdict.different !== undefined) return `| ${verdict.name} | ${verdict.part} | different results: ${verdict.different} | | | | | | | | | | |`;
+  if (verdict.different !== undefined) return `| ${verdict.name} | ${verdict.part} | different results: ${verdict.different} | | | | | | | | | |`;
   const cells = [
     verdict.name,
     String(verdict.part),
@@ -262,7 +234,6 @@ function row(verdict: Verdict): string {
     verdict.ratio.toFixed(3),
     range(verdict.inOrder.effect),
     range(verdict.aa),
-    `${(verdict.budget * 100).toFixed(1)} %`,
     verdict.inOrder.decision,
     `${verdict.slow} of ${verdict.of}`,
     verdict.mode ? "yes" : "no",
@@ -277,13 +248,13 @@ function groupTable(verdicts: readonly Verdict[]): string[] {
   if (rows.length === 0) return ["", "The GROUP arm did not run: `TOGETHER` has fewer than 2 cases."];
   return [
     "",
-    "The GROUP arm runs only the cases that the bench keeps together, in their order. The group is clean when each case of it gets \"no change\" with GROUP / A1.",
+    "The GROUP arm runs only the cases that the bench keeps together, in their order. The group is clean when each case of it gets \"same\" with GROUP / A1.",
     "",
-    "| Case | Part | Alone median (ns) | Group median (ns) | E | Budget | Verdict |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    "| Case | Part | Alone median (ns) | Group median (ns) | Interval | Verdict |",
+    "| --- | ---: | ---: | ---: | ---: | --- |",
     ...rows.map((verdict) => {
       const group = verdict.group as NonNullable<Verdict["group"]>;
-      return `| ${verdict.name} | ${verdict.part} | ${verdict.aloneNs.toFixed(1)} | ${group.ns.toFixed(1)} | ${range(group.effect)} | ${(verdict.budget * 100).toFixed(1)} % | ${group.decision} |`;
+      return `| ${verdict.name} | ${verdict.part} | ${verdict.aloneNs.toFixed(1)} | ${group.ns.toFixed(1)} | ${range(group.effect)} | ${group.decision} |`;
     }),
   ];
 }
@@ -309,7 +280,7 @@ function short(verdict: Verdict): Record<string, unknown> {
     median: two(verdict.inOrder.median),
     effect: two(verdict.inOrder.effect),
     aa: two(verdict.aa),
-    budget: fixed(verdict.budget, 4),
+    margin: fixed(MARGIN, 4),
     decision: verdict.inOrder.decision,
     stays: verdict.stays,
     slow: verdict.slow,
