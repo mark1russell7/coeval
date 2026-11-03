@@ -3,11 +3,13 @@ import {
   type CompiledEvaluator,
   type Context,
   type EvalFn,
+  type HostThing,
   type Json,
   type Machine,
   type Read,
   type Resolution,
   type Runtime,
+  type Thing,
   STD_DEFINITIONS,
   STD_MACHINE,
   THING,
@@ -16,6 +18,7 @@ import {
   context,
   evaluate,
   generate,
+  isHostThing,
   planner,
   prepare,
   reference,
@@ -45,7 +48,12 @@ const NAMES = {
   pool: ref("names", "loop"),
 };
 
-const SELF = { type: "panel", a: 1, parent: { type: "panel", width: 3, parent: null } };
+/** This function gives a host thing with a field `type`: the walker `nearest` reads the type of a host thing only. */
+function panel(fields: Readonly<Record<string, Thing>>): HostThing {
+  return { [THING]: true, label: "panel", type: "panel", deref: (key) => (typeof key === "string" ? fields[key] : undefined), toJson: () => ({ type: "panel" }) } as HostThing;
+}
+
+const SELF = panel({ a: 1, parent: panel({ width: 3 }) });
 
 const CONTEXTS: readonly Context[] = [
   context({ names: NAMES, caps: ["log"], self: SELF, event: { a: 2 } }),
@@ -88,6 +96,12 @@ const REFS: readonly Json[] = [
 /** The navigators of the agreement: the standard one, and one for each field that changes a resolution. */
 const NAVIGATORS: readonly Machine[] = [STD_MACHINE, { ...STD_MACHINE, plain: true }, { ...STD_MACHINE, roots: ["names", "world"] }, { ...STD_MACHINE, adopt: (value) => value as never }];
 
+/** This function gives a value with a text for each host thing and function: each plan makes its own tree nodes. */
+function comparable(value: unknown): unknown {
+  const text = JSON.stringify(value, (_key, item: unknown) => (isHostThing(item) ? `thing ${item.label}` : typeof item === "function" ? "function" : item));
+  return text === undefined ? undefined : JSON.parse(text);
+}
+
 /** This function gives the result and the reads of a document in a plan. */
 function planned(machine: Machine, doc: Json, ctx: Context): { readonly result: unknown; readonly reads: readonly Read[] } {
   const reads: Read[] = [];
@@ -124,7 +138,7 @@ describe("the compiled form of ref.resolve", () => {
 
   it("[PLAN.PATH-STD] a value that is not a path compiles to one #VALUE! with the place of the document, at each evaluation", () => {
     const reason = 'The value of ref is a path: a list that starts with a root, for example ["names", "a"].';
-    const doc = { type: "list", value: [1, { type: "ref", value: [] }] };
+    const doc = { type: "list", value: [{ type: "number", value: 1 }, { type: "ref", value: [] }] };
     const plan = prepare(STD_MACHINE, doc);
     for (let index = 0; index < 2; index += 1) expect(plan.evaluate(CONTEXTS[0])).toEqual({ ok: false, error: { code: "#VALUE!", reason, place: [1] } });
     expect(plan.evaluate(CONTEXTS[1])).toEqual(reference(STD_MACHINE, doc, CONTEXTS[1]));
@@ -185,7 +199,7 @@ describe("the compiled form of ref.resolve", () => {
       const doc = generate(STD_MACHINE.world, { seed, names: Object.keys(NAMES), maxSize: 12 }) as Json;
       const ctx = CONTEXTS[seed % CONTEXTS.length] as Context;
       if (JSON.stringify(doc).includes('"ref"')) references += 1;
-      expect(planned(STD_MACHINE, doc, ctx), `seed ${seed}`).toEqual(planned(INTERPRETED, doc, ctx));
+      expect(comparable(planned(STD_MACHINE, doc, ctx)), `seed ${seed}`).toEqual(comparable(planned(INTERPRETED, doc, ctx)));
       expect(agree(STD_MACHINE, doc, ctx, { strict: true }).ok, `seed ${seed}`).toBe(true);
     }
     expect(references).toBeGreaterThan(30);
