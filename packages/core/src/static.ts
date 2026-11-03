@@ -1,12 +1,12 @@
 import { type Envelope, type Json, type Key, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type Namespace, type World, type WorldEntry, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
+import { type Kind, type World, type WorldEntry, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { ask } from "./ladder.ts";
 import { type PartSlot, partsOf, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, permits, waitedReason } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
-import { type RootTypes, type TypeNode, type Typed, typePass } from "./typing.ts";
+import { type RootTypes, type TypeNode, type Typed, machineTypeIssues, typePass } from "./typing.ts";
 
 /** One document that a walk visits. */
 export interface DocVisit {
@@ -528,17 +528,44 @@ export function typeCheck(machine: Machine, doc: unknown, options: CheckOptions 
 /**
  * A problem of a world that `checkWorld` finds before a document exists (STATIC.COVERAGE). Each document of the
  * kind gives this problem for the verb, thus `check` with the verb finds it too.
+ *
+ * With the option `types`, a problem can also be a bad value type of the machine (TYPE.WORLD, D110). Such a problem has
+ * the code `#TYPE!` and the keys of the bad term in `at`.
  */
 export interface WorldIssue {
-  /** The code of the problem. `#NOEVAL`: no rung of the ladder gives an evaluator for the verb. */
-  readonly code: "#NOEVAL";
-  /** The keys of the kind from the root of the world. For a fallback kind, the keys of its namespace. */
+  /**
+   * The code of the problem. `#NOEVAL`: no rung of the ladder gives an evaluator for the verb. `#TYPE!`: a value type
+   * of the machine is not correct, or a declaration of types cannot be true.
+   */
+  readonly code: "#NOEVAL" | "#TYPE!";
+  /**
+   * The keys of the kind from the root of the world. For a fallback kind, the keys of its namespace. For a type of a
+   * domain or of a type rule, the list is empty.
+   */
   readonly kind: readonly Key[];
   /** `true` for the fallback kind of a namespace or of the world. */
   readonly fallback?: true;
-  /** The verb without an evaluator. */
+  /** The verb without an evaluator. A type issue has the verb `eval`, because the value types describe `eval` (D25). */
   readonly verb: string;
+  /** For a type issue of a domain: the name of the domain in `Machine.domains`. */
+  readonly domain?: string;
+  /** For a type issue of a type rule: the name of its evaluator in `Machine.evaluators`. */
+  readonly evaluator?: string;
+  /**
+   * For a type issue: the keys of the bad term in the kind, the domain or the declarations of the rule. An example is
+   * `["parts", "item", "expect"]`, or `["sigs", "add", 1, "params", 0]`.
+   */
+  readonly at?: readonly Key[];
   readonly reason: string;
+}
+
+/** The options of `checkWorld`. */
+export interface WorldOptions {
+  /**
+   * With `true`, the check also examines each value type of the machine (TYPE.WORLD, D110). It reads the contracts of
+   * the kinds, the domains and the declarations of the type rules. The default is `false`.
+   */
+  readonly types?: boolean;
 }
 
 /** This function tells if a table of verbs has an entry for a verb. */
@@ -552,44 +579,34 @@ function hasVerb(table: Readonly<Record<string, string>> | undefined, verb: stri
  * evaluator for the verb, thus the check gives the same proof of coverage as a type system.
  *
  * The check visits each kind of each namespace, at each depth, and the fallback kind of each namespace and of the
- * world. It does not follow an alias, because the kind of an alias has its own place. The check reads only the world.
+ * world. It does not follow an alias, because the kind of an alias has its own place. Without the option `types`, the
+ * check reads only the world.
+ *
+ * With the option `types`, the check also examines each value type of the machine (TYPE.WORLD, D110). These issues
+ * have the code `#TYPE!`, and they come after the issues of the verbs.
  *
  * @param machine - The machine, for its world.
  * @param verbs - The verbs that each kind of the language must answer, for example `eval`, `view` and `type`.
+ * @param options - The option `types`.
  * @returns One issue for each kind and verb without an evaluator. The order is the order of the world, then the
  *   order of the verbs. The fallback kind of a namespace comes after the entries of that namespace.
  */
-export function checkWorld(machine: Machine, verbs: readonly string[]): readonly WorldIssue[] {
+export function checkWorld(machine: Machine, verbs: readonly string[], options: WorldOptions = {}): readonly WorldIssue[] {
   const world = machine.world;
   const open = verbs.filter((verb) => !hasVerb(world.defaults, verb));
   const out: WorldIssue[] = [];
-  if (open.length === 0) return out;
-  const visit = (kind: Kind, path: readonly Key[], fallback: boolean): void => {
-    const text = path.join(".");
-    const name = fallback ? (path.length === 0 ? "the fallback kind of the world" : `the fallback kind of ${text}`) : `the kind ${text}`;
-    for (const verb of open) {
-      if (hasVerb(kind.verbs, verb)) continue;
-      const reason = `${name.charAt(0).toUpperCase()}${name.slice(1)} has no entry for the verb ${verb}, and the world has no default for it.`;
-      out.push(fallback ? { code: "#NOEVAL", kind: path, fallback: true, verb, reason } : { code: "#NOEVAL", kind: path, verb, reason });
-    }
-  };
-  // The set holds the namespaces on the way, thus a namespace that holds itself does not loop.
-  const way = new Set<Namespace>();
-  const entries = (kinds: Readonly<Record<string, WorldEntry>>, path: readonly Key[]): void => {
-    for (const key of Object.keys(kinds)) {
-      const entry = kinds[key];
-      const here = [...path, key];
-      if (isKind(entry)) visit(entry, here, false);
-      else if (isNamespace(entry) && !way.has(entry)) {
-        way.add(entry);
-        entries(entry.kinds, here);
-        if (entry.fallback !== undefined) visit(entry.fallback, here, true);
-        way.delete(entry);
+  if (open.length > 0) {
+    eachKind(world, (kind, path, fallback) => {
+      const text = path.join(".");
+      const name = fallback ? (path.length === 0 ? "the fallback kind of the world" : `the fallback kind of ${text}`) : `the kind ${text}`;
+      for (const verb of open) {
+        if (hasVerb(kind.verbs, verb)) continue;
+        const reason = `${name.charAt(0).toUpperCase()}${name.slice(1)} has no entry for the verb ${verb}, and the world has no default for it.`;
+        out.push(fallback ? { code: "#NOEVAL", kind: path, fallback: true, verb, reason } : { code: "#NOEVAL", kind: path, verb, reason });
       }
-    }
-  };
-  entries(world.kinds, []);
-  if (world.fallback !== undefined) visit(world.fallback, [], true);
+    });
+  }
+  if (options.types === true) out.push(...machineTypeIssues(machine));
   return out;
 }
 

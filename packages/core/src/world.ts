@@ -323,6 +323,55 @@ export function isNamespace(entry: WorldEntry | undefined): entry is Namespace {
   return entry !== undefined && !isKind(entry) && !isAlias(entry) && Object.hasOwn(entry, "kinds");
 }
 
+/**
+ * This function visits each kind of a world. These are the kinds of each namespace, at each depth, and the fallback
+ * kind of each namespace and of the world. It does not follow an alias, because the kind of an alias has its own place. A
+ * fallback kind has the keys of its namespace. It comes after the entries of that namespace. `checkWorld` reads the
+ * kinds with this one function.
+ *
+ * @param world - The world.
+ * @param visit - The function that gets each kind, its keys from the root of the world, and `true` for a fallback kind.
+ */
+export function eachKind(world: World, visit: (kind: Kind, path: readonly Key[], fallback: boolean) => void): void {
+  // The set holds the namespaces on the way, thus a namespace that holds itself does not loop.
+  const way = new Set<Namespace>();
+  const entries = (kinds: Readonly<Record<string, WorldEntry>>, path: readonly Key[]): void => {
+    for (const key of Object.keys(kinds)) {
+      const entry = kinds[key];
+      const here = [...path, key];
+      if (isKind(entry)) visit(entry, here, false);
+      else if (isNamespace(entry) && !way.has(entry)) {
+        way.add(entry);
+        entries(entry.kinds, here);
+        if (entry.fallback !== undefined) visit(entry.fallback, here, true);
+        way.delete(entry);
+      }
+    }
+  };
+  entries(world.kinds, []);
+  if (world.fallback !== undefined) visit(world.fallback, [], true);
+}
+
+/**
+ * This function gives the kind at a path of a world, without an alias and without a fallback kind. A namespace on the
+ * way gives its entries.
+ *
+ * @param world - The world.
+ * @param path - The keys from the root of the world.
+ * @returns The kind, or `undefined` when no kind is at the path.
+ */
+export function kindAt(world: World, path: readonly Key[]): Kind | undefined {
+  let entries = world.kinds;
+  let entry: WorldEntry | undefined;
+  for (let index = 0; index < path.length; index += 1) {
+    entry = entryAt(entries, path[index] as Key);
+    if (index === path.length - 1) break;
+    if (!isNamespace(entry)) return undefined;
+    entries = entry.kinds;
+  }
+  return isKind(entry) ? entry : undefined;
+}
+
 function entryAt(entries: Readonly<Record<string, WorldEntry>>, key: Key): WorldEntry | undefined {
   const name = String(key);
   return Object.hasOwn(entries, name) ? entries[name] : undefined;

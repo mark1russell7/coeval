@@ -16,10 +16,13 @@ import {
   type TraceNode,
   type TypeRule,
   type ValueType,
+  type WorldIssue,
   CAPS_TYPE,
   MergeError,
   STD_DOMAINS,
+  STD_MACHINE,
   check,
+  checkWorld,
   context,
   decodeValue,
   encodeValue,
@@ -1165,3 +1168,125 @@ function jsonValue(rng: Random, depth: number): Json {
   for (const key of ["a", "b", "c"]) if (rng.chance(0.5)) out[key] = jsonValue(rng, depth - 1);
   return out;
 }
+
+describe("the value types of a machine before a document exists", () => {
+  /** A profile with each kind of bad declaration of the formula kit. */
+  const BAD: FormulaProfile = {
+    ops: LOOSE_OPS,
+    sigs: {
+      add: { params: ["nmber", "number"], to: "number" },
+      len: [
+        { params: ["text"], to: "number" },
+        { params: ["text"], to: "text" },
+      ],
+      broken: { to: "number" } as unknown as Signature,
+    },
+    ext: { money: () => ok(1) },
+    // The standard extension number has no own code, thus its entry has no effect and gives no issue.
+    extTypes: { money: "cents", number: "nothing" },
+    truthy: jsTruthy,
+    truthType: { list: "bol" },
+  };
+  const base = formulaMachine(BAD);
+  const throws: CompiledEvaluator = {
+    compile: () => () => ok(null),
+    type: {
+      synth: () => "unknown",
+      declared: () => {
+        throw new Error("No table.");
+      },
+    },
+  };
+  const bad: Machine = {
+    ...base,
+    world: {
+      ...base.world,
+      kinds: {
+        ...base.world.kinds,
+        shop: {
+          kinds: {
+            price: { verbs: { eval: "test.price" }, result: { record: { cents: "nmber" } } },
+            label: { verbs: { eval: "formula.lit" }, result: "text" },
+            count: { verbs: { eval: "formula.lit" }, result: "number" },
+            tag: { verbs: { eval: "formula.list" }, parts: { shape: "list", item: { shape: "term", kinds: [["shop", "count"], ["shop", "label"], ["shop", "price"], ["nowhere"]], expect: "number" } } },
+            box: { verbs: { eval: "formula.record" }, parts: { shape: "record", fields: { w: { shape: "term", expect: { lst: "number" } as unknown as ValueType } }, rest: { shape: "deep", expect: "txt" } } },
+          },
+          fallback: { verbs: { eval: "formula.lit" }, result: "texts" },
+        },
+      },
+    },
+    domains: {
+      ...base.domains,
+      money: { is: (value) => typeof value === "number", under: ["number", "nmber"], steps: { cents: "integr" }, summary: "An amount of money." },
+      broken: { summary: "A domain without a test." } as unknown as Domain,
+    },
+    evaluators: { ...base.evaluators, "test.throws": throws },
+  };
+  /** This function gives the owner, the keys and the reason of each issue, for a short comparison. */
+  const brief = (issues: readonly WorldIssue[]): readonly string[] =>
+    issues.map((issue) => {
+      const owner = issue.domain !== undefined ? `domain ${issue.domain}` : issue.evaluator !== undefined ? `evaluator ${issue.evaluator}` : `${issue.fallback === true ? "fallback " : ""}kind ${issue.kind.join(".")}`;
+      return `${issue.code} ${owner} @ ${(issue.at ?? []).join(".")}: ${issue.reason}`;
+    });
+
+  it("[TYPE.WORLD] checkWorld with types finds each bad value type of a machine one time, with its keys, before a document exists", () => {
+    const issues = checkWorld(bad, [], { types: true });
+    expect(issues.every((issue) => issue.code === "#TYPE!" && issue.verb === "eval")).toBe(true);
+    expect(brief(issues)).toEqual([
+      "#TYPE! kind shop.price @ result.record.cents: The result of the kind shop.price is not a correct value type. The machine has no domain nmber.",
+      "#TYPE! kind shop.tag @ parts.item.kinds.1: The kind shop.label has the result text, and the part needs the type number. Each document of shop.label here gets #TYPE!.",
+      "#TYPE! kind shop.box @ parts.fields.w.expect: The expected type at parts.fields.w.expect of the kind shop.box is not a correct value type. A value type is a text, or a record with one of the keys list, record, fn, union, one and the keys that go with it.",
+      "#TYPE! kind shop.box @ parts.rest.expect: The expected type at parts.rest.expect of the kind shop.box is not a correct value type. The machine has no domain txt.",
+      "#TYPE! fallback kind shop @ result: The result of the fallback kind of shop is not a correct value type. The machine has no domain texts.",
+      "#TYPE! domain money @ under.1: The parent nmber of the domain money is not a domain of the machine.",
+      "#TYPE! domain money @ steps.cents: The type of the step cents of the domain money is not a correct value type. The machine has no domain integr.",
+      "#TYPE! domain broken @ is: The domain broken has no test is. Each use of the name broken reads as unknown.",
+      "#TYPE! evaluator formula.if @ truthType.list: The truth type of the profile is not a correct value type. The machine has no domain bol.",
+      "#TYPE! evaluator formula.op @ sigs.add.params.0: The parameter 1 of a signature of ops.add is not a correct value type. The machine has no domain nmber.",
+      "#TYPE! evaluator formula.op @ sigs.len.1: The overload 2 of ops.len has the parameters of the overload 1. Thus the check never selects it.",
+      "#TYPE! evaluator formula.op @ sigs.broken: A signature of ops.broken is not a record with params and to. The check does not read it.",
+      "#TYPE! evaluator formula.ext @ extTypes.money: The type of ext.money in extTypes is not a correct value type. The machine has no domain cents.",
+      "#TYPE! evaluator test.throws @ : The type rule of test.throws fails: No table.",
+    ]);
+    // The kind and the fallback mark of a contract type, and an empty kind for a domain and a rule.
+    expect(issues[4]).toMatchObject({ kind: ["shop"], fallback: true, at: ["result"] });
+    expect(issues[5]).toMatchObject({ kind: [], domain: "money" });
+    // A check of a document finds the same bad signature only at its first use, with the same reason.
+    expect(typeIssuesOf(bad, op("add", 1, 2)).map((issue) => issue.reason)).toContain("The parameter 1 of a signature of ops.add is not a correct value type. The machine has no domain nmber.");
+    // The issues of the verbs come first, and without the option the check reads only the verbs.
+    expect(checkWorld(bad, [])).toEqual([]);
+    const both = checkWorld(bad, ["view"], { types: true });
+    expect(both[0]?.code).toBe("#NOEVAL");
+    expect(both.slice(both.findIndex((issue) => issue.code === "#TYPE!"))).toEqual(issues);
+  });
+
+  it("[TYPE.WORLD-CLEAN] the standard machines, the profiles of the tests and an open world give no type issue", () => {
+    const clean: readonly Machine[] = [
+      STD_MACHINE,
+      formulaMachine(),
+      typed,
+      formulaMachine({ ops: GUARDED, sigs: SIGS }),
+      formulaMachine({ ops: GUARDED, sigs: SIGS, ext: { money: () => ok(1) }, extTypes: { money: "number" }, truthy: jsTruthy, truthType: "unknown" }),
+      formulaMachine(TYPED, { domains: { point } }),
+      // A function of signatures declares nothing, because the check cannot list its names.
+      formulaMachine({ ops: LOOSE_OPS, sigs: (name) => SIGS[name] }),
+    ];
+    for (const machine of clean) expect(checkWorld(machine, [], { types: true })).toEqual([]);
+    // An open world (WORLD.OPEN): a fallback kind answers a path of kinds, and an alias goes to another kind. Neither gives an issue.
+    const open: Machine = {
+      ...typed,
+      world: {
+        ...typed.world,
+        kinds: {
+          ...typed.world.kinds,
+          label: { verbs: { eval: "formula.lit" }, result: "text" },
+          named: { type: "ref", value: ["label"] },
+          wild: { verbs: { eval: "formula.lit" }, result: "unknown" },
+          tag: { verbs: { eval: "formula.list" }, parts: { shape: "term", kinds: [["missing"], ["named"], ["wild"], ["ops", "add"]], expect: "number" } },
+        },
+        fallback: { verbs: { eval: "formula.lit" }, result: "text" },
+      },
+    };
+    expect(checkWorld(open, [], { types: true })).toEqual([]);
+  });
+});

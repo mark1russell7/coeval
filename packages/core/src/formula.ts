@@ -5,7 +5,7 @@ import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } f
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled, totalCode } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
 import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeIssues, typeText } from "./types.ts";
-import type { PartType, TypeInput, TypeRule } from "./typing.ts";
+import type { Declared, PartType, TypeInput, TypeRule } from "./typing.ts";
 import { decodeDomain, domainTypeOf } from "./codec.ts";
 import { type StaticRead, factsOf } from "./facts.ts";
 
@@ -235,6 +235,12 @@ function isSignature(value: unknown): value is Signature {
   return typeof value === "object" && value !== null && Array.isArray((value as { readonly params?: unknown }).params) && Object.hasOwn(value, "to");
 }
 
+/** This function tells if two signatures have the same parameters and the same rest parameter. */
+function sameParams(a: Signature, b: Signature): boolean {
+  if (!docEquals(a.params, b.params)) return false;
+  return a.rest === undefined ? b.rest === undefined : b.rest !== undefined && docEquals(a.rest, b.rest);
+}
+
 /** This function gives the text of a signature, for the reason of an issue. */
 function signatureText(sig: Signature): string {
   const params = sig.params.map(typeText);
@@ -324,6 +330,32 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
       sigs.push(sig);
     }
     return { sigs, bad: sigs.length !== raw.length };
+  };
+  /**
+   * The declarations of the signatures, for `checkWorld` (TYPE.WORLD, D110). Only a record of signatures lists them.
+   * An overload with the parameters of an earlier overload is a problem: the earlier one always fits first.
+   */
+  const sigsDeclared = (): readonly Declared[] => {
+    const sigs = profile.sigs;
+    if (sigs === undefined || typeof sigs === "function") return [];
+    const out: Declared[] = [];
+    for (const name of Object.keys(sigs)) {
+      const raw: unknown = sigs[name];
+      const list: readonly unknown[] = Array.isArray(raw) ? raw : [raw];
+      list.forEach((sig, index) => {
+        const at: readonly Key[] = Array.isArray(raw) ? ["sigs", name, index] : ["sigs", name];
+        if (!isSignature(sig)) {
+          out.push({ at, problem: `A signature of ops.${name} is not a record with params and to. The check does not read it.` });
+          return;
+        }
+        sig.params.forEach((param, position) => out.push({ at: [...at, "params", position], type: param, what: `parameter ${position + 1} of a signature of ops.${name}` }));
+        if (sig.rest !== undefined) out.push({ at: [...at, "rest"], type: sig.rest, what: `rest parameter of a signature of ops.${name}` });
+        out.push({ at: [...at, "to"], type: sig.to, what: `result of a signature of ops.${name}` });
+        const earlier = list.slice(0, index).findIndex((other) => isSignature(other) && sameParams(other, sig));
+        if (earlier >= 0) out.push({ at, problem: `The overload ${index + 1} of ops.${name} has the parameters of the overload ${earlier + 1}. Thus the check never selects it.` });
+      });
+    }
+    return out;
   };
   const logic = (word: "and" | "or"): TypeRule => ({
     part: (input, path) => truthPart(input, `term ${Number(path[0]) + 1} of ${word}`),
@@ -456,6 +488,8 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     },
 
     "formula.if": {
+      // The rule of if declares the truth type of the profile, thus one bad truth type gives one issue in checkWorld.
+      declared: () => (declared ? [{ at: ["truthType"], type: truth, what: "truth type of the profile" }] : []),
       part: (input, path) => {
         if (path[0] === "test") return truthPart(input, "test of if");
         return isUnknown(input.expected, input.machine.domains) ? {} : { expect: input.expected, what: `${String(path[0])} branch of if` };
@@ -471,6 +505,7 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     "formula.or": logic("or"),
 
     "formula.op": {
+      declared: sigsDeclared,
       part: (input, path) => {
         const read = signatures(input);
         // Only one signature gives the types of the arguments before their check. Overloads select after it.
@@ -510,6 +545,15 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     },
 
     "formula.ext": {
+      declared: () => {
+        const types = profile.extTypes;
+        const own = profile.ext;
+        if (types === undefined || own === undefined) return [];
+        // Only the type of an own extension counts. An entry for a standard extension has no effect (D103).
+        return Object.keys(types)
+          .filter((name) => Object.hasOwn(own, name))
+          .map((name) => ({ at: ["extTypes", name], type: types[name], what: `type of ext.${name} in extTypes` }));
+      },
       synth: (input) => {
         const name = nameOf(input);
         const own = profile.ext !== undefined && Object.hasOwn(profile.ext, name);
