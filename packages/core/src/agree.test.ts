@@ -866,15 +866,28 @@ describe("one meaning", () => {
     expect(trees.codes.get("#CYCLE!") ?? 0, show(Object.fromEntries(trees.codes))).toBeGreaterThan(0);
   });
 
-  it("[TREE.GRAPH-AGREES] in the generated trees, each read of a run along a static edge is an edge of the graph, and a run with a value has no static cycle", () => {
-    const config = CONFIGS.find((item) => item.name === "trees") as Config;
-    // Few generated references reach a tree before an error, thus the harness takes more documents.
-    const outcome = graphHarness(config, COUNT * 4);
-    expect(outcome.misses.slice(0, 5)).toEqual([]);
-    // The comparisons are not empty: reads along static edges, runs with a value, and cycles that check finds before the run.
-    expect(outcome.reads, show(outcome)).toBeGreaterThan(COUNT / 10);
-    expect(outcome.values, show(outcome)).toBeGreaterThan(COUNT / 2);
-    expect(outcome.cycles, show(outcome)).toBeGreaterThan(0);
+  // Few generated references reach a tree before an error, thus the harness takes more documents. The documents took
+  // 13 s in CI at COUNT 2000, thus each test examines one part of 1000 documents (D96). The last test checks the totals.
+  const graphTotal = COUNT * 4;
+  const graphParts = Math.ceil(graphTotal / 1000);
+  const graph = { reads: 0, values: 0, cycles: 0, parts: 0 };
+  for (let part = 0; part < graphParts; part += 1) {
+    it(`[TREE.GRAPH-AGREES] in the generated trees, each read of a run along a static edge is an edge of the graph, and a run with a value has no static cycle: part ${part + 1} of ${graphParts}`, () => {
+      const config = CONFIGS.find((item) => item.name === "trees") as Config;
+      const outcome = graphHarness(config, part * 1000, Math.min(graphTotal, (part + 1) * 1000));
+      expect(outcome.misses.slice(0, 5)).toEqual([]);
+      graph.reads += outcome.reads;
+      graph.values += outcome.values;
+      graph.cycles += outcome.cycles;
+      graph.parts += 1;
+    });
+  }
+
+  it("[TREE.GRAPH-AGREES] the parts are not empty: reads along static edges, runs with a value, and cycles that check finds before the run", () => {
+    expect(graph.parts, "parts that finished").toBe(graphParts);
+    expect(graph.reads, show(graph)).toBeGreaterThan(COUNT / 10);
+    expect(graph.values, show(graph)).toBeGreaterThan(COUNT / 2);
+    expect(graph.cycles, show(graph)).toBeGreaterThan(0);
   });
 });
 
@@ -890,12 +903,23 @@ interface GraphOutcome {
 }
 
 /**
+ * This function compares two nodes of a tree by their places. The spy machine and the plain machine have separate plans,
+ * thus each one gives its own node things, and identity cannot compare them.
+ */
+function sameNode(a: unknown, b: unknown): boolean | undefined {
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return undefined;
+  const from = placeOf(a as Thing);
+  const to = placeOf(b as Thing);
+  return from === undefined || to === undefined ? undefined : docEquals(from, to);
+}
+
+/**
  * This function compares the graph of attribute instances with the reads of a run (TREE.GRAPH-AGREES). A spy of the
  * code of a reference wraps the self of the reference. The wrapper records each read of an attribute of a node that a
  * static step reaches, and the attributes that the JSON of such a node reads. A node that a value of the run holds is
  * not static, thus the wrapper does not record its reads.
  */
-function graphHarness(config: Config, total: number): GraphOutcome {
+function graphHarness(config: Config, from: number, to: number): GraphOutcome {
   const plain = STD_MACHINE.evaluators?.["ref.resolve"] as EvalFn;
   const seen: { readonly place: readonly Key[]; readonly from: string }[] = [];
   const targets = new WeakMap<object, object>();
@@ -952,7 +976,7 @@ function graphHarness(config: Config, total: number): GraphOutcome {
   let reads = 0;
   let values = 0;
   let cycles = 0;
-  for (let index = 0; index < total; index += 1) {
+  for (let index = from; index < to; index += 1) {
     const seed = SEED * 1_000_003 + index;
     const ctx = CONTEXTS[index % CONTEXTS.length] as Context;
     const generated = generate(config.machine.world, { ...config.options, seed });
@@ -964,7 +988,7 @@ function graphHarness(config: Config, total: number): GraphOutcome {
       seen.length = 0;
       const result = evaluate(machine, doc, ctx).result;
       const expected = evaluate(config.machine, doc, ctx).result;
-      if (!sameResult(result, expected)) {
+      if (!sameResult(result, expected, sameNode)) {
         misses.push(`seed ${seed}: the spy changes the result ${show(expected)} to ${show(result)}.`);
         continue;
       }
