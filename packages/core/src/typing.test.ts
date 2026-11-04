@@ -1061,6 +1061,12 @@ describe("the types of the roots, of the names and of the paths", () => {
     expect(extendDomain("whole", { under: ["number"] })(base).domains?.["whole"]).not.toHaveProperty("codec");
   });
 
+  it("[TYPE.RULE] reads the rule of an evaluator that is a function", () => {
+    const code = (): Result => ok(1);
+    const machine: Machine = { ...STD_MACHINE, evaluators: { ...STD_MACHINE.evaluators, "math.add": Object.assign(code, { type: { synth: () => "number" } }) } };
+    expect(typeCheck(machine, { type: "add", value: [1, 2] }).type).toBe("number");
+  });
+
   it("[TYPE.ROOTS-SOUND] for generated root types and contexts of their members, a document that checks evaluates to members of its types", () => {
     const machine = swapMachine({ ops: GUARDED, sigs: SIGS });
     const rng = random(SEED * 7 + 3);

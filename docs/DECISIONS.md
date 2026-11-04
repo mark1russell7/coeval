@@ -4084,3 +4084,25 @@ A finding has the form of each other finding. The obligation is `parallel`, and 
 **Limits.** The seeded orders are a sample. With four or more waits at one time, a fault of one rare order can stay hidden. A shot that `failFast` stopped gets only the checks of one shot. A difference in the resolutions alone gets no finding.
 
 **Changed expected values.** `conforms` reports code that passed before: each runner whose result, parts or effects change with the order of the waits of `all`. A runner under `all` also gets another record in a run, because each item starts before the first wait settles. Thus a part after a failed part can start with `failFast`, as in the kernel. No evaluator or runner of the standard library or the formula kit uses `all`, thus no result of `conforms` for them changes. No existing test of `conforms` changes. The new tests are in `conform.test.ts`.
+
+## D150 (2026-11-04): an evaluator that is a function can hold a type rule
+
+**Context.** C14 shows the types of the cards on the site. The standard evaluators are functions and have no rules, thus each card of the site has the type `unknown`.
+
+**Decision.**
+
+- `ruleOf` reads the field `type` of a function too, as it reads the field of an object.
+- The site gives rules to the standard kinds of its pictures, on a new function that calls the standard evaluator.
+- The standard kit stays without rules at this time.
+
+**Alternatives.**
+
+- Rules on `STD_EVALUATORS`. A rule needs an object or a new function. Each standard evaluation then goes through other code, and the speed gates change for a site feature.
+- A `typeRules` field on the machine. It is a second place for one fact, and each reader of a rule must know both.
+
+**Why.** The rule follows the evaluator, as TYPE.RULE tells. One test in `ruleOf` keeps this true for each form of an evaluator.
+
+**Limits.**
+
+- A rule on a run side kind has no effect, thus the cards of `seq`, `log` and the run form of `if` show `unknown`.
+- A later roadmap item can move the rules from the site to the standard kit.

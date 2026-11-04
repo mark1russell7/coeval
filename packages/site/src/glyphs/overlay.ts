@@ -27,6 +27,8 @@ export interface Overlay {
   readonly showRungs: boolean;
   /** The key of the selected path. */
   readonly selected?: string;
+  /** The keys of the paths of the cards with a `#TYPE!` issue. */
+  readonly typeIssues?: ReadonlySet<string>;
   /** This function selects a card. A picture without it has no selection. */
   readonly onSelect?: (path: readonly string[]) => void;
 }

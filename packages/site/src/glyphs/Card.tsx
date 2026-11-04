@@ -107,6 +107,7 @@ export default function Card({ doc, declared, path, rung, side = "derive", unkno
       data-depth={path.length % 2}
       data-selected={overlay.selected === key}
       data-unknown={unknown}
+      data-type-issue={overlay.typeIssues?.has(key) === true}
       data-path={key}
       role={selectable ? "button" : undefined}
       tabIndex={selectable ? 0 : undefined}
@@ -140,6 +141,7 @@ export default function Card({ doc, declared, path, rung, side = "derive", unkno
           </span>
         )}
         {typeName(doc.type)}
+        {overlay.typeIssues?.has(key) === true && <span className="cv-type-mark">#TYPE!</span>}
         {overlay.showRungs && rung !== undefined && (
           <span className="cv-rung" title={RUNG_TITLE[rung]}>
             {RUNG_LETTER[rung]}
