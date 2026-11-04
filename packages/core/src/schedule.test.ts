@@ -4,7 +4,9 @@ import {
   type Context,
   type Effect,
   type EvalFn,
+  type Failed,
   type FormulaProfile,
+  type HostThing,
   type Json,
   type Key,
   type Random,
@@ -27,6 +29,7 @@ import {
   formulaMachine,
   isClosure,
   isHostThing,
+  isStackOverflow,
   jsTruthy,
   necessary,
   ok,
@@ -702,7 +705,7 @@ describe("the interface of a schedule", () => {
     // twice the depth of the overflow, with no work beyond it (K207, D96). Before, it had 100000 nodes and took 2.7 s.
     const LENGTH = 2000;
     // The lazy chain shows the overflow on this host. If it gives its value, the chain is too short for the claim.
-    // The error is #DEPTH!, or #CYCLE! when the overflow comes between two steps of the walk of the demand.
+    // The error is #DEPTH! (SCHED.DEEP-CYCLE-CHAIN).
     const lazy = schedule(strictMachine, { ...LIT, context: context({ names: { x: 7, flag: true } }) });
     for (let index = 0; index < LENGTH; index += 1) lazy.set(`n${index}`, index === LENGTH - 1 ? ref("names", "x") : { type: "if", value: { test: ref("names", "flag"), then: ref("world", `n${index + 1}`), else: 0 } });
     expect(lazy.read("n0").ok, "a chain of lazy edges of this length overflows the stack of the host").toBe(false);
@@ -750,6 +753,281 @@ describe("the interface of a schedule", () => {
     runs.set("r", { type: "log", value: [ref("world", "n0")] });
     expect(await runs.run("r")).toEqual(ok(3));
     expect(runs.counts.ahead).toBe(4999);
+  });
+});
+
+/* A certain cycle with more nodes than the stack of the host holds (S2c, D139). */
+
+/** The length of a ring: twice the depth of the overflow of SCHED.LONG-CHAIN, with no work beyond it (K207). */
+const RING = 2000;
+
+const flagged = (flag: boolean): ScheduleOptions => ({ ...LIT, context: context({ names: { flag, x: 7 } }) });
+const lazily = (next: Json): Json => ({ type: "if", value: { test: ref("names", "flag"), then: next, else: 0 } });
+
+/** This function adds a ring of nodes: each node reads the next node through its form, and the last node reads the first. */
+function ring(s: Schedule, form: (next: Json) => Json, length: number = RING): void {
+  for (let index = 0; index < length; index += 1) s.set(`n${index}`, form(ref("world", `n${(index + 1) % length}`)));
+}
+
+/** This function adds a chain of lazy reads that ends at the name `x`. */
+function lazyChain(s: Schedule, prefix: string): void {
+  for (let index = 0; index < RING; index += 1) s.set(`${prefix}${index}`, index === RING - 1 ? ref("names", "x") : lazily(ref("world", `${prefix}${index + 1}`)));
+}
+
+/** This function gives a formula machine with one more lazy operation. */
+function withLazy(name: string, code: NonNullable<FormulaProfile["lazy"]>[string]): typeof strictMachine {
+  return formulaMachine({ ...STRICT, lazy: { ...LAZY, [name]: code } });
+}
+
+/** A count of the evaluations, and a machine with the lazy operation `tick` that adds one and gives its argument. */
+function ticking(): { readonly machine: typeof strictMachine; readonly ticks: () => number } {
+  let ticks = 0;
+  const machine = withLazy("tick", (args) => {
+    ticks += 1;
+    return args[0]?.() ?? fail("#ARGS", "tick needs an argument.");
+  });
+  return { machine, ticks: () => ticks };
+}
+
+describe("a certain cycle longer than the stack", () => {
+  it("[SCHED.DEEP-CYCLE] each node of a ring gives the #CYCLE! of a short ring, in each form and order of demands, also when each node catches the error", () => {
+    const forms: Readonly<Record<string, (next: Json) => Json>> = {
+      reference: (next) => next,
+      add: (next) => op("add", next, 1),
+      // A node that catches the error does not decide its value (D31). A catch must not hide the overflow.
+      catching: (next) => op("ifError", next, 0),
+      lazy: lazily,
+    };
+    for (const [name, form] of Object.entries(forms)) {
+      for (const first of [0, 777, RING - 1]) {
+        const s = schedule(strictMachine, flagged(true));
+        ring(s, form);
+        expect(s.read(`n${first}`), `${name} from n${first}`).toEqual(cycle(`n${first}`));
+        const wrong = Array.from({ length: RING }, (_item, index) => `n${index}`).filter((id) => !sameResult(s.read(id), cycle(id)));
+        expect(wrong, `${name} from n${first}`).toEqual([]);
+      }
+    }
+    // The static analysis names the same members as the demand.
+    const s = schedule(strictMachine, flagged(true));
+    ring(s, (next) => next);
+    const found = cycles(s.graph());
+    expect(found).toMatchObject([{ certain: true }]);
+    expect(found[0]?.nodes.length).toBe(RING);
+    for (const id of found[0]?.nodes ?? []) expect(s.read(id)).toEqual(cycle(id));
+
+    // A reader gets the error at its reference, as D31 says, also behind a chain that overflows by itself.
+    s.set("reader", op("add", ref("world", "n5"), 1));
+    const reason = "The node n5 is on a cycle of reads.";
+    for (let index = 0; index < RING; index += 1) s.set(`t${index}`, lazily(ref("world", index === RING - 1 ? "reader" : `t${index + 1}`)));
+    expect(s.read("reader")).toEqual(fail("#CYCLE!", reason, { place: [0] }));
+    expect(s.read("t0")).toMatchObject({ ok: false, error: { code: "#CYCLE!", reason } });
+    expect(s.read(`t${RING - 1}`)).toMatchObject({ ok: false, error: { code: "#CYCLE!", reason } });
+  });
+
+  it("[SCHED.DEEP-CYCLE-CHANGE] a change of data finds the ring again, an edit that opens the ring gives values, and an edit that closes it gives #CYCLE!", () => {
+    const catching = schedule(strictMachine, flagged(true));
+    ring(catching, (next) => op("ifError", next, 0));
+    expect(catching.read("n3")).toEqual(cycle("n3"));
+    catching.changeData(context({ names: { unused: 1 } }));
+    expect(catching.read("n3")).toEqual(cycle("n3"));
+    expect(catching.read("n4")).toEqual(cycle("n4"));
+    // The last node ends the chain. The nodes are eager, thus the demands ahead give each value.
+    const s = schedule(strictMachine, flagged(true));
+    const form = (next: Json): Json => op("add", next, 0);
+    ring(s, form);
+    expect(s.read("n3")).toEqual(cycle("n3"));
+    s.set(`n${RING - 1}`, 7);
+    expect(s.read("n3")).toEqual(ok(7));
+    expect(s.read("n1000")).toEqual(ok(7));
+    // Each node keeps its result and verifies its read, and the verification finds the ring.
+    s.set(`n${RING - 1}`, form(ref("world", "n0")));
+    expect(s.read("n1000")).toEqual(cycle("n1000"));
+    expect(s.read("n3")).toEqual(cycle("n3"));
+  });
+
+  it("[SCHED.DEEP-CYCLE-ENTRY] each entry point and each tier gives #CYCLE!: read, run, a plan, a traced plan, the reference, the root world, and an edge without a target", async () => {
+    const reason = "The node n0 is on a cycle of reads.";
+    const want = { ok: false, error: { code: "#CYCLE!", reason } };
+    const doc = ref("world", "n0");
+    const definitions = formulaDefinitions(STRICT);
+    const fresh = (): Schedule => {
+      const s = schedule(strictMachine, LIT);
+      ring(s, (next) => next);
+      return s;
+    };
+    expect(fresh().read("n0")).toEqual(cycle("n0"));
+    expect(prepare(strictMachine, doc, LIT).evaluate(fresh().context)).toMatchObject(want);
+    expect(prepare(strictMachine, doc, { ...LIT, trace: true }).evaluate(fresh().context)).toMatchObject(want);
+    expect(reference(strictMachine, doc, fresh().context, { definitions })).toMatchObject(want);
+    expect(await prepare(strictMachine, doc, LIT).run(fresh().context)).toMatchObject(want);
+    expect(await referenceRun(strictMachine, doc, fresh().context, { definitions })).toMatchObject(want);
+    // A run of a node on the run side, with the standard machine.
+    const std = schedule(STD_MACHINE, { context: context({ caps: ["log"] }) });
+    ring(std, (next) => next);
+    std.set("r", { type: "log", value: [ref("world", "n0")] });
+    expect(await std.run("r")).toMatchObject(want);
+    // A read of a node on the run side still gives #REF! after the overflow, and a walk does not evaluate that node.
+    expect(std.read("r")).toEqual(refused("r"));
+    const sink = schedule(STD_MACHINE, { context: context({ caps: ["log"], names: { flag: true } }) });
+    ring(sink, lazily);
+    sink.set("r", { type: "log", value: [ref("world", "n0")] });
+    sink.set("n7", { type: "list", value: [ref("world", "r"), ref("world", "n8")] });
+    expect(sink.read("n8")).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+    expect(sink.read("n7")).toEqual(fail("#REF!", "The node r is on the run side, thus it has no value for a reader.", { place: [0] }));
+    // The host reads the root world as a thing, and as a whole. The record reads the first node by name.
+    const world = fresh().context.world as HostThing;
+    expect(() => world.deref("n0")).toThrow(reason);
+    expect(prepare(strictMachine, ref("world"), LIT).evaluate(fresh().context)).toMatchObject(want);
+    // An edge without a target is not a certain edge of `cycles`, but the read of the whole root happens.
+    const whole = fresh();
+    whole.set(`n${RING - 1}`, ref("world"));
+    expect(whole.read("n5")).toEqual(cycle("n5"));
+    // An equation of a tree gives a lazy edge. The field of the node reads the next node in the same way.
+    const trees = schedule(treeMachine({}));
+    ring(trees, (next) => ({ type: "watch", value: { got: next } }));
+    expect(trees.read("n0")).toEqual(cycle("n0"));
+    expect(trees.read("n9")).toEqual(cycle("n9"));
+  });
+
+  it("[SCHED.DEEP-CYCLE-REAL] only reads that happen make a cycle: a read after a failed part, a skipped read and a chain give no #CYCLE!, and a read after a long chain does", () => {
+    // Each edge is eager, thus `cycles` calls the ring certain. The node n1000 fails before its read.
+    const failed = schedule(strictMachine, flagged(true));
+    ring(failed, (next) => next);
+    failed.set("n1000", op("pair", op("neg", op("add", "text", 1)), ref("world", "n1001")));
+    expect(cycles(failed.graph())).toMatchObject([{ certain: true }]);
+    const codes = new Set(Array.from({ length: RING }, (_item, index) => (failed.read(`n${index}`) as Failed).error.code));
+    expect(codes.has("#CYCLE!")).toBe(false);
+
+    // A ring through lazy reads, and the test of the last node skips the read: a chain that ends at a value.
+    const skipped = schedule(strictMachine, flagged(true));
+    ring(skipped, lazily);
+    skipped.set(`n${RING - 1}`, { type: "if", value: { test: false, then: ref("world", "n0"), else: 1 } });
+    expect(skipped.read("n0")).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+
+    // The node n5 reads a long chain with a value, and then the next node. A walk goes back to n5 after the chain.
+    const parts = op("pair", ref("world", "t0"), ref("world", "n6"));
+    const deep = schedule(strictMachine, flagged(true));
+    ring(deep, (next) => next);
+    lazyChain(deep, "t");
+    deep.set("n5", parts);
+    expect(deep.read("n0")).toEqual(cycle("n0"));
+    expect(deep.read("n5")).toEqual(cycle("n5"));
+    // A value of a walk stays in the walk, thus the chain keeps its #DEPTH! (S2b).
+    expect(deep.read("t0")).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+
+    // A value of a walk holds the root of the walk, thus it stays in the walk. The closure of f evaluates again.
+    const closures = schedule(strictMachine, flagged(true));
+    ring(closures, (next) => next);
+    closures.set("a", ref("names", "x"));
+    closures.set("f", { type: "fn", value: { params: ["v"], body: op("add", ref("names", "v"), ref("world", "a")) } });
+    closures.set("n5", op("pair", ref("world", "f"), ref("world", "n6")));
+    closures.set("g", op("apply", ref("world", "f"), 10));
+    expect(closures.read("n0")).toEqual(cycle("n0"));
+    expect(closures.read("g")).toEqual(ok(17));
+
+    // A node near the limit of the stack catches the overflow in its own read. It keeps no result from that depth.
+    const caught = schedule(strictMachine, flagged(true));
+    for (let index = 0; index < RING; index += 1) {
+      caught.set(`n${index}`, lazily(op("pair", ref("world", `p${index}`), ref("world", `n${(index + 1) % RING}`))));
+      caught.set(`p${index}`, op("ifError", ref("world", `q${index}`), 1));
+      caught.set(`q${index}`, ref("names", "x"));
+    }
+    expect(caught.read("n0")).toEqual(cycle("n0"));
+    const wrong = Array.from({ length: RING }, (_item, index) => `p${index}`).filter((id) => !sameResult(caught.read(id), ok(7)));
+    expect(wrong).toEqual([]);
+
+    // The same graph, and the first demand reads only the chain. It finds no cycle, and the ring still gives #CYCLE!.
+    const later = schedule(strictMachine, flagged(true));
+    ring(later, (next) => next);
+    lazyChain(later, "t");
+    later.set("n5", parts);
+    expect(later.read("t0")).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+    expect(later.read("n0")).toEqual(cycle("n0"));
+    expect(later.read("n6")).toEqual(cycle("n6"));
+  });
+
+  it("[SCHED.DEEP-CYCLE-CHAIN] a deep chain with no cycle keeps what it gave: a value through eager edges, and #DEPTH! through lazy edges", () => {
+    const { machine, ticks } = ticking();
+    const eager = schedule(machine, flagged(true));
+    for (let index = 0; index < RING; index += 1) eager.set(`n${index}`, index === RING - 1 ? ref("names", "x") : op("add", ref("world", `n${index + 1}`), op("tick", 1)));
+    expect(eager.read("n0")).toEqual(ok(7 + RING - 1));
+    // Each node evaluates one time, thus no walk ran.
+    expect(ticks()).toBe(RING - 1);
+    expect(eager.counts).toMatchObject({ evaluations: RING, ahead: RING - 1 });
+
+    const lazy = schedule(strictMachine, flagged(true));
+    lazyChain(lazy, "n");
+    const first = lazy.read("n0");
+    expect(first).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+    expect(isStackOverflow((first as Failed).error.cause)).toBe(true);
+    expect(lazy.read("n0")).toBe(first);
+  });
+
+  it("[SCHED.DEEP-CYCLE-BOUND] the walks of one data epoch evaluate each node at most two times, and the count does not grow with the reads of a node", () => {
+    const { machine, ticks } = ticking();
+    const s = schedule(machine, flagged(true));
+    ring(s, (next) => op("tick", next));
+    expect(s.read("n0")).toEqual(cycle("n0"));
+    // The first pass stops at the overflow, and it evaluates each node at most one time. The walk gives two times.
+    expect(ticks()).toBeGreaterThanOrEqual(2 * RING);
+    expect(ticks()).toBeLessThanOrEqual(3 * RING);
+
+    // A chain that overflows at many reads keeps one walk in the epoch.
+    const other = ticking();
+    const chain = schedule(other.machine, flagged(true));
+    for (let index = 0; index < RING; index += 1) chain.set(`n${index}`, index === RING - 1 ? ref("names", "x") : op("tick", lazily(ref("world", `n${index + 1}`))));
+    for (let index = 0; index < RING; index += 1) chain.read(`n${index}`);
+    expect(other.ticks()).toBeGreaterThanOrEqual(RING);
+    expect(other.ticks()).toBeLessThanOrEqual(3 * RING);
+
+    // A node with 50 reads of other nodes evaluates at most 51 times, and each other node at most two times.
+    const wide = ticking();
+    const w = schedule(wide.machine, flagged(true));
+    ring(w, (next) => op("tick", next));
+    const leaves = Array.from({ length: 50 }, (_item, index) => `l${index}`);
+    for (const id of leaves) w.set(id, op("tick", 1));
+    w.set("n7", op("tick", op("pair", op("pair", ...leaves.map((id) => ref("world", id))), ref("world", "n8"))));
+    expect(w.read("n0")).toEqual(cycle("n0"));
+    expect(wide.ticks()).toBeLessThanOrEqual(3 * (RING + leaves.length));
+  });
+
+  it("[SCHED.DEEP-CYCLE-AGREES] for generated graphs, a walk after an overflow gives each node of a cycle what the plain demand gives, and no other node #CYCLE!", () => {
+    let armed = false;
+    const machine = withLazy("spend", (args) => {
+      if (armed) {
+        armed = false;
+        throw new RangeError("Maximum call stack size exceeded");
+      }
+      return args[0]?.() ?? fail("#ARGS", "spend needs an argument.");
+    });
+    let cyclic = 0;
+    let kept = 0;
+    for (let seed = 0; seed < COUNT; seed += 1) {
+      const rng = random(seed);
+      const ids = Array.from({ length: 8 }, (_item, index) => `g${index}`);
+      const node = (): Json => ref("world", ids[rng.int(ids.length)] as string);
+      const plain = schedule(machine, LIT);
+      const hit = schedule(machine, LIT);
+      for (const id of ids) {
+        const doc = op("spend", wireFormula(rng, node));
+        plain.set(id, doc);
+        hit.set(id, doc);
+      }
+      for (const id of ids) {
+        armed = true;
+        const got = hit.read(id);
+        armed = false;
+        const want = plain.read(id);
+        if (sameResult(want, cycle(id))) cyclic += 1;
+        // A walk that reaches no cycle keeps the first result, thus only a node without #CYCLE! can differ.
+        const certain = !want.ok && want.error.code === "#CYCLE!";
+        if (certain) expect(got, `${id} of the seed ${seed}`).toEqual(want);
+        else expect(!got.ok && got.error.code === "#CYCLE!", `${id} of the seed ${seed}`).toBe(false);
+        if (!sameResult(got, want)) kept += 1;
+      }
+    }
+    expect(cyclic).toBeGreaterThan(COUNT);
+    expect(kept).toBeGreaterThan(0);
   });
 });
 
