@@ -4849,3 +4849,15 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
 
 **Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
+
+## D154 (2026-11-04): a walker and an extension declare the roots that they read
+
+**Context.** K54, from S1a. A kind declares `reads`, and the hook `facts` answers with `reads` for an evaluator (FACTS.KIND-READS). The facts dropped this answer for the walker of a step document. An extension gets its context, and a profile had no place for the roots that it reads. Thus `factsOf` gave a document as pure with fewer reads than its evaluation. A closure and a schedule read these facts, so they missed a dependency.
+
+**Decision.** The facts add a read of each declared root of a walker, at the place of the reference (FACTS.STEP-READS). The answer of the hook wins over `reads` of the kind, as for an evaluator. The new field `extReads` of a formula profile gives the roots of an extension (FACTS.EXT-READS). The hook of the kit gives them in its answer.
+
+**Why.** One rule of `reads` covers an evaluator, a walker and an extension. A root is the unit of the existing declaration, and it stays an upper bound of what the code reads. A fold needs no new test: the context of a fold traps each root, so an extension that reads a root refuses the fold.
+
+**Alternatives.** A declaration of full paths. It is tighter, but a walker chooses its keys from the data, thus a path is often not known. A second field for walkers. The hook already has the field `reads`.
+
+**Limits.** A reference from `self` inside an equation stops before its steps, thus the facts do not see the walkers of such a reference, as before. A declaration is a claim of the host: the facts do not test it.
