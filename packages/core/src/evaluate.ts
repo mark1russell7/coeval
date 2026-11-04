@@ -1082,7 +1082,6 @@ function readingOf(list: Read[] | undefined, root: Context): Reading | undefined
   return list === undefined ? undefined : { list, root, kept: false, self: false };
 }
 
-/** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 /** The state that the runtimes of one evaluation share. */
 interface Link {
   /** The record of the reads of the evaluation. */
@@ -1097,6 +1096,7 @@ function linkOf(list: Read[] | undefined, root: Context): Link | undefined {
   return reading === undefined ? undefined : { reading, top: undefined };
 }
 
+/** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
   /**
    * The count of the work, on the runtime of the root of the evaluation (WORK.LIMIT). The first count adds the field,
@@ -1138,18 +1138,14 @@ class Session implements Runtime {
     effects: Effect[] | undefined,
     /**
      * The state that the runtimes of one evaluation share, or `undefined` without reads and equations. Each runtime has
-     * this one field, thus a plain evaluation pays nothing, and a tree and its equations have one object shape.
+     * this one field, thus a plain evaluation pays nothing, and a tree and its equations have one object shape. Code on
+     * the path of a read reads `link?.reading` in place: a getter is one more call in the first tiers of the engine.
      */
     public link: Link | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
-  }
-
-  /** This getter gives the record of the reads. A nested evaluation of an equation shares it (READS.EQUATION). */
-  get reading(): Reading | undefined {
-    return this.link?.reading;
   }
 
   /** This getter gives `true` for the runtime of an equation of a tree (WORK.NODE). */
@@ -1194,7 +1190,7 @@ class Session implements Runtime {
 
   /** `true` when the evaluation records its reads. Then folded code evaluates again, thus each read goes in the list (PLAN.FOLD). */
   get recording(): boolean {
-    return this.reading !== undefined;
+    return this.link?.reading !== undefined;
   }
 
   /**
@@ -1212,14 +1208,14 @@ class Session implements Runtime {
    */
   resolvePath(given: Context, compiled: CompiledPath): Resolution {
     const ctx = readable(given, this.epoch);
-    if (this.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
+    if (this.link?.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
     return this.read(ctx, compiled.path, compiled, undefined);
   }
 
   /** This function resolves a path, and records its read when the evaluation has a list of reads (READS.RECORD). */
   private read(ctx: Context, path: readonly unknown[], compiled: CompiledPath | undefined, options: ResolveOptions | undefined): Resolution {
     const hops = options?.hops ?? this.traced;
-    const reading = this.reading;
+    const reading = this.link?.reading;
     if (reading === undefined) return this.find(ctx, path, compiled, hops);
     const free = isFree(reading.root, ctx, path);
     // A kind that sets another self can give the old self on, as the parent of a node of a tree does (READS.KEPT).
@@ -1248,7 +1244,7 @@ class Session implements Runtime {
   }
 
   keepsContext(ctx?: Context, reads?: () => readonly StaticRead[] | undefined): void {
-    const reading = this.reading;
+    const reading = this.link?.reading;
     if (reading === undefined || reading.kept) return;
     const known = ctx === undefined ? undefined : reads?.();
     // A value without its static reads can read each root later (READS.KEPT).
