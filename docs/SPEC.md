@@ -540,6 +540,11 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | SYNTAX.FN-TEXT | With `constructs.fn`, the text `(x, y) => x + y` reads `x` and `y` into `params` and `x + y` into `body` (D127). A parameter is a plain name or a name in backticks, and each word is a good parameter. Without `=>`, the text is a group as before. The body goes as far as it can, thus `print` puts parentheses around the form as a term of an operator. A value with other keys has no text. |
 | SYNTAX.CALL-TEXT | With `constructs.call`, arguments after a group read a call of a value, for example `(f)(1, 2)` (D127). A name before arguments stays an operation, thus `f(1)` is `ops.f`. The text `(f)()` reads `args: []`, thus a document without `args` has no text. The text `f(1)(2)` stays an issue. |
 | SYNTAX.CONSTRUCTS | The field `constructs` of a profile names the kind of each form, and a form without a kind stays an issue (D127). Each form was an issue before, thus each text of before reads the same document. No name becomes reserved: `let`, `in`, `fn`, `call` and `record` stay names and operations. An operator that reads the text of a form throws a `TypeError`. |
+| SYNTAX.FORM-DOMAIN | A form `literal` of the kind `ext.domain` with the field `domain` reads its one literal as the data of that domain. `print` writes that document as the form. |
+| SYNTAX.FORM-DOMAIN-VALUE | The syntax does not read the data. The codec of the machine reads it at evaluation, and the codec gives each error of the data. |
+| SYNTAX.FORM-DOMAIN-ROUND | `parse` of `print` gives the same document for each literal data of each domain with a form. |
+| SYNTAX.FORM-DOMAIN-NONE | A domain without a form, data that is not a literal, and a value with another key have no text. |
+| SYNTAX.FORM-DOMAIN-CHECK | A form `literal` of `ext.domain` needs a domain. Each other form with the field `domain` throws when the profile compiles. |
 
 ## Conformance
 

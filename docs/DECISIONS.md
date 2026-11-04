@@ -4036,3 +4036,29 @@ The parts of `allOf` and the other keywords of a schema give the meet of their t
 **Why.** Each form takes only a text that was an issue, thus the change adds readings and takes none away. The operations `let`, `fn`, `call` and `record` keep their texts, and the reference `let` stays a name. A profile field keeps the rule of D41: data drives the parser and the printer, and each other profile reads as before. The new forms use the entries of a form `named` and the arguments of a call, thus the tokenizer gets no new rule for keys.
 
 **Limits.** `WORLD_SYNTAX` has no forms, because `STD_WORLD` has no such kinds. A host that spreads `STD_SYNTAX` gets the forms, and an operator of that host that reads `{`, `}`, `=>` or `let` throws a `TypeError`.
+
+## D141 (2026-11-04): a call form with the field `domain` is the text of a domain value
+
+**Context.** K143, from C15. D40 gives a value that JSON cannot write the document `ext.domain`, with the name of its domain and its data. The syntax kit of D41 has no text for such a document, thus `print` refuses each date of a language.
+
+**Decision.** `SyntaxForm` gets the optional field `domain`.
+
+- A form with `args: "literal"` and `kind: "ext.domain"` needs the field. The form `{ name: "date", kind: "ext.domain", args: "literal", domain: "date" }` reads `date("2026-01-02")` (SYNTAX.FORM-DOMAIN).
+- The value of the document is `{ domain: "date", data: "2026-01-02" }`, the form of D40.
+- `print` tries each form of the kind, thus a profile has one form for each domain. A domain without a form has no text (SYNTAX.FORM-DOMAIN-NONE).
+- Each other form with the field throws when the profile compiles (SYNTAX.FORM-DOMAIN-CHECK).
+- The syntax does not read the data. The codec of the machine reads it at evaluation, and it gives each error (SYNTAX.FORM-DOMAIN-VALUE).
+
+**Alternatives.**
+
+- Codecs in the profile. `parse` then runs code of a host and gives values, not documents. A profile is data (D41), thus this breaks that rule.
+- A new literal mark, for example `#date "2026-01-02"`. Each language then needs a new token, and the form of D63 already has the text.
+- A table `literals.domains`. It holds the same four facts as a form, and it needs its own rules for names and clashes.
+
+**Limits.**
+
+- Only data that a literal writes has a text. Data that is a record or a list has no text at this time (SYNTAX.FORM-DOMAIN-NONE).
+- `parse` accepts data that the codec refuses. `check` does not read the data either, thus the error comes at evaluation.
+- A form of a domain and an operation with one name follow the rule of forms: the form wins.
+
+**Why.** A form already has a name, one literal, its text and its place in `print`. One optional field adds the two facts that differ, and `parse` stays free of code of a host. `parse` of `print` holds for each literal data, and the codec keeps one definition of each domain.

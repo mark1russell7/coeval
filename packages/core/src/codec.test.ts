@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { type SyntaxForm, type SyntaxProfile, parse, print } from "./syntax.ts";
 import {
   type Domain,
   type FormulaProfile,
@@ -234,5 +235,65 @@ describe("the codec of values", () => {
     expect(typeCheck(machine, domainDoc("color", "#fff"), LIT).type).toBe("unknown");
     expect(typeCheck(machine, domainDoc("nothing", "1"), LIT).type).toBe("unknown");
     expect(typeCheck(machine, { type: ["ext", "number"], value: "NaN" }, LIT).type).toBe("number");
+  });
+});
+
+describe("the text of a domain value (K143, D141)", () => {
+  const form = (name: string, domain = name): SyntaxForm => ({ name, kind: "ext.domain", args: "literal", domain });
+  const profile: SyntaxProfile = { calls: { forms: [form("date"), form("big")] } };
+  const text = '"2026-10-25T00:00:00.000Z"';
+
+  it("[SYNTAX.FORM-DOMAIN] a form reads the data of a domain into ext.domain, and print writes it", () => {
+    const doc = domainDoc("date", "2026-10-25T00:00:00.000Z");
+    const parsed = parse(profile, `date(${text})`);
+    expect(parsed).toEqual({ ok: true, doc });
+    expect(print(profile, doc)).toEqual({ ok: true, value: `date(${text})` });
+    expect(parse(profile, `date(${text}, 1)`).ok).toBe(false);
+    expect(parse(profile, "big(self.a)").ok).toBe(false);
+  });
+
+  it("[SYNTAX.FORM-DOMAIN-VALUE] the codec of the machine reads the data of a parsed text", () => {
+    const parsed = parse(profile, 'big("12345678901234567890")');
+    expect(parsed.ok && decodeValue(machine, parsed.doc)).toEqual(ok(12345678901234567890n));
+    const wrong = parse(profile, 'big("no")');
+    expect(wrong.ok).toBe(true);
+    expect(wrong.ok && decodeValue(machine, wrong.doc).ok).toBe(false);
+  });
+
+  it("[SYNTAX.FORM-DOMAIN-ROUND] parse of print gives the same document for each data of each domain", () => {
+    const mix = (seed: number): number => (Math.imul(seed, 2654435761) >>> 0) % 1000000;
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const n = mix(seed);
+      const docs = [domainDoc("big", String(n)), domainDoc("date", new Date(n * 86400).toISOString()), domainDoc("big", `q"${String(n)}\\n`), domainDoc("date", n)];
+      for (const doc of docs) {
+        const written = print(profile, doc);
+        expect(written.ok && parse(profile, written.value)).toEqual({ ok: true, doc });
+      }
+    }
+  });
+
+  it("[SYNTAX.FORM-DOMAIN-NONE] a domain without its form and data without a literal have no text", () => {
+    expect(print(profile, domainDoc("color", "#fff")).ok).toBe(false);
+    expect(print(profile, domainDoc("date", { y: 2026 })).ok).toBe(false);
+    expect(print(profile, domainDoc("date", [2026])).ok).toBe(false);
+    expect(print(profile, { type: ["ext", "domain"], value: { domain: "date", data: "a", more: 1 } }).ok).toBe(false);
+    expect(print(profile, { type: ["ext", "domain"], value: { domain: "date" } }).ok).toBe(false);
+    expect(print(profile, { type: ["ext", "domain"], value: "date" }).ok).toBe(false);
+  });
+
+  it("[SYNTAX.FORM-DOMAIN-CHECK] the field domain goes only on a form literal of ext.domain, and such a form needs it", () => {
+    const refused = (given: SyntaxForm): boolean => {
+      try {
+        parse({ calls: { forms: [given] } }, "1");
+        return false;
+      } catch (error) {
+        return error instanceof TypeError;
+      }
+    };
+    expect(refused({ name: "date", kind: "ext.domain", args: "literal" })).toBe(true);
+    expect(refused({ name: "date", kind: "ext.domain", args: "literal", domain: "" })).toBe(true);
+    expect(refused({ name: "date", kind: "text", args: "literal", domain: "date" })).toBe(true);
+    expect(refused({ name: "date", kind: "ext.domain", args: "list", domain: "date" })).toBe(true);
+    expect(refused(form("date"))).toBe(false);
   });
 });
