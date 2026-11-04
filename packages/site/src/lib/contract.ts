@@ -1,4 +1,4 @@
-import { fail, fromJson, isAlias, isKind, isNamespace, kindNamed, typed, typeName, walk, type EvalFn, type Json, type Kind, type Shape, type World, type WorldEntry } from "@mark1russell7/coeval";
+import { fail, fromJson, isAlias, isKind, isNamespace, kindNamed, typed, typeName, walk, type EvalFn, type Json, type Kind, type PartShape, type World, type WorldEntry } from "@mark1russell7/coeval";
 import { getAt } from "./edit.ts";
 
 /*
@@ -51,15 +51,15 @@ export interface FieldEditor {
 /** The editor of a value. Each form comes from the contract of the kind. */
 export type Editor = DataEditor | { readonly form: "record"; readonly fields: readonly FieldEditor[] } | { readonly form: "list" } | { readonly form: "map" } | { readonly form: "term" } | { readonly form: "path" } | { readonly form: "none" };
 
-function dataEditor(shape: Shape | undefined): DataEditor | undefined {
+function dataEditor(shape: PartShape | undefined): DataEditor | undefined {
   if (shape?.shape === "text") return { form: "text" };
   if (shape?.shape === "one") return { form: "one", values: shape.values };
   if (shape?.shape !== "number") return undefined;
   return { form: "number", whole: shape.whole === true, ...(shape.min === undefined ? {} : { min: shape.min }), ...(shape.max === undefined ? {} : { max: shape.max }) };
 }
 
-function fieldsOf(shape: Extract<Shape, { readonly shape: "record" }>): readonly FieldEditor[] {
-  const named: readonly (readonly [string, Shape | undefined])[] = Array.isArray(shape.fields) ? (shape.fields as readonly string[]).map((key) => [key, undefined]) : Object.entries(shape.fields);
+function fieldsOf(shape: Extract<PartShape, { readonly shape: "record" }>): readonly FieldEditor[] {
+  const named: readonly (readonly [string, PartShape | undefined])[] = Array.isArray(shape.fields) ? (shape.fields as readonly string[]).map((key) => [key, undefined]) : Object.entries(shape.fields);
   return named.map(([key, field]) => {
     const data = dataEditor(field);
     return { key, required: shape.required?.includes(key) === true, ...(data === undefined ? {} : { data }) };
@@ -124,13 +124,13 @@ export function emptyDoc(world: World, kind: string): Json {
   return typed(kind.includes(".") ? kind.split(".") : kind, emptyValue(editorOf(world, kind)));
 }
 
-function shapeAt(parts: Shape | undefined, key: string): Shape | undefined {
+function shapeAt(parts: PartShape | undefined, key: string): PartShape | undefined {
   if (parts === undefined) return undefined;
   if (parts.shape === "term") return parts;
   if (parts.shape === "list" || parts.shape === "map") return parts.item ?? { shape: "term", ...(parts.of === undefined ? {} : { of: parts.of }) };
   if (parts.shape !== "record") return undefined;
   const fields = parts.fields;
-  if (!Array.isArray(fields) && Object.hasOwn(fields, key)) return (fields as Readonly<Record<string, Shape>>)[key];
+  if (!Array.isArray(fields) && Object.hasOwn(fields, key)) return (fields as Readonly<Record<string, PartShape>>)[key];
   return { shape: "term", ...(parts.of === undefined ? {} : { of: parts.of }) };
 }
 

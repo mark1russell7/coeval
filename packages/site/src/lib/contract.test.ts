@@ -82,6 +82,7 @@ describe("the editors from the contracts", () => {
 
   it("respects the limits of a number and the first value of a menu", () => {
     const world: World = {
+      defaults: {},
       kinds: {
         small: { verbs: {}, parts: { shape: "number", min: 5, max: 9, whole: true } },
         low: { verbs: {}, parts: { shape: "number", max: -2 } },
@@ -104,6 +105,7 @@ describe("the editors from the contracts", () => {
 
 describe("the positions of a document", () => {
   const world: World = {
+    defaults: {},
     kinds: {
       number: { verbs: {} },
       text: { verbs: {} },

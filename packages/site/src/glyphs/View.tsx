@@ -13,7 +13,7 @@ import {
   type Json,
   type Kind,
   type Rung,
-  type Shape,
+  type PartShape,
   type World,
 } from "@mark1russell7/coeval";
 import { HOLE_KIND } from "../lib/contract.ts";
@@ -22,7 +22,7 @@ import { OverlayContext, STATIC_OVERLAY } from "./overlay.ts";
 import ValueGlyph from "./Value.tsx";
 
 /** This function gives a kind of the standard world with the contract of its value, for the editor of the playground. */
-function contract(name: string, parts: Shape): Kind {
+function contract(name: string, parts: PartShape): Kind {
   return { ...(STD_WORLD.kinds[name] as Kind), parts };
 }
 
