@@ -257,6 +257,7 @@ type Typing: build/index.d.ts#Typing
 type Use: build/index.d.ts#Use
 type ValueType: build/index.d.ts#ValueType
 type VerbEffects: build/index.d.ts#VerbEffects
+type VerbEntries: build/index.d.ts#VerbEntries
 type VerifyOptions: build/index.d.ts#VerifyOptions
 WORLD_SYNTAX: build/index.d.ts#WORLD_SYNTAX
 type WalkInput: build/index.d.ts#WalkInput
@@ -2296,6 +2297,12 @@ type VerbEffects = Readonly<Record<string, "type" | readonly string[]>> & {
   readonly eval?: never;
 };
 
+### build/index.d.ts#VerbEntries
+interface VerbEntries {
+  readonly kind: MergePath;
+  readonly verbs: Readonly<Record<string, string>>;
+}
+
 ### build/index.d.ts#VerifyOptions
 interface VerifyOptions {
   readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
@@ -2385,6 +2392,8 @@ interface WorldPart {
   readonly kinds?: Readonly<Record<string, WorldEntry>>;
   readonly defaults?: Readonly<Record<string, string>>;
   readonly fallback?: Kind;
+  readonly verbs?: readonly string[];
+  readonly extends?: readonly VerbEntries[];
   readonly replaces?: readonly MergePath[];
 }
 

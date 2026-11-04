@@ -122,6 +122,26 @@ const later = mergeMachines(stats, (prev) => ({
 
 A host can merge a language into a machine at run time. A plan keeps the machine that it compiled against. A new plan uses the new machine.
 
+## Verb entries
+
+A language can add a verb to the kinds of another language, and it copies no kind (D156). The language names the verbs that it owns. It gives the evaluators for each kind in `extends`.
+
+```ts
+const FORMAT: MachinePart = {
+  world: {
+    verbs: ["format"],
+    extends: [
+      { kind: ["kinds", "ops", "fallback"], verbs: { format: "format.terms" } },
+      { kind: ["kinds", "lit"], verbs: { format: "format.lit" } },
+    ],
+  },
+  evaluators: { "format.terms": terms, "format.lit": lit },
+};
+mergeMachines(BASE, FORMAT); // the same machine as mergeMachines(FORMAT, BASE)
+```
+
+This is `extend-protocol` of Clojure. The orphan rule of Haskell and the rule of Julia against type piracy give its limit. An entry for a foreign verb on a foreign kind is a conflict. The mark `replaces` of the path `["kinds", "ref", "verbs", "format"]` resolves it, thus the language says that it takes the entry on purpose. The ladder does not change.
+
 ## Conflict
 
 Two extensions can each compose with the base, and still conflict together. The merge throws one `MergeError` when the host builds the machine, before a document evaluates.
