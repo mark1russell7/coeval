@@ -137,6 +137,18 @@ const NUMBERS: Readonly<Record<string, Json>> = {
 };
 
 describe("the syntax kit", () => {
+  it("[SYNTAX.CALL-DOTTED] without field steps, print gives no dotted call, and a plain call still comes back", () => {
+    const profile: SyntaxProfile = { refs: { fields: false } };
+    const doc = (...keys: readonly string[]): Json => ({ type: ["ops", ...keys], value: [1] });
+    expect(print(profile, doc("m", "p")).ok).toBe(false);
+    expect(print({ refs: { fields: false }, calls: { ops: ["m.p"] } }, doc("m", "p")).ok).toBe(false);
+    expect(parse(profile, "m.p(1)").ok).toBe(false);
+    expect(print(profile, doc("m"))).toEqual({ ok: true, value: "m(1)" });
+    expect(parse(profile, "m(1)")).toEqual({ ok: true, doc: doc("m") });
+    expect(print({}, doc("m", "p"))).toEqual({ ok: true, value: "m.p(1)" });
+    expect(parse({}, "m.p(1)")).toEqual({ ok: true, doc: doc("m", "p") });
+  });
+
   it("[SYNTAX.PARSE] parse reads a text of the standard profile into the documents of the formula kit", () => {
     expect(doc(STD_SYNTAX, "1 + 2 * 3")).toEqual(op("add", 1, op("mul", 2, 3)));
     expect(doc(STD_SYNTAX, "x - y - z")).toEqual(op("sub", op("sub", x, y), z));
