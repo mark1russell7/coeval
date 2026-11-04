@@ -1,7 +1,7 @@
 import { type Json, type Key, docEquals, isKey, isRecord, typeName } from "./doc.ts";
 import { partsOf as docParts } from "./parts.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
-import { type CompiledPath, type Context, type Resolution, compilePath, valueOfThing, walkerOf } from "./deref.ts";
+import { type CompiledPath, type Context, type Resolution, type Root, compilePath, valueOfThing, walkerOf } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled, totalCode } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
@@ -51,6 +51,9 @@ export type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<str
  *   names no operation.
  * - `pureExt`: the pure extensions of `ext`, by their name, for `factsOf` and the folds of a plan (PLAN.FOLD, D47).
  *   The default names no extension. A standard extension is pure without a name here.
+ * - `extReads`: the roots that an extension of `ext` reads from its context, by its name, for `factsOf`
+ *   (FACTS.EXT-READS). A read of a root through the context refuses a fold, thus such a pure extension runs at each
+ *   evaluation.
  * - `volatile`: the operations whose results can change while their arguments stay the same, for example a clock.
  * - `sigs`: the signatures of the operations, by their name, for a check of types (TYPE.SIGNATURE). A list gives
  *   overloads. An operation without a signature takes and gives `unknown` (TYPE.GRADUAL).
@@ -74,6 +77,7 @@ export interface FormulaProfile {
   readonly combine?: (errors: readonly EvalError[]) => EvalError;
   readonly pure?: true | readonly string[];
   readonly pureExt?: readonly string[];
+  readonly extReads?: Readonly<Record<string, readonly Root[]>>;
   readonly volatile?: readonly string[];
   readonly sigs?: Readonly<Record<string, Signature | readonly Signature[]>> | ((name: string) => Signature | readonly Signature[] | undefined);
 }
@@ -677,6 +681,7 @@ const PROFILE_KEYS = /* @__PURE__ */ Object.freeze([
   "combine",
   "pure",
   "pureExt",
+  "extReads",
   "volatile",
   "sigs",
 ] as const satisfies readonly (keyof FormulaProfile)[]);
@@ -1186,7 +1191,11 @@ function makeFacts(profile: FormulaProfile, known: (path: readonly Key[], evalua
     if (code !== "formula.op" && code !== "formula.ext") return undefined;
     const name = path.slice(1).join(".");
     if (code === "formula.ext") {
-      if (profile.ext !== undefined && Object.hasOwn(profile.ext, name)) return pureExt.has(name) ? PURE : NOT_PURE;
+      if (profile.ext !== undefined && Object.hasOwn(profile.ext, name)) {
+        const facts = pureExt.has(name) ? PURE : NOT_PURE;
+        const reads = profile.extReads !== undefined && Object.hasOwn(profile.extReads, name) ? profile.extReads[name] : undefined;
+        return reads === undefined ? facts : { ...facts, reads };
+      }
       return Object.hasOwn(STD_EXT, name) ? PURE : undefined;
     }
     // An operation that the language does not have gives #NAME?. The kit gives it no facts.

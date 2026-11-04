@@ -26,7 +26,6 @@ Write all prose of this repository in the style of ASD-STE100 Simplified Technic
 
 - `docs/ROADMAP.md` is the one list of the open work. Keep it current.
 - Record each decision in `docs/DECISIONS.md`. The page `design/decisions` of the site gives a summary.
-- The roadmap tracker is the folder `~/git/fleet/artifacts/coeval`. Change the tracker and `docs/ROADMAP.md` together.
 
 ## The site
 
