@@ -261,6 +261,7 @@ export {
   type ParseResult,
   type SyntaxAssoc,
   type SyntaxCalls,
+  type SyntaxConstructs,
   type SyntaxEnvelopes,
   type SyntaxFixity,
   type SyntaxForm,
