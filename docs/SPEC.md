@@ -528,6 +528,7 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | WORK.HOST | An application of a closure by an operation of the host counts one point, as an application by `call` does. |
 | WORK.RUN | A run has the count and the error of an evaluation. `plan.run`, `run` and `referenceRun` give the same result. |
 | WORK.AFTER | A closure can leave its evaluation. After the end of the evaluation, each entry from the host starts a new count. Thus an application by the host stops only for its own work. |
+| WORK.KEEPS | A plan marks the end of its evaluation only if it holds a runner, an evaluator that is a function, or a compiled evaluator with the field `keeps`. Each other plan has the code of a plan without the count. |
 | WORK.PREPARE | `prepare` does no counted work. A fold stops at the first counted point, and a node is a counted point in a fold. Thus a recursion or a tree costs no time in `prepare`. |
 | WORK.HIGHER | A kind with `higher` attributes that generate two subtrees at each level gives `#WORK!`, because each generated node counts (WORK.NODE). |
 | WORK.NODE | A node that an equation makes counts 8 points, the constant `NODE_WORK`. A generated document and an equation that gives a node both make such nodes. A node of the text of the root document counts nothing. |

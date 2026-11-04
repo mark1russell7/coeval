@@ -221,12 +221,11 @@ function isNumber(value: unknown): value is number {
 function allValues(results: readonly Result[]): { readonly values: readonly unknown[] } | { readonly error: Result } {
   const errors = results.filter((result) => !result.ok);
   const first = errors[0];
-  if (first !== undefined && errors.length === 1) return { error: first };
+  if (first === undefined) return { values: results.map((result) => (result.ok ? result.value : null)) };
+  if (errors.length === 1) return { error: first };
   // WORK.LIMIT: after the limit each counted part fails, and the code of the limit stays the code of the result.
   const stopped = errors.find((result) => !result.ok && result.error.code === "#WORK!");
-  if (stopped !== undefined) return { error: stopped };
-  if (errors.length > 1) return { error: fail("#ARGS", `${errors.length} parts failed.`) };
-  return { values: results.map((result) => (result.ok ? result.value : null)) };
+  return { error: stopped ?? fail("#ARGS", `${errors.length} parts failed.`) };
 }
 
 function numbers(values: readonly unknown[], kind: string): readonly number[] | Result {

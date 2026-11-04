@@ -4144,7 +4144,7 @@ The merge gate of the bench refuses a slower case. Thus a count at each document
 
 The point past the limit gives the new code `#WORK!`, as a `Failure` at the same place as the clock of D125. The new code is additive. When more than one part of an operator fails, the code stays `#WORK!`, because each later point fails too.
 
-The plan keeps the count on the runtime of the root. A runtime of an equation holds the root in its field `top` (WORK.EQUATION). The reference keeps a shared `Meter`. A root sets `top` to itself at its end. Then each entry from the host starts a new count, thus a closure that leaves its evaluation does not collect an error (WORK.AFTER).
+The plan keeps the count on the runtime of the root. A runtime of an equation holds the root in its field `top` (WORK.EQUATION). The reference keeps a shared `Meter`. A root sets `ended` at its end, and only a plan that can keep its runtime has this step (WORK.KEEPS). Then each entry from the host starts a new count, thus a closure that leaves its evaluation does not collect an error (WORK.AFTER).
 
 A fold stops at the first point (WORK.PREPARE). The probe has `nested` set, thus a node stops the fold before an equation. A recursion of 40 levels prepares at once. The bench has no document in which `prepare` does this work.
 
@@ -4166,4 +4166,4 @@ The count is not complete.
 - A cell of the host keeps `#WORK!` as it keeps each other result, and a kept cell costs no work. Thus two evaluations with cells can spend different counts.
 - Each node of a schedule has its own evaluation and its own count. Thus its cache keeps `#WORK!`, as it keeps each other result that depends on the node.
 
-**Why.** The count stays off the read path. A document without a counted point adds one test in `treeNode` and one store at its end. One limit covers each source of doubling that the check found, and a host raises it as it raises `maxDepth`.
+**Why.** The count stays off the read path. A plan without a closure, a tree or a function evaluator has the same code and the same runtime as before. The first version stored the end in each plan, and the bench gave 7 slower cases, with +23 % on one formula. A compiled evaluator tells that it keeps its runtime with the field `keeps`. Without the field the count goes on after the end, and the limit stops the host sooner. One limit covers each source of doubling that the check found, and a host raises it as it raises `maxDepth`.

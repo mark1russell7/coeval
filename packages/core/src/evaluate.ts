@@ -758,6 +758,11 @@ export interface CompiledEvaluator {
    * (TYPE.RULE). Only a check reads it. An evaluator without a rule gives `unknown`.
    */
   readonly type?: TypeRule;
+  /**
+   * `true` when a value that the code gives can use its runtime after the end of the evaluation (WORK.KEEPS). The plan
+   * then marks that end. A compiled evaluator without this field gives no such value.
+   */
+  readonly keeps?: boolean;
 }
 
 /** An evaluator: a function of its input, or a compiler. */
@@ -1084,6 +1089,10 @@ class Session implements Runtime {
    * thus an evaluation without a counted point has no field.
    */
   declare work?: number;
+  /** The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). A root has no such field. */
+  declare top?: Session;
+  /** `true` on the runtime of a root after the end of its evaluation (WORK.AFTER, WORK.KEEPS). */
+  declare ended?: boolean;
   /** The count of the applications of closures that run at this time. `formula.fn` writes it (FORMULA.CALL-DEPTH). */
   declare applying?: number;
   /** The list of the effects. It is made at the first effect, thus an evaluation without effects makes no list. */
@@ -1120,11 +1129,6 @@ class Session implements Runtime {
      * shares the record of the evaluation around it (READS.EQUATION).
      */
     readonly reading: Reading | undefined = undefined,
-    /**
-     * The runtime of the root, for the runtime of an equation of a tree (WORK.EQUATION). A root holds `undefined`
-     * during its evaluation, and it holds itself after the end (WORK.AFTER).
-     */
-    public top: Session | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
@@ -1133,8 +1137,7 @@ class Session implements Runtime {
 
   /** This getter gives `true` for the runtime of an equation of a tree (WORK.NODE). */
   get nested(): boolean {
-    const top = this.top;
-    return top !== undefined && top !== this;
+    return this.top !== undefined;
   }
 
   /**
@@ -1146,10 +1149,10 @@ class Session implements Runtime {
    * @throws {Failure} The error `#WORK!`, when the count is over the limit of the machine.
    */
   spend(points: number): void {
-    const top = this.top ?? this;
-    const entry = top.top === top && (this.applying ?? 0) === 0;
-    const work = (entry ? 0 : (top.work ?? 0)) + points;
-    top.work = work;
+    const root = this.top ?? this;
+    const entry = root.ended === true && (this.applying ?? 0) === 0;
+    const work = (entry ? 0 : (root.work ?? 0)) + points;
+    root.work = work;
     const limit = this.machine.maxWork ?? WORK_LIMIT;
     if (work > limit) throw new Failure(workFailure(limit));
   }
@@ -1667,6 +1670,8 @@ interface Compiler {
   readonly fixed: Readonly<Record<string, unknown>> | undefined;
   /** The runtime of the folds of this compilation. The first fold makes it. */
   probe?: Probe;
+  /** `true` when a document of this compilation can use its runtime after the end of the evaluation (WORK.KEEPS). */
+  keeps?: boolean;
 }
 
 function failing(c: Compiler, meta: Meta, place: readonly Key[], code: ErrorCode, reason: string): Compiled {
@@ -1804,6 +1809,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   };
   // A compiler that throws fails its own document when that document evaluates, with its place (PLAN.FAIL-LATE).
   if (runner !== undefined) {
+    c.keeps = true;
     let inner: RunCode;
     try {
       inner = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
@@ -1814,6 +1820,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     return finish(c, meta, runnerCode(run, place, kindText), run);
   }
 
+  if (!isCompiledEvaluator(evaluator as Evaluator) || (evaluator as CompiledEvaluator).keeps === true) c.keeps = true;
   let inner: Code;
   try {
     inner = isCompiledEvaluator(evaluator as Evaluator) ? (evaluator as CompiledEvaluator).compile(input) : interpret(evaluator as EvalFn, input, split.fill);
@@ -2320,7 +2327,9 @@ export function evaluateWithin(plan: Plan, context: Context, outer: Runtime | un
   if (!(outer instanceof Session) || !(plan instanceof CompiledPlan)) return plan.evaluate(context);
   const machine = plan.machine;
   const ctx = rootContext(machine, context);
-  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.reading, outer.top ?? outer));
+  const session = new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.reading);
+  session.top = outer.top ?? outer;
+  return plan.code(ctx, session);
 }
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
@@ -2438,7 +2447,22 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
     const result = placed(thrown(error, "the compilation"), []);
     root = { code: () => result, run: undefined };
   }
-  return new CompiledPlan(machine, c.traced, root.code, root.run);
+  return new CompiledPlan(machine, c.traced, c.keeps === true ? endingCode(root.code) : root.code, root.run);
+}
+
+/**
+ * This function gives the code of a plan with a document that can use its runtime after the end of the evaluation. The
+ * code marks that end (WORK.KEEPS). Each other plan has no such step, thus the count adds nothing to a read.
+ *
+ * @param code - The code of the root.
+ * @returns The code that marks the end.
+ */
+function endingCode(code: Code): Code {
+  return (ctx, rt) => {
+    const result = code(ctx, rt);
+    (rt as Session).ended = true;
+    return result;
+  };
 }
 
 /**
@@ -2481,9 +2505,7 @@ class CompiledPlan implements Plan {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
     const s = new Session(machine, ctx.caps, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
-    const result = this.code(ctx, s);
-    s.top = s;
-    return result;
+    return this.code(ctx, s);
   }
 
   run(context: Context = makeContext(), runOptions: PlanRunOptions = {}): Promise<Result> {
@@ -2491,7 +2513,7 @@ class CompiledPlan implements Plan {
     const ctx = rootContext(machine, context);
     const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
     return driveWaiting(this.runCode()(ctx, s), runOptions.signal).finally(() => {
-      s.top = s;
+      s.ended = true;
     });
   }
 }
@@ -2560,9 +2582,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
   });
   const ctx = rootContext(machine, context);
   const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
-  const result = (plan as CompiledPlan).code(ctx, s);
-  s.top = s;
-  return record(s, result);
+  return record(s, (plan as CompiledPlan).code(ctx, s));
 }
 
 /**
@@ -2585,7 +2605,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
   const ctx = rootContext(machine, context);
   const s = new Session(machine, ctx.caps, true, true, options.perform, options.signal, undefined, readingOf(options.reads, ctx));
   const result = await driveWaiting((plan as CompiledPlan).runCode()(ctx, s), options.signal);
-  s.top = s;
+  s.ended = true;
   return record(s, result);
 }
 

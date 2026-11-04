@@ -17,13 +17,16 @@ import {
   reference,
   referenceRun,
   run,
+  type Code,
   type Context,
+  type Evaluator,
   type Json,
   type Kind,
   type Machine,
   type Result,
   type TreeContract,
 } from "./index.ts";
+import { RUNTIME, type InputWithRuntime } from "./evaluate.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const op = (name: string, ...args: Json[]): Json => ({ type: ["ops", name], value: args });
@@ -181,6 +184,32 @@ describe("the limit of work of one evaluation (K216, D134)", () => {
       expect(() => closure(0)).toThrow(/maxWork/);
       expect(closure(8)).toBe(9);
     }
+  });
+
+  it("[WORK.KEEPS] a plan marks the end of its evaluation only with an evaluator that can keep its runtime", () => {
+    const uses = (evaluator: Evaluator): number => {
+      const base = machineOf(3);
+      const machine: Machine = { ...base, evaluators: { ...base.evaluators, "test.keep": evaluator } };
+      const result = prepare(machine, { type: "number", value: 1, own: { eval: "test.keep" } }).evaluate(context());
+      const keep = (result as { readonly value: () => void }).value;
+      let done = 0;
+      try {
+        for (; done < 5; done += 1) keep();
+      } catch {
+        return done;
+      }
+      return done;
+    };
+    const compile = (): Code => (_ctx, rt) => ok(() => rt.spend?.(2));
+    expect(uses({ compile, keeps: true })).toBe(5);
+    expect(
+      uses((input) => {
+        const runtime = (input as InputWithRuntime)[RUNTIME];
+        return ok(() => runtime?.spend?.(2));
+      }),
+    ).toBe(5);
+    // Without the field, the plan has no end. Thus the count goes on, and the limit stops the second use.
+    expect(uses({ compile })).toBe(1);
   });
 
   it("[WORK.PREPARE] prepare does no work of a closure and evaluates no equation of a tree, thus a document past the limit prepares at once", () => {
