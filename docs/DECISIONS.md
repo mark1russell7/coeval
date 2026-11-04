@@ -4016,3 +4016,36 @@ The parts of `allOf` and the other keywords of a schema give the meet of their t
 **Alternatives.** A limit of `maxDepth` applications, as R7 P5 proposed. The reference overflows before 1000 applications, thus the tiers still disagree with the default machine. A new option of the machine for the clock. A second limit needs its own rule in `mergeMachines`, and the quarter of `maxDepth` follows each host that changes the limit. A count of the nested documents of each application. Then each document of the plan changes a counter, and that is on the path of each evaluation. One count in a module variable for all evaluations. Then a nested evaluation starts with the count of another evaluation. One count for each `fn` document. Then a mutual recursion of two functions nests to two times the limit. The exception for an overflow in `agree` stays. A body with many nested documents, a tree and an evaluator of the host can still overflow the stack of the host.
 
 **Why.** In the reference, an application of a short body uses the stack of approximately three nested documents. A quarter of `maxDepth` keeps a body of up to approximately nine nested documents for each application under the stack, in each tier. A recursion that stops under the limit gives its value as before. An endless recursion gives the same error in each tier, thus `agree` compares it without the exception for an overflow. The cost is an increment, a compare and a `finally` for each application. No case of the bench applies a closure.
+
+## D144 (2026-11-04): the demands of a long chain get no change for memory
+
+**Context.** K116, from K105. SCHED.LONG-CHAIN needed approximately 550 MB in its worker, and its schedule kept approximately 120 MB of it. Since K207, that test has 2000 nodes, thus that peak is gone. The study still measures the demands of a chain of 100000 nodes.
+
+**Measure.** One run of Node.js 24.21.0 on Windows, on the source of the branch of S2c, with the sampling heap profiler. The profiler counts objects that a collection frees.
+
+| Step | Heap after the step | Heap after a full collection | Time from the start |
+| --- | --- | --- | --- |
+| `set` of each node | 30 MB | not measured | 240 ms |
+| The first `read` | 198 MB | 146 MB | 775 ms |
+| `changeData` and a `read` | 283 MB | 146 MB | 1164 ms |
+
+The peak of the heap is 283 MB, and the peak of the process is 428 MB. The run allocates approximately 829 MB. The largest sources are these:
+
+- 107 MB from `Map.prototype.delete`, and 96 MB of it from `visit`. The profiler names the call and not the reason. The probable reason is a new table when a small map becomes empty, but the study did not test that.
+- 75 MB from `compileNode`.
+- 67 MB from `factsOf`, and 56 MB from its inner function.
+- 66 MB from the walk of `static.ts`.
+
+**Decision.** No code changes. No source is more than 13 % of the allocation. A schedule keeps approximately 1.5 KB for each node after a collection.
+
+**Alternatives.**
+
+- Arrays in place of the small maps of `visit`. This can remove approximately 12 % of the allocation. The study does not show that the peak goes down with it. The code of Tarjan then gets a second form of each mark.
+- A smaller plan of a reference. K105 did that work, and the live size stays near its result.
+
+**Limits.**
+
+- The numbers come from one run on one computer, thus they are a study and not a gate.
+- The measure did not run in CI. A memory number does not depend on the load of a computer as a time does, but another version of V8 gives other sizes.
+
+**Why.** The claim of K116 was about the peak of a test, and that peak is gone. A change to `visit` adds risk to the code of the cycle check for each host. It needs a need that a host measures.
