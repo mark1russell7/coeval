@@ -4864,3 +4864,15 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
 
 **Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
+
+## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
+
+**Context.** C11, from R6 P6. The panel of the playground named its kinds in code. It had an input for `number`, a menu of each world entry and a table of new documents. A new document needed a value, thus a reader could not leave a position empty.
+
+**Decision.** The function `editorOf` gives the editor of a kind from `Kind.parts` alone. A data shape gives an input. A record shape gives one row for each field, with a mark for each necessary field. A position lists only the kinds of its `term` shape (SHAPE.KINDS). The function `emptyDoc` gives a new document from the contract, and each necessary position holds a hole. The evaluator of `hole` gives the error value `#HOLE`, and the kernel adds its place. The function `namesAt` reads the names of a reference editor from `walk`.
+
+**Alternatives.** A kind `hole` in `STD_WORLD`. A hole is a state of an editor, and a host without an editor has no use for it. Thus the kernel does not change.
+
+**Why.** Each fact of the editor was already in a contract, except the shapes of the data kinds. The standard world gives `number`, `text` and `bool` no `parts`, so `SITE_WORLD` adds them. It also adds the fields of `write` and the necessary fields of `if`. A check reads these shapes in the same way as other contracts. An error value keeps each state of an edit evaluable, as in Hazelnut.
+
+**Limits.** A kind with no contract has no input, and "Edit the JSON" stays its editor. A reference keeps a small rule of its own, because its value is a path and no shape tells that. An edit does not check the type of a position against the kind that it lists. The field `of` declares the type of a bare value, and only `kinds` limits a term.

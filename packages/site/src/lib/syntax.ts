@@ -1,13 +1,14 @@
 import { WORLD_SYNTAX, parse, print, type Json, type ParseResult, type SyntaxIssue, type SyntaxProfile } from "@mark1russell7/coeval";
 
 /**
- * The text syntax of the world of the site (C17, D61). The site world is `STD_WORLD` and the kind `kind`. Thus this
- * profile is `WORLD_SYNTAX`, the profile of the standard world that the kernel gives (D64). The kind `kind` has only a
- * view, and the playground does not read it as text, thus the site adds no form.
- *
- * A site kind with a text spreads the kernel profile and adds its form to `calls.forms`.
+ * The text syntax of the world of the site (C17, D61). This profile is `WORLD_SYNTAX`, the profile of the standard
+ * world that the kernel gives (D64), with the form `hole()` of an empty position (C11). The kind `kind` has only a
+ * view, and the playground does not read it as text, thus the site adds no form for it.
  */
-export const SITE_SYNTAX: SyntaxProfile = WORLD_SYNTAX;
+export const SITE_SYNTAX: SyntaxProfile = {
+  ...WORLD_SYNTAX,
+  calls: { ...WORLD_SYNTAX.calls, forms: [...(WORLD_SYNTAX.calls?.forms ?? []), { name: "hole", kind: "hole" }] },
+};
 
 /** The text of a document, or the reason that the profile has no text for it. */
 export type DocText =
