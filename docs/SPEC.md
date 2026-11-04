@@ -74,6 +74,14 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | COMPOSE.PIRACY | An entry of a verb that the part does not own, on a kind that the part does not give, is a conflict. A part that owns a verb of the kernel, two different parts that own one verb, two different evaluators for one verb of a kind, and an entry for a path without a kind are conflicts too. The mark `replaces` of the path of a conflict resolves it. |
 | COMPOSE.CONSERVATIVE | A merge without a conflict can add kinds, aliases, namespaces, code and the defaults of new verbs. Such a merge keeps the result and the effects of each document of the base. The document names no new kind and no new code, and it reads no entry of the world that the merge changes, for example the root `world`. A new key under a fallback of the base is new only for documents that do not name it. A property test examines generated documents of three machines. |
 
+## Languages
+
+| ID | Rule |
+| --- | --- |
+| LANG.IDENTITY | `defineLanguage` gives one frozen value. Its text `data` is the canonical JSON of `requires` and `world`, with the keys in order. Two equal data halves give one text. The name, the version and this text identify a language. A value of the data half that is not JSON is an error. |
+| LANG.REQUIRES | `compose` needs each language in `requires` before the language that names it. The version of that language is in the caret range of SemVer from the version in `requires`. Each other case is a conflict. |
+| LANG.COMPOSE | `compose` gives the machine of `mergeMachines` over its languages. One language that comes twice counts once. Two versions of one name and two data halves under one name and one version are conflicts. A conflict of the merge also comes in one `MergeError`. |
+
 ## Parts and contracts
 
 | ID | Rule |
