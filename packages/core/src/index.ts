@@ -225,6 +225,7 @@ export {
 } from "./context.ts";
 export {
   type CheckOptions,
+  type DocChange,
   type DocVisit,
   type Issue,
   type RefUse,
@@ -235,6 +236,7 @@ export {
   type WorldOptions,
   check,
   checkWorld,
+  mapDocs,
   mapRefs,
   refsOf,
   typeCheck,

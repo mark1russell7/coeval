@@ -339,6 +339,45 @@ export function mapRefs(world: World, doc: unknown, change: (use: RefUse) => unk
   return out;
 }
 
+/**
+ * The answer of the function of `mapDocs` for one document.
+ *
+ * - `undefined`: keep the document and go into its parts.
+ * - `"skip"`: keep the document and stop there.
+ * - `{ to }`: put `to` in the place of the document and stop there.
+ * - `{ to, into: true }`: put `to` in the place of the document, then go into the parts of the old document. Thus
+ *   `to` must keep the path of each such part.
+ */
+export type DocChange = undefined | "skip" | { readonly to: unknown; readonly into?: boolean };
+
+/**
+ * This function changes the documents of a document, from the root to the parts (STATIC.MAPDOCS). The function
+ * `change` reads only the original documents. It decides at each node, and it can stop at a node. The kinds of a
+ * position come from the world, thus this function names no kind. The document is not changed: the function gives a
+ * new document that shares each part without a change.
+ *
+ * @param world - The world of the kinds.
+ * @param doc - The document, as JSON.
+ * @param change - The function that gives the answer for each visit. See `DocChange`.
+ * @param options - The type of a bare root value, and the names that the host binds at the root.
+ * @returns The new document, or `doc` itself when no document changes.
+ */
+export function mapDocs(world: World, doc: unknown, change: (visit: DocVisit) => DocChange, options: WalkOptions = {}): unknown {
+  let out = doc;
+  walk(
+    world,
+    doc,
+    (visit) => {
+      const next = change(visit);
+      if (next === undefined || next === "skip") return next;
+      out = setAt(out, visit.at, next.to);
+      return next.into === true ? undefined : "skip";
+    },
+    options,
+  );
+  return out;
+}
+
 /** A problem that a check finds before a document runs. */
 export interface Issue {
   readonly code: ErrorCode;
