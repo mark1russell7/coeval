@@ -2,8 +2,9 @@ import { type Key, docEquals, equalWith } from "./doc.ts";
 import { type Context, isHostThing } from "./deref.ts";
 import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
 import { type Effect, type Machine, type Perform, type Read, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
-import { Held, isClosure } from "./formula.ts";
+import { type FormulaProfile, Held, isClosure } from "./formula.ts";
 import { type Definitions, reference, referenceRun } from "./reference.ts";
+import { stepper } from "./stepper.ts";
 import { type ReplaySettle, recorder, relay, replayer } from "./replay.ts";
 
 /**
@@ -18,7 +19,7 @@ import { type ReplaySettle, recorder, relay, replayer } from "./replay.ts";
  *   each such name, and then with the context of `agree`. `agreeRun` does not have this tier.
  * - `other`: the second tier of a language, from the option `other`.
  */
-export type Tier = "reference" | "traced" | "again" | "folds" | "fixed" | "other";
+export type Tier = "reference" | "traced" | "again" | "folds" | "fixed" | "stepper" | "other";
 
 /** What a second tier gives: its result, and its effects when it records them. */
 export interface TierResult {
@@ -48,9 +49,11 @@ export interface AgreeOptions {
   readonly definitions?: Definitions;
   /**
    * The tiers to compare with the plan. The default is the reference, the traced evaluation, a second evaluation, the
-   * plan with the other choice of folds and the plan with fixed names.
+   * plan with the other choice of folds and the plan with fixed names. The tier `stepper` is not a default.
    */
   readonly tiers?: readonly Exclude<Tier, "other">[];
+  /** The profile of the formula kit, for the tier `stepper`. */
+  readonly profile?: FormulaProfile;
   /**
    * This function gives the result of the second tier of a language, for example a compiler to loops.
    *
@@ -287,6 +290,8 @@ export function agree(machine: Machine, doc: unknown, context: Context = makeCon
     let otherEffects: Effect[] = [];
     if (tier === "reference") {
       other = reference(machine, doc, context, { ...declared, ...mock, effects: otherEffects, ...(options.definitions === undefined ? {} : { definitions: options.definitions }) });
+    } else if (tier === "stepper") {
+      other = stepper(machine, doc, context, { ...declared, ...mock, effects: otherEffects, ...(options.profile === undefined ? {} : { profile: options.profile }), ...(options.definitions === undefined ? {} : { definitions: options.definitions }) });
     } else if (tier === "traced") {
       const traced = evaluate(machine, doc, context, { ...declared, ...mock });
       other = traced.result;
@@ -497,8 +502,8 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
   const replay = replayer(log);
 
   for (const tier of options.tiers ?? DEFAULT_TIERS) {
-    // A run has no tier with fixed names (PLAN.FIXED).
-    if (tier === "fixed") continue;
+    // A run has no tier with fixed names (PLAN.FIXED), and the stepper does no runs.
+    if (tier === "fixed" || tier === "stepper") continue;
     const tierReplay = watched(replay);
     const host = { perform: tierReplay.perform };
     let other: Result;
