@@ -109,6 +109,12 @@ export interface SyntaxForm {
    * form `literal` takes no `wrap`, and a form `list` takes only `true`.
    */
   readonly wrap?: boolean | readonly string[];
+  /**
+   * The name of a domain with a codec (K143, D141). A form `literal` of the kind `ext.domain` needs it. The text
+   * `date("2026-01-02")` then gives the value `{ domain: "date", data: "2026-01-02" }`. The syntax does not read the
+   * data: the codec of the machine reads it at evaluation. Each other form takes no `domain`.
+   */
+  readonly domain?: string;
 }
 
 /** The way that the arguments of a call form make the value of its document (D63). */
@@ -248,6 +254,8 @@ interface Form {
   readonly min: number;
   /** The arguments that take a document: `true` for each, or the names of the fields. */
   readonly wrap: boolean | ReadonlySet<string>;
+  /** The domain of a form literal of `ext.domain` (D141). */
+  readonly domain: string | undefined;
 }
 
 /** The type of a data envelope, and its key for a comparison with the path of a type. */
@@ -376,6 +384,14 @@ function compileConstructs(given: SyntaxConstructs | undefined, ops: Pick<Compil
   return { constructs, constructKinds };
 }
 
+/** This function examines the field `domain` of a call form (D141). A form `literal` of `ext.domain` needs a name, and each other form refuses it. */
+function compileDomain(given: SyntaxForm, args: SyntaxFormArgs): string | undefined {
+  const writes = args === "literal" && given.kind === "ext.domain";
+  if (writes && (typeof given.domain !== "string" || given.domain === "")) throw new TypeError(`The call form "${given.name}" of ext.domain needs the name of its domain.`);
+  if (!writes && given.domain !== undefined) throw new TypeError(`The call form "${given.name}" takes no domain: only a form literal of ext.domain has one.`);
+  return given.domain;
+}
+
 /** This function examines the field `wrap` of a call form (K159). A name that is not a field of the form throws. */
 function compileWrap(given: SyntaxForm, args: SyntaxFormArgs): boolean | ReadonlySet<string> {
   const wrap = given.wrap;
@@ -423,7 +439,7 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     if (!FORM_ARGS.includes(args)) throw new TypeError(`The call form "${given.name}" has the unknown arguments ${String(args)}.`);
     if ((args === "fields") !== (given.fields !== undefined) && args !== "named") throw new TypeError(`The call form "${given.name}" with the arguments ${args} ${args === "fields" ? "needs" : "takes no"} fields.`);
     if (given.min !== undefined && (args === "named" || args === "literal")) throw new TypeError(`The call form "${given.name}" with the arguments ${args} takes no min.`);
-    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0, wrap: compileWrap(given, args) };
+    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0, wrap: compileWrap(given, args), domain: compileDomain(given, args) };
     forms.set(form.name, form);
     addTo(formsByKind, key, form);
   }
@@ -952,7 +968,7 @@ class Parser {
     if (form?.args === "literal") {
       const [only] = args;
       if (args.length !== 1 || !isScalar(only)) this.stop(`The form ${name} takes one literal that JSON writes.`, start, this.pos - start);
-      return opDoc(form, only);
+      return opDoc(form, form.domain === undefined ? only : { domain: form.domain, data: only });
     }
     if (form !== undefined) {
       const most = form.fields?.length ?? Number.POSITIVE_INFINITY;
@@ -1281,10 +1297,17 @@ function wrappedShape(syn: Compiled, doc: unknown): Shape | undefined {
   return literal.tag === "text" ? literal : undefined;
 }
 
+/** This function tells if a value of `ext.domain` is a record with this domain and its data, and no other key. */
+function holdsDomain(value: unknown, domain: string): boolean {
+  return isRecord(value) && value["domain"] === domain && Object.hasOwn(value, "data") && Object.keys(value).length === 2;
+}
+
 function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined {
   if (form.args === "literal") {
-    if (!isScalar(value)) return undefined;
-    const literal = literalShape(syn, value);
+    if (form.domain !== undefined && !holdsDomain(value, form.domain)) return undefined;
+    const data = form.domain === undefined ? value : (value as Readonly<Record<string, unknown>>)["data"];
+    if (!isScalar(data)) return undefined;
+    const literal = literalShape(syn, data);
     return literal.tag === "text" ? { tag: "text", text: `${form.name}(${literal.text})` } : undefined;
   }
   if (form.args === "named") {
