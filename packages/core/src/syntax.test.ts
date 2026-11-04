@@ -764,37 +764,35 @@ describe("the syntax kit", () => {
     expect(issues(closing, "f(1 2, @9 3)").map(([offset]) => offset)).toEqual([4]);
   });
 
-  it("[SYNTAX.ISSUES-GENERATED] a damaged text gives a first issue as before, rising offsets and no cascade", () => {
+  // One test for each generator, because all of them together passed the budget of a test (D96).
+  it.each(Object.entries(GENERATORS))("[SYNTAX.ISSUES-GENERATED] a damaged text of %s gives a first issue as before, rising offsets and no cascade", (name, gen) => {
     const summary = { texts: 0, most: 0, single: 0 };
     const cascades: string[] = [];
     const quoteCascades: string[] = [];
     let digest = 2166136261;
-    for (const [name, gen] of Object.entries(GENERATORS)) {
-      for (let seed = 1; seed <= 2000; seed += 1) {
-        const made = generateDoc(gen, random(seed), 0);
-        const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
-        if (!printed.ok) continue;
-        for (let faults = 1; faults <= 3; faults += 1) {
-          const bad = damaged(random(seed * 7 + faults), printed.value, faults);
-          const result = parse(gen.profile, bad);
-          if (result.ok) continue;
-          const first = result.issues[0] as SyntaxIssue;
-          digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
-          const offsets = result.issues.map((each) => each.offset);
-          expect(offsets).toEqual([...new Set(offsets)].sort((a, b) => a - b));
-          summary.texts += 1;
-          summary.most = Math.max(summary.most, result.issues.length);
-          if (faults > 1) continue;
-          summary.single += 1;
-          if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
-        }
+    for (let seed = 1; seed <= 2000; seed += 1) {
+      const made = generateDoc(gen, random(seed), 0);
+      const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
+      if (!printed.ok) continue;
+      for (let faults = 1; faults <= 3; faults += 1) {
+        const bad = damaged(random(seed * 7 + faults), printed.value, faults);
+        const result = parse(gen.profile, bad);
+        if (result.ok) continue;
+        const first = result.issues[0] as SyntaxIssue;
+        digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
+        const offsets = result.issues.map((each) => each.offset);
+        expect(offsets).toEqual([...new Set(offsets)].sort((x, y) => x - y));
+        summary.texts += 1;
+        summary.most = Math.max(summary.most, result.issues.length);
+        if (faults > 1) continue;
+        summary.single += 1;
+        if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
       }
     }
     expect(cascades.slice(0, 3)).toEqual([]);
-    // A fault in a quote mark can pair with a mark inside a text that holds each mark (D138, Limits).
-    expect({ ...summary, quoteCascades: quoteCascades.length }).toEqual({ texts: 38842, most: 5, single: 10501, quoteCascades: 9 });
-    // This digest comes from the parser before D138. A change to a generator or to `print` changes it.
-    expect(digest).toBe(1103978105);
+    // A fault in a quote mark can pair with a mark inside a text that holds each mark (D138, Limits). A digest comes
+    // from the parser before D138. A change to a generator or to `print` changes it.
+    expect({ ...summary, quoteCascades: quoteCascades.length, digest }).toEqual(GENERATED_PINS[name]);
   });
 });
 
@@ -884,6 +882,18 @@ const WORLD_D64: SyntaxProfile = {
   ...WORLD_SYNTAX,
   literals: {},
   calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name)) },
+};
+
+/** The expected summary of [SYNTAX.ISSUES-GENERATED] for each generator. */
+const GENERATED_PINS: Readonly<Record<string, unknown>> = {
+  standard: { texts: 4586, most: 3, single: 1197, quoteCascades: 0, digest: 3920759258 },
+  constructs: { texts: 4896, most: 5, single: 1309, quoteCascades: 9, digest: 359370749 },
+  sheet: { texts: 4716, most: 3, single: 1271, quoteCascades: 0, digest: 1508490836 },
+  paths: { texts: 4728, most: 3, single: 1241, quoteCascades: 0, digest: 2906695574 },
+  algebra: { texts: 5114, most: 3, single: 1473, quoteCascades: 0, digest: 4265921408 },
+  records: { texts: 4823, most: 3, single: 1291, quoteCascades: 0, digest: 21554679 },
+  world: { texts: 5003, most: 3, single: 1359, quoteCascades: 0, digest: 4161453596 },
+  envelopes: { texts: 4976, most: 3, single: 1360, quoteCascades: 0, digest: 448853778 },
 };
 
 const GENERATORS: Readonly<Record<string, Generator>> = {
