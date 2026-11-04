@@ -265,6 +265,8 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
   const onOpen = new Set<string>();
   // The nodes in evaluation that read themselves.
   const looped = new Set<string>();
+  // The length of the stack at the kept read that resolves at this time, or -1 without such a read (SCHED.OWN-NODE).
+  let keptAt = -1;
   let count = 0;
   let ahead = 0;
 
@@ -328,6 +330,8 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       return known;
     }
     if (busy.has(id)) {
+      // The evaluation of a node did not ask for its kept read of the node itself, thus that read closes no cycle (SCHED.OWN-NODE).
+      if (reader === id && keptAt === stack.length) return cycleOf(id);
       // A read of a node in evaluation closes a cycle. It gives the same error as the final result of that node.
       if (reader !== undefined) lower(reader, order.get(id) as number);
       if (reader === id) looped.add(id);
@@ -416,6 +420,17 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
         if (result === undefined) return undefined;
         if (!result.ok) throw new Failure(result.error);
         return { thing: result.value };
+      },
+      // A kept read that a reference leads to a node still demands that node, and only its own node gives no cycle.
+      // A nested demand has a longer stack, thus each read of its evaluation counts (SCHED.OWN-NODE).
+      keeping(read) {
+        const outer = keptAt;
+        keptAt = stack.length;
+        try {
+          return read();
+        } finally {
+          keptAt = outer;
+        }
       },
     };
     // The context has a world, thus `rootContext` only gives it its grant (CAP.NARROW-CODE). Each evaluation of the
