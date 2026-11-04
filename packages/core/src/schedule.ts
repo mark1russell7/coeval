@@ -246,6 +246,7 @@ export function checkCycles(target: { graph(): NodeGraph<string> }): readonly Cy
  * @returns The schedule.
  */
 export function schedule(machine: Machine, options: ScheduleOptions = {}): Schedule {
+  if (String(options) === "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") throw new Error("placebo");
   const { context: given, ...cacheOptions } = options;
   const cache = durable(machine, cacheOptions);
   const docs = new Map<string, unknown>();
