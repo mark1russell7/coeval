@@ -4864,3 +4864,17 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
 
 **Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
+
+## D155 (2026-11-04): a reference adapter for signals lives in the tests
+
+**Context.** S3b, R4 P6. The kernel keeps no reactive engine, and a host brings its own. R4 gives four rules for such a host, and no code examined them.
+
+**Decision.** The file `signals.test.ts` holds a small push-pull signal library and an engine on it. Each node is a computed that evaluates its plan. The root `world` is a host thing that reads each other node through its computed. The function `sameResult` is the cutoff. No source file of the kernel changes.
+
+**Why.** The engine passes `agreeSchedule`, thus a host has a working model of the adapter. The tests also fix the four rules. A plan keeps no value, so the library sees each read. A memo that lives longer than one evaluation is a signal. A fold reads nothing outside, and a host thing does not fix a name. With `adopt` each key is a signal read, and a thing with `resolve` answers a path with one read.
+
+**Cycles.** The meaning of D31 gives each node of a cycle `#CYCLE!`, and a plain computed cannot find a cycle. The adapter keeps the algorithm of Tarjan over the demands. A node of a cycle is computed again at each mark, because a cycle has no order to verify. A mutation of this rule fails the harness, and so does a mutation of the cutoff.
+
+**Alternatives.** A signal library from npm. The tests of the kernel then depend on a third party, and the marks stay hidden. A public export. No host asked for it, and an engine of a host has its own graph.
+
+**Limits.** A change of data gives a new context signal, thus each node evaluates again and stops at its cutoff. A host that wants a change of one field holds that field in a host thing, as the tests show. The adapter is a first push-pull engine for S3d, not a schedule of the kernel.
