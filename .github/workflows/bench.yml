@@ -48,7 +48,7 @@ jobs:
     name: bench (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     # The fresh runner starts four processes for each case and round (D114), thus the job gets more time.
-    timeout-minutes: 15
+    timeout-minutes: 40
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -74,6 +74,7 @@ jobs:
         run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts
         env:
           BENCH_RUN: ${{ matrix.run }}
+          BENCH_WARMUP: "40"
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
       # A run with different results also gives its table to the verdict.
       # The records stay 90 days, because the limits of the verdict come from them (K214, D117).
