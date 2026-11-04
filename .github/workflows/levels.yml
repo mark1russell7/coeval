@@ -24,6 +24,11 @@ on:
 permissions:
   contents: read
 
+# Two dispatches with different commits or cases do not cancel each other.
+concurrency:
+  group: levels-${{ github.ref }}-${{ inputs.head }}-${{ inputs.case }}
+  cancel-in-progress: true
+
 jobs:
   levels:
     runs-on: ubuntu-latest

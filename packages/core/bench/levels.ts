@@ -76,12 +76,12 @@ async function main(): Promise<void> {
       processes.push({ arm, round, ns: measured.ns, samples: measured.samples });
     }
   }
-  const medianOf = (arm: string): number => median(processes.filter((item) => item.arm === arm).map((item) => item.ns));
-  const center = medianOf("base");
+  const timesOf = (arm: string): number[] => processes.filter((item) => item.arm === arm).map((item) => item.ns);
+  const center = median(timesOf("base"));
   const text = [
     `Case: ${CASE}.`,
     `Node ${process.version}, ${ROUNDS} rounds, ${WARMUP} warmup and ${SAMPLES} counted samples of ${TARGET_MS} ms.`,
-    `The medians are ${center.toFixed(1)} ns for the base, ${medianOf("aa").toFixed(1)} ns for the A/A copy and ${medianOf("head").toFixed(1)} ns for the head.`,
+    `The medians are ${center.toFixed(1)} ns for the base, ${median(timesOf("aa")).toFixed(1)} ns for the A/A copy and ${median(timesOf("head")).toFixed(1)} ns for the head.`,
     "",
     ...histogram(processes, center),
   ].join("\n");
