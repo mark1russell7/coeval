@@ -79,6 +79,7 @@ export {
 } from "./world.ts";
 export {
   type DomainExtension,
+  type VerbEntries,
   type MachinePart,
   type MergeConflict,
   type MergePath,
