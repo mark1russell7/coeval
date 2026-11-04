@@ -1,6 +1,22 @@
-import { type Envelope, type Json, type Key, type TypeRef, docEquals, isEnvelope, isKey, typeName } from "./doc.ts";
-import { type Cap, type Context, type Resolution, type ResolveOptions, resolve } from "./deref.ts";
-import { type Result, describe, fail, ok, placed, thrown } from "./errors.ts";
+import { type Envelope, type Json, type Key, type TypeRef, docEquals, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
+import {
+  type Cap,
+  type Context,
+  type DerefCode,
+  type HostThing,
+  type Resolution,
+  type ResolveOptions,
+  type Thing,
+  type WalkResult,
+  type Walker,
+  THING,
+  derefStep,
+  isHostThing,
+  isRef,
+  resolve,
+  valueOfThing,
+} from "./deref.ts";
+import { type EvalError, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
   type Code,
@@ -32,8 +48,8 @@ import { type PartSlot, type Split, pathMatches, scopesOf, splitParts } from "./
 import { type Definitions, STD_DEFINITIONS } from "./reference.ts";
 import { STD_EVALUATORS } from "./stdlib.ts";
 import { sameValue } from "./agree.ts";
-import { declaredTruthOf } from "./formula.ts";
-import { falseCovers, membersOf, typeIssues, typeText } from "./types.ts";
+import { type FormulaProfile, type ProfileReader, declaredTruthOf, profileReaderOf, signaturesOf } from "./formula.ts";
+import { type ValueType, falseCovers, member, membersOf, typeIssues, typeText } from "./types.ts";
 import { type Random, random } from "./generate.ts";
 import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effectsOfVerb, isKind, isNamespace, lookupKind } from "./world.ts";
 
@@ -64,8 +80,14 @@ import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effe
  *   Only `formula.if`, `formula.and` and `formula.or` of the formula kit get this check.
  * - `cover`: each sample of a covered domain of the machine is in one domain of each cover of the domain (D94). Each
  *   evaluator and each runner gets this check, because `fits` trusts the covers for each program.
+ * - `result`: a walker, the code of a `deref` or a function of a profile gives the form that its type states. A walker
+ *   and the code of a `deref` throw nothing, except a `Failure` (D137).
+ * - `ladder`: a walker steps on a host thing only through `deref` and `has` of its input (D137).
+ * - `hops`: each `visit` of a walker tells a step that the walk followed. Without `visit`, the walk stays the same (D137).
+ * - `has`: the function `has` of the code of a `deref` gives a truth, and `true` for each key that the code answers (D137).
+ * - `typed`: a walker keeps its type rule, an operation its signatures and an extension its entry in `extTypes` (D137).
  */
-export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "parallel" | "truth" | "cover";
+export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "parallel" | "truth" | "cover" | "result" | "ladder" | "hops" | "has" | "typed";
 
 /** The probe of a finding: the document, the result of each probe part, the capabilities and the handler. */
 export interface ConformProbe {
@@ -81,6 +103,10 @@ export interface ConformProbe {
   readonly caps: readonly Cap[];
   /** `true` in a run, in which the host does each effect and a part can wait. */
   readonly running: boolean;
+  /** The thing before the step, in a finding of a walker. */
+  readonly here?: unknown;
+  /** The key of the step, in a finding of the code of a `deref`. */
+  readonly key?: Key;
 }
 
 /** One obligation that the code breaks, with the reason and the first probe that shows it. */
@@ -97,6 +123,9 @@ export interface ConformOptions {
    * The verb that the evaluator serves. The default is `eval`. The facts `pure` and `lazy` of a contract describe only
    * `eval`, thus `conforms` checks C3 and C4 only for `eval` (D23). `conforms` checks C2 for each verb that the
    * contract declares effects for: `eval`, and each verb with an entry in `verbEffects` (D49).
+   *
+   * The verb `step` selects the walker of the name, and the verb `deref` selects the code of the `deref` of the name
+   * (D137). Without the option, a name that no evaluator and no runner has selects its walker, and then its `deref`.
    */
   readonly verb?: string;
   /**
@@ -119,6 +148,11 @@ export interface ConformOptions {
    * definition from `STD_DEFINITIONS`.
    */
   readonly definitions?: Definitions;
+  /**
+   * More things before the step of a walker (D137). Use them for the things that a walker needs, for example a host
+   * thing of the language. The default holds three probe nodes, a document, `undefined` and the values of the results.
+   */
+  readonly things?: readonly unknown[];
   /** The capabilities of half of the probes. The other half has none. The default is the declared effects and `probe`. */
   readonly caps?: readonly Cap[];
   /** The names of the context of each probe. */
@@ -140,7 +174,7 @@ export interface ConformOptions {
 }
 
 /** The order of the obligations in the list of findings. */
-const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree", "parallel", "truth", "cover"];
+const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree", "parallel", "truth", "cover", "result", "ladder", "hops", "has", "typed"];
 
 /** A function in the results of the probe parts. It gives the count of its arguments. */
 const PROBE_FN = (...args: readonly unknown[]): number => args.length;
@@ -276,29 +310,35 @@ interface Wait {
   done: boolean;
 }
 
-/** The state of `conforms` for one evaluator. */
-interface Env {
+/** The state of `conforms` that each form of code needs. */
+interface BaseEnv {
   readonly machine: Machine;
   readonly name: string;
   readonly verb: string;
+  readonly results: readonly Result[];
+  readonly names: Readonly<Record<string, unknown>>;
+  readonly equal: ((a: unknown, b: unknown) => boolean | undefined) | undefined;
+  readonly found: Map<Obligation, Finding>;
+}
+
+/** The state of `conforms` for one evaluator. */
+interface Env extends BaseEnv {
   readonly under: Under;
   readonly definition: Under | undefined;
   readonly runner: boolean;
-  readonly results: readonly Result[];
-  readonly names: Readonly<Record<string, unknown>>;
   readonly runs: number;
   readonly random: Random;
   /** The option `seed`. With the text of a probe document, it gives the orders of the waits of `all` (D128). */
   readonly seed: number;
   readonly perform: Perform | undefined;
-  readonly equal: ((a: unknown, b: unknown) => boolean | undefined) | undefined;
-  readonly found: Map<Obligation, Finding>;
 }
 
 /** The facts of the kind of one type, as the contract and the hook `facts` of the machine give them. */
 interface Contract {
   readonly declared: readonly Cap[];
   readonly pure: boolean;
+  /** `true` when the results of the code can change while its input stays the same (FACTS.VOLATILE). */
+  readonly volatile: boolean;
   readonly lazy: readonly LazyRule[] | undefined;
   /** The parts that the runner evaluates with its code, without a wait (RUN.DRIVES). */
   readonly drives: readonly LazyRule[] | undefined;
@@ -574,7 +614,7 @@ function typesNaming(world: World, name: string, verb: string): readonly TypeRef
 }
 
 /** This function gives the facts of the kind of a type. The hook `facts` of the machine wins over the contract. */
-function contractOf(env: Env, kind: Kind, typePath: readonly Key[], caps: readonly Cap[] | undefined): Contract {
+function contractOf(env: BaseEnv, kind: Kind, typePath: readonly Key[], caps: readonly Cap[] | undefined): Contract {
   const facts = env.machine.facts?.(typePath, env.name);
   // A verb without a declaration keeps the effects of eval for the capabilities of the probes, as before D49.
   // For eval, the effects of the answer of the hook win over the contract, as in check (D118).
@@ -584,6 +624,7 @@ function contractOf(env: Env, kind: Kind, typePath: readonly Key[], caps: readon
   return {
     declared,
     pure: (facts?.pure ?? kind.pure) === true,
+    volatile: (facts?.volatile ?? kind.volatile) === true,
     lazy: facts?.lazy ?? kind.lazy,
     drives: env.verb === "eval" ? (facts?.drives ?? kind.drives) : undefined,
     describes: env.verb === "eval",
@@ -983,7 +1024,7 @@ function probeOf(sample: Sample, scenario: Scenario, doc: Envelope = sample.doc)
 }
 
 /** This function keeps the first finding of each obligation. */
-function report(env: Env, obligation: Obligation, reason: string, probe: () => ConformProbe): void {
+function report(env: BaseEnv, obligation: Obligation, reason: string, probe: () => ConformProbe): void {
   if (!env.found.has(obligation)) env.found.set(obligation, { obligation, reason, probe: probe() });
 }
 
@@ -1220,6 +1261,396 @@ function checkCovers(env: Env, probe: (value: unknown) => ConformProbe): void {
   );
 }
 
+/** The code of the verb `step` or `deref` that `conforms` examines (D137). */
+type StepCode = { readonly verb: "step"; readonly code: Walker } | { readonly verb: "deref"; readonly code: DerefCode };
+
+/** The keys of each probe of the code of a `deref`. The keys of a record value come after them. */
+const STEP_KEYS: readonly Key[] = ["a", "x", "length", 0, "missing"];
+
+/** The most lists of arguments that one signature gets. */
+const MAX_ARGUMENTS = 64;
+
+/** One step of a walk through the input: the key, and what the input gave. */
+interface Stepped {
+  readonly key: Key;
+  readonly thing: Thing;
+}
+
+/** The record of the reads of the probe nodes. A read while `open` is `false` skips the input of the walker. */
+interface Gate {
+  open: boolean;
+  direct: Key[];
+}
+
+/** The record of one call of a walker. */
+interface Walked {
+  /** The result of the walk, as the rule R-WALKER reads it. A throw gives its error. */
+  readonly outcome: Result;
+  /** The text of a throw or of a wrong form. */
+  readonly problem: string | undefined;
+  readonly steps: readonly Stepped[];
+  /** The key of each `visit` that names no step of the input. */
+  readonly stray: readonly Key[];
+  readonly direct: readonly Key[];
+}
+
+/** One probe of a walker, and its first walk. */
+interface Trial {
+  readonly input: { readonly data: Json; readonly here: Thing; readonly context: Context };
+  readonly probe: () => ConformProbe;
+  readonly first: Walked;
+}
+
+/** This function makes a host thing whose fields are probe values. The gate gets each read outside the input of a walker. */
+function probeNode(gate: Gate, label: string, type: string | undefined, fields: Readonly<Record<string, Thing>>): HostThing {
+  const read = (key: Key): boolean => {
+    if (!gate.open) gate.direct.push(key);
+    return Object.hasOwn(fields, String(key));
+  };
+  const node: HostThing & { readonly type: string | undefined } = { [THING]: true, label, type, deref: (key) => (read(key) ? fields[String(key)] : undefined), has: read, toJson: () => ({ node: label }) };
+  return node;
+}
+
+/** This function gives the things before a step: a leaf and its two parents, a document, `undefined` and the values of the results. */
+function probeThings(gate: Gate, results: readonly Result[]): readonly Thing[] {
+  const root = probeNode(gate, "the root", undefined, { a: 1 });
+  const middle = probeNode(gate, "the middle", "panel", { parent: root, names: { a: "named" } });
+  const leaf = probeNode(gate, "the leaf", "box", { parent: middle, x: undefined });
+  return [leaf, middle, root, { type: "probe", value: { a: 1 } }, undefined, ...results.flatMap((result) => (result.ok ? [result.value] : []))];
+}
+
+/** This function gives a context for a walker. A frozen context refuses a write to its capabilities, its names and its roots. */
+function stepContext(machine: Machine, ctx: Context): Context {
+  return Object.freeze({ ...rootContext(machine, ctx), names: Object.freeze({ ...ctx.names }), caps: Object.freeze([...ctx.caps]) });
+}
+
+/** This function calls host code. A `Failure` gives its error (E-THROW). Each other throw also gives the text of the throw. */
+function attempt<T>(call: () => T, who: string): { readonly result: Result<T>; readonly threw: string | undefined } {
+  try {
+    return { result: ok(call()), threw: undefined };
+  } catch (error) {
+    return { result: thrown(error, who), threw: error instanceof Failure ? undefined : describe(error) };
+  }
+}
+
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null;
+}
+
+function isErrorCode(value: unknown): boolean {
+  return typeof value === "string" && value.startsWith("#");
+}
+
+function isEvalError(value: unknown): value is EvalError {
+  return isObject(value) && isErrorCode(value["code"]) && typeof value["reason"] === "string";
+}
+
+function isResult(value: unknown): value is Result {
+  return isObject(value) && (value["ok"] === true ? Object.hasOwn(value, "value") : value["ok"] === false && isEvalError(value["error"]));
+}
+
+function isWalkResult(value: unknown): value is WalkResult {
+  if (!isObject(value)) return false;
+  if (value["ok"] === true) return Object.hasOwn(value, "thing");
+  return value["ok"] === false && typeof value["reason"] === "string" && (value["code"] === undefined || isErrorCode(value["code"]));
+}
+
+/** This function starts a walker one time, with `visit` when `hops` is `true`. */
+function walkOnce(env: BaseEnv, walker: Walker, gate: Gate, input: Trial["input"], hops: boolean): Walked {
+  const steps: Stepped[] = [];
+  const stray: Key[] = [];
+  const direct: Key[] = [];
+  gate.direct = direct;
+  const adopt = env.machine.adopt ?? ((value: unknown): Thing => value);
+  const ladder = (thing: Thing, key: Key): ReturnType<typeof derefStep> => {
+    gate.open = true;
+    try {
+      return derefStep(env.machine, thing, key);
+    } finally {
+      gate.open = false;
+    }
+  };
+  const visit = (key: Key, thing: Thing): void => {
+    if (!steps.some((step) => String(step.key) === String(key) && Object.is(step.thing, thing))) stray.push(key);
+  };
+  const deref = (thing: Thing, key: Key): Thing => {
+    const reached = ladder(thing, key);
+    const given = reached === undefined ? undefined : adopt(reached.thing);
+    steps.push({ key, thing: given });
+    return given;
+  };
+  const has = (thing: Thing, key: Key): boolean => ladder(thing, key) !== undefined;
+  const tried = attempt(() => walker({ ...input, deref, has, ...(hops ? { visit } : {}) }), `the walker ${env.name}`);
+  const close = (outcome: Result, problem: string | undefined): Walked => ({ outcome, problem, steps, stray, direct });
+  if (!tried.result.ok) return close(tried.result, tried.threw === undefined ? undefined : `throws: ${tried.threw}`);
+  const given: unknown = tried.result.value;
+  if (!isWalkResult(given)) return close(fail("#CALC!", "The walker gives no result."), `gives ${valueText(given)}, and a walker gives a thing or the reason of a failure,`);
+  return close(given.ok ? ok(given.thing) : fail(given.code ?? "#N/A", given.reason), undefined);
+}
+
+/** This function gives the difference of two walks with one input, or `undefined` when they agree. */
+function walkDiffers(a: Walked, b: Walked, equal: BaseEnv["equal"]): string | undefined {
+  if (!sameOutcome(a.outcome, b.outcome, equal)) return `The first walk gives ${resultText(a.outcome)}, and the second gives ${resultText(b.outcome)}.`;
+  const keys = (walked: Walked): string => walked.steps.map((step) => String(step.key)).join(", ");
+  return keys(a) === keys(b) ? undefined : `The steps differ: [${keys(a)}] and [${keys(b)}].`;
+}
+
+function thingText(thing: Thing): string {
+  return isHostThing(thing) ? thing.label : valueText(thing);
+}
+
+/** This function gives the value type of a thing for the rule of a walker. A JSON value has its plain type, and each other thing has `unknown`. */
+function plainType(thing: Thing): ValueType {
+  if (isHostThing(thing)) return "unknown";
+  if (typeof thing === "number") return "number";
+  if (typeof thing === "boolean") return "bool";
+  if (typeof thing === "string") return "text";
+  if (thing === null || thing === undefined) return String(thing);
+  if (Array.isArray(thing)) return { list: "unknown" };
+  if (!isRecord(thing)) return "unknown";
+  return { record: Object.fromEntries(Object.keys(thing).map((key) => [key, plainType(thing[key])])) };
+}
+
+/** This function checks the type rule of a walker on one walk, from the type `unknown` and from the plain type of the thing (TYPE.WALKER). */
+function checkWalkType(env: BaseEnv, walker: Walker, sample: Sample, data: Json, trial: Trial): void {
+  const rule = walker.type;
+  const outcome = trial.first.outcome;
+  // A step document with parts has no rule, and a path follows a reference that the walker reaches.
+  if (rule === undefined || sample.split.parts.length > 0 || !outcome.ok || isRef(outcome.value)) return;
+  const domains = env.machine.domains;
+  for (const type of ["unknown", plainType(trial.input.here)]) {
+    const reached = attempt(() => rule({ data, here: type }), "the type rule").result;
+    // A rule that throws, or a bad type, is a type issue of the check (TYPE.RULE).
+    if (!reached.ok || typeIssues(reached.value, domains).length > 0) continue;
+    const value = valueOfThing(outcome.value);
+    if (member(value, reached.value, domains)) continue;
+    report(env, "typed", `The walker ${env.name} reaches ${valueText(value)} from ${thingText(trial.input.here)} of the type ${typeText(type)}, and its type rule gives ${typeText(reached.value)}.`, trial.probe);
+    return;
+  }
+}
+
+/** This function gives the probe of a finding of a walker or of the code of a `deref`. */
+function stepProbe(sample: Sample, caps: readonly Cap[], at: { readonly here: unknown } | { readonly key: Key }): ConformProbe {
+  return { type: sample.type, doc: sample.doc, results: {}, waits: [], caps, running: false, ...at };
+}
+
+/** This function examines one walker on one step document, from each thing. */
+function examineWalker(env: BaseEnv, walker: Walker, gate: Gate, things: readonly Thing[], sample: Sample, contract: Contract): void {
+  // A step document with parts gets the values of its parts (FORMULA.STEPS).
+  const { parts, fill } = sample.split;
+  const data = (parts.length === 0 ? sample.doc.value : fill(parts.map(() => 1))) as Json;
+  const trials = things.map((here, index): Trial => {
+    const input = { data, here, context: stepContext(env.machine, makeContext(env.names, index % 2 === 0 ? contract.caps : NO_CAPS)) };
+    return { input, probe: () => stepProbe(sample, input.context.caps, { here }), first: walkOnce(env, walker, gate, input, true) };
+  });
+  for (const trial of trials) {
+    const { first, probe } = trial;
+    const here = thingText(trial.input.here);
+    if (first.problem !== undefined) report(env, "result", `The walker ${env.name} ${first.problem} on the step ${sample.type} from ${here}.`, probe);
+    const key = first.direct[0];
+    if (key !== undefined) report(env, "ladder", `The walker ${env.name} reads the key ${String(key)} of ${here} directly. A walker steps through deref and has of its input.`, probe);
+    const lost = first.stray[0];
+    if (lost !== undefined) report(env, "hops", `The walker ${env.name} gives a visit for the key ${String(lost)} from ${here}, and no step of its deref gave that thing.`, probe);
+    checkWalkType(env, walker, sample, data, trial);
+  }
+  // A volatile kind declares that its results change (FACTS.VOLATILE).
+  if (contract.volatile) return;
+  const compare = (other: (trial: Trial) => Walked, obligation: Obligation, reason: (why: string) => string): boolean => {
+    let clean = true;
+    for (const trial of trials) {
+      const why = walkDiffers(trial.first, other(trial), env.equal);
+      if (why === undefined) continue;
+      clean = false;
+      report(env, obligation, reason(why), trial.probe);
+    }
+    return clean;
+  };
+  // local: the same input gives the same walk in the other order of the probes.
+  const later = new Map([...trials].reverse().map((trial) => [trial, walkOnce(env, walker, gate, trial.input, true)] as const));
+  const stable = compare((trial) => later.get(trial) as Walked, "local", (why) => `The walker ${env.name} keeps state from one call to the next. The same input gives another walk in a later call. ${why}`);
+  // The other comparisons need code without state, because each of them starts the walk again.
+  if (!stable) return;
+  // hops: a resolution without hops gives no visit (DEREF.HOPS).
+  compare((trial) => walkOnce(env, walker, gate, trial.input, false), "hops", (why) => `The walker ${env.name} walks in another way without visit, and a resolution without hops gives no visit. ${why}`);
+  // C4: the marks of a contract describe the walker of a step document too (FACTS.VERB).
+  if (!contract.pure) return;
+  const varied = (trial: Trial): Walked => walkOnce(env, walker, gate, { ...trial.input, context: stepContext(env.machine, variedContext(trial.input.context, [])) }, true);
+  compare(varied, "C4", (why) => `The kind ${sample.type} is pure, and the walker ${env.name} reads the context. Other values in the roots change the walk. ${why}`);
+}
+
+/** This function examines the code of a `deref` on one document, for each key. */
+function examineDeref(env: BaseEnv, code: DerefCode, sample: Sample, contract: Contract): void {
+  const doc = sample.doc;
+  const keys = [...STEP_KEYS, ...(isRecord(doc.value) ? Object.keys(doc.value) : [])];
+  const who = `the deref ${env.name}`;
+  const ask = (key: Key): { readonly key: Key; readonly reached: Result; readonly has: Result; readonly threw: string | undefined } => {
+    const reached = attempt(() => code(doc, key), who);
+    const has = attempt(() => code.has?.(doc, key), `the function has of ${who}`);
+    return { key, reached: reached.result, has: has.result, threw: reached.threw ?? has.threw };
+  };
+  const first = keys.map(ask);
+  for (const { key, reached, has, threw } of first) {
+    const probe = (): ConformProbe => stepProbe(sample, NO_CAPS, { key });
+    if (threw !== undefined) report(env, "result", `The deref ${env.name} throws for the key ${String(key)} of ${sample.type}: ${threw}`, probe);
+    if (code.has === undefined || !has.ok) continue;
+    if (typeof has.value !== "boolean") report(env, "has", `The function has of the deref ${env.name} gives ${valueText(has.value)} for the key ${String(key)}. It gives true or false.`, probe);
+    else if (reached.ok && reached.value !== undefined && !has.value) report(env, "has", `The deref ${env.name} answers the key ${String(key)} of ${sample.type}, and its function has gives false.`, probe);
+  }
+  if (contract.volatile) return;
+  // local: the same document and key give the same answer in the other order of the probes.
+  for (const before of [...first].reverse()) {
+    const again = ask(before.key);
+    if (sameOutcome(before.reached, again.reached, env.equal) && sameOutcome(before.has, again.has, env.equal)) continue;
+    report(env, "local", `The deref ${env.name} keeps state from one call to the next. The key ${String(before.key)} gives ${resultText(before.reached)}, and later ${resultText(again.reached)}.`, () => stepProbe(sample, NO_CAPS, { key: before.key }));
+  }
+}
+
+/** This function gives the argument lists of a signature: the members of each parameter, and one more argument for a rest parameter. */
+function argumentsOf(types: readonly ValueType[], domains: Machine["domains"], palette: readonly unknown[]): readonly (readonly unknown[])[] {
+  const lists = types.map((type) => membersOf(type, domains, palette));
+  const count = Math.min(
+    MAX_ARGUMENTS,
+    lists.reduce((product, list) => product * list.length, 1),
+  );
+  return Array.from({ length: count }, (_unused, index) => {
+    let rest = index;
+    return lists.map((list) => {
+      const item = list[rest % list.length];
+      rest = Math.floor(rest / list.length);
+      return item;
+    });
+  });
+}
+
+/** This function gives the names of the operations of a profile that its tables list. */
+function opNames(profile: FormulaProfile): readonly string[] {
+  const { ops, lazy, sigs } = profile;
+  return [...new Set([ops, lazy, sigs].flatMap((table) => (table === undefined || typeof table === "function" ? [] : Object.keys(table))))];
+}
+
+/** This function gives the document of a probe of an operation, with the arguments as the results of its parts. */
+function opProbe(name: string, args: readonly unknown[]): ConformProbe {
+  const results: Record<string, Result> = {};
+  args.forEach((value, index) => setField(results, String(index), ok(value)));
+  const value: Json = args.map((_unused, index) => ({ type: "probe", value: { probe: index } }));
+  return { type: `ops.${name}`, doc: { type: ["ops", ...name.split(".")], value }, results, waits: [], caps: NO_CAPS, running: false };
+}
+
+/** This function tests that each operation keeps its signatures, with the hook `check` of the profile (TYPE.SOUND). */
+function checkSignatures(env: Env, profile: FormulaProfile, palette: readonly unknown[]): void {
+  const domains = env.machine.domains;
+  const { ops, lazy, check } = profile;
+  const answer = (name: string, args: readonly unknown[]): Result | undefined => {
+    const delayed = own(lazy, name);
+    if (delayed !== undefined) return delayed(args.map((value) => () => ok(value)));
+    const fn = (typeof ops === "function" ? ops(name) : own(ops, name)) as ((...values: readonly unknown[]) => unknown) | undefined;
+    if (fn === undefined) return undefined;
+    const out = fn(...args);
+    return check?.(out, name) ?? ok(out);
+  };
+  for (const name of opNames(profile)) {
+    for (const sig of signaturesOf(profile, name)) {
+      const types = [...sig.params, ...(sig.rest === undefined ? [] : [sig.rest])];
+      // A bad type is a type issue of the check.
+      if ([...types, sig.to].some((type) => typeIssues(type, domains).length > 0)) continue;
+      for (const args of argumentsOf(types, domains, palette)) {
+        // A throw and an error are the errors of the language (E-THROW). A signature describes only a value.
+        const out = attempt(() => answer(name, args), `the operation ${name}`).result;
+        const given = out.ok ? out.value : undefined;
+        if (given === undefined || !given.ok || member(given.value, sig.to, domains)) continue;
+        report(env, "typed", `The operation ${name} gives ${valueText(given.value)} for the arguments ${valueText(args)}, and its signature gives ${typeText(sig.to)}.`, () => opProbe(name, args));
+        return;
+      }
+    }
+  }
+}
+
+/** This function tests that each extension gives a result, and a member of its type in `extTypes`. */
+function checkExtensions(env: Env, profile: FormulaProfile, options: ConformOptions): void {
+  const domains = env.machine.domains;
+  const context = rootContext(env.machine, makeContext(env.names));
+  for (const name of Object.keys(profile.ext ?? {})) {
+    const fn = own(profile.ext, name);
+    const declared = own(profile.extTypes, name);
+    const type = declared !== undefined && typeIssues(declared, domains).length === 0 ? declared : undefined;
+    for (const data of [...DATA, ...(own(options.values, `ext.${name}`) ?? [])]) {
+      const probe = (): ConformProbe => ({ type: `ext.${name}`, doc: { type: ["ext", ...name.split(".")], value: data }, results: {}, waits: [], caps: NO_CAPS, running: false });
+      const given = attempt(() => fn?.(data, context, domains) as unknown, `the extension ${name}`).result;
+      if (!given.ok) continue;
+      if (!isResult(given.value)) report(env, "result", `The extension ${name} gives ${valueText(given.value)}. It gives a result.`, probe);
+      else if (type !== undefined && given.value.ok && !member(given.value.value, type, domains)) report(env, "typed", `The extension ${name} gives ${valueText(given.value.value)}, and its entry in extTypes gives ${typeText(type)}.`, probe);
+    }
+  }
+}
+
+/**
+ * This function tests the functions of a profile that the evaluator reads, by the forms of their types (D137). A throw
+ * gets no finding here, because the kit gives it an error (E-THROW). Only `truthy` has a stated law against a throw.
+ */
+function checkProfile(env: Env, reader: ProfileReader, options: ConformOptions, probe: (value: unknown, result?: Result) => ConformProbe): void {
+  const { profile } = reader;
+  const { missing, omit, combine, check, lazy } = profile;
+  const values = env.results.flatMap((result) => (result.ok ? [result.value] : []));
+  const errors = env.results.flatMap((result) => (result.ok ? [] : [result.error]));
+  const form = (what: string, call: () => unknown, good: (value: unknown) => boolean, want: string, at: () => ConformProbe): void => {
+    const given = attempt(call, what).result;
+    if (given.ok && !good(given.value)) report(env, "result", `The function ${what} of the profile gives ${valueText(given.value)}. It gives ${want}.`, at);
+  };
+  const isBool = (value: unknown): boolean => typeof value === "boolean";
+  if (reader.name === "formula.ref" && missing !== undefined) for (const value of values) form("missing", () => missing(value), isBool, "true or false", () => probe(value));
+  if (reader.name === "formula.record" && omit !== undefined) for (const error of errors) form("omit", () => omit(error), isBool, "true or false", () => probe(error, { ok: false, error }));
+  if (reader.name === "formula.ext") checkExtensions(env, profile, options);
+  if (reader.name !== "formula.op") return;
+  checkSignatures(env, profile, values);
+  if (combine !== undefined && errors.length > 0) form("combine", () => combine([...errors, ...errors]), isEvalError, "an error with a code and a reason", () => probe(errors[0], { ok: false, error: errors[0] as EvalError }));
+  for (const name of Object.keys(lazy ?? {})) {
+    const fn = own(lazy, name);
+    for (const value of values) form(`lazy ${name}`, () => fn?.([() => ok(value), () => ok(value)]), isResult, "a result", () => opProbe(name, [value, value]));
+  }
+  if (check !== undefined) for (const value of values) form("check", () => check(value, "probe"), (given) => given === undefined || isResult(given), "a result or no value", () => probe(value));
+}
+
+/** This function gives the types of the operations or the extensions of a profile that the evaluator serves (D137). */
+function profileTypes(machine: Machine, name: string, verb: string, reader: ProfileReader | undefined): readonly TypeRef[] {
+  if (reader === undefined || (reader.name !== "formula.op" && reader.name !== "formula.ext")) return [];
+  const { profile } = reader;
+  const extensions = reader.name === "formula.ext";
+  const names = extensions ? Object.keys(profile.ext ?? {}) : opNames(profile);
+  const paths = names.filter((item) => profile.volatile?.includes(item) !== true).map((item) => [extensions ? "ext" : "ops", ...item.split(".")]);
+  return paths.filter((path) => {
+    const found = lookupKind(machine.world, path);
+    return found.ok && own(found.kind.verbs, verb) === name;
+  });
+}
+
+/** This function gives the code that the name and the verb select: a walker or the code of a `deref`. The default is `undefined`. */
+function stepCodeOf(machine: Machine, name: string, verb: string | undefined): StepCode | undefined {
+  const walker = own(machine.walkers, name);
+  const code = own(machine.derefs, name);
+  if (verb === "step" && walker !== undefined) return { verb, code: walker };
+  if (verb === "deref" && code !== undefined) return { verb, code };
+  if (verb !== undefined || own(machine.evaluators, name) !== undefined || own(machine.runners, name) !== undefined) return undefined;
+  if (walker !== undefined) return { verb: "step", code: walker };
+  return code === undefined ? undefined : { verb: "deref", code };
+}
+
+/** This function gives each probe document of each type, with the contract of its kind. */
+function eachSample(env: BaseEnv, types: readonly TypeRef[], options: ConformOptions, visit: (sample: Sample, contract: Contract) => void): void {
+  if (types.length === 0) throw new Error(`No kind of the world names ${env.name} for the verb ${env.verb}. Give the types of the probe documents in the option types.`);
+  for (const type of types) {
+    const found = lookupKind(env.machine.world, type);
+    if (!found.ok) throw new Error(`The world has no kind for the type ${typeName(type)}.`);
+    const contract = contractOf(env, found.kind, found.path, options.caps);
+    const extra = own(options.values, typeName(type)) ?? own(options.values, found.path.join(".")) ?? [];
+    for (const sample of samplesOf(type, found.path, found.kind, contract, extra)) visit(sample, contract);
+  }
+}
+
+/** This function gives the findings of the state of `conforms`, in the order of the obligations. */
+function findingsOf(env: BaseEnv): readonly Finding[] {
+  return ORDER.filter((obligation) => env.found.has(obligation)).map((obligation) => env.found.get(obligation) as Finding);
+}
+
 /**
  * This function examines one evaluator or runner of a machine against the obligations of host code (K92, D36). It
  * starts the code directly, without the kernel, with probe parts and a probe runtime. It generates probe documents from
@@ -1234,54 +1665,62 @@ function checkCovers(env: Env, probe: (value: unknown) => ConformProbe): void {
  * The check `truth` tests the declared truth of a formula profile (D86). The check `cover` tests the covers of the
  * domains of the machine from samples (D94).
  *
+ * The name can also select a walker or the code of a `deref` (D137). The checks of a walker are `result`, `local`,
+ * `ladder`, `hops`, `typed` and `C4`. The checks of the code of a `deref` are `result`, `local` and `has`. The evaluators
+ * `formula.op` and `formula.ext` also examine each operation and each extension that the tables of their profile list.
+ * The checks `typed` and `result` test the functions of the profile directly.
+ *
  * @param machine - The machine with the code and the world of the kinds.
- * @param name - The name of the evaluator or of the runner. A runner wins over an evaluator of the same name.
+ * @param name - The name of the code. A runner wins over an evaluator of the same name, and each of them wins over a
+ *   walker or a `deref` without the option `verb`.
  * @param options - The verb, the types and the values of the probe documents, and the results of the probe parts. Also
  *   the definitions, the capabilities, the names, the seed, the mock and the rule of equality.
  * @returns The first finding of each obligation that the code breaks, in the order of the obligations.
  * @throws {Error} The machine has no code with the name, or no kind names it and the options give no types.
  */
 export function conforms(machine: Machine, name: string, options: ConformOptions = {}): readonly Finding[] {
-  const verb = options.verb ?? "eval";
+  const step = stepCodeOf(machine, name, options.verb);
+  const verb = step?.verb ?? options.verb ?? "eval";
+  const base: BaseEnv = { machine, name, verb, results: options.results ?? RESULTS, names: options.names ?? NAMES, equal: options.equal, found: new Map() };
+  if (step !== undefined) {
+    const gate: Gate = { open: false, direct: [] };
+    const things = [...probeThings(gate, base.results), ...(options.things ?? [])];
+    eachSample(base, options.types ?? typesNaming(machine.world, name, verb), options, (sample, contract) => {
+      if (step.verb === "step") examineWalker(base, step.code, gate, things, sample, contract);
+      else examineDeref(base, step.code, sample, contract);
+    });
+    return findingsOf(base);
+  }
   const runnerCode = own(machine.runners, name);
   const code = runnerCode ?? own(machine.evaluators, name);
-  if (code === undefined) throw new Error(`The machine has no evaluator and no runner with the name ${name}.`);
+  if (code === undefined) throw new Error(`The machine has no evaluator and no runner with the name ${name}, and no walker and no deref.`);
   const runner = runnerCode !== undefined;
   const env: Env = {
-    machine,
-    name,
-    verb,
+    ...base,
     under: underOf(code, runner),
     definition: definitionOf(machine, name, runner, options.definitions),
     runner,
-    results: options.results ?? RESULTS,
-    names: options.names ?? NAMES,
     runs: options.runs ?? 12,
     random: random(options.seed ?? 1),
     seed: options.seed ?? 1,
     perform: options.perform,
-    equal: options.equal,
-    found: new Map(),
   };
-  const types = options.types ?? typesNaming(machine.world, name, verb);
+  const reader = profileReaderOf(code);
+  const types = options.types ?? [...typesNaming(machine.world, name, verb), ...profileTypes(machine, name, verb, reader)];
   let first: Sample | undefined;
-  if (types.length === 0) throw new Error(`No kind of the world names ${name} for the verb ${verb}. Give the types of the probe documents in the option types.`);
-  for (const type of types) {
-    const found = lookupKind(machine.world, type);
-    if (!found.ok) throw new Error(`The world has no kind for the type ${typeName(type)}.`);
-    const contract = contractOf(env, found.kind, found.path, options.caps);
-    const extra = own(options.values, typeName(type)) ?? own(options.values, found.path.join(".")) ?? [];
-    for (const sample of samplesOf(type, found.path, found.kind, contract, extra)) {
-      first ??= sample;
-      examine(env, sample, contract);
-    }
-  }
+  eachSample(env, types, options, (sample, contract) => {
+    first ??= sample;
+    examine(env, sample, contract);
+  });
   // A probe of the truth or of a cover gives the value to each part of the first probe document.
-  const probeWith = (value: unknown): ConformProbe =>
-    first === undefined
+  const probeWith = (value: unknown, result: Result = ok(value)): ConformProbe => {
+    const sample = first as Sample | undefined;
+    return sample === undefined
       ? { type: typeName(types[0] as TypeRef), doc: { type: types[0] as TypeRef, value: null }, results: {}, waits: [], caps: NO_CAPS, running: runner }
-      : probeOf(first, { results: first.split.parts.map(() => ok(value)), waits: [], caps: NO_CAPS, running: runner });
+      : probeOf(sample, { results: sample.split.parts.map(() => result), waits: [], caps: NO_CAPS, running: runner });
+  };
   checkTruth(env, code, probeWith);
   checkCovers(env, probeWith);
-  return ORDER.filter((obligation) => env.found.has(obligation)).map((obligation) => env.found.get(obligation) as Finding);
+  if (reader !== undefined) checkProfile(env, reader, options, probeWith);
+  return findingsOf(env);
 }
