@@ -765,34 +765,36 @@ describe("the syntax kit", () => {
   });
 
   // One test for each generator, because all of them together passed the budget of a test (D96).
-  it.each(Object.entries(GENERATORS))("[SYNTAX.ISSUES-GENERATED] a damaged text of %s gives a first issue as before, rising offsets and no cascade", (name, gen) => {
-    const summary = { texts: 0, most: 0, single: 0 };
-    const cascades: string[] = [];
-    const quoteCascades: string[] = [];
-    let digest = 2166136261;
-    for (let seed = 1; seed <= 2000; seed += 1) {
-      const made = generateDoc(gen, random(seed), 0);
-      const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
-      if (!printed.ok) continue;
-      for (let faults = 1; faults <= 3; faults += 1) {
-        const bad = damaged(random(seed * 7 + faults), printed.value, faults);
-        const result = parse(gen.profile, bad);
-        if (result.ok) continue;
-        const first = result.issues[0] as SyntaxIssue;
-        digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
-        const offsets = result.issues.map((each) => each.offset);
-        expect(offsets).toEqual([...new Set(offsets)].sort((x, y) => x - y));
-        summary.texts += 1;
-        summary.most = Math.max(summary.most, result.issues.length);
-        if (faults > 1) continue;
-        summary.single += 1;
-        if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
+  describe.each(Object.entries(GENERATORS))("with the generator %s", (name, gen) => {
+    it("[SYNTAX.ISSUES-GENERATED] a damaged text gives a first issue as before, rising offsets and no cascade", () => {
+      const summary = { texts: 0, most: 0, single: 0 };
+      const cascades: string[] = [];
+      const quoteCascades: string[] = [];
+      let digest = 2166136261;
+      for (let seed = 1; seed <= 2000; seed += 1) {
+        const made = generateDoc(gen, random(seed), 0);
+        const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
+        if (!printed.ok) continue;
+        for (let faults = 1; faults <= 3; faults += 1) {
+          const bad = damaged(random(seed * 7 + faults), printed.value, faults);
+          const result = parse(gen.profile, bad);
+          if (result.ok) continue;
+          const first = result.issues[0] as SyntaxIssue;
+          digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
+          const offsets = result.issues.map((each) => each.offset);
+          expect(offsets).toEqual([...new Set(offsets)].sort((x, y) => x - y));
+          summary.texts += 1;
+          summary.most = Math.max(summary.most, result.issues.length);
+          if (faults > 1) continue;
+          summary.single += 1;
+          if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
+        }
       }
-    }
-    expect(cascades.slice(0, 3)).toEqual([]);
-    // A fault in a quote mark can pair with a mark inside a text that holds each mark (D138, Limits). A digest comes
-    // from the parser before D138. A change to a generator or to `print` changes it.
-    expect({ ...summary, quoteCascades: quoteCascades.length, digest }).toEqual(GENERATED_PINS[name]);
+      expect(cascades.slice(0, 3)).toEqual([]);
+      // A fault in a quote mark can pair with a mark inside a text that holds each mark (D138, Limits). A digest comes
+      // from the parser before D138. A change to a generator or to `print` changes it.
+      expect({ ...summary, quoteCascades: quoteCascades.length, digest }).toEqual(GENERATED_PINS[name]);
+    });
   });
 });
 
