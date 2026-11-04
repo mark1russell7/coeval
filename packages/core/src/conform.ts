@@ -967,7 +967,10 @@ function differsByOrder(a: Shot, b: Shot, equal: Env["equal"]): string | undefin
   return `The effects differ: [${effects(a)}] and [${effects(b)}].`;
 }
 
-/** This function gives the seed of the orders of a probe document (FNV-1a of its JSON). No time goes into it (D128). */
+/**
+ * This function gives the seed of the orders of a probe document (FNV-1a of its JSON). No time goes into it (D128).
+ * The home of a hash for seeds is `@mark1russell7/rigor-generators`. This copy stays here because core has no dependencies.
+ */
 function orderSeed(doc: Envelope, seed: number): number {
   let hash = (2166136261 ^ seed) >>> 0;
   for (const unit of JSON.stringify(doc)) hash = Math.imul(hash ^ (unit.codePointAt(0) as number), 16777619) >>> 0;
