@@ -1089,8 +1089,6 @@ class Session implements Runtime {
    * thus an evaluation without a counted point has no field.
    */
   declare work?: number;
-  /** `true` on the runtime of a root after the end of its evaluation (WORK.AFTER, WORK.KEEPS). */
-  declare ended?: boolean;
   /** The count of the applications of closures that run at this time. `formula.fn` writes it (FORMULA.CALL-DEPTH). */
   declare applying?: number;
   /** The list of the effects. It is made at the first effect, thus an evaluation without effects makes no list. */
@@ -1121,11 +1119,11 @@ class Session implements Runtime {
     readonly traced: boolean,
     readonly perform: Perform | undefined,
     /**
-     * The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). Each runtime has this field, thus
-     * a tree and its equations have one object shape. The constructor keeps its fields of the base, because a plain
-     * evaluation makes one runtime and the bench of a small plan measures little else.
+     * The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). The runtime of a root holds
+     * itself after the end of its evaluation (WORK.AFTER, WORK.KEEPS), thus the end mark adds no field to the object.
+     * Each runtime has this field, thus a tree and its equations have one object shape.
      */
-    readonly top: Session | undefined,
+    public top: Session | undefined,
     effects: Effect[] | undefined,
     /**
      * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
@@ -1140,7 +1138,8 @@ class Session implements Runtime {
 
   /** This getter gives `true` for the runtime of an equation of a tree (WORK.NODE). */
   get nested(): boolean {
-    return this.top !== undefined;
+    const top = this.top;
+    return top !== undefined && top !== this;
   }
 
   /**
@@ -1153,7 +1152,7 @@ class Session implements Runtime {
    */
   spend(points: number): void {
     const root = this.top ?? this;
-    const entry = root.ended === true && (this.applying ?? 0) === 0;
+    const entry = root.top === root && (this.applying ?? 0) === 0;
     const work = (entry ? 0 : (root.work ?? 0)) + points;
     root.work = work;
     const limit = this.machine.maxWork ?? WORK_LIMIT;
@@ -2461,7 +2460,8 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
 function endingCode(code: Code): Code {
   return (ctx, rt) => {
     const result = code(ctx, rt);
-    (rt as Session).ended = true;
+    const session = rt as Session;
+    session.top ??= session;
     return result;
   };
 }
@@ -2514,7 +2514,7 @@ class CompiledPlan implements Plan {
     const ctx = rootContext(machine, context);
     const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, undefined, undefined, readingOf(runOptions.reads, ctx));
     return driveWaiting(this.runCode()(ctx, s), runOptions.signal).finally(() => {
-      s.ended = true;
+      s.top = s;
     });
   }
 }
@@ -2606,7 +2606,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
   const ctx = rootContext(machine, context);
   const s = new Session(machine, ctx.caps, true, true, options.perform, undefined, undefined, readingOf(options.reads, ctx));
   const result = await driveWaiting((plan as CompiledPlan).runCode()(ctx, s), options.signal);
-  s.ended = true;
+  s.top = s;
   return record(s, result);
 }
 
