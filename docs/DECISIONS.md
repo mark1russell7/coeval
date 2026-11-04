@@ -4124,3 +4124,15 @@ The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-A
 **Alternatives.** A method of `Schedule`. Each user of `schedule` then bundles the analysis of `graph.ts`, and an object that a host types as `Schedule` fails to compile. An option of `check` that takes a schedule. Then `check` gets a second form of input, and `static.ts` depends on the schedule. An issue for each node of a cycle. A ring of 100000 nodes then gives 100000 issues for one fault. The order of the graph for `nodes`. The order then depends on the order of the `set` calls, and a host that compares two answers finds a false change. An issue for a possible cycle with a second severity. `Issue` has no severity, and D107 refuses such a false positive. A cache of the answer for each structure epoch. The map of `graph()` already stays for an epoch, and a host calls `checkCycles` only when it needs the answer.
 
 **Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
+
+## D153 (2026-11-04): `ifRunner` gives an `if` with the truth of a host
+
+**Context.** K221. The runner `control.if` can wait for the host, but it accepts only a boolean test. The `if` of the formula kit reads the function `truthy` of a profile, but it is an evaluator, and an evaluator cannot wait. A host with its own truth and steps that wait kept a copy of the runner.
+
+**Decision.** The function `ifRunner(truth)` gives the runner, and `control.if` is `ifRunner` of the boolean truth (RUN.IF-TRUTH). A host passes `profile.truthy` and names the runner in `machine.runners`. A document selects it with `own`.
+
+**Why.** One body holds the three failures and the order of the parts, thus a host has no copy of them. The parameter has the type of `FormulaProfile.truthy`.
+
+**Alternatives.** A runner for `formula.if` in each formula machine. A runner wins over an evaluator of the same name. Thus each formula `if` then pays for a generator, and the bench refuses a slower read. A formula `if` holds no effect, so it has no need to wait.
+
+**Limits.** A bare value in a part stays a literal of the kit. A missing `then` stays an error of `check`. A host that reads older documents keeps these two rewrites, and `mapDocs` (D152) is the place for them.
