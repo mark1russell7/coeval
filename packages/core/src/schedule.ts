@@ -234,6 +234,8 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
   // The nodes that finished in a kept read, and if that read met a node in evaluation below it (D143).
   const keptNodes: string[] = [];
   let keptMet = false;
+  // The count of the visits at the start of the kept read. A node with a lower number started below the read.
+  let keptFrom = 0;
   let count = 0;
   let ahead = 0;
 
@@ -292,8 +294,12 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     const reader = stack[stack.length - 1];
     const known = epoch.values.get(id);
     if (known !== undefined) {
-      // A finished node of an open component is on a cycle with its reader too.
-      if (reader !== undefined && onOpen.has(id)) lower(reader, order.get(id) as number);
+      if (reader !== undefined && onOpen.has(id)) {
+        // The path from that component to a kept read has a read that no evaluation asked for (SCHED.KEPT-OPEN).
+        if (keptAt >= 0 && (order.get(id) as number) < keptFrom) keptMet = true;
+        // A finished node of an open component is on a cycle with its reader too.
+        else lower(reader, order.get(id) as number);
+      }
       return known;
     }
     if (busy.has(id)) {
@@ -399,23 +405,24 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       keeping(read) {
         const outer = keptAt;
         const outerMet = keptMet;
+        const outerFrom = keptFrom;
         const from = keptNodes.length;
         keptAt = stack.length;
         keptMet = false;
+        keptFrom = count;
         try {
           return read();
         } finally {
           // These nodes read an error that a run does not give, thus a real demand evaluates them again (SCHED.KEPT-BELOW).
-          // A node of an open component stays: it is on a true cycle, and its value is final (D31).
           if (keptMet) {
             for (const id of keptNodes.splice(from)) {
-              if (onOpen.has(id)) continue;
               values.delete(id);
               cache.forget(id);
             }
           }
           keptAt = outer;
           keptMet = outerMet;
+          keptFrom = outerFrom;
         }
       },
     };
