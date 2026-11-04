@@ -4062,3 +4062,38 @@ The reference interpreter has the same rules, with its own rungs. It compiles ea
 **Why.** Each form takes only a text that was an issue, thus the change adds readings and takes none away. The operations `let`, `fn`, `call` and `record` keep their texts, and the reference `let` stays a name. A profile field keeps the rule of D41: data drives the parser and the printer, and each other profile reads as before. The new forms use the entries of a form `named` and the arguments of a call, thus the tokenizer gets no new rule for keys.
 
 **Limits.** `WORLD_SYNTAX` has no forms, because `STD_WORLD` has no such kinds. A host that spreads `STD_SYNTAX` gets the forms, and an operator of that host that reads `{`, `}`, `=>` or `let` throws a `TypeError`.
+
+## D146 (2026-11-04): a handler is a frame in the context, and a clause is a capability that the kernel gives
+
+**Context.** R2 P5 proposes a kind `handle` with clauses that run in place, and L1a takes it up. D27 left room for a rule `grant`. R2 names two risks: D10 lists five roots, and CAP.NARROW changes its wording.
+
+**Decision.**
+
+- The standard kind `handle` has the fields `with`, `body` and an optional `return`. Each item of `with` has `op` and one of `do` and `abort`.
+- A frame is a field of a context under a private symbol, as the grant is. It is not a root, thus D10 stays true.
+- A clause is a capability. The new rule `grant` of `Kind.caps` gives the body each kind of the clauses, and the kernel writes that grant (`RunPart.handled`).
+- The kernel asks the capabilities first and the frames second. Thus `mask`, `only` and the narrowing of an evaluator stop a handled effect with no new code (HANDLE.NARROW).
+- A frame ends with its body. An effect from a context that left the body gives `#CAP!`, and a frame of another evaluation counts as ended (HANDLE.ENDED).
+- A handled effect is not an effect of the host. It is not in the list of effects, in a log or in a replay. The effects of a clause are, at the place of the clause.
+- An abort sets the result in the frame, and the effect gives a failure that stops the body. `handle` then gives that result.
+
+**Alternatives.**
+
+- Frames before capabilities. A handled effect then needs no grant. But an effect in `pure` under `handle` gets a clause, and each narrowing needs a second filter for the frames.
+- A frame in `caps`. That changes the type `Cap`, and R2 rejects it.
+- A clause that keeps working after the capability check of its frame ends, as a deep handler in a language with closures does. The capability of that clause then reaches the host through a closure that left the body. The refusal is the safe side.
+- An abort as an error value with a token. A runner that treats an error as data then changes the result of `handle`. A field of the frame does not.
+
+**Why.** A frame that is also a capability needs one rule for the run and one for the check. `check` reads `grant` from the contract, thus it accepts a handled effect with no knowledge of `handle`. `effectsOf` keeps the list of handled kinds on each visit, and CAP.EFFECTS-SOUND stays true, because a handled effect does not reach the host.
+
+The second tier has its own frames, as D15 asks. `agreeRun` compares the results and the addresses.
+
+**Limits.**
+
+- Clauses run in place. A clause cannot resume and then work on the rest of the body. R2 P5 calls that general resumption, and it changes `Steps`.
+- A clause sees the payload but not the kind. A clause for a namespace cannot forward the exact effect.
+- After an abort, a runner that treats an error as data can go on with its next step. Each effect of that step happens, and `handle` still gives the result of the abort. Under `all`, the other items go on unless the host sets `failFast`.
+- `check` does not report a clause with both `do` and `abort`. A run gives `#VALUE!` (HANDLE.VALUE).
+- `factsOf` still lists a handled effect, because its facts read each declaration. That list is an upper bound.
+- A kind that declares `grant` and gives no clauses passes `check`, and its run gives `#CAP!`.
+- A `handle` in a context of an earlier evaluation has no capability, thus its clauses answer nothing, and an effect gives `#CAP!`.

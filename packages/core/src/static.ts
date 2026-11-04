@@ -4,7 +4,7 @@ import { answerOf, ask } from "./ladder.ts";
 import { type PartSlot, partsOf, rulesCover, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
-import { type Machine, partCaps, permits, waitedReason } from "./evaluate.ts";
+import { type Machine, partCaps, partGrants, permits, waitedReason } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
 import { type RootTypes, type TypeNode, type Typed, machineTypeIssues, typePass } from "./typing.ts";
 import { cycleIssues } from "./instances.ts";
@@ -41,6 +41,8 @@ export interface DocVisit {
    * around it (`Kind.caps`). A walk without capabilities gives none here.
    */
   readonly caps?: readonly Cap[] | undefined;
+  /** The kinds of effects that a handler around the document answers (CAP.GRANT, D146). Such an effect does not reach the host. */
+  readonly handled?: readonly Cap[] | undefined;
 }
 
 /** A position that a walk cannot read as a document. */
@@ -124,6 +126,7 @@ class Visit implements DocVisit {
     readonly caps: readonly Cap[] | undefined,
     bound: readonly string[],
     expect: ValueType | undefined,
+    readonly handled: readonly Cap[] | undefined,
   ) {
     this.#place = place;
     this.#at = at;
@@ -177,6 +180,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     readonly caps: readonly Cap[] | undefined;
     readonly bound: readonly string[];
     readonly expect: ValueType | undefined;
+    readonly handled: readonly Cap[] | undefined;
   }
   const stack: Item[] = [
     {
@@ -191,6 +195,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       slot: [],
       parent: undefined,
       caps: options.caps,
+      handled: undefined,
       bound: [],
       expect: undefined,
     },
@@ -219,6 +224,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       item.caps,
       item.bound,
       item.expect,
+      item.handled,
     );
     const answer = visit(here);
     if (answer === "skip" || kind === undefined) continue;
@@ -232,6 +238,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       const slot = split.parts[index] as PartSlot;
       const extra = sees[index] ?? [];
       const hidden = later[index] ?? [];
+      const grants = partGrants(kind.caps, slot.path, doc.value);
       stack.push({
         value: slot.item,
         place: slot.path.length === 0 ? item.place : { up: item.place, keys: slot.path },
@@ -243,7 +250,8 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         address: slot.address === true,
         slot: slot.path,
         parent: here,
-        caps: item.caps === undefined || kind.caps === undefined ? item.caps : partCaps(kind.caps, slot.path, item.caps),
+        caps: item.caps === undefined || kind.caps === undefined ? item.caps : [...partCaps(kind.caps, slot.path, item.caps), ...grants],
+        handled: grants.length === 0 ? item.handled : [...(item.handled ?? []), ...grants],
         bound: extra,
         expect: slot.expect,
       });
@@ -748,6 +756,7 @@ const KEEPS_SELF: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "control.seq",
   "control.pure",
   "control.if",
+  "control.handle",
   "list.all",
   "effect.log",
   "effect.write",
