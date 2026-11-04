@@ -1,0 +1,61 @@
+# The levels of one case (bench/levels.ts): a new process for each round, on the base and on the head.
+# Only a person or a session starts this workflow. No gate reads it. It uses the script of main on any two commits.
+name: Levels
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: The commit of the base
+        required: true
+      head:
+        description: The commit of the head
+        required: true
+      case:
+        description: The name of the case
+        default: the same tree, with a list of reads
+      rounds:
+        description: The rounds
+        default: "40"
+      warmup:
+        description: The warmup samples of each process
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  levels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # The pnpm version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check out the two commits
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
+          git worktree add --detach "$RUNNER_TEMP/head" "$HEAD"
+        env:
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
+      - name: Measure each process
+        run: pnpm exec tsx packages/core/bench/levels.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" "$RUNNER_TEMP/head/packages/core/src/index.ts"
+        env:
+          LEVELS_CASE: ${{ inputs.case }}
+          LEVELS_ROUNDS: ${{ inputs.rounds }}
+          BENCH_WARMUP: ${{ inputs.warmup }}
+          LEVELS_JSON: ${{ runner.temp }}/levels.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: levels
+          path: ${{ runner.temp }}/levels.json
+          if-no-files-found: ignore
