@@ -1422,7 +1422,9 @@ class Session implements Runtime {
 
 /**
  * This function resolves a compiled path through a runtime (PLAN.PATH). The runtime of the kernel uses the compiled
- * path. Each other runtime gets the steps through `resolve`, thus a runtime that wraps another runtime sees each path.
+ * path. Each other runtime gets the steps through `resolve`, thus a runtime that wraps another runtime sees each path
+ * (PLAN.PATH-ROUTE). The result and the list of reads are the same as for `rt.resolve(ctx, compiled.path)`
+ * (PLAN.PATH-READS).
  *
  * @param rt - The runtime.
  * @param ctx - The context.
