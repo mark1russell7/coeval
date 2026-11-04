@@ -1,0 +1,48 @@
+---
+title: Text syntax
+description: A profile is data that tells how a document looks as text. One parser and one printer read each profile, so a language gets a text form without a parser of its own.
+tableOfContents: false
+---
+
+import SyntaxDiagram from "../../components/SyntaxDiagram.tsx";
+
+A document is JSON. A person reads and writes text. The syntax kit joins the two, and it has one parser and one printer.
+
+A **profile** tells the kit how a language looks. It is a record of data with four main parts: the operators, the literals, the references and the calls. The function `parse` reads a text with a profile and gives a document. The function `print` writes a document with a profile and gives a text.
+
+## Try three profiles
+
+Each profile below is a small record. One parser reads all of them, and each answer comes from that parser in this page.
+
+<SyntaxDiagram client:visible />
+
+## One document, many texts
+
+Select **Words** when the text is good. The text changes, and the document does not change. A language can thus change its text and keep each stored document.
+
+Select **Two cells**, and then select **Symbols**. The profile Symbols has no text for a reference to a cell, so the button tells the reason. That profile then reads the old text, and the issue is at the first character.
+
+## An issue has its span
+
+An issue has an offset, a length and a message. An editor can mark that span in the text, and the tree can keep the last good document. A span of length zero marks a place between two characters.
+
+## A profile of your own
+
+A profile is data, so a language starts from another profile and changes its fields. This record is the profile Cells of the diagram:
+
+```ts
+const CELLS: SyntaxProfile = {
+  ...STD_SYNTAX,
+  refs: {
+    patterns: [
+      {
+        pattern: /\$[A-Z]+[0-9]+/,
+        read: (text) => ["cells", text.slice(1)],
+        write: (path) => (path[0] === "cells" ? `$${path[1]}` : undefined),
+      },
+    ],
+  },
+};
+```
+
+The kernel gives two profiles. `STD_SYNTAX` is the profile of the formula kit, and `WORLD_SYNTAX` is the profile of the standard world. The [playground](../playground/) reads its text with `WORLD_SYNTAX`.
