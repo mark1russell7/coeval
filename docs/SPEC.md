@@ -526,6 +526,13 @@ A document holds a value that JSON cannot write as a standard extension (D40). T
 | EXT.SPECIFIC | When two domains with codecs hold a value and one is under the other, `encodeValue` uses the codec of the lower domain. The names do not change this. A chain through a domain without a codec counts. A cycle of parents ends, and a parent that is not a domain ends its chain. The round trip holds. |
 | EXT.TIE | The depth of a domain with a codec is the count of the other domains with a codec in its line. `encodeValue` tries the deeper domain first, then the first name. |
 | EXT.TYPE | The check of types gives `ext.domain` the type of its domain when the domain has a codec. |
+| CODEC.STD | Each codec of the tests of the kernel keeps each law of `codecLaws`, and so do `encodeValue` and `decodeValue` as one codec over the values with a document. |
+| CODEC.LAWS | `codecLaws(machine, name, options)` gives the first finding of each law that the codec of the domain breaks, in the order of the laws. A finding has `obligation`, `reason` and `probe`. A name without a domain or without a codec throws. An empty list means that each member keeps each law. |
+| CODEC.JSON | The data of `encode` breaks the law `json` when `JSON.parse(JSON.stringify(data))` does not give equal data. `NaN`, `-0`, an infinity, `undefined`, a function, a symbol, a large integer of the host, a cycle, a host object and a hole of a list are found, also inside a container. |
+| CODEC.STABLE | A second `encode` of a member that gives other data breaks the law `stable`, and so does an `encode` of the decoded member. The check compares data by DOC.EQUALS, thus the order of the fields does not matter. |
+| CODEC.DECODE | The JSON copy of the data goes through `decodeDomain`. A throw of `decode` and a result outside the domain or a parent break the law `decode`, and so does a `decode` that reads a data object by its identity. |
+| CODEC.ROUNDTRIP | A decoded member that does not equal the member by `sameValue` and the option `equal` breaks the law `roundtrip`. A lost `-0`, a lost precision and two members with one document are found. A date without the option `equal` is found too. |
+| CODEC.SAMPLES | The members are the list `values` of the domain, or else the option `samples`, the edge values and the lists `samples` of the domains. A value outside the domain gets no test. Without a member, the law `samples` gives a finding. |
 
 ## The syntax kit
 
