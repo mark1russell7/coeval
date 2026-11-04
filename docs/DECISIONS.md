@@ -4124,3 +4124,17 @@ The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-A
 **Alternatives.** A method of `Schedule`. Each user of `schedule` then bundles the analysis of `graph.ts`, and an object that a host types as `Schedule` fails to compile. An option of `check` that takes a schedule. Then `check` gets a second form of input, and `static.ts` depends on the schedule. An issue for each node of a cycle. A ring of 100000 nodes then gives 100000 issues for one fault. The order of the graph for `nodes`. The order then depends on the order of the `set` calls, and a host that compares two answers finds a false change. An issue for a possible cycle with a second severity. `Issue` has no severity, and D107 refuses such a false positive. A cache of the answer for each structure epoch. The map of `graph()` already stays for an epoch, and a host calls `checkCycles` only when it needs the answer.
 
 **Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
+
+## D155 (2026-11-04): a reference adapter for signals lives in the tests
+
+**Context.** S3b, R4 P6. The kernel keeps no reactive engine, and a host brings its own. R4 gives four rules for such a host, and no code examined them.
+
+**Decision.** The file `signals.test.ts` holds a small push-pull signal library and an engine on it. Each node is a computed that evaluates its plan. The root `world` is a host thing that reads each other node through its computed. The function `sameResult` is the cutoff. No source file of the kernel changes.
+
+**Why.** The engine passes `agreeSchedule`, thus a host has a working model of the adapter. The tests also fix the four rules. A plan keeps no value, so the library sees each read. A memo that lives longer than one evaluation is a signal. A fold reads nothing outside, and a host thing does not fix a name. With `adopt` each key is a signal read, and a thing with `resolve` answers a path with one read.
+
+**Cycles.** The meaning of D31 gives each node of a cycle `#CYCLE!`, and a plain computed cannot find a cycle. The adapter keeps the algorithm of Tarjan over the demands. A node of a cycle is computed again at each mark, because a cycle has no order to verify. A mutation of this rule fails the harness, and so does a mutation of the cutoff.
+
+**Alternatives.** A signal library from npm. The tests of the kernel then depend on a third party, and the marks stay hidden. A public export. No host asked for it, and an engine of a host has its own graph.
+
+**Limits.** A change of data gives a new context signal, thus each node evaluates again and stops at its cutoff. A host that wants a change of one field holds that field in a host thing, as the tests show. The adapter is a first push-pull engine for S3d, not a schedule of the kernel.
