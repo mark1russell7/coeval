@@ -179,8 +179,8 @@ export function namesAt(world: World, root: Json, path: readonly string[]): read
   let found: readonly string[] = [];
   walk(world, root, (visit) => {
     if (visit.place.join("/") !== wanted) return undefined;
-    found = visit.bound;
+    found = [...visit.names];
     return "skip";
   });
-  return [...new Set(found)];
+  return found;
 }
