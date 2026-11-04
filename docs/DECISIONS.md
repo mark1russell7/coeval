@@ -4111,3 +4111,30 @@ A finding has the form of each other finding. The obligation is `parallel`, and 
 - The error clause knows only the evaluators of the formula kit.
 - A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
 - A `#N/A` of a closed record stays with TYPE.NO-STEP.
+
+## D149 (2026-11-04): a guard is data from a check, and `prepare` reads it
+
+**Context.** R5 P7 asks for a test at each boundary of `unknown`, and at each read from a typed root. A store with a wrong schema then gives an error at the read, not a wrong value far away. A plan without the option keeps its speed.
+
+**Decision.**
+
+- `boundariesOf(typing, domains)` gives a list of places with types. The list is plain data, thus a host can examine it, keep it and filter it.
+- The option `guards` of `prepare`, `evaluate` and `run` takes that list. The default is no list.
+- A rule with `read` tells that a value comes from outside the document. The formula kit sets it on `ref`.
+- The test sits inside the code of the part, and inside the record of a trace. The trace thus shows the error at the boundary.
+- A part with a test is not a total part, thus it gets a place and a catch.
+- `agreeTypes` with `guards: true` evaluates with the boundaries of its own check.
+
+**Alternatives.**
+
+- An option `guards` that holds the root types, with a check inside `prepare`. `evaluate.ts` then imports the check, and each plan pays for a second walk. A host with a list pays once.
+- A new evaluator around each boundary. The trace then gets one more document, and each place moves.
+
+**Why.** A check already knows each position where its promise needs a test. A list of places keeps the check and the plan apart, and the compiled code changes only for a plan with a list.
+
+**Limits.**
+
+- A read of a name that `let` binds is a boundary too, because a rule does not see the scope of its root. The test is true there, and it takes time.
+- A test of a deep record walks the whole value at each read.
+- A list from a check with a different `declaredType` can name places that the plan does not have. Such an entry has no effect.
+- The extensions and the operations stay trusted. Only a value from a read or from an imprecise part gets a test.
