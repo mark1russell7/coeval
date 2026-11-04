@@ -1082,20 +1082,6 @@ function readingOf(list: Read[] | undefined, root: Context): Reading | undefined
   return list === undefined ? undefined : { list, root, kept: false, self: false };
 }
 
-/** The state that the runtimes of one evaluation share. */
-interface Link {
-  /** The record of the reads of the evaluation. */
-  readonly reading: Reading | undefined;
-  /** The runtime of the root, after the first equation of a tree (WORK.EQUATION). */
-  top: Session | undefined;
-}
-
-/** This function gives the link of a root. An evaluation without a list of reads has no link. */
-function linkOf(list: Read[] | undefined, root: Context): Link | undefined {
-  const reading = readingOf(list, root);
-  return reading === undefined ? undefined : { reading, top: undefined };
-}
-
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
   /**
@@ -1134,14 +1120,18 @@ class Session implements Runtime {
     readonly running: boolean,
     readonly traced: boolean,
     readonly perform: Perform | undefined,
-    readonly signal: StopSignal | undefined,
+    /**
+     * The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). Each runtime has this field, thus
+     * a tree and its equations have one object shape. The constructor keeps its fields of the base, because a plain
+     * evaluation makes one runtime and the bench of a small plan measures little else.
+     */
+    readonly top: Session | undefined,
     effects: Effect[] | undefined,
     /**
-     * The state that the runtimes of one evaluation share, or `undefined` without reads and equations. Each runtime has
-     * this one field, thus a plain evaluation pays nothing, and a tree and its equations have one object shape. Code on
-     * the path of a read reads `link?.reading` in place: a getter is one more call in the first tiers of the engine.
+     * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
+     * shares the record of the evaluation around it (READS.EQUATION).
      */
-    public link: Link | undefined = undefined,
+    readonly reading: Reading | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
@@ -1150,20 +1140,7 @@ class Session implements Runtime {
 
   /** This getter gives `true` for the runtime of an equation of a tree (WORK.NODE). */
   get nested(): boolean {
-    const top = this.link?.top;
-    return top !== undefined && top !== this;
-  }
-
-  /**
-   * This function gives the state that this runtime shares with an equation of a tree (WORK.EQUATION). One evaluation
-   * makes at most one link.
-   *
-   * @returns The link. Its field `top` is the runtime of the root.
-   */
-  equationLink(): Link {
-    const link = (this.link ??= { reading: undefined, top: undefined });
-    link.top ??= this;
-    return link;
+    return this.top !== undefined;
   }
 
   /**
@@ -1175,7 +1152,7 @@ class Session implements Runtime {
    * @throws {Failure} The error `#WORK!`, when the count is over the limit of the machine.
    */
   spend(points: number): void {
-    const root = this.link?.top ?? this;
+    const root = this.top ?? this;
     const entry = root.ended === true && (this.applying ?? 0) === 0;
     const work = (entry ? 0 : (root.work ?? 0)) + points;
     root.work = work;
@@ -1190,7 +1167,7 @@ class Session implements Runtime {
 
   /** `true` when the evaluation records its reads. Then folded code evaluates again, thus each read goes in the list (PLAN.FOLD). */
   get recording(): boolean {
-    return this.link?.reading !== undefined;
+    return this.reading !== undefined;
   }
 
   /**
@@ -1208,14 +1185,14 @@ class Session implements Runtime {
    */
   resolvePath(given: Context, compiled: CompiledPath): Resolution {
     const ctx = readable(given, this.epoch);
-    if (this.link?.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
+    if (this.reading === undefined && !this.traced && compiled.nav === this.machine) return compiled.resolve(ctx);
     return this.read(ctx, compiled.path, compiled, undefined);
   }
 
   /** This function resolves a path, and records its read when the evaluation has a list of reads (READS.RECORD). */
   private read(ctx: Context, path: readonly unknown[], compiled: CompiledPath | undefined, options: ResolveOptions | undefined): Resolution {
     const hops = options?.hops ?? this.traced;
-    const reading = this.link?.reading;
+    const reading = this.reading;
     if (reading === undefined) return this.find(ctx, path, compiled, hops);
     const free = isFree(reading.root, ctx, path);
     // A kind that sets another self can give the old self on, as the parent of a node of a tree does (READS.KEPT).
@@ -1244,7 +1221,7 @@ class Session implements Runtime {
   }
 
   keepsContext(ctx?: Context, reads?: () => readonly StaticRead[] | undefined): void {
-    const reading = this.link?.reading;
+    const reading = this.reading;
     if (reading === undefined || reading.kept) return;
     const known = ctx === undefined ? undefined : reads?.();
     // A value without its static reads can read each root later (READS.KEPT).
@@ -2353,7 +2330,7 @@ export function evaluateWithin(plan: Plan, context: Context, outer: Runtime | un
   if (!(outer instanceof Session) || !(plan instanceof CompiledPlan)) return plan.evaluate(context);
   const machine = plan.machine;
   const ctx = rootContext(machine, context);
-  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.equationLink()));
+  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, outer.top ?? outer, undefined, outer.reading));
 }
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
@@ -2528,14 +2505,14 @@ class CompiledPlan implements Plan {
   evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
-    const s = new Session(machine, ctx.caps, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, linkOf(evalOptions?.reads, ctx));
+    const s = new Session(machine, ctx.caps, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
     return this.code(ctx, s);
   }
 
   run(context: Context = makeContext(), runOptions: PlanRunOptions = {}): Promise<Result> {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
-    const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, runOptions.signal, undefined, linkOf(runOptions.reads, ctx));
+    const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, undefined, undefined, readingOf(runOptions.reads, ctx));
     return driveWaiting(this.runCode()(ctx, s), runOptions.signal).finally(() => {
       s.ended = true;
     });
@@ -2605,7 +2582,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
     ...(given.verb === undefined ? {} : { verb: given.verb }),
   });
   const ctx = rootContext(machine, context);
-  const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, linkOf(given.reads, ctx));
+  const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
   return record(s, (plan as CompiledPlan).code(ctx, s));
 }
 
@@ -2627,7 +2604,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
     ...(options.verb === undefined ? {} : { verb: options.verb }),
   });
   const ctx = rootContext(machine, context);
-  const s = new Session(machine, ctx.caps, true, true, options.perform, options.signal, undefined, linkOf(options.reads, ctx));
+  const s = new Session(machine, ctx.caps, true, true, options.perform, undefined, undefined, readingOf(options.reads, ctx));
   const result = await driveWaiting((plan as CompiledPlan).runCode()(ctx, s), options.signal);
   s.ended = true;
   return record(s, result);
