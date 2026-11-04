@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   type AgreeScheduleOptions,
+  type Context,
   type Effect,
+  type EvalFn,
   type FormulaProfile,
   type Json,
   type Key,
   type Random,
+  type Read,
   type Result,
   type Schedule,
   type ScheduleAgreement,
@@ -19,12 +22,16 @@ import {
   edgesOf,
   factsOf,
   fail,
+  formulaDefinitions,
   formulaMachine,
   isClosure,
   isHostThing,
   jsTruthy,
   ok,
+  prepare,
   random,
+  reference,
+  referenceRun,
   sameResult,
   schedule,
   typesOf,
@@ -125,6 +132,16 @@ function treeMachine(equations: Readonly<Record<string, Json>>): typeof STD_MACH
   } as const;
   return { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, watch } } };
 }
+
+/** The standard machine with the pure kind `within`: its part reads a new self with the field `w`, and that self gives the old one on. */
+function withinMachine(): typeof STD_MACHINE {
+  const within: EvalFn = ({ parts, context: ctx }) => parts[0]?.evaluate({ ...ctx, self: { w: 1, inner: ctx.self } }) ?? ok(null);
+  const kinds = { ...STD_MACHINE.world.kinds, within: { verbs: { eval: "t.within" }, parts: { shape: "list" as const }, pure: true } };
+  return { ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds }, evaluators: { ...STD_MACHINE.evaluators, "t.within": within } };
+}
+
+/** A document for the kind `within`: the field `w` of its self, and the name `x`. */
+const ADD_W_X: Json = { type: "add", value: [ref("self", "w"), ref("names", "x")] };
 
 describe("the interface of a schedule", () => {
   it("[SCHED.GRAPH] a schedule keeps named documents as nodes under the root world, and the graph stays one object in a structure epoch", () => {
@@ -368,6 +385,173 @@ describe("the interface of a schedule", () => {
     expect(own.ok && isClosure(own.value)).toBe(true);
     const called = s.read("k");
     expect(called.ok && isClosure(called.value)).toBe(true);
+  });
+
+  it("[SCHED.OWN-NODE] a closure at a node whose self or event is a reference to that node gives its value in each tier, and a true cycle still gives #CYCLE!", async () => {
+    const closure = (root: string): Json => ({ type: "fn", value: { params: [], body: ref(root) } });
+    const isFn = (result: Result): boolean => result.ok && isClosure(result.value);
+    const shapes: readonly (readonly [Context, Json])[] = [
+      [context({ self: ref("world", "f") }), closure("self")],
+      [context({ self: ref("world", "f", "y") }), closure("self")],
+      [context({ self: ref("names", "me"), names: { me: ref("world", "f") } }), closure("self")],
+      [context({ event: ref("world", "f") }), closure("event")],
+    ];
+    const definitions = formulaDefinitions(STRICT);
+    for (const [host, doc] of shapes) {
+      const s = schedule(strictMachine, { ...LIT, context: host });
+      s.set("f", doc);
+      expect(isFn(s.read("f")), show(s.read("f"))).toBe(true);
+      // A change of data verifies the kept read in the evaluation of the node, and the answer stays.
+      s.changeData();
+      expect(isFn(s.read("f"))).toBe(true);
+      expect(isFn(await s.run("f"))).toBe(true);
+      const plan = prepare(strictMachine, doc, LIT);
+      expect(isFn(plan.evaluate(s.context))).toBe(true);
+      expect(isFn(plan.evaluate(s.context, { reads: [] }))).toBe(true);
+      expect(isFn(reference(strictMachine, doc, s.context, { ...LIT, definitions }))).toBe(true);
+      expect(isFn(await referenceRun(strictMachine, doc, s.context, { ...LIT, definitions }))).toBe(true);
+    }
+    // A later call reads the node, and the node has its value at that time.
+    const called = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "f") }) });
+    called.set("f", closure("self"));
+    called.set("k", op("apply", ref("world", "f"), 0));
+    expect(isFn(called.read("k"))).toBe(true);
+    // A kind that sets another self keeps only the root self, and that read closes no cycle too.
+    const set = schedule(withinMachine(), { context: context({ self: ref("world", "t"), names: { x: 1 } }) });
+    set.set("t", { type: "within", value: [ADD_W_X] });
+    expect(set.read("t")).toEqual(ok(2));
+    // The root of a tree reads the root self in each tier (TREE.SELF), thus that read is a true cycle.
+    const tree = schedule(treeMachine({ seen: ref("names", "x") }), { context: context({ self: ref("world", "t"), names: { x: 1 } }) });
+    tree.set("t", { type: "watch", value: { got: ref("self", "seen") } });
+    expect(tree.read("t")).toEqual(cycle("t"));
+    // A read of the evaluation is a true cycle, also beside a closure and also through a call in the evaluation.
+    for (const doc of [ref("self"), ref("self", "x"), op("apply", closure("self"), 0), op("pair", closure("self"), ref("self")), op("pair", ref("self"), closure("self"))]) {
+      const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "f") }) });
+      s.set("f", doc);
+      expect(s.read("f"), show(doc)).toEqual(cycle("f"));
+      s.changeData();
+      expect(s.read("f"), show(doc)).toEqual(cycle("f"));
+    }
+    for (const order of [["a", "b"], ["b", "a"]]) {
+      const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "b") }) });
+      s.set("a", ref("self"));
+      s.set("b", ref("world", "a"));
+      for (const id of order) expect(s.read(id)).toEqual(cycle(id));
+    }
+    // A demand from a kept read counts each read of its own evaluation, thus the node g gives its true cycle.
+    for (const order of [["f", "g"], ["g", "f"]]) {
+      const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g") }) });
+      s.set("f", closure("self"));
+      s.set("g", ref("world", "g"));
+      for (const id of order) expect(isFn(s.read(id))).toBe(id === "f");
+      expect(s.read("g")).toEqual(cycle("g"));
+    }
+    // A limit of D136: a kept read that reaches the node through another node that reads it still closes a cycle, in
+    // each order. The edge of a lazy read gives no demand ahead, thus the node g is in evaluation before the node f.
+    for (const reader of [ref("world", "f"), op("second", 0, ref("world", "f"))]) {
+      for (const order of [["f", "g"], ["g", "f"]]) {
+        const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g") }) });
+        s.set("f", closure("self"));
+        s.set("g", reader);
+        for (const id of order) expect(s.read(id)).toEqual(cycle(id));
+      }
+    }
+  });
+
+  it("[SCHED.OWN-NODE-READS] a kept read of each whole root stays: it demands the node that a reference reaches, and no change of a read gives a stale value", () => {
+    const paths = [["self"], ["names"], ["world"], ["event"], ["caps"]];
+    const keptOf = (s: Schedule, doc: Json): readonly Read[] => {
+      const reads: Read[] = [];
+      prepare(strictMachine, doc, LIT).evaluate(s.context, { reads });
+      return reads.filter((read) => read.kept === true);
+    };
+    // Another node: the kept read demands it, and it reaches its value.
+    const closure: Json = { type: "fn", value: { params: [], body: ref("self", "x") } };
+    const other = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g"), names: { v: 1 } }) });
+    other.set("f", closure);
+    other.set("g", { x: ref("names", "v") });
+    other.set("k", op("apply", ref("world", "f"), 0));
+    expect(other.read("f").ok).toBe(true);
+    expect(other.counts).toMatchObject({ evaluations: 2, ahead: 0 });
+    expect(keptOf(other, closure).map((read) => read.path)).toEqual(paths);
+    expect(keptOf(other, closure)[0]?.reached).toEqual(other.read("g"));
+    expect(other.read("k")).toEqual(ok(1));
+    other.changeData(context({ self: ref("world", "g"), names: { v: 2 } }));
+    expect(other.read("k")).toEqual(ok(2));
+    // The node itself: the list has each root, and a change of a name discards the closure.
+    const pair: Json = { type: "fn", value: { params: [], body: op("pair", ref("self"), ref("names", "v")) } };
+    const own = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "f"), names: { v: 1 } }) });
+    own.set("f", pair);
+    own.set("k", op("apply", ref("world", "f"), 0));
+    const first = own.read("f");
+    expect(keptOf(own, pair).map((read) => read.path)).toEqual(paths);
+    const second = (result: Result): unknown => (result.ok ? (result.value as readonly unknown[])[1] : result);
+    expect(second(own.read("k"))).toBe(1);
+    let counts = own.counts;
+    own.changeData(context({ self: ref("world", "f"), names: { v: 2 } }));
+    const next = own.read("f");
+    expect(next.ok && next !== first).toBe(true);
+    expect(own.counts.evaluations - counts.evaluations).toBe(1);
+    expect(second(own.read("k"))).toBe(2);
+    // A new self changes the kept read in the two directions, with no #CYCLE! and no old value.
+    const body: Json = { type: "fn", value: { params: [], body: ref("self") } };
+    const moved = schedule(strictMachine, { ...LIT, context: context({ self: { x: 1 } }) });
+    moved.set("f", body);
+    moved.set("k", op("apply", ref("world", "f"), 0));
+    expect(moved.read("k")).toEqual(ok({ x: 1 }));
+    moved.changeData(context({ self: ref("world", "f") }));
+    const closed = moved.read("k");
+    expect(closed.ok && isClosure(closed.value)).toBe(true);
+    moved.changeData(context({ self: { x: 2 } }));
+    expect(moved.read("k")).toEqual(ok({ x: 2 }));
+    // A kind that sets another self has no read of the root world. Its other reads still verify, thus a change of
+    // another name keeps the result, and a change of a name that it reads discards the result.
+    const set = schedule(withinMachine(), { context: context({ self: ref("world", "t"), names: { x: 1, y: 1 } }) });
+    set.set("t", { type: "within", value: [ADD_W_X] });
+    const kept = set.read("t");
+    expect(kept).toEqual(ok(2));
+    counts = set.counts;
+    set.changeData(context({ self: ref("world", "t"), names: { x: 1, y: 2 } }));
+    expect(set.read("t")).toBe(kept);
+    expect(set.counts.evaluations - counts.evaluations).toBe(0);
+    set.changeData(context({ self: ref("world", "t"), names: { x: 2, y: 2 } }));
+    expect(set.read("t")).toEqual(ok(3));
+  });
+
+  it("[SCHED.OWN-NODE-AGREES] agreeSchedule finds no false cycle and no stale answer for one node, with each host context that refers to that node", () => {
+    const fn = (body: Json): Json => ({ type: "fn", value: { params: ["v"], body } });
+    const wire = (rng: Random, node: () => Json): Json => {
+      const read = rng.pick<Json>([ref("self"), ref("self", "a"), ref("event"), ref("names", "a"), ref("names", "v"), node()]);
+      const roll = rng.int(5);
+      if (roll === 0) return fn(read);
+      if (roll === 1) return op("pair", fn(read), ref("names", "a"));
+      if (roll === 2) return op("apply", fn(read), 0);
+      return roll === 3 ? op("ifError", read, fn(read)) : read;
+    };
+    const f = ref("world", "f");
+    const contexts: readonly Context[] = [
+      context({ self: f, names: { a: 1 } }),
+      context({ event: f, names: { a: 1 } }),
+      context({ self: ref("world", "f", "a"), event: f, names: { a: 1 } }),
+      context({ self: ref("names", "me"), names: { a: 1, me: f } }),
+    ];
+    const outcome = agreeSchedule(schedule, {
+      machines: [strictMachine, looseMachine],
+      declaredType: "lit",
+      generate: { declaredType: "lit", maxSize: 8, types: [...OP_TYPES, ["ref"], ["lit"], ["fn"]] },
+      runs: false,
+      value: (rng) => rng.pick<unknown>([0, 1, 2]),
+      wire,
+      wired: 0.8,
+      nodes: ["f"],
+      contexts,
+      count: COUNT,
+      steps: STEPS,
+      equal,
+    });
+    expect(told(outcome)).toEqual([]);
+    expect(outcome.counts.values).toBeGreaterThan(COUNT);
+    expect(outcome.counts.cycles).toBeGreaterThan(COUNT);
   });
 
   it("[SCHED.EQUATION] a node with a tree keeps the reads of its equations, thus a change of a node or of the event that an equation reads evaluates it again", () => {

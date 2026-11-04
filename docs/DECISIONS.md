@@ -4016,3 +4016,41 @@ The parts of `allOf` and the other keywords of a schema give the meet of their t
 **Alternatives.** A limit of `maxDepth` applications, as R7 P5 proposed. The reference overflows before 1000 applications, thus the tiers still disagree with the default machine. A new option of the machine for the clock. A second limit needs its own rule in `mergeMachines`, and the quarter of `maxDepth` follows each host that changes the limit. A count of the nested documents of each application. Then each document of the plan changes a counter, and that is on the path of each evaluation. One count in a module variable for all evaluations. Then a nested evaluation starts with the count of another evaluation. One count for each `fn` document. Then a mutual recursion of two functions nests to two times the limit. The exception for an overflow in `agree` stays. A body with many nested documents, a tree and an evaluator of the host can still overflow the stack of the host.
 
 **Why.** In the reference, an application of a short body uses the stack of approximately three nested documents. A quarter of `maxDepth` keeps a body of up to approximately nine nested documents for each application under the stack, in each tier. A recursion that stops under the limit gives its value as before. An endless recursion gives the same error in each tier, thus `agree` compares it without the exception for an overflow. The cost is an increment, a compare and a `finally` for each application. No case of the bench applies a closure.
+
+## D136 (2026-11-03): a kept read of the node in evaluation closes no cycle
+
+**Context.** K217, from D56 and D57. A closure keeps a read of each whole root when its path meets a reference (READS.KEPT). That read resolves the root, and a root that holds a reference follows the reference. In a schedule, the reference can reach the root `world`, and the step demands a node.
+
+When that node is the reader, the demand meets the node in evaluation, and the schedule closes a cycle. Thus a closure at a node whose `self` refers to that node gave `#CYCLE!`. The evaluation did not ask for the read, and a run has no such cycle. The evaluation from scratch of `agreeSchedule` gives the closure, because it records no reads. The contexts of SCHED.ONE-MEANING hold no reference, thus the test did not find it.
+
+The same read occurs at the root `event`, in the verification of a kept read, and for a kind that sets another `self`.
+
+**Decision.**
+
+- `HostThing` gets the optional function `keeping(read)`. The kernel calls this function of the root `world` around each kept read that resolves its path, at the record and in `verifyReads`.
+- `keeping` of a schedule notes the length of its stack. A demand of the node on top of the stack, at that length, is the kept read of the node in evaluation. It gives the same error as before, and it adds no mark for the cycle check (SCHED.OWN-NODE).
+- Each other demand stays as it is. A kept read still demands another node, and a nested demand has a longer stack. Thus each read of that evaluation counts, and a true cycle there gives `#CYCLE!`.
+- A read of the evaluation goes outside `keeping`, thus it closes the cycle with the same error.
+- No list of reads changes, also for this node. Its kept read of the root reaches the error of the node (SCHED.OWN-NODE-READS).
+- The reference and a plan without a list of reads do not change, because they keep no reads. A host thing without `keeping` does not change.
+
+**Alternatives.**
+
+- A kept read that does not demand, with a walk through the reference by `known`, as D57 does for a path. This removes each false cycle of this class. But a kept read of another node then reaches another thing, and that node stops its evaluation. Thus the reads of other documents change.
+- A kept read that stops at the reference. The reference stays the same while its target changes, thus a change gives a stale value (D56, Rejected).
+- No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
+- A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
+- An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This also removes the false cycle of the Limits. But it needs a record of the nodes of each kept demand, and it drops final results. The node then also needs a read that changes in each data epoch, and only some lists have one. That is a behaviour change, and it waits for a need.
+
+**Limits.**
+
+- A kept read that reaches its node through another node that reads it still closes a false cycle. An example is a closure at `f`, a `self` that refers to `g`, and a document of `g` that reads `f`. Each order of demands gives `#CYCLE!` for the two nodes, as before this decision.
+- Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
+- A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
+
+**Why.** The kept read of the node itself adds nothing to the invalidation of the node. That read reaches the value of the node, and a pure document gives that value from its other reads (FACTS.PURE). When each other read stays the same, the evaluation gives the same value. A document that really reads the value makes a read of the evaluation, and that read closes the true cycle. Thus the error in the list hides no change, and each other read verifies as before.
+
+The list of reads stays exact, thus each other document keeps its reads, its demands and its order of evaluations. The test SCHED.OWN-NODE-AGREES compares generated documents with the evaluation from scratch, over changes of data, edits and new machines. Four changes of the code each fail these tests. These are no rule, a rule at each depth, a rule for each node in evaluation, and a verification outside `keeping`.
+
+Each kept read that resolves its path costs one call and one `finally`. A read of a node in evaluation costs one compare. A document without a kept read does no new work.

@@ -1005,8 +1005,23 @@ function keptPath(nav: Navigator, root: Context, path: readonly unknown[]): Kept
 }
 
 /**
+ * This function resolves the path of a kept read. A reference on the path can reach a node of a schedule, thus the
+ * resolution goes through `keeping` of the root `world` (SCHED.OWN-NODE).
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param ctx - The context.
+ * @param path - The path of the kept read.
+ * @returns What the path reaches.
+ */
+function readKept(nav: Navigator, ctx: Context, path: readonly unknown[]): Result {
+  const read = (): Result => readAgain(nav, ctx, path, false).reached;
+  const world = ctx.world;
+  return isHostThing(world) && world.keeping !== undefined ? world.keeping(read) : read();
+}
+
+/**
  * This function resolves the path of a kept read again, for `verifyReads` (SCHED.CLOSURE). It walks the path as
- * `keptPath` did. A host thing with `known` answers its step. A path without such a step resolves with `readAgain`.
+ * `keptPath` did. A host thing with `known` answers its step. A path without such a step resolves with `readKept`.
  *
  * @param nav - The world and the code of the evaluators.
  * @param ctx - The new context.
@@ -1018,7 +1033,7 @@ export function keptAgain(nav: Navigator, ctx: Context, path: readonly unknown[]
   let here = adopt(ctx[path[0] as Root]);
   let known = false;
   // Before a step of `known`, each other answer of the walk is the answer of `readAgain`, as before SCHED.CLOSURE.
-  const other = (): Result | undefined => (known ? undefined : readAgain(nav, ctx, path, false).reached);
+  const other = (): Result | undefined => (known ? undefined : readKept(nav, ctx, path));
   for (let index = 1; index < path.length; index += 1) {
     if (isHostThing(here)) {
       if (here.known === undefined) return other();
@@ -1185,7 +1200,7 @@ class Session implements Runtime {
     if (paths.has(text) || paths.has(JSON.stringify([root]))) return true;
     paths.add(text);
     if (path.length === 1 && root === "self") reading.self = true;
-    reading.list.push({ path, reached: walk.reached ?? readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+    reading.list.push({ path, reached: walk.reached ?? readKept(this.machine, reading.root, path), free: true, kept: true });
     return true;
   }
 
@@ -1197,7 +1212,7 @@ class Session implements Runtime {
     for (const root of roots) {
       if (root === "self") reading.self = true;
       const path = [root];
-      reading.list.push({ path, reached: readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+      reading.list.push({ path, reached: readKept(this.machine, reading.root, path), free: true, kept: true });
     }
   }
 
