@@ -4,17 +4,13 @@ name: Lean model
 
 on:
   schedule:
-    - cron: "17 4 * * *"
+    - cron: "4 4 * * *"
   workflow_dispatch:
     inputs:
       count:
         description: The number of documents
         default: "20000"
   pull_request:
-    paths:
-      - proofs/**
-      - packages/core/src/lean.test.ts
-      - .github/workflows/lean.yml
 
 permissions:
   contents: read
@@ -28,7 +24,26 @@ env:
   LEAN_SHA256: 7289597a44543246c9227b8cae501767e095ce17f6d448b95fc4a8dc97268f6d
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      match: ${{ steps.changes.outputs.match }}
+    steps:
+      - id: changes
+        uses: mark1russell7/template/.github/actions/changes@35488f7ab12bb5d452fe8307ebb05f77bb3f0f6f # main
+        with:
+          paths: |
+            .github/workflows/lean.yml
+            packages/core/src/lean.test.ts
+            proofs/**
+
   lean:
+    needs: changes
+    if: needs.changes.outputs.match == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -58,3 +73,15 @@ jobs:
           COEVAL_LEAN_MODEL: ${{ github.workspace }}/proofs/.lake/build/bin/coeval-model
           COEVAL_LEAN_COUNT: ${{ inputs.count || '20000' }}
           COEVAL_LEAN_SEED: ${{ github.run_number }}
+
+  lean-ok:
+    name: Lean OK
+    if: always()
+    needs: [changes, lean]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - uses: mark1russell7/template/.github/actions/gate-summary@35488f7ab12bb5d452fe8307ebb05f77bb3f0f6f # main
+        with:
+          needs: ${{ toJSON(needs) }}
