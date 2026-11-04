@@ -4124,3 +4124,39 @@ The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-A
 **Alternatives.** A method of `Schedule`. Each user of `schedule` then bundles the analysis of `graph.ts`, and an object that a host types as `Schedule` fails to compile. An option of `check` that takes a schedule. Then `check` gets a second form of input, and `static.ts` depends on the schedule. An issue for each node of a cycle. A ring of 100000 nodes then gives 100000 issues for one fault. The order of the graph for `nodes`. The order then depends on the order of the `set` calls, and a host that compares two answers finds a false change. An issue for a possible cycle with a second severity. `Issue` has no severity, and D107 refuses such a false positive. A cache of the answer for each structure epoch. The map of `graph()` already stays for an epoch, and a host calls `checkCycles` only when it needs the answer.
 
 **Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
+
+## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
+
+**Context.** S1f, from S1 (D31). A schedule gave each node the one context of the host. One formula at each cell of a grid then needed the data of the cell in its document. Thus each cell had its own document, and each document compiled its own plan. `durable` keeps a plan for each document object and a result for each key, and its `evaluate` takes a context for each key (D30). Only the schedule gave a host no way to use this.
+
+**Decision.** The new option `selfOf(id, host)` of `schedule` gives the `self` of a node (SCHED.NODE-CONTEXT). The schedule starts the function for each evaluation or verification of a node, and for each run of a node. Thus it starts at most one time for a demanded node in a data epoch. It gets the name of the node and the context of the host, without the nodes at the root `world`. The value `undefined` keeps the `self` of the host. A node gets a copy of the context of the epoch with its `self`. The copy keeps the grant and each other root.
+
+- **One plan.** A plan, a facts object and a list of edges stay for each document object (SCHED.NODE-PLAN). Thus nodes with one document share them, and `durable` needs no change. The value, the reads and the place on a cycle stay for each node.
+- **A change.** A new `self` is a change of data (SCHED.NODE-STALE). The host tells it with `changeData`, and it has no epoch of its own. Each demanded node then verifies its reads with its new `self`. A node that reads no changed field keeps its result, and a new `self` object with equal data changes no read.
+- **Static facts.** `factsOf`, `edgesOf` and `graph()` read only the document. A read of `self` is a read of the data of the host, thus it is not an edge, and `NodeInfo` does not change.
+- **Cycles.** A cycle is a cycle of nodes, not of documents (SCHED.NODE-CYCLE). A reference in a `self` can lead a read to another node, and the reads of the evaluation show it. The demand then gives `#CYCLE!` by D31, in each order of demands.
+- **Runs.** A run gets the `self` of its node, and the `event` of the run as before.
+- **Closures.** A closure keeps the `self` of the node that made it, also in the evaluation of a reader. A reference in the value of a node resolves in the context of its reader (DEREF.COLLAPSE). Thus a root `self` there is the `self` of the reader.
+- **The harness.** `agreeSchedule` gets the option `selves`, and the model gives each node its `self` (SCHED.NODE-AGREES).
+
+A host without the option keeps each behaviour. Each node then uses the one context of the epoch, with no copy, and each evaluation of a node pays one test for `undefined`.
+
+**Alternatives.** An option of `set`. A `set` is a change of the structure, thus a new `self` then rebuilds the graph, or it needs a second method. The schedule then also keeps a table that the host already has.
+
+A new method for the `self` of one node, with a mark for that node. A reader of the node has its value in the epoch, thus such a change needs a new data epoch too. D31 has no push of dirty marks, and only S3 can use them.
+
+A function that gives a whole context. Capabilities for each node can widen a grant, and `event` belongs to a run. A host puts each field of a cell into `self`, thus the names of each node have no first need. Another option can add them.
+
+Edges for each node from the references in its `self`. The facts then need a walk of the data of each `self` in each epoch, and that is the open item S1d.
+
+A closure of `fn` with the cell as an argument. Such a host gets one plan, but the reads of a node then do not show the fields of its cell.
+
+**Limits.**
+
+- One plan needs one document object. Equal documents in new objects compile one time each (PLAN.CACHE).
+- No edge shows a read through a reference in a `self`. Thus a demand of the deep end of a long column uses the stack of the host for each cell. Such a demand fails at 2000 cells. A host that demands the cells in the order of the rows gets each value.
+- A new `self` of one cell verifies each demanded node, as each change of data does.
+- `selfOf` gives the same data for a node in one data epoch. This is the promise of DURABLE.REUSE. `context` of a schedule keeps the `self` of the host.
+- A closure with a kept read that meets a reference keeps each whole root (READS.KEPT). A `self` that is itself a reference to its own node then closes a false `#CYCLE!`. The `self` of a host context gives the same answer since D56, thus this item does not add it. A reference in a field of a `self` has no such read.
+
+**Why.** The function adds no state to the schedule. The host keeps its cells, and a change of many cells is one change of data. The verification of D26 already compares what a read reaches in a new context, thus a node gets its own invalidation with no new rule. The test SCHED.NODE-PLAN counts 1000 cells of one formula with one compilation and one facts object. The test SCHED.NODE-AGREES compares each answer with a model from scratch, and it finds an engine that keeps an old `self`.

@@ -132,6 +132,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D129 | The package exports `compilePath`, `resolveCompiled` and the type `CompiledPath` (K75). A language compiles a static path one time, and a read through the route gives the value, the place and the reads of its interpreter. |
 | D130 | `codecLaws` examines the codec of one domain (K141). It tests sample and edge members for a throw, JSON, one document, a read through `decodeDomain` and the round trip. A finding has the form of `conforms`. |
 | D131 | The export `checkCycles` gives each certain cycle of a schedule as one issue with the code `#CYCLE!` (S2d). A possible cycle gives no issue. |
+| D135 | The option `selfOf` of `schedule` gives each node its own `self` (S1f). Nodes with one document share one plan, and a new `self` is a change of data. |
 
 ## Open
 

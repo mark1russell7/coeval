@@ -842,6 +842,6 @@ Why each law holds:
 
 - The reason and the cause of an error, the hops of a path, the trace and the list of reads.
 - The rules of `check`, of the types and of the facts. Each one is an abstract version of a rule of this page (R5).
-- The schedule and the durable cache. They evaluate documents by the judgment 4 (D30, D31).
+- The schedule and the durable cache. They evaluate documents by the judgment 4, each node with its own `self` when the host gives one (D30, D31, D135).
 - The kinds of the standard world other than the tree and `seq`. Their evaluators are host code, as each evaluator of a language is.
 - A body with more nested documents than the clock of `call` permits for each application. Its recursion can meet the stack of the host first, and each tier then stops at a different depth (VALUE.DEPTH, D125).
