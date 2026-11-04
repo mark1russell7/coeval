@@ -9,6 +9,22 @@ const SEED = Number(process.env["COEVAL_LEAN_SEED"] ?? 1);
 
 const NAMES: Record<string, Json> = { a: 1, b: [1, 2], c: { d: true } };
 const CLOSURE = Symbol.for("coeval.closure");
+/** The results that a run reaches: the value, and each code of an error. */
+const REACHED = ["#CALC!", "#DEPTH!", "#KIND?", "#N/A", "#NAME?", "#REF!", "#STEP?", "#VALUE!", "value"];
+const name = (...path: readonly Json[]): Json => ({ type: "ref", value: ["names", ...path] });
+const self: Json = { type: "fn", value: { params: ["f"], body: { type: "call", value: { fn: name("f"), args: [name("f")] } } } };
+/** The documents of the rules that the generator seldom reaches. Each run has them. */
+const FIXED: readonly Json[] = [
+  { type: "call", value: { fn: self, args: [self] } },
+  name("b", -1),
+  { type: "let", value: { bind: { x: name("none") }, body: name() } },
+  { type: "let", value: { bind: { x: name("none") }, body: name("x") } },
+  { type: "let", value: { bind: { x: name("none") }, body: { type: "let", value: { bind: { y: name() }, body: name("y", "x") } } } },
+  { type: "let", value: { bind: { a: 2 }, body: name("a") } },
+  { type: "call", value: { fn: { type: "fn", value: { params: ["p"], body: name("p") } } } },
+  { type: "call", value: { fn: { type: "fn", value: { params: [], body: 1 } }, args: [2] } },
+  { type: "record", value: { z: { type: "ref", value: ["nowhere"] }, a: { type: "nothing", value: 1 } } },
+];
 
 /** The one operation of the profile. The model has the same rule in `addAll`. */
 function add(...values: readonly unknown[]): number {
@@ -21,6 +37,8 @@ function add(...values: readonly unknown[]): number {
 }
 
 const machine = formulaMachine({ ops: { add } }, { plain: true, roots: ["names"] });
+/** A machine with a wrong operation. The comparison finds it, thus a pass of the comparison means something. */
+const mutant = formulaMachine({ ops: { add: (...values: readonly unknown[]) => add(...values) + 1 } }, { plain: true, roots: ["names"] });
 const types = [...typesOf(machine.world).filter((type) => type[0] !== "ext"), ["ops", "add"], ["ops", "gone"]];
 
 /** This function replaces each number that the model does not hold. A generated document has few of them. */
@@ -57,8 +75,8 @@ function normal(value: unknown): Json {
 }
 
 /** This function gives the result of the plan, in the form that the model prints. */
-function planned(doc: Json): Json {
-  const result = prepare(machine, doc, { declaredType: "lit" }).evaluate(makeContext(NAMES));
+function planned(doc: Json, on = machine): Json {
+  const result = prepare(on, doc, { declaredType: "lit" }).evaluate(makeContext(NAMES));
   return result.ok ? { value: normal(result.value) } : { error: result.error.code };
 }
 
@@ -83,11 +101,14 @@ function documents(count: number, seed: number): Json[] {
 
 describe("the Lean model", () => {
   it("[AGREE.LEAN] the model gives the result of the plan for each generated document", () => {
-    const docs = documents(COUNT, SEED);
-    expect(docs.length).toBeGreaterThan(COUNT * 0.9);
-    const expected = docs.map(planned);
-    const kinds = new Set(expected.map((result) => Object.keys(result as object)[0]));
-    expect(kinds).toEqual(new Set(["value", "error"]));
+    const generated = documents(COUNT, SEED);
+    expect(generated.length).toBeGreaterThan(COUNT * 0.9);
+    const docs = [...FIXED, ...generated];
+    const expected = docs.map((doc) => planned(doc));
+    const reached = new Set(expected.map((result) => (result as { readonly error?: string }).error ?? "value"));
+    expect(REACHED.filter((result) => !reached.has(result))).toEqual([]);
+    const kept = expected.flatMap((result) => JSON.stringify(result).match(/"(closure|held|undefined)":/g) ?? []);
+    expect([...new Set(kept)].sort()).toEqual(['"closure":', '"held":', '"undefined":']);
     if (MODEL === undefined) return;
 
     const input = docs.map((doc) => JSON.stringify([encode(NAMES), encode(doc)])).join("\n");
@@ -101,5 +122,6 @@ describe("the Lean model", () => {
       return docEquals(model, expected[index]) ? [] : [{ doc, model, plan: expected[index] }];
     });
     expect(differences.slice(0, 5)).toEqual([]);
+    expect(docs.filter((doc, index) => !docEquals(JSON.parse(lines[index] as string) as Json, planned(doc, mutant))).length).toBeGreaterThan(0);
   });
 });
