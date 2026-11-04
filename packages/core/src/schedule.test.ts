@@ -824,6 +824,20 @@ describe("a certain cycle longer than the stack", () => {
     expect(s.read(`t${RING - 1}`)).toMatchObject({ ok: false, error: { code: "#CYCLE!", reason } });
   });
 
+  it("[SCHED.DEEP-CYCLE-OWN] after an overflow, a kept read of the node in evaluation closes no cycle, and the ring keeps its error", () => {
+    const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "f") }) });
+    ring(s, (next) => next);
+    s.set("f", { type: "fn", value: { params: [], body: ref("self") } });
+    expect(s.read("f").ok).toBe(true);
+    // The ring overflows the stack in the new data epoch, thus the next demand of the node goes through the walk.
+    // The walk gives no list of reads, thus its evaluation does no kept read, and the closure keeps its value.
+    s.changeData();
+    expect(s.read("n0")).toEqual(cycle("n0"));
+    const result = s.read("f");
+    expect(result.ok && isClosure(result.value), show(result)).toBe(true);
+    expect(s.read("n1")).toEqual(cycle("n1"));
+  });
+
   it("[SCHED.DEEP-CYCLE-CHANGE] a change of data finds the ring again, an edit that opens the ring gives values, and an edit that closes it gives #CYCLE!", () => {
     const catching = schedule(strictMachine, flagged(true));
     ring(catching, (next) => op("ifError", next, 0));

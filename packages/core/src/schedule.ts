@@ -421,8 +421,6 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
         return known;
       }
       if (busy.has(id)) {
-        // The kept read of a node itself closes no cycle here too, as in `visit` (SCHED.OWN-NODE).
-        if (reader === id && keptAt === stack.length) return cycleOf(id);
         lower(reader, order.get(id) as number);
         if (reader === id) looped.add(id);
         return cycleOf(id);
