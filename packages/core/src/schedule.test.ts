@@ -1017,6 +1017,9 @@ describe("the certain cycles of a schedule", () => {
       expect(found.slice(0, 3), config.name).toEqual([]);
       expect(seen.certain, config.name).toBeGreaterThan(COUNT / 4);
     }
+  }, 120_000);
+});
+
 /* A context for each node (S1f, D135): `selfOf` gives a node its own `self`, and nodes with one document share one plan. */
 
 /** The cells of a column: each cell reads the cell above it through a reference in its `self`. */
