@@ -98,7 +98,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K24 | Signatures of operations in the profile, and a bidirectional `check` that synthesizes or checks the type of each part (R5 P3) | done (2026-10-24, D25, released in the next batch) | K23 |
 | K25 | Types of the roots, of the names and of the paths, from the host, from a JSON Schema or from sample values (R5 P4) | done (2026-10-24, D28, released in the next batch) | K24 |
 | K26 | The agreement rule for types: in a traced evaluation of a document that checks, each value is in the type of its place (R5 P5) | later | K9, K24 |
-| K27 | Narrowing in `if`, `and` and `or`: a test with `proves` narrows the type of a path in its branch (R5 P6) | later | K25 |
+| K27 | Narrowing in `if`, `and` and `or`: a test with `proves` narrows the type of a path in its branch (R5 P6) | done (2026-11-07, D147) | K25 |
 | K28 | Casts at the boundaries of `unknown`: with the option `guards`, `prepare` adds a membership test that gives `#VALUE!` at the boundary (R5 P7) | later | K25 |
 | K29 | Types of the run side: a procedure gets an input type, an output type and its effects, and `seq` gives each step its type (R5 P8) | later | K25, L1 |
 | K30 | Generic signatures with type variables, thus `check` finds the parameter types of a function argument, as for `map` (R5 P9) | later | K24 |
