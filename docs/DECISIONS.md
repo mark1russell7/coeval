@@ -4619,7 +4619,7 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 
 - An empty list tells that the small documents come back. It does not prove the law for each document.
 - The function examines pairs of operators. Three postfix operators and one longer symbol, for example `!`, `!!` and `!!!`, can pass.
-- A profile with `ops: true` permits each name, thus the function probes only one dotted name, and only when the profile has field steps. With `fields: false`, `print` writes a dotted call as a text that `parse` refuses. The check does not report it, because this profile shape is good for each other name.
+- A profile with `ops: true` permits each name, thus the function probes only one dotted name, and only when the profile has field steps. Without field steps, `print` writes no dotted call (D142).
 - The probes use the names `probe__` and `m.p`, and the keys `x` and `y`. A word operator with one of these names gives a finding, and the host does not use that text.
 - A separator counts as used when the profile has any call or construct, also when each form takes one argument.
 - A `read` or a `write` function of a pattern is code of the host. An error of such a function leaves `checkSyntax` with no change.
@@ -4649,6 +4649,21 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 - A form of a domain and an operation with one name follow the rule of forms: the form wins.
 
 **Why.** A form already has a name, one literal, its text and its place in `print`. One optional field adds the two facts that differ, and `parse` stays free of code of a host. `parse` of `print` holds for each literal data, and the codec keeps one definition of each domain.
+
+## D142 (2026-11-04): `print` gives no dotted call without field steps
+
+**Context.** K219, from the Limits of D140. With `ops: true` and `fields: false`, `print` wrote `m.p(1)`. `parse` reads a dot as a field step, thus it refused that text.
+
+**Decision.** `print` gives an error for such a document (SYNTAX.CALL-DOTTED). A plain call name does not change.
+
+**Alternatives.**
+
+- A finding of `checkSyntax` on the profile. The profile is good: `ops: true` with no field steps has a clear meaning. The document has no text, and that is what `print` tells for each other document.
+- A dotted call in `parse` without field steps. A name then needs a new token rule, for a form that no language asks for.
+
+**Limits.** A name with dots in a list `ops` gets the finding `call` of `checkSyntax`, because that entry has no text.
+
+**Why.** `parse` of `print` holds for each text that `print` writes. The change removes one text that no `parse` read, thus it is a fix.
 
 ## D143 (2026-11-04): a kept read that meets a node in evaluation below it closes no cycle
 
