@@ -4097,3 +4097,4 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - `factsOf` still lists a handled effect, because its facts read each declaration. That list is an upper bound.
 - A kind that declares `grant` and gives no clauses passes `check`, and its run gives `#CAP!`.
 - A `handle` in a context of an earlier evaluation has no capability, thus its clauses answer nothing, and an effect gives `#CAP!`.
+- `WORLD_SYNTAX` has no text for `handle`. Each clause is a record of data, and the profile has no text for a list of records. SYNTAX.WORLD pins this reason, and L1c gives the text.

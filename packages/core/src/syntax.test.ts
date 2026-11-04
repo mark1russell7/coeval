@@ -373,9 +373,9 @@ describe("the syntax kit", () => {
       expect(kinds, kind).toContain(kind);
       expect(written.has(kind), kind).toBe(false);
     }
-    expect(Object.keys(NO_TEXT)).toEqual([]);
+    expect(Object.keys(NO_TEXT)).toEqual(["handle"]);
     // The text of each kind reads to a document of that kind, and print writes the same text.
-    expect(Object.keys(WORLD_TEXTS).sort()).toEqual([...kinds].sort());
+    expect(Object.keys(WORLD_TEXTS).sort()).toEqual(kinds.filter((kind) => !Object.hasOwn(NO_TEXT, kind)).sort());
     for (const [kind, source] of Object.entries(WORLD_TEXTS)) {
       const read = doc(WORLD_SYNTAX, source);
       const type = (read as { type?: unknown }).type;
@@ -678,8 +678,10 @@ const OTHER_TEXT: Readonly<Record<string, string>> = {
   ref: "The reference syntax of the kit writes a path, for example self.parent.width.",
 };
 
-/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. The list is empty. */
-const NO_TEXT: Readonly<Record<string, string>> = {};
+/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. L1c removes the entry. */
+const NO_TEXT: Readonly<Record<string, string>> = {
+  handle: "Each clause is a record of data, and the profile has no text for a list of records (D146).",
+};
 
 /** One text for each kind of `STD_WORLD`, in the profile `WORLD_SYNTAX`. */
 const WORLD_TEXTS: Readonly<Record<string, string>> = {
