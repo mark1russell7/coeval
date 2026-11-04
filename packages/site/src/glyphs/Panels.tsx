@@ -1,6 +1,34 @@
 import { RUNGS, kindNamed, typeName, type Answer, type Effect, type Envelope, type Json, type Rung, type World } from "@mark1russell7/coeval";
 import { RUNG_LETTER } from "./Card.tsx";
 import ValueGlyph from "./Value.tsx";
+import type { TypeMark } from "../lib/types.ts";
+
+/** The props of the list of the `#TYPE!` issues. */
+export interface TypeIssuesProps {
+  readonly issues: readonly TypeMark[];
+  /** This function selects the card of an issue. */
+  readonly onSelect: (path: readonly string[]) => void;
+}
+
+/** This component lists the `#TYPE!` issues of a document. Each issue is a button that selects its card. */
+export function TypeIssues({ issues, onSelect }: TypeIssuesProps) {
+  if (issues.length === 0) return null;
+  return (
+    <section className="cv-type-issues" aria-label="The type issues">
+      <span className="cv-panel-head">The check found {issues.length === 1 ? "1 type issue" : `${issues.length} type issues`}</span>
+      <ul>
+        {issues.map((issue) => (
+          <li key={`${issue.path.join(".")} ${issue.reason}`}>
+            <button type="button" className="cv-link" onClick={() => onSelect(issue.path)}>
+              {issue.path.length === 0 ? "at the root" : `at ${issue.path.join(".")}`}
+            </button>{" "}
+            <span className="cv-small">{issue.reason}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 const RUNG_TITLE: Readonly<Record<Rung, string>> = { own: "Own entry", kind: "Kind", default: "Default" };
 

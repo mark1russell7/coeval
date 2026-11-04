@@ -6,11 +6,12 @@ import { moveLinks } from "../lib/moves.ts";
 import { STD_CAPS, evaluate, flatten, fromJson, kindNamed, makeContext, typeName, typed, type Json, type TraceNode } from "@mark1russell7/coeval";
 import Explorer, { SITE_MACHINE, pathText } from "../glyphs/Explorer.tsx";
 import { Port } from "../glyphs/Card.tsx";
-import { EffectsLog } from "../glyphs/Panels.tsx";
+import { EffectsLog, TypeIssues } from "../glyphs/Panels.tsx";
 import { View, SITE_WORLD, WorldContext } from "../glyphs/View.tsx";
 import { OverlayContext, pathKey, type Overlay } from "../glyphs/overlay.ts";
 import { appendAt, declaredAt, getAt, newDoc, newPart, removeAt, setAt } from "../lib/edit.ts";
 import { prettyJson } from "../lib/motion.ts";
+import { placeTypes } from "../lib/types.ts";
 import { PROGRAMS } from "../lib/programs.ts";
 import { docText, markIssue, readText } from "../lib/syntax.ts";
 
@@ -116,12 +117,14 @@ export default function Playground() {
     for (const node of flatten(run.trace)) if (!map.has(pathKey(node.path))) map.set(pathKey(node.path), node);
     return map;
   }, [run]);
+  const typing = useMemo(() => placeTypes(SITE_MACHINE, doc, names), [doc, names]);
   const overlay: Overlay = {
     run,
     nodes,
     tick: run.time,
     showRungs: false,
     selected: pathKey(selected),
+    typeIssues: typing.marked,
     onSelect: (path) => setSelected(path),
   };
 
@@ -160,6 +163,7 @@ export default function Playground() {
             <OverlayContext.Provider value={overlay}>
               <View doc={doc} />
             </OverlayContext.Provider>
+            <TypeIssues issues={typing.issues} onSelect={setSelected} />
           </WorldContext.Provider>
           <RefArrows container={picture} links={refLinks} moves={moves} version={`${JSON.stringify(doc).length}:${pathKey(selected)}`} />
         </div>
@@ -275,6 +279,9 @@ export default function Playground() {
             </button>
           </div>
 
+          <div className="cv-small">
+            <span className="cv-panel-head">Its type</span> <span className="ce-mono">{typing.types.get(pathKey(selected)) ?? "unknown"}</span>
+          </div>
           <div className="cv-small">
             <span className="cv-panel-head">Its result</span>{" "}
             {nodes.get(pathKey(selected)) === undefined ? (
