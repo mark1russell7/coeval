@@ -540,6 +540,20 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | SYNTAX.FN-TEXT | With `constructs.fn`, the text `(x, y) => x + y` reads `x` and `y` into `params` and `x + y` into `body` (D127). A parameter is a plain name or a name in backticks, and each word is a good parameter. Without `=>`, the text is a group as before. The body goes as far as it can, thus `print` puts parentheses around the form as a term of an operator. A value with other keys has no text. |
 | SYNTAX.CALL-TEXT | With `constructs.call`, arguments after a group read a call of a value, for example `(f)(1, 2)` (D127). A name before arguments stays an operation, thus `f(1)` is `ops.f`. The text `(f)()` reads `args: []`, thus a document without `args` has no text. The text `f(1)(2)` stays an issue. |
 | SYNTAX.CONSTRUCTS | The field `constructs` of a profile names the kind of each form, and a form without a kind stays an issue (D127). Each form was an issue before, thus each text of before reads the same document. No name becomes reserved: `let`, `in`, `fn`, `call` and `record` stay names and operations. An operator that reads the text of a form throws a `TypeError`. |
+| SYNTAX.PROFILE-CHECK | `checkSyntax(profile)` gives the faults of a profile as findings with `code`, `place` and `reason`, at most one for each code and place (D140). A profile that `compileProfile` refuses gives one finding `invalid`. `parse` and `print` do not call the check. |
+| SYNTAX.PROFILE-CHECK-CLEAN | The default profile, `STD_SYNTAX`, `WORLD_SYNTAX` and each profile of the round-trip generators give no finding (D140). |
+| SYNTAX.PROFILE-CHECK-SETTLED | A clash that the parser settles gives no finding, and its documents come back (D140). Examples are `-` as prefix and infix, `<` with `<=`, `in` as an operator with `let`, and a form name that a pattern matches. |
+| SYNTAX.PROFILE-CHECK-LAW | A generated profile with no finding keeps `parse(print(doc))` for generated documents (D140). |
+| SYNTAX.PROFILE-CHECK-OPERATOR | An operator with its own document lost gives `operator` at `["operators", i]`: a negative precedence, or a kind with its own text (D140). |
+| SYNTAX.PROFILE-CHECK-GROUPING | Two operators that give two parses give `grouping` (D140): a precedence gap under `1`, a postfix operator at the precedence of a `right` infix operator, or a precedence at `2 ** 53`. |
+| SYNTAX.PROFILE-CHECK-LONGEST | Two postfix operators that a longer symbol reads give `longest-match` (D140). With `!` and `!!`, a document with `!` two times prints `a!!`, and that text reads `!!`. |
+| SYNTAX.PROFILE-CHECK-WORD | A literal word that does not read as its value gives `word` at `["literals", "words", word]` (D140). A word operator reads first, and a word that is not a plain name has no token. |
+| SYNTAX.PROFILE-CHECK-ROOT | A root that does not come back gives `root` at `["refs", "roots", i]` (D140). A word operator or a literal word reads first, and a default root has its place in the default list. |
+| SYNTAX.PROFILE-CHECK-PATTERN | A pattern that reads a text with another meaning gives `pattern` at `["refs", "patterns", i]` (D140). The text can be a word operator, a literal, a number, a dotted form name or a dotted call. |
+| SYNTAX.PROFILE-CHECK-FORM | A call form that does not come back gives `form` at `["calls", "forms", i]` (D140). A word operator reads first, the last form of a name wins, and a `min` above the fields permits no text. |
+| SYNTAX.PROFILE-CHECK-CALL | A name of `calls.ops` that does not come back gives `call` at `["calls", "ops", i]` (D140). A form or a word operator takes the name, and a dotted name needs the field steps. |
+| SYNTAX.PROFILE-CHECK-SEPARATOR | A separator that does not end an argument gives `separator` at `["calls", "separator"]` (D140). The control is the same document with a neutral separator. |
+| SYNTAX.PROFILE-CHECK-CONSTRUCT | A construct form that does not come back gives `construct` at `["constructs", name]` (D140). Examples are two forms of one kind, and the kind `ref`. |
 
 ## Conformance
 

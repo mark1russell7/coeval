@@ -127,6 +127,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D124 | An attribute with parameters has its equation in the new table `tree.at` (L2h). The step `tree.at` gives the arguments, and DOC.EQUALS of the arguments keys the memo. |
 | D125 | Each application of a closure counts one level of a clock of its evaluation (K94). More than a quarter of `maxDepth` levels give `#DEPTH!` at one place in each tier. |
 | D127 | The field `constructs` of a profile gives `STD_SYNTAX` the forms `{a: 1}`, `let {a: 1} in a`, `(x) => x` and `(f)(1)` (K145). Each text was an issue before, thus no name becomes reserved. |
+| D140 | `checkSyntax(profile)` gives the clashes of a syntax profile as named findings with a place (K146). Each finding is a small document that breaks `parse(print(doc))`, and only a host calls the check. |
 
 ## Open
 
