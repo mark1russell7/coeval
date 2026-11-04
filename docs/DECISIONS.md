@@ -4124,3 +4124,15 @@ The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-A
 **Alternatives.** A method of `Schedule`. Each user of `schedule` then bundles the analysis of `graph.ts`, and an object that a host types as `Schedule` fails to compile. An option of `check` that takes a schedule. Then `check` gets a second form of input, and `static.ts` depends on the schedule. An issue for each node of a cycle. A ring of 100000 nodes then gives 100000 issues for one fault. The order of the graph for `nodes`. The order then depends on the order of the `set` calls, and a host that compares two answers finds a false change. An issue for a possible cycle with a second severity. `Issue` has no severity, and D107 refuses such a false positive. A cache of the answer for each structure epoch. The map of `graph()` already stays for an epoch, and a host calls `checkCycles` only when it needs the answer.
 
 **Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
+
+## D154 (2026-11-04): a walker and an extension declare the roots that they read
+
+**Context.** K54, from S1a. A kind declares `reads`, and the hook `facts` answers with `reads` for an evaluator (FACTS.KIND-READS). The facts dropped this answer for the walker of a step document. An extension gets its context, and a profile had no place for the roots that it reads. Thus `factsOf` gave a document as pure with fewer reads than its evaluation. A closure and a schedule read these facts, so they missed a dependency.
+
+**Decision.** The facts add a read of each declared root of a walker, at the place of the reference (FACTS.STEP-READS). The answer of the hook wins over `reads` of the kind, as for an evaluator. The new field `extReads` of a formula profile gives the roots of an extension (FACTS.EXT-READS). The hook of the kit gives them in its answer.
+
+**Why.** One rule of `reads` covers an evaluator, a walker and an extension. A root is the unit of the existing declaration, and it stays an upper bound of what the code reads. A fold needs no new test: the context of a fold traps each root, so an extension that reads a root refuses the fold.
+
+**Alternatives.** A declaration of full paths. It is tighter, but a walker chooses its keys from the data, thus a path is often not known. A second field for walkers. The hook already has the field `reads`.
+
+**Limits.** A reference from `self` inside an equation stops before its steps, thus the facts do not see the walkers of such a reference, as before. A declaration is a claim of the host: the facts do not test it.

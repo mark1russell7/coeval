@@ -814,6 +814,51 @@ describe("factsOf", () => {
     }
   });
 
+  it("[FACTS.STEP-READS] a walker declares the roots that it reads, and the reference reads them at its place", () => {
+    const step: Json = { type: "peek", value: null };
+    const doc: Json = { type: "ref", value: ["names", "a", step] };
+    const kinds = { ref: STD_MACHINE.world.kinds["ref"] as Kind, peek: { verbs: { step: "walk.peek" }, pure: true, reads: ["event" as const] } };
+    const machine = (facts?: Machine["facts"]): Machine => ({ ...STD_MACHINE, world: { ...STD_MACHINE.world, kinds: { ...STD_MACHINE.world.kinds, ...kinds } }, ...(facts === undefined ? {} : { facts }) });
+    const fromKind = factsOf(machine(), doc);
+    expect(fromKind.reads.map((read) => [read.root, read.keys, read.exact, read.path])).toEqual([
+      ["event", [], true, ["event"]],
+      ["names", ["a"], false, ["names", "a", step]],
+    ]);
+    // The answer of the hook wins over the kind, and a lazy way marks the read of the walker too.
+    const hooked = machine((_path, code) => (code === "walk.peek" ? { pure: true, reads: ["names", "self"] } : undefined));
+    expect(factsOf(hooked, doc).reads.map((read) => read.root)).toEqual(["names", "self", "names"]);
+    expect(factsOf(hooked, doc).pure).toBe(true);
+    const lazy = factsOf(machine(), { type: "if", value: { test: { type: "bool", value: true }, then: doc } });
+    expect(lazy.reads.map((read) => [read.root, read.lazy])).toEqual([
+      ["event", true],
+      ["names", true],
+    ]);
+    // The contract of the kind does not describe the walker of an own entry. Only the hook can.
+    const own: Json = { type: "ref", value: ["names", "a", { type: "peek", own: { step: "walk.other" }, value: null }] };
+    expect(factsOf(machine(), own).reads.map((read) => read.root)).toEqual(["names"]);
+    expect(factsOf(machine((_path, code) => (code === "walk.other" ? { reads: ["event"] } : undefined)), own).reads.map((read) => read.root)).toEqual(["event", "names"]);
+  });
+
+  it("[FACTS.EXT-READS] an extension declares the roots that it reads from its context", () => {
+    const seen = (value: unknown, context: Context): Result => ok([value, context.names["x"] ?? null] as unknown as Json);
+    const profile: FormulaProfile = { ...STRICT, ext: { ...EXT, seen }, extReads: { seen: ["names"], missing: ["event"] } };
+    const hook = formulaFacts(profile);
+    expect(hook(["ext", "seen"], "formula.ext")).toEqual({ pure: false, reads: ["names"] });
+    expect(hook(["ext", "here"], "formula.ext")).toEqual({ pure: false });
+    expect(hook(["ext", "missing"], "formula.ext")).toBeUndefined();
+    const pure: FormulaProfile = { ...profile, pureExt: ["seen"] };
+    expect(formulaFacts(pure)(["ext", "seen"], "formula.ext")).toEqual({ pure: true, reads: ["names"] });
+    const machine = formulaMachine(pure);
+    const doc: Json = { type: ["ext", "seen"], value: 1 };
+    const facts = factsOf(machine, doc);
+    expect(facts.pure).toBe(true);
+    expect(facts.reads).toMatchObject([{ root: "names", keys: [], exact: true, place: [] }]);
+    // The read stays a read of the evaluation: a fold refuses it, thus each context gives its own result.
+    const plan = prepare(machine, doc);
+    expect(plan.evaluate(context({ names: { x: 1 } }))).toEqual(ok([1, 1]));
+    expect(plan.evaluate(context({ names: { x: 2 } }))).toEqual(ok([1, 2]));
+  });
+
   it("[FACTS.PROFILE] formulaMachine gives the hook facts of its profile: lazy, pure and volatile operations, and the extensions", () => {
     const facts = formulaFacts(STRICT);
     expect(facts(["ops", "add"], "formula.op")).toEqual({ pure: true, volatile: false });
