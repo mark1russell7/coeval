@@ -554,7 +554,10 @@ export interface CompiledPart {
   readonly name?: string;
   /** The code that evaluates the part. */
   readonly code: Code;
-  /** The code that runs the part. Its steps can wait. */
+  /**
+   * The code that runs the part. Its steps can wait. The part can make this code at the first read (PLAN.PART-RUN). A
+   * copy of the part with a spread reads the field, thus the copy keeps it.
+   */
   readonly run: RunCode;
 }
 
@@ -1708,6 +1711,8 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   if (!split.ok) return failing(c, meta, place, "#VALUE!", split.reason);
   // The free names of each part, for the fold of this document (PLAN.FOLD). A plan without folds does not collect them.
   const frees: (readonly string[] | undefined)[] | undefined = c.fold ? [] : undefined;
+  // The reader of the parts decides the form of their steps (PLAN.PART-RUN, D132). A leaf has no parts to examine.
+  const lean = runner === undefined && split.parts.length > 0 && readsOnlyCode(evaluator as Evaluator);
   const parts: CompiledPart[] = split.parts.map((slot) => {
     const item = slot.item;
     // The capability rules of the contract narrow the context of the part, thus no evaluator can forget them.
@@ -1717,6 +1722,10 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     const compiled = rules.length === 0 ? own : gated(rules, own);
     // The binding name is in the header of an envelope. Most parts have no name, thus the cheap test comes first.
     const header = typeof (item as { readonly name?: unknown } | null)?.name === "string" && isEnvelope(item) ? (item as { readonly name: string }).name : undefined;
+    if (runner === undefined && (lean || compiled.run === undefined)) {
+      const bare = header === undefined ? { key: slot.key, path: slot.path, code: compiled.code } : { key: slot.key, path: slot.path, name: header, code: compiled.code };
+      return (lean ? bare : Object.defineProperty(bare, "run", LATE_RUN)) as CompiledPart;
+    }
     const run = compiled.run ?? runOf(compiled.code);
     return header === undefined
       ? { key: slot.key, path: slot.path, code: compiled.code, run }
@@ -2194,7 +2203,7 @@ function runnerCode(run: RunCode, place: readonly Key[], kindText: string): Code
 
 /**
  * The code of a compiled document. The steps of a run are `undefined` for an evaluator: they are `runOf(code)`, and a
- * plan makes them only for a run (PLAN.LEAN).
+ * plan makes them only for a run (PLAN.LEAN, PLAN.PART-RUN).
  */
 interface Compiled {
   readonly code: Code;
@@ -2212,6 +2221,55 @@ function runOf(code: Code): RunCode {
     return code(ctx, rt);
   };
 }
+
+/*
+ * The steps of a part (PLAN.PART-RUN, D132). Three forms keep the field `run` correct for each reader:
+ *
+ * - The parts of a runner keep a data field. A runner reads it in each evaluation and in each run.
+ * - A compiled evaluator of a host gets an own accessor, with the same getter for each part. A spread reads an own
+ *   accessor, thus a copy has the steps. A spread does not read a getter of a prototype, thus `run` is not on a class.
+ * - A plain evaluator and a compiler of the kernel read only `code`, thus their parts have no field `run`.
+ *
+ * The accessor costs a call of `defineProperty` for each part, thus the compilers of the kernel do not use it.
+ */
+
+/** The compilers that read only the field `code` of their parts. The mark is on the function: a wrapper has no mark. */
+const CODE_READERS: WeakSet<CompiledEvaluator["compile"]> = /* @__PURE__ */ new WeakSet();
+
+/**
+ * This function marks a compiler that reads only the field `code` of its parts. The kits of the kernel use it. The
+ * package does not export it.
+ *
+ * @param compile - The compiler.
+ * @returns The same compiler.
+ */
+export function codeReader(compile: CompiledEvaluator["compile"]): CompiledEvaluator["compile"] {
+  CODE_READERS.add(compile);
+  return compile;
+}
+
+/**
+ * This function tells if an evaluator reads only the field `code` of its parts.
+ *
+ * @param evaluator - The evaluator. A plain evaluator gets handles from `interpret`, and it does not see a compiled part.
+ * @returns `true` when no code of a host can read the steps of the parts.
+ */
+export function readsOnlyCode(evaluator: Evaluator): boolean {
+  return !isCompiledEvaluator(evaluator) || CODE_READERS.has(evaluator.compile);
+}
+
+/**
+ * This getter makes the steps of a part at the first read, and a data field takes the place of the accessor. Each later
+ * read is a load of a field. A frozen part refuses the field, thus each read of it gives new steps of the same code.
+ */
+function lateRun(this: CompiledPart): RunCode {
+  const run = runOf(this.code);
+  Reflect.defineProperty(this, "run", { value: run, writable: true, enumerable: true, configurable: true });
+  return run;
+}
+
+/** The own accessor of `run`. One getter keeps one hidden class for all such parts. */
+const LATE_RUN: PropertyDescriptor = { get: lateRun, enumerable: true, configurable: true };
 
 /** This function gives the fill of a compile input: the value with an item in the place of each part. */
 function fillOf(split: Extract<Split, { readonly ok: true }>, doc: Envelope): <P>(items: readonly P[]) => unknown {
