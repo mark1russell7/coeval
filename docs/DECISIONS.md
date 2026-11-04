@@ -4849,3 +4849,15 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
 
 **Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
+
+## D152 (2026-11-04): `mapDocs` changes the documents of a document from the root to the parts
+
+**Context.** K222. The static kit has `walk`, which only reads, and `mapRefs`, which changes only free references. A host that changes each step of a document kept its own recursion. That recursion named its step kinds and kept its own limit of depth.
+
+**Decision.** The function `mapDocs(world, doc, change, options)` runs on `walk` (STATIC.MAPDOCS). The function `change` reads each visit from the root to the parts and gives one of four answers. The answer `undefined` keeps the document and goes into its parts. The answer `"skip"` keeps the document and stops. The answer `{ to }` replaces the document and stops. The answer `{ to, into: true }` replaces it and goes into the parts of the old document.
+
+**Why.** A visit already has the kind, the parent, the slot and the declared type of a position. Thus the host decides which kinds are steps, and the kernel names none. The order and the stop come from `walk`, thus a deep document needs no second stack and no second limit. A document deeper than `maxDepth` gets its change, and the kernel gives `#DEPTH!` at its evaluation.
+
+**Alternatives.** A map from the parts to the root. The function then reads a part that it changed, but it cannot stop at a node before it goes in. The request needs the stop.
+
+**Limits.** The function reads only the original documents. A new document is not walked. With `into: true`, the new document must keep the path of each part. Each change copies the path from the root, thus `c` changes at depth `d` take `O(c d)` time.

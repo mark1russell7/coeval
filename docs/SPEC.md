@@ -346,6 +346,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.WALK | A walk visits each document with its place and the names that it sees. |
 | STATIC.REFS | `refsOf` finds the references of a document. A reference is free when no kind around it binds its name. |
 | STATIC.MAP | `mapRefs` changes the free references. It shares each part that does not change. |
+| STATIC.MAPDOCS | `mapDocs` changes the documents of a document from the root to the parts. The function reads only the original documents and can stop at a node. A document without a change stays the same object. |
 | STATIC.CHECK | `check` finds the problems of a document before a run. Each problem has its place. |
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |
