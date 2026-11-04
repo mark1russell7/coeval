@@ -1089,8 +1089,6 @@ class Session implements Runtime {
    * thus an evaluation without a counted point has no field.
    */
   declare work?: number;
-  /** The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). A root has no such field. */
-  declare top?: Session;
   /** `true` on the runtime of a root after the end of its evaluation (WORK.AFTER, WORK.KEEPS). */
   declare ended?: boolean;
   /** The count of the applications of closures that run at this time. `formula.fn` writes it (FORMULA.CALL-DEPTH). */
@@ -1129,6 +1127,11 @@ class Session implements Runtime {
      * shares the record of the evaluation around it (READS.EQUATION).
      */
     readonly reading: Reading | undefined = undefined,
+    /**
+     * The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). It is a field of each runtime,
+     * thus a tree and its equations have one object shape at each read of a runtime.
+     */
+    readonly top: Session | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
@@ -2327,9 +2330,7 @@ export function evaluateWithin(plan: Plan, context: Context, outer: Runtime | un
   if (!(outer instanceof Session) || !(plan instanceof CompiledPlan)) return plan.evaluate(context);
   const machine = plan.machine;
   const ctx = rootContext(machine, context);
-  const session = new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.reading);
-  session.top = outer.top ?? outer;
-  return plan.code(ctx, session);
+  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.reading, outer.top ?? outer));
 }
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
