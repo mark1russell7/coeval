@@ -1083,6 +1083,20 @@ function readingOf(list: Read[] | undefined, root: Context): Reading | undefined
 }
 
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
+/** The state that the runtimes of one evaluation share. */
+interface Link {
+  /** The record of the reads of the evaluation. */
+  readonly reading: Reading | undefined;
+  /** The runtime of the root, after the first equation of a tree (WORK.EQUATION). */
+  top: Session | undefined;
+}
+
+/** This function gives the link of a root. An evaluation without a list of reads has no link. */
+function linkOf(list: Read[] | undefined, root: Context): Link | undefined {
+  const reading = readingOf(list, root);
+  return reading === undefined ? undefined : { reading, top: undefined };
+}
+
 class Session implements Runtime {
   /**
    * The count of the work, on the runtime of the root of the evaluation (WORK.LIMIT). The first count adds the field,
@@ -1123,24 +1137,37 @@ class Session implements Runtime {
     readonly signal: StopSignal | undefined,
     effects: Effect[] | undefined,
     /**
-     * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
-     * shares the record of the evaluation around it (READS.EQUATION).
+     * The state that the runtimes of one evaluation share, or `undefined` without reads and equations. Each runtime has
+     * this one field, thus a plain evaluation pays nothing, and a tree and its equations have one object shape.
      */
-    readonly reading: Reading | undefined = undefined,
-    /**
-     * The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). It is a field of each runtime,
-     * thus a tree and its equations have one object shape at each read of a runtime.
-     */
-    readonly top: Session | undefined = undefined,
+    public link: Link | undefined = undefined,
   ) {
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
   }
 
+  /** This getter gives the record of the reads. A nested evaluation of an equation shares it (READS.EQUATION). */
+  get reading(): Reading | undefined {
+    return this.link?.reading;
+  }
+
   /** This getter gives `true` for the runtime of an equation of a tree (WORK.NODE). */
   get nested(): boolean {
-    return this.top !== undefined;
+    const top = this.link?.top;
+    return top !== undefined && top !== this;
+  }
+
+  /**
+   * This function gives the state that this runtime shares with an equation of a tree (WORK.EQUATION). One evaluation
+   * makes at most one link.
+   *
+   * @returns The link. Its field `top` is the runtime of the root.
+   */
+  equationLink(): Link {
+    const link = (this.link ??= { reading: undefined, top: undefined });
+    link.top ??= this;
+    return link;
   }
 
   /**
@@ -1152,7 +1179,7 @@ class Session implements Runtime {
    * @throws {Failure} The error `#WORK!`, when the count is over the limit of the machine.
    */
   spend(points: number): void {
-    const root = this.top ?? this;
+    const root = this.link?.top ?? this;
     const entry = root.ended === true && (this.applying ?? 0) === 0;
     const work = (entry ? 0 : (root.work ?? 0)) + points;
     root.work = work;
@@ -2330,7 +2357,7 @@ export function evaluateWithin(plan: Plan, context: Context, outer: Runtime | un
   if (!(outer instanceof Session) || !(plan instanceof CompiledPlan)) return plan.evaluate(context);
   const machine = plan.machine;
   const ctx = rootContext(machine, context);
-  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.reading, outer.top ?? outer));
+  return plan.code(ctx, new Session(machine, ctx.caps, false, plan.traced, undefined, undefined, undefined, outer.equationLink()));
 }
 
 function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): Code {
@@ -2505,14 +2532,14 @@ class CompiledPlan implements Plan {
   evaluate(context: Context = makeContext(), evalOptions?: EvalOptions): Result {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
-    const s = new Session(machine, ctx.caps, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, readingOf(evalOptions?.reads, ctx));
+    const s = new Session(machine, ctx.caps, false, this.traced, evalOptions?.perform, undefined, evalOptions?.effects, linkOf(evalOptions?.reads, ctx));
     return this.code(ctx, s);
   }
 
   run(context: Context = makeContext(), runOptions: PlanRunOptions = {}): Promise<Result> {
     const machine = this.machine;
     const ctx = rootContext(machine, context);
-    const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, runOptions.signal, undefined, readingOf(runOptions.reads, ctx));
+    const s = new Session(machine, ctx.caps, true, this.traced, runOptions.perform, runOptions.signal, undefined, linkOf(runOptions.reads, ctx));
     return driveWaiting(this.runCode()(ctx, s), runOptions.signal).finally(() => {
       s.ended = true;
     });
@@ -2582,7 +2609,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
     ...(given.verb === undefined ? {} : { verb: given.verb }),
   });
   const ctx = rootContext(machine, context);
-  const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
+  const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, linkOf(given.reads, ctx));
   return record(s, (plan as CompiledPlan).code(ctx, s));
 }
 
@@ -2604,7 +2631,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
     ...(options.verb === undefined ? {} : { verb: options.verb }),
   });
   const ctx = rootContext(machine, context);
-  const s = new Session(machine, ctx.caps, true, true, options.perform, options.signal, undefined, readingOf(options.reads, ctx));
+  const s = new Session(machine, ctx.caps, true, true, options.perform, options.signal, undefined, linkOf(options.reads, ctx));
   const result = await driveWaiting((plan as CompiledPlan).runCode()(ctx, s), options.signal);
   s.ended = true;
   return record(s, result);
