@@ -13,19 +13,33 @@ import {
   type Json,
   type Kind,
   type Rung,
+  type Shape,
   type World,
 } from "@mark1russell7/coeval";
+import { HOLE_KIND } from "../lib/contract.ts";
 import Card from "./Card.tsx";
 import { OverlayContext, STATIC_OVERLAY } from "./overlay.ts";
 import ValueGlyph from "./Value.tsx";
 
+/** This function gives a kind of the standard world with the contract of its value, for the editor of the playground. */
+function contract(name: string, parts: Shape): Kind {
+  return { ...(STD_WORLD.kinds[name] as Kind), parts };
+}
+
 /**
- * The world of the site: the standard world, and the kind `kind`. A kind is a document too, thus the site draws a
- * kind with a view, as it draws each other document.
+ * The world of the site: the standard world, the kind `kind` and the kind `hole`. A kind is a document too, thus the
+ * site draws a kind with a view, as it draws each other document. The standard world gives its data kinds no contract,
+ * and this world adds them, thus the playground reads each editor from a contract (C11, D151).
  */
 export const SITE_WORLD: World = {
   kinds: {
     ...STD_WORLD.kinds,
+    number: contract("number", { shape: "number" }),
+    text: contract("text", { shape: "text" }),
+    bool: contract("bool", { shape: "one", values: [true, false] }),
+    if: contract("if", { shape: "record", fields: ["test", "then", "else"], required: ["test", "then"] }),
+    write: contract("write", { shape: "record", fields: { key: { shape: "text" }, value: { shape: "term" } }, required: ["key", "value"] }),
+    hole: { verbs: { eval: HOLE_KIND, view: "view.hole" }, parts: { shape: "none" }, pure: true, summary: "An empty position. Its evaluation gives an error value with its place." },
     kind: { verbs: { view: "view.kind" }, summary: "A kind: the evaluator of each verb, and the contract of its value." },
   },
   defaults: STD_WORLD.defaults,
@@ -126,6 +140,15 @@ function ValueView({ doc, declared, path, rung, unknown }: ViewProps) {
   return (
     <Card doc={doc} declared={declared} path={path} unknown={unknown} variant="value" {...(rung === undefined ? {} : { rung })}>
       <ValueGlyph value={doc.value} size="large" />
+    </Card>
+  );
+}
+
+/** The view of an empty position: a dashed card with no value. */
+function HoleView({ doc, declared, path, rung, unknown }: ViewProps) {
+  return (
+    <Card doc={doc} declared={declared} path={path} unknown={unknown} variant="value" {...(rung === undefined ? {} : { rung })}>
+      <span className="cv-hole">empty</span>
     </Card>
   );
 }
@@ -254,6 +277,7 @@ function CardView({ doc, declared, path, rung, unknown }: ViewProps) {
 /** The code of each view name. A world names the views. The site gives their code. */
 export const VIEWS: Readonly<Record<string, ComponentType<ViewProps>>> = {
   "view.value": ValueView,
+  "view.hole": HoleView,
   "view.op": PartsView,
   "view.ref": RefView,
   "view.seq": SeqView,
