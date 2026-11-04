@@ -446,14 +446,13 @@ describe("the interface of a schedule", () => {
       for (const id of order) expect(isFn(s.read(id))).toBe(id === "f");
       expect(s.read("g")).toEqual(cycle("g"));
     }
-    // A limit of D136: a kept read that reaches the node through another node that reads it still closes a cycle, in
-    // each order. The edge of a lazy read gives no demand ahead, thus the node g is in evaluation before the node f.
+    // The edge of a lazy read gives no demand ahead, thus the node g is in evaluation before the node f (SCHED.KEPT-BELOW).
     for (const reader of [ref("world", "f"), op("second", 0, ref("world", "f"))]) {
       for (const order of [["f", "g"], ["g", "f"]]) {
         const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g") }) });
         s.set("f", closure("self"));
         s.set("g", reader);
-        for (const id of order) expect(s.read(id)).toEqual(cycle(id));
+        for (const id of order) expect(s.read(id).ok, id).toBe(true);
       }
     }
   });
@@ -518,6 +517,60 @@ describe("the interface of a schedule", () => {
     expect(set.read("t")).toEqual(ok(3));
   });
 
+  it("[SCHED.KEPT-BELOW] a kept read that meets a node in evaluation below it closes no cycle, in each order of demands", () => {
+    const closure: Json = { type: "fn", value: { params: [], body: ref("self", "x") } };
+    const reader: Json = op("pair", ref("world", "f"), ref("names", "v"));
+    const make = (v: number): Schedule => {
+      const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g"), names: { v } }) });
+      s.set("f", closure);
+      s.set("g", reader);
+      return s;
+    };
+    for (const first of ["f", "g"]) {
+      const s = make(1);
+      const second = first === "f" ? "g" : "f";
+      expect(s.read(first).ok, show(s.read(first))).toBe(true);
+      expect(s.read(second).ok, show(s.read(second))).toBe(true);
+      expect(isClosure((s.read("f") as { value: unknown }).value)).toBe(true);
+      // Each read after a change of data gives the value again, thus no list of reads keeps an error of the kept read.
+      s.changeData(context({ self: ref("world", "g"), names: { v: 2 } }));
+      expect(s.read(second).ok).toBe(true);
+      expect(s.read(first).ok).toBe(true);
+    }
+    // A node that applies the closure sees a change of the node that its self reaches.
+    for (const order of [["f", "g", "k"], ["g", "f", "k"], ["k", "g", "f"]]) {
+      const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g"), names: { v: 1 } }) });
+      s.set("f", { type: "fn", value: { params: [], body: ref("self") } });
+      s.set("g", op("second", ref("world", "f"), ref("world", "h")));
+      s.set("h", 1);
+      s.set("k", op("apply", ref("world", "f"), 0));
+      for (const id of order) expect(s.read(id).ok, show(s.read(id))).toBe(true);
+      expect(s.read("k")).toEqual(ok(1));
+      s.set("h", 2);
+      for (const id of order) expect(s.read(id).ok, show(s.read(id))).toBe(true);
+      expect(s.read("k")).toEqual(ok(2));
+    }
+    // A limit of D143: a kept read that reaches an open component joins that component, thus c and x give a false cycle.
+    const open = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "x") }) });
+    open.set("a", op("ifError", ref("world", "b"), ref("world", "c")));
+    open.set("b", ref("world", "a"));
+    open.set("c", { type: "fn", value: { params: [], body: ref("self") } });
+    open.set("x", op("ifError", ref("world", "b"), ref("world", "c")));
+    const seen = (["a", "b", "c", "x"] as const).map((id) => {
+      const result = open.read(id);
+      return result.ok ? "value" : result.error.code;
+    });
+    expect(seen).toEqual(["#CYCLE!", "#CYCLE!", "#CYCLE!", "#CYCLE!"]);
+    // A read that the evaluation asks for is a true cycle, also with a kept read before it.
+    const real = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g") }) });
+    real.set("f", op("pair", { type: "fn", value: { params: [], body: ref("self") } }, ref("world", "g")));
+    real.set("g", ref("world", "f"));
+    for (const id of ["f", "g"]) {
+      const result = real.read(id);
+      expect(!result.ok && result.error.code).toBe("#CYCLE!");
+    }
+  });
+
   it("[SCHED.OWN-NODE-AGREES] agreeSchedule finds no false cycle and no stale answer for one node, with each host context that refers to that node", () => {
     const fn = (body: Json): Json => ({ type: "fn", value: { params: ["v"], body } });
     const wire = (rng: Random, node: () => Json): Json => {
@@ -550,6 +603,42 @@ describe("the interface of a schedule", () => {
       equal,
     });
     expect(told(outcome)).toEqual([]);
+    expect(outcome.counts.values).toBeGreaterThan(COUNT);
+    expect(outcome.counts.cycles).toBeGreaterThan(COUNT);
+  });
+
+  it("[SCHED.KEPT-BELOW-AGREES] agreeSchedule finds no false cycle and no stale answer for two nodes, with a host context that refers to each of them", () => {
+    const fn = (body: Json): Json => ({ type: "fn", value: { params: ["v"], body } });
+    const wire = (rng: Random, node: () => Json): Json => {
+      const read = rng.pick<Json>([ref("self"), ref("self", "a"), ref("event"), ref("names", "a"), node()]);
+      const roll = rng.int(5);
+      if (roll === 0) return fn(read);
+      if (roll === 1) return op("pair", fn(read), ref("names", "a"));
+      if (roll === 2) return op("apply", fn(read), 0);
+      return roll === 3 ? op("ifError", read, fn(read)) : read;
+    };
+    const f = ref("world", "f");
+    const g = ref("world", "g");
+    const contexts: readonly Context[] = [
+      context({ self: g, names: { a: 1 } }),
+      context({ self: f, event: g, names: { a: 1 } }),
+      context({ self: g, event: f, names: { a: 1 } }),
+    ];
+    const outcome = agreeSchedule(schedule, {
+      machines: [strictMachine, looseMachine],
+      declaredType: "lit",
+      generate: { declaredType: "lit", maxSize: 8, types: [...OP_TYPES, ["ref"], ["lit"], ["fn"]] },
+      runs: false,
+      value: (rng) => rng.pick<unknown>([0, 1, 2]),
+      wire,
+      wired: 0.8,
+      nodes: ["f", "g"],
+      contexts,
+      count: COUNT,
+      steps: STEPS,
+      equal,
+    });
+    expect(told(outcome).slice(0, 3)).toEqual([]);
     expect(outcome.counts.values).toBeGreaterThan(COUNT);
     expect(outcome.counts.cycles).toBeGreaterThan(COUNT);
   });

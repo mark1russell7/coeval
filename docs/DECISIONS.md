@@ -4041,11 +4041,11 @@ The same read occurs at the root `event`, in the verification of a kept read, an
 - No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
 - A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
 - An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
-- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This also removes the false cycle of the Limits. But it needs a record of the nodes of each kept demand, and it drops final results. The node then also needs a read that changes in each data epoch, and only some lists have one. That is a behaviour change, and it waits for a need.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This removes the false cycle of the Limits. D143 does it.
 
 **Limits.**
 
-- A kept read that reaches its node through another node that reads it still closes a false cycle. An example is a closure at `f`, a `self` that refers to `g`, and a document of `g` that reads `f`. Each order of demands gives `#CYCLE!` for the two nodes, as before this decision.
+- D143 removes the false cycle of a kept read that reaches its node through another node.
 - Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
 - A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
 
@@ -4054,3 +4054,27 @@ The same read occurs at the root `event`, in the verification of a kept read, an
 The list of reads stays exact, thus each other document keeps its reads, its demands and its order of evaluations. The test SCHED.OWN-NODE-AGREES compares generated documents with the evaluation from scratch, over changes of data, edits and new machines. Four changes of the code each fail these tests. These are no rule, a rule at each depth, a rule for each node in evaluation, and a verification outside `keeping`.
 
 Each kept read that resolves its path costs one call and one `finally`. A read of a node in evaluation costs one compare. A document without a kept read does no new work.
+
+## D143 (2026-11-04): a kept read that meets a node in evaluation below it closes no cycle
+
+**Context.** K218, from the Limits of D136. A closure at `f` has a `self` that refers to `g`, and a document of `g` reads `f`. The kept read of `f` demands `g`, and `g` meets `f` in evaluation. Thus both nodes gave `#CYCLE!`. The evaluation of `f` did not ask for that read, and a run has no such cycle.
+
+**Decision.**
+
+- In a kept read, a demand of a node in evaluation below that read gives the same error as before. It adds no mark for the cycle check (SCHED.KEPT-BELOW).
+- At the end of such a kept read, the schedule drops the nodes that finished in it. It removes their values of the epoch and their entries of the store. A real demand then evaluates them again.
+- A node of a component that is still open stays. It is on a true cycle, and its value is final (D31).
+- A read of an evaluation goes outside `keeping`, thus a true cycle gives `#CYCLE!`. A cycle between nodes that a kept read evaluates also stays, because these nodes are above the read.
+
+**Alternatives.**
+
+- A store that keeps no entry of the reader. D136 expected this need. A test of each part found no case for it. `verifyReads` asks `known` for a kept read, and `known` has no value for a node that is not finished. Thus the list fails, and the node evaluates again.
+- A kept read that does not demand. D136 has the reason against it.
+
+**Limits.**
+
+- The nodes of such a kept read evaluate two times in an epoch.
+- A kept read that reaches a true cycle still joins that cycle. The nodes of the read then give a false `#CYCLE!` (K220). The check of the open component in the drop has no test that tells it from no check.
+- The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
+
+**Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
