@@ -46,7 +46,7 @@ export default defineConfig({
             "learn/schedules",
           ],
         },
-        { label: "Build", items: ["composition", "playground"] },
+        { label: "Build", items: ["composition", "conformance", "playground"] },
         {
           label: "Design",
           items: [

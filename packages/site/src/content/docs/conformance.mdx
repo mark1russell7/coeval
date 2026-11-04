@@ -1,0 +1,25 @@
+---
+title: Conformance
+description: A kind has a contract, and its code has rules to obey. The check conforms runs the code with probes and finds each broken rule.
+tableOfContents: false
+---
+
+import ConformDiagram from "../../components/ConformDiagram.tsx";
+
+A kind tells what its code does: its parts, its effects, its capabilities and its lazy parts. The tools of the kernel trust that contract. Thus `check` can tell what a document does without a run, and a compiled plan can skip work.
+
+The code of a kind is ordinary code, so it can break the contract. The function `conforms` tests that code. It makes probes from the contract of the kind, it runs the code with each probe, and it records what the code does. A probe is a document with fixed results for its parts.
+
+## Break the code
+
+The code below is the evaluator of a kind `checked` in the standard machine. Each button replaces the evaluator. The page then runs `conforms` on the new code, and each answer comes from that check.
+
+<ConformDiagram client:visible />
+
+## A finding has its probe
+
+A finding tells the rule, the reason and the probe. The same probe gives the same finding again, thus a test can keep it.
+
+Some code is correct only with the right contract. Select **Causes an effect**, and then select **Declare it in the contract**. The code does not change, and the finding goes away.
+
+A host calls `conforms` in its tests, with each evaluator of its kinds. The check also tests rules that this page does not show: the order of the waits, the scope of the names and compiled code.
