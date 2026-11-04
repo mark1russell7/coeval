@@ -513,6 +513,7 @@ const WORLD_TEXTS: Readonly<Record<string, string>> = {
   nearest: 'nearest(type: "panel")',
   "tree.named": 'tree.named(name: "title")',
   "tree.at": 'tree.at(attr: "height")',
+  "tree.quote": 'tree.quote("a")',
   panel: "panel(width: 300, children: list(box(width: self.parent.width + -20)))",
   box: "box(height: 20)",
   "math.sum": "math.sum(1, 2)",
