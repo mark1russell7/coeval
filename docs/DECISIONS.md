@@ -4084,3 +4084,30 @@ A finding has the form of each other finding. The obligation is `parallel`, and 
 **Limits.** The seeded orders are a sample. With four or more waits at one time, a fault of one rare order can stay hidden. A shot that `failFast` stopped gets only the checks of one shot. A difference in the resolutions alone gets no finding.
 
 **Changed expected values.** `conforms` reports code that passed before: each runner whose result, parts or effects change with the order of the waits of `all`. A runner under `all` also gets another record in a run, because each item starts before the first wait settles. Thus a part after a failed part can start with `failFast`, as in the kernel. No evaluator or runner of the standard library or the formula kit uses `all`, thus no result of `conforms` for them changes. No existing test of `conforms` changes. The new tests are in `conform.test.ts`.
+
+## D148 (2026-11-04): `agreeTypes` is the agreement rule for types, as a helper that a language imports
+
+**Context.** R5 P5 states three clauses for a document that checks. TYPE.SOUND and TYPE.ROOTS-SOUND test the first clause in the tests of the kernel, thus a language has no helper for its own signatures and rules.
+
+**Decision.**
+
+- `agreeTypes(machine, doc, context, options)` sits beside `agree`. It gives the first place that breaks a clause, or the number of values that it examined.
+- The clause `value` is the first clause of R5.
+- The clause `argument` is the second clause. It reads the need of each position, so that it holds for each kind with a rule.
+- The clause `error` is the third clause. It holds only for parts with precise types and declared needs, and only at the place that made the error.
+- A document with an issue gives `checked: false`. The rule tells nothing about it.
+- A run gives `checked: false` when a value breaks a position of an imprecise type. A signature promises a result only for its parameters, and a name can carry the wrong result to each later place.
+
+**Alternatives.**
+
+- A new obligation of `conforms` with a local test of each rule. A probe needs samples for each domain, and a finding changes what a host sees. The helper changes no result.
+- A `#N/A` in the third clause. An optional field can give it after a check with no issue, and the trace does not tell that case from a closed record.
+
+**Why.** A type error at a position with the type `unknown` is the promise of K28, not a defect. The clauses thus examine precise types only, and a language gets no false finding from a part with no types.
+
+**Limits.**
+
+- The local test of R5 P5 stays open. The property tests of a language give the same evidence, with a generator that reaches each kind.
+- The error clause knows only the evaluators of the formula kit.
+- A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
+- A `#N/A` of a closed record stays with TYPE.NO-STEP.
