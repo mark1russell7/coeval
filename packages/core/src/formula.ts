@@ -5,8 +5,8 @@ import { type CompiledPath, type Context, type Resolution, compilePath, valueOfT
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
 import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled, totalCode } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
-import { type Domain, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeIssues, typeText } from "./types.ts";
-import type { Declared, PartType, TypeInput, TypeRule } from "./typing.ts";
+import { type Domain, type Proof, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeIssues, typeText } from "./types.ts";
+import type { Declared, PartType, Proven, TypeInput, TypeRule } from "./typing.ts";
 import { decodeDomain, domainTypeOf } from "./codec.ts";
 import { type StaticRead, factsOf } from "./facts.ts";
 
@@ -80,8 +80,7 @@ export interface FormulaProfile {
 
 /**
  * The signature of an operation: the value types of its parameters and of its result (TYPE.SIGNATURE). A parameter at
- * the end of `params` is optional when `undefined` is a member of its type, for example `unknown`. A later version can add a key, for example the type that a
- * true result proves.
+ * the end of `params` is optional when `undefined` is a member of its type, for example `unknown`. A later version can add a key.
  */
 export interface Signature {
   /** The types of the parameters, in order. */
@@ -90,7 +89,20 @@ export interface Signature {
   readonly rest?: ValueType;
   /** The type of the result. */
   readonly to: ValueType;
+  /**
+   * The type that a true result proves of the first argument, and a false result refutes (STATIC.OCCURRENCE). The
+   * operation gives a true result for each member of the type, and for no other value.
+   */
+  readonly proves?: ValueType;
+  /** `true` when a true result tells that the first argument has a value, and a false result that it has none. */
+  readonly present?: boolean;
 }
+
+/** The most proofs that one test keeps. A proof only adds knowledge, thus the check can leave one out. */
+const MAX_PROOFS = 32;
+
+/** The result of a test that proves nothing. */
+const NO_PROOFS: Proven = { yes: [], no: [] };
 
 /** The mark of a field that the profile leaves out of a record. */
 const SKIPPED: unique symbol = /* @__PURE__ */ Symbol("skipped");
@@ -381,6 +393,7 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
         sig.params.forEach((param, position) => out.push({ at: [...at, "params", position], type: param, what: `parameter ${position + 1} of a signature of ops.${name}` }));
         if (sig.rest !== undefined) out.push({ at: [...at, "rest"], type: sig.rest, what: `rest parameter of a signature of ops.${name}` });
         out.push({ at: [...at, "to"], type: sig.to, what: `result of a signature of ops.${name}` });
+        if (sig.proves !== undefined) out.push({ at: [...at, "proves"], type: sig.proves, what: `proved type of a signature of ops.${name}` });
         const earlier = list.slice(0, index).findIndex((other) => isSignature(other) && sameParams(other, sig));
         if (earlier >= 0) out.push({ at, problem: `The overload ${index + 1} of ops.${name} has the parameters of the overload ${earlier + 1}. Thus the check never selects it.` });
       });
@@ -388,7 +401,21 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     return out;
   };
   const logic = (word: "and" | "or"): TypeRule => ({
-    part: (input, path) => truthPart(input, `term ${Number(path[0]) + 1} of ${word}`),
+    usesProofs: true,
+    // A later term runs only after a term that did not decide, thus it reads the proof of that result (STATIC.OCCURRENCE-LOGIC).
+    part: (input, path) => {
+      const index = Number(path[0]);
+      const part = truthPart(input, `term ${index + 1} of ${word}`);
+      if (index === 0) return part;
+      const before = input.provenBy([index - 1]);
+      return { ...part, narrow: word === "and" ? before.yes : before.no, keep: true };
+    },
+    proves: (input) => {
+      const each = input.paths.map((path) => input.provenBy(path));
+      const all = (side: "yes" | "no"): readonly Proof[] => each.flatMap((proven) => proven[side]).slice(0, MAX_PROOFS);
+      const one = each.length === 1 ? (each[0] as Proven) : undefined;
+      return word === "and" ? { yes: all("yes"), no: one?.no ?? [] } : { yes: one?.yes ?? [], no: all("no") };
+    },
     synth: (input) => {
       if (!logicValue) return "bool";
       // With the logic "value", the result is the term that decided, or the last term.
@@ -401,6 +428,11 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     "formula.lit": { synth: (input) => valueType(input.doc.value) },
 
     "formula.ref": {
+      reads: (input) => {
+        const path = input.doc.value;
+        if (input.address || !Array.isArray(path) || path.length === 0) return undefined;
+        return path.every((step): step is string => typeof step === "string") ? path : undefined;
+      },
       synth: (input, report) => {
         const path = input.doc.value;
         // An address gives a thing, not a value. The check gives #VALUE! for a path that is not a list.
@@ -522,9 +554,13 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     "formula.if": {
       // The rule of if declares the truth type of the profile, thus one bad truth type gives one issue in checkWorld.
       declared: () => (declared ? [{ at: ["truthType"], type: truth, what: "truth type of the profile" }] : []),
+      first: "test",
+      usesProofs: true,
       part: (input, path) => {
         if (path[0] === "test") return truthPart(input, "test of if");
-        return isUnknown(input.expected, input.machine.domains) ? {} : { expect: input.expected, what: `${String(path[0])} branch of if` };
+        const proven = input.provenBy(["test"]);
+        const narrow = path[0] === "then" ? proven.yes : proven.no;
+        return isUnknown(input.expected, input.machine.domains) ? { narrow } : { expect: input.expected, what: `${String(path[0])} branch of if`, narrow };
       },
       synth: (input) => {
         const value = input.doc.value;
@@ -538,6 +574,25 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
 
     "formula.op": {
       declared: sigsDeclared,
+      proves: (input) => {
+        // Overloads select after the check of the arguments, thus only one signature proves.
+        const sigs = signatures(input)?.sigs;
+        const sig = sigs?.length === 1 ? (sigs[0] as Signature) : undefined;
+        if (sig === undefined || (sig.proves === undefined && sig.present !== true) || input.paths.length === 0) return NO_PROOFS;
+        const path = input.readOf(input.paths[0] as readonly Key[]);
+        if (path === undefined) return NO_PROOFS;
+        const yes: Proof[] = [];
+        const no: Proof[] = [];
+        if (sig.proves !== undefined && typeIssues(input.contract(sig.proves, `proved type of ops.${nameOf(input)}`), input.machine.domains).length === 0) {
+          yes.push({ path, fact: "is", type: sig.proves });
+          no.push({ path, fact: "not", type: sig.proves });
+        }
+        if (sig.present === true) {
+          yes.push({ path, fact: "present" });
+          no.push({ path, fact: "absent" });
+        }
+        return { yes, no };
+      },
       part: (input, path) => {
         const read = signatures(input);
         // Only one signature gives the types of the arguments before their check. Overloads select after it.

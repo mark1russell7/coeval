@@ -4084,3 +4084,34 @@ A finding has the form of each other finding. The obligation is `parallel`, and 
 **Limits.** The seeded orders are a sample. With four or more waits at one time, a fault of one rare order can stay hidden. A shot that `failFast` stopped gets only the checks of one shot. A difference in the resolutions alone gets no finding.
 
 **Changed expected values.** `conforms` reports code that passed before: each runner whose result, parts or effects change with the order of the waits of `all`. A runner under `all` also gets another record in a run, because each item starts before the first wait settles. Thus a part after a failed part can start with `failFast`, as in the kernel. No evaluator or runner of the standard library or the formula kit uses `all`, thus no result of `conforms` for them changes. No existing test of `conforms` changes. The new tests are in `conform.test.ts`.
+
+## D147 (2026-11-04): a narrowing changes the type of a name or a root in a branch
+
+**Context.** R5 P6 asks for occurrence typing in `if`, `and` and `or`. It names two risks: a host thing can give two values for one path, and an effect can change the world between two reads.
+
+**Decision.**
+
+- A `Signature` gets `proves`, the type that a true result proves of the first argument, and `present`, the proof of a value at that argument.
+- A `TypeRule` gets `reads`, `proves`, `first` and `usesProofs`. A `PartType` gets `narrow` and `keep`.
+- The pass applies a proof to the types of the names and of the roots of a part. A binding of the same name, a change of a root and an evaluator without a rule thus end a narrowing with no new code.
+- The rule of `if` types `test` first, for each order of the fields.
+- A proof comes up the stack of the pass. Only a part of a rule with `usesProofs` gets a proof. Thus a deep test uses no recursion. A document without `if`, `and` or `or` pays for one array only.
+- `then` of a value type gives the narrower of the two types. `else` removes only a precise type that fits the proved type.
+- A document with a declared effect narrows only its names.
+
+**Alternatives.**
+
+- A list of narrowed paths beside the types. Each reader of a path then needs a second lookup, and each binder needs a rule that removes a path.
+- An end of the narrowing at the step with the effect. A closure from a branch can run after a later effect of the document, thus a local rule is not sound. The rule for the whole document is one sentence.
+- A meet of two types. The proved type alone is sound, because a value of the branch is a member of it. A meet needs a test for disjoint types, and no language asks for it yet.
+- A rule that follows each overload. The check selects an overload after the arguments, thus the proof can depend on the types that it changes.
+
+**Why.** A narrowing is a change of a type in a scope, and the pass already has scopes. The compiled plan and the second tier read no types, thus each evaluation stays the same (TYPE.ROOTS-SOUND).
+
+**Limits.**
+
+- A host thing that gives two values for one path breaks a narrowing of a root. TYPE.ROOTS-SOUND already asks for plain data.
+- The check does not examine the promise of `proves`. An operation that gives `true` for a value outside the type gives a wrong narrowing.
+- A path into a type `unknown` or a union of records does not narrow. Only a whole name or root of the type `unknown` takes the proved type.
+- The operation `not` proves nothing, because a signature has no key for it.
+- One test keeps 32 proofs or fewer. A proof only adds knowledge, thus the limit is safe.
