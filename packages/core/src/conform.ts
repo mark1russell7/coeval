@@ -58,12 +58,14 @@ import { type Kind, type LazyRule, type Shape, type World, type WorldEntry, effe
  * - `C8`: compiled code gives the result of code that compiles again at the time of the evaluation.
  * - `local`: the code keeps no state from one call to the next.
  * - `agree`: compiled code gives the result of its definition for the reference interpreter.
+ * - `parallel`: the code gives the same result, the same parts and the same effects in each order of the waits of
+ *   `all` (D128). Only a runner gets this check.
  * - `truth`: the own `truthy` of a formula profile gives `true` or `false` for each member of its `truthType` (D86).
  *   Only `formula.if`, `formula.and` and `formula.or` of the formula kit get this check.
  * - `cover`: each sample of a covered domain of the machine is in one domain of each cover of the domain (D94). Each
  *   evaluator and each runner gets this check, because `fits` trusts the covers for each program.
  */
-export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "truth" | "cover";
+export type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "parallel" | "truth" | "cover";
 
 /** The probe of a finding: the document, the result of each probe part, the capabilities and the handler. */
 export interface ConformProbe {
@@ -121,7 +123,7 @@ export interface ConformOptions {
   readonly caps?: readonly Cap[];
   /** The names of the context of each probe. */
   readonly names?: Readonly<Record<string, unknown>>;
-  /** The seed of the random results. The same seed gives the same probes. The default is 1. */
+  /** The seed of the random results and of the orders of `all`. The same seed gives the same probes. The default is 1. */
   readonly seed?: number;
   /** The count of probes with random results for each probe document. The default is 12. */
   readonly runs?: number;
@@ -138,7 +140,7 @@ export interface ConformOptions {
 }
 
 /** The order of the obligations in the list of findings. */
-const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree", "truth", "cover"];
+const ORDER: readonly Obligation[] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "local", "agree", "parallel", "truth", "cover"];
 
 /** A function in the results of the probe parts. It gives the count of its arguments. */
 const PROBE_FN = (...args: readonly unknown[]): number => args.length;
@@ -169,6 +171,18 @@ const STOPPED: Result = { ok: false, error: { code: "#CALC!", reason: "The probe
 
 /** The result of an item of `all` after a failure with `failFast`. */
 const ABORTED: Result = { ok: false, error: { code: "#ABORT", reason: "The part stopped: a part before it failed, and the parts run with failFast." } };
+
+/** The order of the waits of one evaluation: this function gives the index of the next wait in the list of the waits of `all`. */
+type Pick = (waiting: number) => number;
+
+/** The waits settle in the order that they began. Each shot uses this order first. */
+const FORWARD: Pick = () => 0;
+
+/** The waits settle in the other order: the last wait that began settles first. */
+const BACKWARD: Pick = (waiting) => waiting - 1;
+
+/** The count of orders from the seed of a probe document, for each scenario with a choice (D128). */
+const SEEDED_ORDERS = 4;
 
 /** The default names of the context of each probe. The generated names of a value (`a`, `b` and `c`) are other names. */
 const NAMES: Readonly<Record<string, unknown>> = { x: "outer x", y: 2.5, z: ["outer"] };
@@ -274,6 +288,8 @@ interface Env {
   readonly names: Readonly<Record<string, unknown>>;
   readonly runs: number;
   readonly random: Random;
+  /** The option `seed`. With the text of a probe document, it gives the orders of the waits of `all` (D128). */
+  readonly seed: number;
   readonly perform: Perform | undefined;
   readonly equal: ((a: unknown, b: unknown) => boolean | undefined) | undefined;
   readonly found: Map<Obligation, Finding>;
@@ -306,6 +322,12 @@ class Shot implements Runtime {
   readonly waits = new Map<Promise<unknown>, Wait>();
   /** The results of the calls of a function that the result gives. */
   readonly later: Result[] = [];
+  /** The waits of each `all`, in the order that they settled. */
+  readonly settled: string[] = [];
+  /** The count of the times that `all` selected one wait from two or more. Without a choice, each order gives this shot. */
+  choices = 0;
+  /** `true` when a failure with `failFast` stopped an `all`. Which items stop then depends on the order (RUN.ALL). */
+  stopped = false;
   result: Result = NO_RESULT;
   private afterwards = false;
   readonly running: boolean;
@@ -324,6 +346,8 @@ class Shot implements Runtime {
     private readonly perform: Perform | undefined,
     /** The resolutions of an earlier evaluation. Each resolution with the same path gets the same answer (C4). */
     private readonly replay: readonly Asked[] | undefined,
+    /** The order of the waits of `all`. */
+    private readonly pick: Pick,
   ) {
     this.running = scenario.running;
   }
@@ -401,25 +425,74 @@ class Shot implements Runtime {
     return fail("#CALC!", `The mock gave a promise for the effect ${effect.kind}, and an evaluation does not wait.`, { place });
   }
 
+  /**
+   * This function is the rule ALL of the kernel, with the order of `pick` in place of the order of the host. The items
+   * start in their order up to the limit. Each item goes on to its first wait, and the chosen wait resumes its item.
+   */
   *all(list: readonly (() => Steps)[], options: AllOptions = {}): Generator<Promise<unknown>, readonly Result[], unknown> {
     if (!this.runner) this.problems.push("The code of an evaluator starts the steps of all. Only a runner waits.");
-    // The probe runtime starts the items one after the other. Each wait of an item passes through, as in the kernel.
-    const results: Result[] = [];
-    let failed = false;
-    for (const begin of list) {
-      if (failed) {
-        results.push(ABORTED);
-        continue;
-      }
-      let result: Result;
-      try {
-        result = yield* begin();
-      } catch (error) {
-        result = thrown(error, "a part");
-      }
-      results.push(result);
-      if (options.failFast === true && !result.ok) failed = true;
+    const results: Result[] = new Array<Result>(list.length);
+    const limit = Math.max(1, options.concurrency ?? list.length);
+    const failFast = options.failFast === true;
+    interface Active {
+      readonly index: number;
+      readonly steps: Steps;
+      readonly pending: Promise<unknown>;
     }
+    const active: Active[] = [];
+    let next = 0;
+    let failed = false;
+    const settle = (index: number, result: Result): void => {
+      results[index] = result;
+      if (failFast && !result.ok) failed = true;
+    };
+    const advance = (index: number, steps: Steps, input: unknown): void => {
+      let step: IteratorResult<Promise<unknown>, Result>;
+      try {
+        step = steps.next(input);
+      } catch (error) {
+        settle(index, thrown(error, "a part"));
+        return;
+      }
+      if (step.done === true) settle(index, step.value);
+      else active.push({ index, steps, pending: step.value });
+    };
+    const start = (): void => {
+      while (!failed && active.length < limit && next < list.length) {
+        const index = next;
+        next += 1;
+        try {
+          advance(index, (list[index] as () => Steps)(), undefined);
+        } catch (error) {
+          settle(index, thrown(error, "a part"));
+        }
+      }
+    };
+    try {
+      start();
+      while (active.length > 0 && !failed) {
+        if (active.length > 1) this.choices += 1;
+        const [item] = active.splice(this.pick(active.length), 1) as [Active];
+        const wait = this.waits.get(item.pending);
+        if (wait !== undefined) this.settled.push(wait.what);
+        const input: unknown = yield item.pending;
+        advance(item.index, item.steps, input);
+        start();
+      }
+    } finally {
+      // An item that stops gives up its wait, as in the kernel. The probe also stops the items of an `all` that stops.
+      for (const item of active) {
+        const wait = this.waits.get(item.pending);
+        if (wait !== undefined) wait.done = true;
+        try {
+          item.steps.return(ABORTED);
+        } catch {
+          // The finally code of a part threw. The part stops with the abort.
+        }
+      }
+    }
+    if (failed) this.stopped = true;
+    for (let index = 0; index < list.length; index += 1) results[index] ??= ABORTED;
     return results;
   }
 
@@ -776,9 +849,9 @@ function instanceOf(env: Env, under: Under, doc: Envelope, split: SplitOk, sampl
 }
 
 /** This function evaluates a probe document one time in a new shot. */
-function shoot(env: Env, instance: Instance, sample: Sample, scenario: Scenario, more: { readonly context?: Context; readonly replay?: readonly Asked[] } = {}): Shot {
+function shoot(env: Env, instance: Instance, sample: Sample, scenario: Scenario, more: { readonly context?: Context; readonly replay?: readonly Asked[]; readonly pick?: Pick } = {}): Shot {
   const context = more.context ?? rootContext(env.machine, makeContext(env.names, scenario.caps));
-  const shot = new Shot(env.machine, env.runner, scenario, context, sample.split.parts.map((slot) => slot.key), sample.driven, env.perform, more.replay);
+  const shot = new Shot(env.machine, env.runner, scenario, context, sample.split.parts.map((slot) => slot.key), sample.driven, env.perform, more.replay, more.pick ?? FORWARD);
   instance(shot);
   return shot;
 }
@@ -859,6 +932,49 @@ function differs(a: Shot, b: Shot, equal: Env["equal"], paths = true): string | 
   const asked = (shot: Shot): string => shot.asked.map((each) => valueText(each.path)).join(", ");
   if (a.asked.length !== b.asked.length || a.asked.some((each, index) => !docEquals(each.path, b.asked[index]?.path))) return `The resolutions differ: [${asked(a)}] and [${asked(b)}].`;
   return undefined;
+}
+
+/** This function tells if two lists of effects hold the same effects. Under `all`, the order follows the host (X-RECORD). */
+function sameEffects(a: readonly Caused[], b: readonly Caused[], equal: Env["equal"]): boolean {
+  const left = [...b];
+  return (
+    a.length === b.length &&
+    a.every((effect) => {
+      const at = left.findIndex((other) => other.kind === effect.kind && sameValue(effect.payload, other.payload, equal));
+      if (at >= 0) left.splice(at, 1);
+      return at >= 0;
+    })
+  );
+}
+
+/**
+ * This function gives the difference of two shots of one probe in two orders of the waits, or `undefined` when they
+ * agree (D128). Two orders agree when they give the same results, use the same parts and cause the same effects. The
+ * order of the parts and of the effects does not count, because it follows the host. The resolutions do not count, as
+ * in the simulation of the plan.
+ */
+function differsByOrder(a: Shot, b: Shot, equal: Env["equal"]): string | undefined {
+  if (!sameOutcome(a.result, b.result, equal)) return `The first order gives ${resultText(a.result)}, and the second gives ${resultText(b.result)}.`;
+  if (!sameResults(a, b, equal)) return "The function that the result gives returns another result.";
+  const parts = (shot: Shot): string =>
+    shot.calls
+      .map((call) => `${call.later ? "later " : ""}${shot.keys[call.part] ?? String(call.part)}`)
+      .sort()
+      .join(", ");
+  if (parts(a) !== parts(b)) return `The parts that evaluate differ: [${parts(a)}] and [${parts(b)}].`;
+  if (sameEffects(a.caused, b.caused, equal)) return undefined;
+  const effects = (shot: Shot): string => shot.caused.map((effect) => `${effect.kind} ${valueText(effect.payload)}`).join(", ");
+  return `The effects differ: [${effects(a)}] and [${effects(b)}].`;
+}
+
+/**
+ * This function gives the seed of the orders of a probe document (FNV-1a of its JSON). No time goes into it (D128).
+ * The home of a hash for seeds is `@mark1russell7/rigor-generators`. This copy stays here because core has no dependencies.
+ */
+function orderSeed(doc: Envelope, seed: number): number {
+  let hash = (2166136261 ^ seed) >>> 0;
+  for (const unit of JSON.stringify(doc)) hash = Math.imul(hash ^ (unit.codePointAt(0) as number), 16777619) >>> 0;
+  return hash;
 }
 
 /** This function gives the probe of a finding. */
@@ -1036,7 +1152,24 @@ function examine(env: Env, sample: Sample, contract: Contract): void {
 
   // C6 and the other checks of one shot in a run: each probe part can wait.
   if (env.runner) {
-    for (const scenario of scenariosOf(env, sample, contract, true)) checkShot(env, sample, contract, scenario, shoot(env, code, sample, scenario));
+    const seeded = random(orderSeed(sample.doc, env.seed));
+    const pickSeeded: Pick = (waiting) => seeded.int(waiting);
+    for (const scenario of scenariosOf(env, sample, contract, true)) {
+      const forward = shoot(env, code, sample, scenario);
+      checkShot(env, sample, contract, scenario, forward);
+      // parallel: a shot with a choice runs again in the other orders (D128). Each order also gets the checks of one shot.
+      if (forward.choices === 0) continue;
+      for (const pick of [BACKWARD, ...Array.from({ length: SEEDED_ORDERS }, () => pickSeeded)]) {
+        const other = shoot(env, code, sample, scenario, { pick });
+        checkShot(env, sample, contract, scenario, other);
+        // The first failure with failFast stops other items in another order. That difference is the rule ALL.
+        if (forward.stopped || other.stopped) continue;
+        const why = differsByOrder(forward, other, env.equal);
+        if (why === undefined) continue;
+        const orders = `the order [${forward.settled.join(", ")}] and the order [${other.settled.join(", ")}]`;
+        report(env, "parallel", `The code of ${sample.type} depends on the order of its parallel parts. The waits of all settle in ${orders}. ${why}`, () => probeOf(sample, scenario));
+      }
+    }
   }
 }
 
@@ -1100,6 +1233,7 @@ function checkCovers(env: Env, probe: (value: unknown) => ConformProbe): void {
  * compiled code with its definition. The finding of an obligation names the first probe that breaks it. An empty list
  * means that each probe conforms.
  *
+ * The check `parallel` starts a runner with a choice of waits under `all` again, in other orders of the waits (D128).
  * The check `truth` tests the declared truth of a formula profile (D86). The check `cover` tests the covers of the
  * domains of the machine from samples (D94).
  *
@@ -1127,6 +1261,7 @@ export function conforms(machine: Machine, name: string, options: ConformOptions
     names: options.names ?? NAMES,
     runs: options.runs ?? 12,
     random: random(options.seed ?? 1),
+    seed: options.seed ?? 1,
     perform: options.perform,
     equal: options.equal,
     found: new Map(),

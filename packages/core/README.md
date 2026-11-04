@@ -106,6 +106,7 @@ for (const name of Object.keys(machine.evaluators)) {
 - The option `values` adds values for a type, for example data that the contract does not describe.
 - The option `definitions` gives the code for the reference. Then `conforms` also compares the compiled code with it.
 - Each finding has a `probe`: the document, the result of each part, the waits and the capabilities. The probe shows one case that breaks the obligation.
+- A runner that uses `all` runs in up to six orders of its waits. A result that changes with the order is a finding of the check `parallel`. Its reason names the two orders and the two results.
 
 ## License
 

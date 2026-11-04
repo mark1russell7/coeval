@@ -568,6 +568,7 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | CONFORM.TRUTH | The own `truthy` of a profile with a `truthType` gives `true` or `false` for each member, or `formula.if`, `formula.and` and `formula.or` break `truth` (D86). The members come from the lists `values`, or from the palette and the samples of the domains. A value outside the type gets no test. |
 | CONFORM.COVER | Each sample of a covered domain of the machine is in one domain of each valid cover, or each evaluator and each runner breaks `cover` (D94). The samples come from the list `values`, or from the palette and the samples of the domains. A cover that does not count by the line rule of D85 gets no test. |
 | CONFORM.SAMPLES | The checks `truth` and `cover` add the list `samples` of each domain to the palette, after its results (D99). The domain `number` gives `0` and `-1`. A sample outside the type gets no test. |
+| CONFORM.PARALLEL | Code whose result, parts or effects change with the order of the waits of `all` breaks `parallel` (D128). The probe `all` keeps the rule ALL. Each scenario with a choice of waits runs in up to six orders, from the probe document and the option `seed`. The order of the effects, and a stop by `failFast`, give no finding. |
 
 ## The calculus
 

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AllOptions,
   type CompiledEvaluator,
   type CompiledRunner,
   type Context,
   type Domain,
+  type Effect,
   type EvalFn,
   type Finding,
   type FormulaProfile,
@@ -11,8 +13,11 @@ import {
   type Machine,
   type Result,
   type RunFn,
+  type RunPart,
+  type Steps,
   type Walker,
   Held,
+  STD_CAPS,
   STD_DOMAINS,
   STD_MACHINE,
   conforms,
@@ -20,7 +25,9 @@ import {
   formulaDefinitions,
   formulaMachine,
   jsTruthy,
+  makeContext,
   ok,
+  run,
 } from "./index.ts";
 
 /** The standard machine with more kinds, evaluators and runners. */
@@ -598,6 +605,274 @@ describe("the covers of a machine", () => {
     const atLeast: Domain = { is: (value) => (value as number) >= 0, under: ["number"] };
     const machine = withDomains({ half, below, atLeast, number: { ...(STD_DOMAINS["number"] as Domain), covers: [["below", "atLeast"]] } });
     expect(conforms(machine, "math.add")[0]?.reason).toContain("The member -0.5 of the domain number is in no domain of its cover below, atLeast.");
+  });
+});
+
+/** The results of the probe parts of the tests of `all`: other numbers, thus each order gives another list. */
+const NUMBERS: readonly Result[] = [ok(1), ok(2), ok(3), ok(5)];
+
+/** This function gives the value of a result, or the code of its error. */
+function outcome(result: Result): unknown {
+  return result.ok ? result.value : result.error.code;
+}
+
+/** This function wraps each part: `after` gets the index and the result of the part when the part gives its result. */
+function wrapped(parts: readonly RunPart[], after: (index: number, result: Result) => void): readonly RunPart[] {
+  return parts.map((part, index) => ({
+    ...part,
+    *evaluate(context?: Context): Steps {
+      const result = yield* part.evaluate(context);
+      after(index, result);
+      return result;
+    },
+  }));
+}
+
+/** A runner that gives the results in the order that they came. A sequence of the items hides this fault. */
+function arrival(options?: AllOptions): RunFn {
+  return function* ({ parts, all }) {
+    const arrived: unknown[] = [];
+    yield* all(wrapped(parts, (_index, result) => arrived.push(outcome(result))), options);
+    return ok(arrived);
+  };
+}
+
+/** A runner that gives its parts at the same time and each result at the place of its part. */
+function together(options?: AllOptions): RunFn {
+  return function* ({ parts, all }) {
+    return ok((yield* all(parts, options)).map(outcome));
+  };
+}
+
+/** A runner with `failFast`: it gives the first error of its list of results, or each value. */
+function stops(items: (parts: readonly RunPart[]) => readonly RunPart[] = (parts) => parts): RunFn {
+  return function* ({ parts, all }) {
+    const results = yield* all(items(parts), { failFast: true });
+    return results.find((result) => !result.ok) ?? ok(results.map(outcome));
+  };
+}
+
+/** The findings of a runner for the kind `par`, with the numbers as the results of the parts. */
+function ofRunner(code: RunFn | CompiledRunner, more: Partial<Kind> = {}, seed?: number): readonly Finding[] {
+  return conforms(machineWith({ par: listKind("par", more) }, {}, { par: code }), "par", { results: NUMBERS, ...(seed === undefined ? {} : { seed }) });
+}
+
+describe("the orders of the parts of all", () => {
+  it("[CONFORM.PARALLEL] code that gives its results in the order that they came breaks parallel, and the finding has the kind, the two orders and the two results", () => {
+    const found = ofRunner(arrival());
+    expect(obligations(found)).toEqual(["parallel"]);
+    const finding = found[0] as Finding;
+    expect(finding.reason).toMatch(/^The code of par depends on the order of its parallel parts\. The waits of all settle in the order \[the part 0, the part 1\] and the order \[the part 1, the part 0\]\. The first order gives the value \[(\d),(\d)\], and the second gives the value \[\2,\1\]\.$/);
+    expect(finding.probe.type).toBe("par");
+    expect(finding.probe.running).toBe(true);
+    expect(finding.probe.waits).toEqual(["0", "1"]);
+  });
+
+  it("[CONFORM.PARALLEL] the two results of a finding come from the kernel: a real run gives them in the two orders of the host", async () => {
+    const machine = machineWith({ par: listKind("par") }, {}, { par: arrival() });
+    const doc = { type: "par", value: [{ type: "log", value: ["a"] }, { type: "log", value: ["b"] }] };
+    const inOrder = async (order: readonly string[]): Promise<Result> => {
+      const answers = new Map<string, () => void>();
+      const perform = (effect: Effect): Promise<unknown> =>
+        new Promise((done) => {
+          answers.set(effect.payload as string, () => done(effect.payload));
+          // The answers come after the kernel took each wait, thus the order of the answers is the order of the host.
+          if (answers.size === order.length) setTimeout(() => order.forEach((name) => answers.get(name)?.()));
+        });
+      return (await run(machine, doc, makeContext({}, STD_CAPS), { perform })).result;
+    };
+    expect(await inOrder(["a", "b"])).toEqual(ok(["a", "b"]));
+    expect(await inOrder(["b", "a"])).toEqual(ok(["b", "a"]));
+  });
+
+  it("[CONFORM.PARALLEL] a read before a wait and a write after it lose an update, because each item starts before the first wait settles", () => {
+    const lost: RunFn = function* ({ parts, all }) {
+      let total = 0;
+      const items = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          const before = total;
+          const result = yield* part.evaluate(context);
+          total = before + (result.ok ? (result.value as number) : 0);
+          return result;
+        },
+      }));
+      yield* all(items);
+      return ok(total);
+    };
+    const found = ofRunner(lost);
+    expect(obligations(found)).toEqual(["parallel"]);
+    expect(found[0]?.reason).toContain("The first order gives the value");
+  });
+
+  it("[CONFORM.PARALLEL] a choice that only a seeded order changes is found: the part that settles second is the same in the forward and the backward order", () => {
+    const second: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      yield* all(wrapped(parts, (index) => arrived.push(index)));
+      return ok(parts.length === 3 ? arrived[1] : null);
+    };
+    const found = ofRunner(second);
+    expect(obligations(found)).toEqual(["parallel"]);
+    expect(found[0]?.reason).toContain("the order [the part 0, the part 1, the part 2]");
+  });
+
+  it("[CONFORM.PARALLEL] effects and parts count without their order: another payload or another part is a finding", () => {
+    const seen: RunFn = function* ({ parts, all, effect }) {
+      const arrived: unknown[] = [];
+      const logs = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          const result = yield* part.evaluate(context);
+          arrived.push(outcome(result));
+          return yield* effect("log", [...arrived]);
+        },
+      }));
+      yield* all(logs);
+      return ok(null);
+    };
+    const effects = ofRunner(seen, { effects: ["log"] });
+    expect(obligations(effects)).toEqual(["parallel"]);
+    expect(effects[0]?.reason).toMatch(/The effects differ: \[log .*\] and \[log .*\]\.$/);
+
+    // The third item evaluates its part only when the second item came before the first.
+    const skips: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      const items = wrapped(parts, (index) => arrived.push(index)).map((part, index) =>
+        index === 2
+          ? {
+              ...part,
+              *evaluate(context?: Context): Steps {
+                return arrived[0] === 1 ? ok(null) : yield* part.evaluate(context);
+              },
+            }
+          : part,
+      );
+      yield* all(items, { concurrency: 2 });
+      return ok(null);
+    };
+    const skipped = ofRunner(skips, { lazy: [{}] });
+    expect(obligations(skipped)).toContain("parallel");
+    expect(skipped.find((finding) => finding.obligation === "parallel")?.reason).toMatch(/The parts that evaluate differ: \[.*\] and \[.*\]\.$/);
+
+    // A log of each result at its own part gives the same effects in each order.
+    const logs: RunFn = function* ({ parts, all, effect }) {
+      const items = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          const result = yield* part.evaluate(context);
+          return yield* effect("log", outcome(result));
+        },
+      }));
+      return ok((yield* all(items)).map(outcome));
+    };
+    expect(ofRunner(logs, { effects: ["log"] })).toEqual([]);
+  });
+
+  it("[CONFORM.PARALLEL] a function in the result that reads the order is a finding", () => {
+    const later: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      yield* all(wrapped(parts, (index) => arrived.push(index)));
+      return ok(() => arrived[0]);
+    };
+    const equal = (a: unknown, b: unknown): boolean | undefined => (typeof a === "function" && typeof b === "function" ? true : undefined);
+    const found = conforms(machineWith({ par: listKind("par") }, {}, { par: later }), "par", { results: NUMBERS, equal });
+    expect(obligations(found)).toEqual(["parallel"]);
+    expect(found[0]?.reason).toContain("The function that the result gives returns another result.");
+  });
+
+  it("[CONFORM.PARALLEL] code that conforms gets no finding: each limit, failFast, an all inside an item, and compiled code", () => {
+    expect(ofRunner(together())).toEqual([]);
+    expect(ofRunner(together({ concurrency: 2 }))).toEqual([]);
+    // One item at a time has one order, also for the code of the first test.
+    expect(ofRunner(arrival({ concurrency: 1 }))).toEqual([]);
+    // With failFast, the first failure in the order of the host stops the other items. That difference is the rule ALL.
+    // The two errors of the palette give another first error in the two orders, and the check does not count that.
+    expect(conforms(machineWith({ par: listKind("par") }, {}, { par: stops() }), "par")).toEqual([]);
+
+    const nested: RunFn = function* ({ parts, all }) {
+      const inner: RunPart = {
+        key: "inner",
+        path: [],
+        *evaluate(): Steps {
+          return ok((yield* all(parts.slice(1))).map(outcome));
+        },
+      };
+      const first = parts[0];
+      return ok((yield* all(first === undefined ? [] : [first, inner])).map(outcome));
+    };
+    expect(ofRunner(nested)).toEqual([]);
+
+    const compiled: CompiledRunner = {
+      compileRun: ({ parts }) =>
+        function* (ctx, rt) {
+          const results = yield* rt.all(parts.map((part) => () => part.run(ctx, rt)));
+          return ok(results.map(outcome));
+        },
+    };
+    expect(ofRunner(compiled)).toEqual([]);
+  });
+
+  it("[CONFORM.PARALLEL] the rule ALL of the probe: a failed start, a throw, a stopped wait and a wait of the code", () => {
+    // An item that throws at its start or in its steps gives an error at its place.
+    const throwing: CompiledRunner = {
+      compileRun: ({ parts }) =>
+        function* (ctx, rt) {
+          const fails = (): Steps => {
+            throw new Error("The item fails at its start.");
+          };
+          const results = yield* rt.all([
+            ...parts.map((part) => () => part.run(ctx, rt)),
+            fails,
+            function* (): Steps {
+              throw new Error("The item fails in its steps.");
+            },
+          ]);
+          return ok(results.map(outcome));
+        },
+    };
+    expect(ofRunner(throwing)).toEqual([]);
+
+    // The finally code of an item that stops throws. The stop of failFast still holds, and no wait is dropped.
+    const stubborn = stops((parts) =>
+      parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          let ended = false;
+          try {
+            const result = yield* part.evaluate(context);
+            ended = true;
+            return result;
+          } finally {
+            if (!ended) throw new Error("The part does not stop.");
+          }
+        },
+      })),
+    );
+    expect(conforms(machineWith({ par: listKind("par") }, {}, { par: stubborn }), "par")).toEqual([]);
+
+    // A wait of the code under all stops the probe (C6), as a wait outside all does.
+    const own: RunFn = function* ({ parts, all }) {
+      const items = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          yield Promise.resolve();
+          return yield* part.evaluate(context);
+        },
+      }));
+      return ok((yield* all(items)).map(outcome));
+    };
+    expect(obligations(ofRunner(own))).toEqual(["C6"]);
+  });
+
+  it("[CONFORM.PARALLEL] the orders come from the document and the option seed, not from the time", () => {
+    const second: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      yield* all(wrapped(parts, (index) => arrived.push(index)));
+      return ok(parts.length === 3 ? arrived[1] : null);
+    };
+    expect(ofRunner(second)).toEqual(ofRunner(second));
+    expect(ofRunner(second, {}, 7)).toEqual(ofRunner(second, {}, 7));
+    expect(obligations(ofRunner(second, {}, 7))).toEqual(["parallel"]);
   });
 });
 
