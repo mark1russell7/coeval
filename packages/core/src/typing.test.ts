@@ -49,6 +49,7 @@ import {
   typeFromSchema,
   typeText,
   typesOf,
+  type Result,
 } from "./index.ts";
 import { corpus, inOrder } from "./corpus.test-support.ts";
 
