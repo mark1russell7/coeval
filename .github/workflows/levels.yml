@@ -47,6 +47,14 @@ jobs:
             pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" "$@" 2>&1 \
               | grep -oE 'MEASURE \{"id":"PLAN\.LEAN","bytes":[0-9.]+' | head -1 | sed 's/.*://'
           }
+          # A flag that V8 and Node refuse must stop the worker. If this run passes, the flags of the arms do not reach the worker, and the arms mean nothing.
+          if pnpm exec vitest run src/plan.test.ts -t "PLAN.LEAN" --execArgv=--bogus-flag-k229 > bogus.txt 2>&1; then
+            echo "PROBE: the bogus flag passed, so the arms do not read."
+            tail -5 bogus.txt
+            exit 1
+          fi
+          echo "PROBE: the bogus flag stopped the worker, so the flags reach it."
+          grep -m2 -iE 'bogus|bad option' bogus.txt || true
           for arm in plain predictable seeds; do
             case "$arm" in
               plain) flags=() ;;
