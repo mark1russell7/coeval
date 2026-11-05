@@ -4224,7 +4224,7 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 **Why 20 bytes.** The lowest value of D161 is 391.1 bytes, and the limit is 401.1. So approximately 10 bytes is the smallest injection that passes the limit in each of the 99 jobs. 20 bytes leaves the same margin again if the values go lower.
 
-**Limit of the claim.** The flip shows that the step turns red for a value over the limit. It does not show that a real cost of 8 bytes on a plan goes red: D161 tells why that cost stays under the limit in most jobs.
+**Limit of the claim.** The flip shows that the step turns red for a value over the limit. It does not show that a real cost of 8 bytes on a plan goes red. D161 tells why that cost stays under the limit in most jobs.
 
 **Changed expected values.** The job `measure` has 6 rows. No result of the kernel changes.
 
