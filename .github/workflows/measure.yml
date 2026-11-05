@@ -80,6 +80,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: PLAN.LEAN and WORLD.LAWS
         working-directory: packages/core
+        # The default shell has no pipefail, and the pipe into tee then hid each failed test of this step (K228).
+        shell: bash
         env:
           COEVAL_MEASURE: "1"
         run: |
