@@ -58,12 +58,14 @@ export interface ScheduleEngine {
   read(id: string): Result;
 }
 
-/** What a new engine gets beside its machine: the context of the host, and the type of a bare root value. */
+/** What a new engine gets beside its machine. These are the context of the host, the type of a bare root value and the `self` of each node. */
 export interface ScheduleEngineStart {
   /** The first context of the host, without the root `world`. */
   readonly context: Context;
   /** The type of a bare root value, when the options of the harness name one. */
   readonly declaredType?: string;
+  /** The `self` of each node, when the options of the harness have `selves`. It has the form of the option of `schedule`. */
+  readonly selfOf?: (id: string, host: Context) => unknown;
 }
 
 /**
@@ -110,6 +112,12 @@ export interface AgreeScheduleOptions {
   readonly values?: readonly unknown[];
   /** The contexts of the host at the start of the runs, one after the other. */
   readonly contexts?: readonly Context[];
+  /**
+   * The values of the `self` of a node (SCHED.NODE-AGREES). With them, the option `selfOf` of each engine gives each
+   * node its own `self`. Some nodes then share one document, and a change of data can give a node a new `self`. The
+   * value `undefined` keeps the `self` of the host. The default gives each node the context of the host.
+   */
+  readonly selves?: readonly unknown[];
   /** The number of runs. The default is 100. */
   readonly count?: number;
   /** The number of commands in one run. The default is 30. */
@@ -155,6 +163,10 @@ export interface ScheduleAgreementCounts {
   readonly same: number;
   /** The new machines. */
   readonly machines: number;
+  /** The changes of data with a new `self` of a node, only with the option `selves`. */
+  readonly selves: number;
+  /** The documents that a node shares with another node, only with the option `selves`. */
+  readonly shared: number;
 }
 
 /** The outcome of `agreeSchedule`: what the harness reached, or the first disagreement. */
@@ -266,7 +278,7 @@ function shuffle<T>(items: readonly T[], rng: Random): T[] {
  * This function evaluates each node of a graph from scratch, with the meaning of D31. Each node gets a new plan and
  * one value. The algorithm of Tarjan over the demands finds the cycles. The function keeps nothing between calls.
  */
-function fromScratch(machine: Machine, docs: ReadonlyMap<string, unknown>, base: Context, declaredType: string | undefined): ReadonlyMap<string, Result> {
+function fromScratch(machine: Machine, docs: ReadonlyMap<string, unknown>, base: Context, declaredType: string | undefined, own: ReadonlyMap<string, unknown> | undefined): ReadonlyMap<string, Result> {
   const declared = declaredType === undefined ? {} : { declaredType };
   const values = new Map<string, Result>();
   const index = new Map<string, number>();
@@ -298,7 +310,8 @@ function fromScratch(machine: Machine, docs: ReadonlyMap<string, unknown>, base:
     lowest.set(id, index.get(id) as number);
     component.push(id);
     evaluating.push(id);
-    let result = prepare(machine, docs.get(id), declared).evaluate(ctx);
+    const self = own?.get(id);
+    let result = prepare(machine, docs.get(id), declared).evaluate(self === undefined ? ctx : { ...ctx, self });
     evaluating.pop();
     if ((lowest.get(id) as number) < (index.get(id) as number)) result = cycleOf(id);
     else if (component.splice(component.indexOf(id)).length > 1 || selfReads.has(id)) result = cycleOf(id);
@@ -340,7 +353,8 @@ function named(result: Result): string {
 /**
  * This function examines an engine of a host against an evaluation from scratch (SCHED.AGREES, R4 P4, D58). Each run
  * makes a new engine and a random graph of named nodes from the document generator. Then it gives random commands:
- * edits, new nodes, removed nodes, the same document again, new machines and changes of data.
+ * edits, new nodes, removed nodes, the same document again, new machines and changes of data. The option `selves`
+ * adds a `self` for each node and documents that nodes share (SCHED.NODE-AGREES).
  *
  * - Each read command evaluates the whole graph from scratch two times, with the meaning of D31.
  * - It then demands each node in a random order, or one node, and compares each answer with `sameResult`.
@@ -366,6 +380,7 @@ export function agreeSchedule(engine: ScheduleEngineFactory, options: AgreeSched
   const hostNames = options.names ?? ["a", "b", "x", "n"];
   const hostValues = options.values ?? standardValues();
   const contexts = options.contexts ?? standardContexts();
+  const selves = options.selves;
   const total = options.count ?? 100;
   const steps = options.steps ?? 30;
   const first = options.seed ?? 9_000_011;
@@ -376,7 +391,7 @@ export function agreeSchedule(engine: ScheduleEngineFactory, options: AgreeSched
     if (isClosure(a) || isClosure(b)) return isClosure(a) && isClosure(b) && docEquals(closureParams(a), closureParams(b));
     return undefined;
   };
-  const counts = { reads: 0, compared: 0, unrepeatable: 0, values: 0, cycles: 0, runs: 0, data: 0, empty: 0, edits: 0, additions: 0, removes: 0, same: 0, machines: 0 };
+  const counts = { reads: 0, compared: 0, unrepeatable: 0, values: 0, cycles: 0, runs: 0, data: 0, empty: 0, edits: 0, additions: 0, removes: 0, same: 0, machines: 0, selves: 0, shared: 0 };
   const declared = declaredType === undefined ? {} : { declaredType };
   for (let run = 0; run < total; run += 1) {
     const seed = first + run;
@@ -385,7 +400,18 @@ export function agreeSchedule(engine: ScheduleEngineFactory, options: AgreeSched
     let at = 0;
     let machine = machines[0] as Machine;
     let made = 0;
+    const own = selves === undefined ? undefined : new Map<string, unknown>();
+    const pool: unknown[] = [];
     const make = (): unknown => {
+      if (selves !== undefined && pool.length > 0 && rng.chance(0.4)) {
+        counts.shared += 1;
+        return rng.pick(pool);
+      }
+      const doc = generated();
+      pool.push(doc);
+      return doc;
+    };
+    const generated = (): unknown => {
       if (rng.chance(wired)) return wire(rng, node);
       const roll = rng.int(10);
       if (roll === 0) return value(rng);
@@ -395,15 +421,16 @@ export function agreeSchedule(engine: ScheduleEngineFactory, options: AgreeSched
       return runs && roll === 9 ? { type: "log", value: [doc] } : doc;
     };
     const docs = new Map<string, unknown>(nodes.map((id) => [id, make()]));
+    if (own !== undefined && selves !== undefined) for (const id of nodes) own.set(id, rng.pick(selves));
     const start = contexts[run % contexts.length] as Context;
     let base: Context = { ...start, names: { ...start.names } };
-    const host = engine(machine, { ...declared, context: base });
+    const host = engine(machine, { ...declared, context: base, ...(own === undefined ? {} : { selfOf: (id: string) => own.get(id) }) });
     for (const [id, doc] of docs) host.set(id, doc);
     for (let step = 0; step < steps; step += 1) {
       const what = rng.int(12);
       if (what < 4) {
-        const fresh = fromScratch(machine, docs, base, declaredType);
-        const again = fromScratch(machine, docs, base, declaredType);
+        const fresh = fromScratch(machine, docs, base, declaredType, own);
+        const again = fromScratch(machine, docs, base, declaredType, own);
         const ids = shuffle([...docs.keys()], rng);
         // Half of the reads demand each node in a random order, and the other half demand one node.
         for (const id of rng.chance(0.5) ? ids : ids.slice(0, 1)) {
@@ -428,9 +455,15 @@ export function agreeSchedule(engine: ScheduleEngineFactory, options: AgreeSched
           }
         }
       } else if (what < 6) {
-        base = { ...base, names: change(base, rng, hostNames, hostValues) };
+        if (own !== undefined && selves !== undefined && rng.chance(0.5)) {
+          // A new `self` of one node, with the same context object of the host.
+          own.set(rng.pick(nodes), rng.pick(selves));
+          counts.selves += 1;
+        } else {
+          base = { ...base, names: change(base, rng, hostNames, hostValues) };
+          counts.data += 1;
+        }
         host.changeData(base);
-        counts.data += 1;
       } else if (what === 6) {
         // A change of data that changes no value: the same context object again.
         host.changeData(base);

@@ -49,6 +49,17 @@ export interface NodeInfo {
 export interface ScheduleOptions extends DurableOptions {
   /** The context of the host: the names, `self`, `event` and the capabilities. The schedule sets the root `world` to the nodes. */
   readonly context?: Context;
+  /**
+   * This function gives a node its own `self` (SCHED.NODE-CONTEXT, D135). Thus one document at each cell of a grid
+   * shares one plan, and each cell has its own value and its own reads. In one data epoch, the function gives the same
+   * data for a node. New data comes with `changeData`, and each node then verifies its reads with its new `self`.
+   * Without the function, each node gets the context of the host.
+   *
+   * @param id - The name of the node.
+   * @param host - The context of the host, without the nodes at the root `world`.
+   * @returns The `self` of the node, or `undefined` for the `self` of the host.
+   */
+  readonly selfOf?: (id: string, host: Context) => Thing;
 }
 
 /** The work of a schedule since its start: the work of its `durable` cache, and the demands ahead of a node. */
@@ -79,7 +90,7 @@ export interface Schedule {
   readonly epochs: Epochs;
   /** The work of the schedule since its start: the compilations, the evaluations, the verifications, the reuses and the demands ahead. */
   readonly counts: ScheduleCounts;
-  /** The context of each node in the current data epoch: the context of the host, with the nodes at the root `world`. */
+  /** The context of the current data epoch: the context of the host, with the nodes at the root `world`. The option `selfOf` changes only the `self` of a node. */
   readonly context: Context;
   /**
    * This function gives each node with its facts, its side and its edges (SCHED.GRAPH). The map stays the same object
@@ -118,7 +129,8 @@ export interface Schedule {
   remove(id: string): boolean;
   /**
    * This function tells the schedule that the data of the host changed (DURABLE.EPOCHS). The values of a context do
-   * not change in place, thus new data comes in a new context, or through a host thing.
+   * not change in place, thus new data comes in a new context, or through a host thing. A new `self` of a node is a
+   * change of data too (SCHED.NODE-STALE).
    *
    * @param context - The new context of the host, or `undefined` to keep the context.
    */
@@ -131,7 +143,8 @@ export interface Schedule {
   changeMachine(machine: Machine): void;
   /**
    * This function starts a run of the document of a node, and the host does each effect (SCHED.RUN). Only the host
-   * starts a run, for example at an event. A change of data does not start or repeat a run (L3).
+   * starts a run, for example at an event. A change of data does not start or repeat a run (L3). The run gets the
+   * `self` of its node (SCHED.NODE-CONTEXT).
    *
    * @param id - The name of the node.
    * @param options - The event, the host code that does the effects, and a signal to stop the run.
@@ -238,15 +251,17 @@ export function checkCycles(target: { graph(): NodeGraph<string> }): readonly Cy
  *   read of such a node finds a value, and a chain of 100000 nodes does not overflow the stack (SCHED.LONG-CHAIN).
  *   Each such demand starts with no node in evaluation, thus the order of demands keeps the values of D31.
  * - A node on the run side is a sink. Only `run` evaluates it, and only the host uses `run`.
+ * - The option `selfOf` gives a node its own `self` (D135). The plan, the facts and the edges stay for each document
+ *   object, thus nodes with one document share them. The value, the reads and the place on a cycle stay for each node.
  *
  * The host keeps the promises of `durable`. The documents and the values of a context do not change in place.
  *
  * @param machine - The machine of the first structure epoch.
- * @param options - The options of `durable`, and the context of the host.
+ * @param options - The options of `durable`, the context of the host and the `self` of each node.
  * @returns The schedule.
  */
 export function schedule(machine: Machine, options: ScheduleOptions = {}): Schedule {
-  const { context: given, ...cacheOptions } = options;
+  const { context: given, selfOf, ...cacheOptions } = options;
   const cache = durable(machine, cacheOptions);
   const docs = new Map<string, unknown>();
   const edges = new WeakMap<DocFacts, readonly NodeEdge[]>();
@@ -304,6 +319,13 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     return facts.side === "run" ? undefined : edgesFrom(facts);
   };
 
+  /** This function gives the context of a node: the context of the epoch, or a copy with the `self` of the node. A copy keeps the grant. */
+  const contextFor = (id: string, shared: Context): Context => {
+    if (selfOf === undefined) return shared;
+    const self = selfOf(id, base);
+    return self === undefined ? shared : { ...shared, self };
+  };
+
   /**
    * This function gives the value of a node. A demand of the host or of a run has no node in evaluation. It first
    * demands each node that the eager edges reach, deepest first. Each of these demands also starts with no node in
@@ -353,7 +375,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     stack.push(id);
     let result: Result | undefined;
     try {
-      result = cache.evaluate(id, doc, epoch.context);
+      result = cache.evaluate(id, doc, contextFor(id, epoch.context));
     } finally {
       stack.pop();
       busy.delete(id);
@@ -487,7 +509,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     },
     run(id, runOptions = {}) {
       if (!docs.has(id)) return Promise.resolve(missing(id));
-      const ctx = current().context;
+      const ctx = contextFor(id, current().context);
       return cache.plan(docs.get(id)).run(runOptions.event === undefined ? ctx : { ...ctx, event: runOptions.event }, {
         ...(runOptions.perform === undefined ? {} : { perform: runOptions.perform }),
         ...(runOptions.signal === undefined ? {} : { signal: runOptions.signal }),
