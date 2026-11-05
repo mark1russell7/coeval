@@ -2,6 +2,7 @@
 # Each runner measures a linear walk, and a walk with a true slope of 1.25. That slope is over the size that the gate prints.
 # The job "ladder-flip" of the workflow "measure" runs on each change of the kernel, on one runner. It holds the code of the
 # verdict. This workflow holds the size. A block that does not come means that the printed size is wrong.
+# The workflow "measure" calls this workflow on each change of the code of the gate, and its check "Measure OK" reads the result.
 name: Ladder plain
 
 on:
@@ -9,40 +10,19 @@ on:
   schedule:
     - cron: "25 5 * * 2"
   workflow_dispatch:
-  # Each pull request starts this workflow, so its summary check is always there. The job "changes" skips the work when the
-  # pull request does not change the code of the gate (CI.md of the template, "A gate with paths").
   # The weekly run covers a change of the lock file.
-  pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ladder-plain-${{ github.ref }}
-  cancel-in-progress: true
+  group: ladder-plain-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      match: ${{ steps.changes.outputs.match }}
-    steps:
-      - id: changes
-        uses: mark1russell7/template/.github/actions/changes@5b6d568175b98264391a21a9da059df7be51d85e # main
-        with:
-          paths: |
-            .github/workflows/ladder-plain.yml
-            .github/workflows/measure.yml
-            packages/core/bench/ladder.ts
-
   run:
     name: run ${{ matrix.run }}
-    needs: changes
-    if: needs.changes.outputs.match == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -80,8 +60,8 @@ jobs:
           retention-days: 90
 
   verdict:
-    needs: [changes, run]
-    if: ${{ !cancelled() && needs.changes.outputs.match == 'true' }}
+    needs: run
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -118,17 +98,3 @@ jobs:
             grep -q "$reason" fault.txt || { echo "The slope of 1.25 has no reason: $reason."; fail=1; }
           done
           exit "$fail"
-
-  ladder-plain-ok:
-    name: Ladder plain OK
-    if: always()
-    needs: [changes, run, verdict]
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    permissions: {}
-    steps:
-      - uses: mark1russell7/template/.github/actions/gate-summary@5b6d568175b98264391a21a9da059df7be51d85e # main
-        with:
-          needs: >-
-            {"changes": ${{ toJSON(needs.changes) }}, "run": ${{ toJSON(needs.run) }},
-            "verdict": ${{ toJSON(needs.verdict) }}}
