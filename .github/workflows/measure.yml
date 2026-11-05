@@ -80,9 +80,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: PLAN.LEAN and WORLD.LAWS
         working-directory: packages/core
+        # The default shell has no pipefail, and the pipe into tee then hid each failed test of this step (K228).
+        shell: bash
         env:
           COEVAL_MEASURE: "1"
         run: |
+          # The logs of a job do not name the CPU model, and K229 reads the levels of PLAN.LEAN against it.
+          echo "CPU model:$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
           pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" | tee out.txt
           grep -o 'MEASURE {.*}' out.txt | sed 's/^MEASURE //' > measures.jsonl
           cat measures.jsonl

@@ -2883,6 +2883,8 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 **Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 395 bytes, and WORLD.LAWS gets exact counts.
 
+**Correction (2026-11-05).** D161 replaces this limit. It is 401.1 bytes, from 99 jobs.
+
 **Since D104.** The limit of PLAN.LEAN applies only in the job `measure`, the job that measured it. The job `checks` applies no limit of PLAN.LEAN.
 
 ## D96 (2026-11-02): a seeded property test splits its corpus into parts of a fixed size, and CI checks the share of the timeout
@@ -3378,6 +3380,8 @@ The behavior changes for a caller only with the new field. A check with types th
 **Public types.** None.
 
 **Changed expected values.** None. The limit stays at 395 bytes, and the counts of WORLD.LAWS stay the same.
+
+**Correction (2026-11-05).** This decision made the job `measure` the only gate of the limit, and a pipe in that job hid each failed test. So the limit of 395 bytes was not enforced from 2026-11-02 to 2026-11-05. See D161.
 
 **Limits.**
 
@@ -4179,6 +4183,50 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 **How we examined it.** For each changed file, esbuild emitted the code of the old and the new source. The comparison moved each constructor to the top of its class and removed the doc comments. All 20 files gave the same text. A copy of the source with no installed config also gets define semantics from esbuild. Thus the two arms of a speed run use the same setting.
 
 **SemVer.** No export, signature or enum changes, and the declarations of `Held` keep their members. This work needs no version of its own.
+
+## D161 (2026-11-05): a failed test of the measure step turns it red, and the limit of PLAN.LEAN comes from 99 jobs
+
+**Context.** K228. The step of PLAN.LEAN in `measure.yml` pipes its test run into `tee`, and it has no key `shell`. GitHub then starts the step with `bash -e` and no pipefail, thus the exit code of the test run is lost. D104 made this job the only gate of the limit. So the limit of 395 bytes was not enforced from K211 (2026-11-02) to this decision. Each statement that the limit held in that time is wrong.
+
+**The read.** The read uses the logs of each job `measure` of 20 runs, from 41832320878 to 41977634472 (2026-11-04 and 2026-11-05). It starts no new job.
+
+- There are 99 jobs, and each one concluded `success`.
+- 8 jobs have a failed test, and 6 of the 20 runs have such a job. The failed test of each job is PLAN.LEAN, with 395.6 to 396.1 bytes.
+- The other 91 jobs read 391.1 to 394.6 bytes.
+- One head gives 392.4, 393.3 and 395.8 bytes in run 41971426548, thus a change of code does not explain the two levels.
+
+**Decision.**
+
+- The step has `shell: bash`, which has pipefail. A failed test turns the step red.
+- The limit is the worst value plus the spread: 396.1 + 5.0 = 401.1 bytes. The owner of the gate accepted this one limit with this formula, up to 405 bytes.
+- The step prints the CPU model of the runner, ahead of the pipe.
+
+**What this limit gives up.** The limit goes up by 6.1 bytes, and most jobs read approximately 393 bytes. So a change that adds up to approximately 8 bytes to a plan does not turn most jobs red. The measure has two levels, and the top level hides this cost. K229 examines the cause, and it ends with a limit for each cause or a measure with one level.
+
+**What we did not find.** The logs do not name the CPU model, thus this read cannot test the CPU model as the cause. All jobs have Node 26.13.0. The region and the runner image do not separate the levels: the 8 jobs are in 6 regions and 3 images.
+
+**Limit of the claim.** No flip test shows yet that this step turns red. K227 adds it, by 2026-11-12.
+
+**Changed expected values.** The limit of PLAN.LEAN goes from 395 to 401.1 bytes. No result of the kernel changes.
+
+**SemVer.** No export changes. This work needs no version of its own.
+
+## D163 (2026-11-05): the gate `notSlowerVerdict` runs as report only beside the pooled verdict
+
+**Context.** K225. The pooled verdict gives `same`, `faster`, `slower` or `cannot decide`, and the merge rule of this repository blocks only on `slower`. So a case with `cannot decide` counts as a pass. K121 read 13 of 16 cases so. `@mark1russell7/rigor-bench` 0.2.15 adds `notSlowerVerdict`, a gate that gives `pass`, `block` or `no read`.
+
+**Decision.**
+
+- The script `merge.ts` prints the gate of the two runs under the pooled verdict. Nothing reads its result, so it blocks nothing.
+- The margin of each case is the margin of its family (D117). The gate uses the 3 looks of the bench core, so its level is the level of a gate that takes more rounds.
+- `bench.yml` gets the inputs `rounds` and `jobs`, for the control run of this item.
+- The check `Speed OK` and `continue-on-error` do not change.
+
+**Limit of the claim.** This work shows the gate in each log. It does not show that the gate is fit to block. Three results are still open: the control run, the count of false blocks, and the flip test in CI. The unit test pins only that an injected 10 % gives a block on records.
+
+**What this version does not see.** The names of the cases come from the records of the candidate. So a case that is absent from the candidate does not appear in the gate. `rigor-bench` 0.2.16 adds the option `expected` for this.
+
+**SemVer.** No export of the package changes. The dependencies are for the bench, and they are development dependencies.
 
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
