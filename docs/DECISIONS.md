@@ -4230,6 +4230,22 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 **SemVer.** No export changes. This work needs no version of its own.
 
+## D164 (2026-11-05): the ladder starts on a change of the kernel, and a flip job shows that its gate can block
+
+**Context.** K227. The ladder prints a verdict for STATIC.LINEAR, and nothing reads it. The jobs started only when the workflow, `ladder.ts` or `mode.ts` changed. So a pull request that made a walk quadratic did not start the ladder. Of the last 100 Measure runs, 9 pooled a verdict, and no run in that set changed the kernel.
+
+**Decision.**
+
+- A third filter starts the jobs of the ladder: the kernel, `ladder.ts`, the lock file and the workflow. The jobs of `mode` keep their filter. One job takes approximately 1 minute.
+- The mode `merge` prints one line of the gate. A time verdict other than `linear`, a memory verdict other than `at most linear` or no counted run is a block. With `LADDER_BLOCK=1`, a block gives the exit code 3.
+- The job `ladder-verdict` accepts the exit code 3, so the gate is report only. Another failure of that step turns the job red. To make the gate block, a later pull request removes `|| test $? -eq 3`.
+- The job `ladder-flip` runs one ladder with `LADDER_INJECT=1`. Each walk repeats by its rung, so its true slope is 2, on the time and on the memory. The job needs a failed step and a named reason for each walk and each verdict.
+- The five plain runs are the copy with no fault. Their line of the gate reads `pass`.
+
+**Limit of the claim.** The flip shows that a slope of 2 gives a block. It does not give the smallest slope that gives a block. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. The rule of three allows up to 33 % false blocks with so few rows. The new filter gives more rows with each change of the kernel.
+
+**SemVer.** No export of the package changes.
+
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
 **Context.** S1f, from S1 (D31). A schedule gave each node the one context of the host. One formula at each cell of a grid then needed the data of the cell in its document. Thus each cell had its own document, and each document compiled its own plan. `durable` keeps a plan for each document object and a result for each key, and its `evaluate` takes a context for each key (D30). Only the schedule gave a host no way to use this.

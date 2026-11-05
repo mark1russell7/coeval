@@ -32,6 +32,9 @@
  * script imports `@mark1russell7/rigor-statistics` (D114). The workflow `measure.yml` runs the ladder in CI, because
  * a shared machine gives unreliable numbers.
  *
+ * The mode `merge` prints the gate of the verdicts as report only (K227, D164). With `LADDER_BLOCK=1`, a block gives the
+ * exit code 3. With `LADDER_INJECT=1`, each walk repeats by its rung, so its true slope is 2. The flip job reads this fault.
+ *
  * The statistics come from `@mark1russell7/rigor-statistics`: the median, the quantiles, the least squares fit, the
  * mean and the standard deviation (D114). The verdicts and the t quantile stay here, because the shared packages do not
  * have them. A comment names the issue of each gap.
@@ -197,6 +200,15 @@ function chain(levels: number): unknown {
   return doc;
 }
 
+/** This function gives the fault of the flip test: a call that repeats the walk `times` times (K227, D164). */
+function repeated(call: (doc: unknown) => number, times: number): (doc: unknown) => number {
+  return (doc) => {
+    let result = 0;
+    for (let turn = 0; turn < times; turn += 1) result = call(doc);
+    return result;
+  };
+}
+
 async function measure(): Promise<void> {
   const kernel: Kernel = await import("../src/index.ts");
   const base = Number(process.argv[2] ?? 250);
@@ -227,7 +239,8 @@ async function measure(): Promise<void> {
   ];
   const results: WalkRun[] = [];
   // arms[walk * docs.length + doc]
-  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: walk.call, doc })));
+  const faults = process.env["LADDER_INJECT"] === "1" ? [...STEPS, AA_STEP] : undefined;
+  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: faults === undefined ? walk.call : repeated(walk.call, faults[d] as number), doc })));
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {
@@ -376,6 +389,7 @@ function merge(files: readonly string[]): void {
     "| --- | --- | ---: | ---: | ---: | ---: | --- |",
   );
   const measures: Record<string, unknown>[] = [];
+  const blocks: string[] = runs.length === 0 ? ["No run counts."] : [];
   // The walks of the counted runs for each name. The memory slopes come from the same counted runs (D105).
   const groups = names
     .map((name) => ({
@@ -392,6 +406,7 @@ function merge(files: readonly string[]): void {
     const pooled = summarize({ slopes: of.flatMap((walk) => walk.slopes), aa: of.flatMap((walk) => walk.aa) });
     const medians = of.map((walk) => median(walk.slopes));
     const { mean, half } = meanInterval(medians);
+    if (pooled.verdict !== "linear") blocks.push(`${name} is ${pooled.verdict}: ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)}.`);
     measures.push({ walk: name, ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half) });
     lines.push(
       `| \`${name}\` | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
@@ -410,13 +425,16 @@ function merge(files: readonly string[]): void {
     const medians = of.map((walk) => median(walk.byteSlopes));
     const { mean, half } = meanInterval(medians);
     const rungs = (all[0]?.levels ?? []).map((_, d) => median(of.map((walk) => walk.bytes[d] as number)));
+    if (pooled.verdict !== "at most linear") blocks.push(`The memory of ${name} is ${pooled.verdict}: the upper end is ${pooled.p95.toFixed(3)}.`);
     const record = measures[index] as Record<string, unknown>;
     record["memory"] = { ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half), bytes: rungs.map((value) => Math.round(value)) };
     lines.push(
       `| \`${name}\` | ${rungs.map((value) => Math.round(value)).join(", ")} | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
   });
+  lines.push("", `Gate (report only, D164): ${blocks.length === 0 ? "pass." : `block. ${blocks.join(" ")}`}`);
   writeSummary(lines);
+  if (blocks.length > 0 && process.env["LADDER_BLOCK"] === "1") process.exitCode = 3;
   const excluded = all.filter((run) => !counts(run)).map(runName);
   process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", counted: runs.map(runName), excluded, walks: measures })}\n`);
 }
