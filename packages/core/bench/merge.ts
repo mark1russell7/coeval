@@ -73,7 +73,11 @@ export interface ArmHashes {
 /** The lines where esbuild names a source file. The folder of an arm changes these lines and no code. */
 const PATH_COMMENT = /^\/\/ .*\.(?:[cm]?[jt]sx?|json)$/gm;
 
-/** This function gives the hash of the code of a bundle, without the lines that name a source file. */
+/**
+ * This function gives the hash of the code of a bundle, without the lines that name a source file.
+ * The hash also reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it.
+ * A different name reads as different arms, and this holds a merge.
+ */
 export function armHash(code: string): string {
   return createHash("sha256").update(code.replace(PATH_COMMENT, "")).digest("hex");
 }

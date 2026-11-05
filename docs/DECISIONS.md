@@ -4270,6 +4270,7 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 - The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
 - The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
 - A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
+- The hash reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it. Both real arms use the name `src`. A different name reads as different arms, so it holds a merge and lifts no hold.
 - K233 holds the read of a dependency slowdown.
 
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data

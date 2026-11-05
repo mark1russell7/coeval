@@ -14,9 +14,12 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** This function copies the kernel with no tests into a new folder, and gives the path of its index. */
+/**
+ * This function copies the kernel with no tests into a new folder, and gives the path of its index.
+ * The last folder is `src`, as in the two real arms, because esbuild names a namespace object after that folder.
+ */
 function copyOfKernel(name: string): string {
-  const target = join(dir, name);
+  const target = join(dir, name, "src");
   cpSync(SOURCE, target, { recursive: true, filter: (file) => !/\.test\.tsx?$|test-support/.test(file) });
   return join(target, "index.ts");
 }
