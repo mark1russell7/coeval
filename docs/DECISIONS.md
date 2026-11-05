@@ -4247,7 +4247,7 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 - **The size, stated before the first read.** The past 9 runs read `half` from 0.075 to 0.116 on time, so the plain gate sees a time slope of at most 1.12. The memory interval is narrow, so the plain gate sees a memory slope of at most 1.20. A slope of 1.05 is under this size, and a pass does not exclude it.
 - The five plain runs are also a copy with no fault. Their line of the gate reads `pass`.
 
-**Limit of the claim.** The flips test the slopes 2, 1.3, 1.25 and 1. They do not test a slope between the printed size and 1.25. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. By the rule of three, the rate of false blocks can be up to 33 % with so few rows, so this count is too small for a ruling. The new filter gives more rows with each change of the kernel.
+**Limit of the claim.** The flips test the slopes 2, 1.3, 1.25 and 1. They do not test a slope between the printed size and 1.25. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. With so few rows, the rule of three gives a rate of up to 33 % false blocks. This count is too small for a ruling. The new filter gives more rows with each change of the kernel.
 
 **SemVer.** No export of the package changes.
 
