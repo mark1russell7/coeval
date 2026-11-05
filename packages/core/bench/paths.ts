@@ -36,7 +36,7 @@
  */
 import { build, type Plugin } from "esbuild";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve as resolveFile } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,7 +45,7 @@ import { freshRun, type FreshArm, type FreshRecord } from "@mark1russell7/rigor-
 import { median } from "@mark1russell7/rigor-statistics";
 import type { Measured } from "./cases.ts";
 import { limitsOf } from "./limits.ts";
-import { caseVerdict, fallbackMark, verdictRule, type BenchCase, type BenchMode, type BenchRun } from "./merge.ts";
+import { armHash, caseVerdict, fallbackMark, verdictRule, type BenchCase, type BenchMode, type BenchRun } from "./merge.ts";
 import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
 /** The rounds. A local smoke test can make them small, for example `BENCH_ROUNDS=1 BENCH_SAMPLES=1`. */
@@ -121,6 +121,7 @@ async function main(): Promise<void> {
   if (TOGETHER.length > 0) throw new Error("The fresh runner starts one case in each process (D114). Thus TOGETHER must be empty.");
   const dir = mkdtempSync(join(tmpdir(), "coeval-bench-"));
   const [baseCopy, headCopy] = [await bundle(baseFile, "base", dir), await bundle(headFile, "head", dir)];
+  const arms = { base: armHash(readFileSync(baseCopy, "utf8")), head: armHash(readFileSync(headCopy, "utf8")) };
   // A first process calibrates the calls of each sample, thus each copy does the same work. Its times do not count.
   const first = measureCopy(baseCopy);
   const counts = first.map((item) => item.calls);
@@ -181,7 +182,7 @@ async function main(): Promise<void> {
   if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths (run ${run})\n\n${text}\n`);
   const json = process.env["BENCH_JSON"];
   if (json !== undefined && json !== "") {
-    const record: BenchRun = { run, cpu, node: process.version, rounds: ROUNDS, mode, cases };
+    const record: BenchRun = { run, cpu, node: process.version, rounds: ROUNDS, mode, arms, cases };
     writeFileSync(json, `${JSON.stringify(record, null, 2)}\n`);
   }
   if (different.some((results) => results !== undefined)) process.exitCode = 1;

@@ -4,6 +4,10 @@
 # The bench core @mark1russell7/rigor-bench starts the processes and gives the verdict of each case (K212, D114).
 # The jobs only print numbers, in their logs and in their summaries. They do not block a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
+# A green "Speed OK" does not say that the code is not slower: no code line fails it on a slower case.
+# The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms build with one
+# install, so such a run does not read a slowdown from a dependency (K232, D166). The root package.json is not on the
+# filter: it holds the pnpm version, and that version changes nothing that the arms run unless the lock file moves.
 name: Speed
 
 on:
@@ -40,14 +44,34 @@ jobs:
       pull-requests: read
     outputs:
       match: ${{ steps.changes.outputs.match }}
+    env:
+      GATE_PATHS: |
+        packages/core/src/**
+        packages/core/bench/**
+        .github/workflows/bench.yml
+        pnpm-lock.yaml
+        packages/core/package.json
+        packages/core/tsconfig.json
+        pnpm-workspace.yaml
     steps:
       - id: changes
         uses: mark1russell7/template/.github/actions/changes@5b6d568175b98264391a21a9da059df7be51d85e # main
         with:
-          paths: |
-            packages/core/src/**
-            packages/core/bench/**
-            .github/workflows/bench.yml
+          paths: ${{ env.GATE_PATHS }}
+      # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
+      # A list with no lock file reads false, so each line of the check can fail (K232, D166).
+      - name: The filter on fixtures (K232, D166)
+        run: |
+          rules=("${RUNNER_WORKSPACE%/*}"/_actions/mark1russell7/template/*/.github/actions/changes/match.jq)
+          if [ "${#rules[@]}" != 1 ] || [ ! -f "${rules[0]}" ]; then echo "::error::No single match.jq of the action changes."; exit 1; fi
+          check() {
+            got=$(printf '%s\n' "$3" | jq -R -s -r --arg paths "$2" --arg ignore "" -f "${rules[0]}")
+            echo "FIXTURE $1: $got"
+            if [ "$got" != "$4" ]; then echo "::error::The filter reads $got for $1, not $4."; exit 1; fi
+          }
+          check "the lock file" "$GATE_PATHS" pnpm-lock.yaml true
+          check "a docs file" "$GATE_PATHS" docs/ROADMAP.md false
+          check "the lock file with no lock line" "$(printf '%s\n' "$GATE_PATHS" | grep -v '^pnpm-lock.yaml$')" pnpm-lock.yaml false
 
   bench:
     needs: changes
