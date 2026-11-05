@@ -16,10 +16,12 @@
  *
  * Node removes the types of this script. The job installs the packages, because the script imports the bench core.
  * The script fails when a run is absent or when a run found different results. A "slower" case does not fail it.
+ *
+ * The script also prints the gate of the claim "not slower by more than the margin" (K225, D163). This gate is report only.
  */
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { pooledVerdict, timeVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { notSlowerVerdict, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
 import { FAMILIES, limitsOf, limitsRecord, percentOf, type Family } from "./limits.ts";
 
 /** The measurement of one case in one run. The change and the noise are percents. */
@@ -168,6 +170,27 @@ export function verdictRule(): string[] {
   ];
 }
 
+/**
+ * This function gives the gate of the claim "not slower by more than the margin" over the runs (K225, D163).
+ * The margin of each case comes from its family. The gate uses the looks of the bench core, so its level stays the level
+ * of a gate that takes more rounds, also when a run stops at the first look.
+ */
+export function gateRead(runs: readonly (BenchRun | undefined)[]): NotSlowerVerdict {
+  const jobs = runs.flatMap((run) =>
+    run === undefined ? [] : [{ job: run.run, candidate: run.cases.flatMap((item) => item.head ?? []), aa: run.cases.flatMap((item) => item.aa ?? []) }],
+  );
+  return notSlowerVerdict(jobs, { margin: (name) => limitsOf(name).options.margin ?? 0 });
+}
+
+/** This function gives the lines of the gate in the verdict: one line of counts, then the reason of each slower case. */
+export function gateLines(gate: NotSlowerVerdict): string[] {
+  const count = (read: NotSlowerVerdict["cases"][number]["read"]): string => String(gate.cases.filter((item) => item.read === read).length);
+  return [
+    `Gate (report only, D163): ${gate.outcome}. ${count("not slower")} not slower, ${count("slower")} slower, ${count("no read")} no read.`,
+    ...gate.cases.filter((item) => item.read === "slower").map((item) => `- ${item.reason}`),
+  ];
+}
+
 function main(): void {
   const files = process.argv.slice(2);
   const runs = [read(files[0]), read(files[1])];
@@ -190,6 +213,7 @@ function main(): void {
     lines.push(`| ${name} | ${cells(first)} | ${cells(second)} | ${verdict}${fallbackMark(name)} |`);
   }
   lines.push("", `Verdicts: ${[...counts].map(([verdict, count]) => `${String(count)} ${verdict}`).join(", ")}.`);
+  lines.push("", ...gateLines(gateRead(runs)));
   const text = lines.join("\n");
   console.log(text);
   const summary = process.env["GITHUB_STEP_SUMMARY"];

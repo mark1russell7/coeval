@@ -15,6 +15,13 @@ on:
       base:
         description: The commit to compare with
         default: origin/main
+      # A control run gives more rounds and more jobs, to read how the job-to-job spread compares with a margin (K225).
+      rounds:
+        description: The rounds of each job
+        default: "12"
+      jobs:
+        description: The jobs, as a JSON list of numbers
+        default: "[1, 2]"
 
 permissions:
   contents: read
@@ -48,13 +55,14 @@ jobs:
     name: bench (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     # The fresh runner starts four processes for each case and round (D114), thus the job gets more time.
-    timeout-minutes: 15
+    # A dispatch with more rounds gets 60 minutes.
+    timeout-minutes: ${{ fromJSON(inputs.rounds || '12') > 12 && 60 || 15 }}
     continue-on-error: true
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        run: [1, 2]
+        run: ${{ fromJSON(inputs.jobs || '[1, 2]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,6 +82,7 @@ jobs:
         run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts
         env:
           BENCH_RUN: ${{ matrix.run }}
+          BENCH_ROUNDS: ${{ inputs.rounds || '12' }}
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
       # A run with different results also gives its table to the verdict.
       # The records stay 90 days, because the limits of the verdict come from them (K214, D117).
