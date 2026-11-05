@@ -739,6 +739,9 @@ describe("the syntax kit", () => {
     const many = `f(${Array.from({ length: 30 }, () => "1 2").join(", ")})`;
     expect(issues(STD_SYNTAX, many)).toHaveLength(MAX_SYNTAX_ISSUES);
     expect(issues(STD_SYNTAX, `"${"\\q".repeat(30)}" + (1 2)`)).toHaveLength(MAX_SYNTAX_ISSUES);
+    // An empty separator adds no step to a list, thus the guard of recovery ends the read.
+    const empty: SyntaxProfile = { calls: { separator: "" } };
+    for (const text of ["f(1)", "f(g(1), 2)", "f(", "(f(1))"]) expect(issues(empty, text).length).toBeGreaterThan(0);
     // A fault inside a nesting keeps the count of the levels for the next item.
     expect(issues({ ...STD_SYNTAX, maxDepth: 3 }, "f(g($), g($), g($), g($))")).toHaveLength(4);
     // A nesting under the limit of the depth keeps each issue of the depth.
