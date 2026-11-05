@@ -31,6 +31,8 @@ The kernel is on npm as `@mark1russell7/coeval`. Its API is not stable before ve
 
 `Speed OK` does not read a slower case. No code line fails it on a slower case, so a green `Speed OK` is not a result. The reader of a merge reads the line `Hold (D117)` in the log of the job `verdict`.
 
+A failure of the job `bench` or `verdict` also leaves `Speed OK` green. Both jobs have `continue-on-error`, so each reads as a success to `Speed OK`.
+
 Speed OK does not read a slowdown from a dependency, because both arms build with one install. A dependency update starts the bench, and this shows only that the bench still runs.
 
 The measures at the head run on a change of the lock file, and each reads absolute values. `PLAN.LEAN` reads the memory size of a plan against its limit. The smallest dependency cost that these measures catch is not read.

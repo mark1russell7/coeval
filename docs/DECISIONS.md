@@ -4268,6 +4268,7 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 **Limits.**
 
 - The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
+- A short or absent run fails the job `verdict`, and `Speed OK` stays green. Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). A flip of `Speed OK` cannot read this value while that setting stays.
 - The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
 - A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
 - The hash reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it. Both real arms use the name `src`. A different name reads as different arms, so it holds a merge and lifts no hold.

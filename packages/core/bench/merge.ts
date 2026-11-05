@@ -91,7 +91,8 @@ export interface Hold {
 /**
  * This function tells if a slower reading holds a merge (K232, D166). It reads the hashes of the bundles that the jobs
  * ran, and no list of files. A slower reading does not hold a merge only when each run is complete and the two arms of
- * each job have one hash. A run that is short or absent gives no such reading, and it keeps its own red.
+ * each job have one hash. A run that is short or absent gives no such reading. It fails the job `verdict`, and `Speed OK`
+ * stays green, because `continue-on-error` makes that job read as a success.
  */
 export function holdRead(slower: number, runs: readonly (BenchRun | undefined)[], complete: boolean): Hold {
   if (!complete) return { hold: true, line: "Hold (D117): hold. A run is short or absent, so the arms give no reading." };
