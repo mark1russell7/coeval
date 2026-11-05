@@ -746,6 +746,7 @@ interface ConformOptions {
   readonly values?: Readonly<Record<string, readonly Json[]>>;
   readonly results?: readonly Result[];
   readonly definitions?: Definitions;
+  readonly things?: readonly unknown[];
   readonly caps?: readonly Cap[];
   readonly names?: Readonly<Record<string, unknown>>;
   readonly seed?: number;
@@ -762,6 +763,8 @@ interface ConformProbe {
   readonly waits: readonly string[];
   readonly caps: readonly Cap[];
   readonly running: boolean;
+  readonly here?: unknown;
+  readonly key?: Key;
 }
 
 ### build/index.d.ts#Construct
@@ -1311,7 +1314,7 @@ interface NodeRunOptions {
 }
 
 ### build/index.d.ts#Obligation
-type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "parallel" | "truth" | "cover";
+type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "parallel" | "truth" | "cover" | "result" | "ladder" | "hops" | "has" | "typed";
 
 ### build/index.d.ts#OpFn
 type OpFn = (...args: never[]) => unknown;
