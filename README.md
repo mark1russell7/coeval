@@ -31,7 +31,9 @@ The kernel is on npm as `@mark1russell7/coeval`. Its API is not stable before ve
 
 `Speed OK` does not read a slower case. No code line fails it on a slower case, so a green `Speed OK` is not a result. The reader of a merge reads the line `Hold (D117)` in the log of the job `verdict`.
 
-A failure of the job `bench` or `verdict` also leaves `Speed OK` green. Both jobs have `continue-on-error`, so each reads as a success to `Speed OK`.
+A crash, a short run, a missing arm or a case with different results turns `Speed OK` red, with the reason in its log. The job `verdict` writes its state, and an empty state is red.
+
+Until K235 merged, a failure of the job `bench` or `verdict` left `Speed OK` green. So a past green `Speed OK` does not show that the bench ran.
 
 Speed OK does not read a slowdown from a dependency, because both arms build with one install. A dependency update starts the bench, and this shows only that the bench still runs.
 

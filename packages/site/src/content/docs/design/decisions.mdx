@@ -138,6 +138,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D162 | The flip test of PLAN.LEAN is a matrix row of the same job. It adds 20 bytes to the value, the step turns red, and the 5 plain jobs stay green. |
 | D163 | The gate `notSlowerVerdict` runs as report only beside the pooled verdict. It blocks nothing until a control run, a count of false blocks and a flip test. |
 | D166 | The filters of the gates read the lock file. A slower reading holds a merge only when the bundle hashes of the arms differ. |
+| D167 | A crash, a short run or a missing arm turns `Speed OK` red, and an empty state from the verdict is red. A slower case stays report only until the flip. |
 | D135 | The option `selfOf` of `schedule` gives each node its own `self` (S1f). Nodes with one document share one plan, and a new `self` is a change of data. |
 | D137 | `conforms` also examines walkers, the code of a `deref` and the functions of a formula profile (K121). Each check tests a stated law. A plain throw of a walker is a finding, and a `Failure` is not. |
 | D139 | After an overflow of the stack, a walk with its own stack follows the real reads (S2c). Each cycle gives `#CYCLE!` at each length, and a chain with no cycle keeps its `#DEPTH!`. |

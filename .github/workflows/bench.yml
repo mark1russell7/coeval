@@ -5,6 +5,7 @@
 # The jobs only print numbers, in their logs and in their summaries. They do not block a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
 # A green "Speed OK" does not say that the code is not slower: no code line fails it on a slower case.
+# A crash, a short run or a missing arm turns it red (K235, D167).
 # The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms build with one
 # install, so such a run does not read a slowdown from a dependency (K232, D166). The root package.json is not on the
 # filter: it holds the pnpm version, and that version changes nothing that the arms run unless the lock file moves.
@@ -26,6 +27,10 @@ on:
       jobs:
         description: The jobs, as a JSON list of numbers
         default: "[1, 2]"
+      # This input stops each bench job at its start, to read that Speed OK goes red (K235, D167).
+      fault:
+        description: Write crash to stop each bench job at its start
+        default: ""
 
 permissions:
   contents: read
@@ -81,13 +86,15 @@ jobs:
     # The fresh runner starts four processes for each case and round (D114), thus the job gets more time.
     # A dispatch with more rounds gets 60 minutes.
     timeout-minutes: ${{ fromJSON(inputs.rounds || '12') > 12 && 60 || 15 }}
-    continue-on-error: true
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
         run: ${{ fromJSON(inputs.jobs || '[1, 2]') }}
     steps:
+      - name: The injected crash (K235, D167)
+        if: inputs.fault == 'crash'
+        run: exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -123,7 +130,9 @@ jobs:
     if: ${{ needs.changes.outputs.match == 'true' && (!cancelled()) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
+    outputs:
+      state: ${{ steps.merge.outputs.state }}
+      reason: ${{ steps.merge.outputs.reason }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The script imports the bench core @mark1russell7/rigor-bench (D114), thus the job installs the packages.
@@ -140,6 +149,7 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/bench
       - name: Merge the two runs
+        id: merge
         if: ${{ !cancelled() }}
         run: node packages/core/bench/merge.ts "$RUNNER_TEMP/bench/bench-1.json" "$RUNNER_TEMP/bench/bench-2.json"
 
@@ -149,9 +159,24 @@ jobs:
     needs: [changes, bench, verdict]
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    permissions: {}
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.match == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: needs.changes.outputs.match == 'true'
+        with:
+          node-version: 26
+      # An empty state is red, so a crash cannot pass by writing nothing. A slower case stays report only until its flip.
+      - name: Read the state of the verdict (K235, D167)
+        if: needs.changes.outputs.match == 'true'
+        run: node packages/core/bench/speed-read.ts
+        env:
+          STATE: ${{ needs.verdict.outputs.state }}
+          REASON: ${{ needs.verdict.outputs.reason }}
       - uses: mark1russell7/template/.github/actions/gate-summary@5b6d568175b98264391a21a9da059df7be51d85e # main
+        if: always()
         with:
           needs: ${{ toJSON(needs) }}
           allow-skip: verdict
