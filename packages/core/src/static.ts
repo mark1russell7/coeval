@@ -103,6 +103,17 @@ function keysOf(trail: Trail | undefined): readonly Key[] {
 
 /** A visit with its paths as trails. It makes the keys of a path only when a reader asks for them. */
 class Visit implements DocVisit {
+  readonly doc: Envelope;
+  readonly declared: boolean;
+  readonly depth: number;
+  readonly names: ReadonlySet<string>;
+  readonly later: ReadonlySet<string>;
+  readonly slot: readonly Key[];
+  readonly parent: DocVisit | undefined;
+  readonly kind: Kind | undefined;
+  readonly typePath: readonly Key[] | undefined;
+  readonly address: true | undefined;
+  readonly caps: readonly Cap[] | undefined;
   readonly #place: Trail | undefined;
   readonly #at: Trail | undefined;
   readonly #bound: readonly string[];
@@ -111,20 +122,31 @@ class Visit implements DocVisit {
   constructor(
     place: Trail | undefined,
     at: Trail | undefined,
-    readonly doc: Envelope,
-    readonly declared: boolean,
-    readonly depth: number,
-    readonly names: ReadonlySet<string>,
-    readonly later: ReadonlySet<string>,
-    readonly slot: readonly Key[],
-    readonly parent: DocVisit | undefined,
-    readonly kind: Kind | undefined,
-    readonly typePath: readonly Key[] | undefined,
-    readonly address: true | undefined,
-    readonly caps: readonly Cap[] | undefined,
+    doc: Envelope,
+    declared: boolean,
+    depth: number,
+    names: ReadonlySet<string>,
+    later: ReadonlySet<string>,
+    slot: readonly Key[],
+    parent: DocVisit | undefined,
+    kind: Kind | undefined,
+    typePath: readonly Key[] | undefined,
+    address: true | undefined,
+    caps: readonly Cap[] | undefined,
     bound: readonly string[],
     expect: ValueType | undefined,
   ) {
+    this.doc = doc;
+    this.declared = declared;
+    this.depth = depth;
+    this.names = names;
+    this.later = later;
+    this.slot = slot;
+    this.parent = parent;
+    this.kind = kind;
+    this.typePath = typePath;
+    this.address = address;
+    this.caps = caps;
     this.#place = place;
     this.#at = at;
     this.#bound = bound;
@@ -691,6 +713,8 @@ export function equationsOf(kind: Kind): readonly Equation[] {
       out.push({ label: `tree.attributes.${name}.fold.combine`, term: declared.fold.combine, names: FOLD_NAMES, attribute: name, down: false });
     }
     if (declared.default !== undefined) out.push({ label: `tree.attributes.${name}.default`, term: declared.default, names: [], attribute: name, down: false });
+    // Only the equation is known before the run. The document that it gives is not known (TREE.HIGHER-CHECK, D126).
+    if (declared.higher !== undefined) out.push({ label: `tree.attributes.${name}.higher`, term: declared.higher, names: [], attribute: name, down: false });
     const collect = declared.collect === undefined ? undefined : collectOf(declared.collect);
     if (collect?.ok === true && !collect.names) {
       out.push({ label: `tree.attributes.${name}.collect.unit`, term: collect.unit, names: [], attribute: name, down: false });
@@ -885,15 +909,16 @@ function hasEntry(table: Readonly<Record<string, unknown>> | undefined, name: st
 /**
  * This function tells if a rung of the ladder can answer an attribute of a node (TREE.LADDER). An unknown parent can
  * be a node of each kind of the world, thus each name of `down` in the world can answer. A copy can always answer,
- * because `check` does not know a node without a parent.
+ * because `check` does not know a node without a parent. A kind with `forwards` can answer each other name, because the
+ * forwarded node is not known before the run (TREE.FORWARD-CHECK).
  */
 export function answered(world: World, node: SeenNode, name: string): boolean {
   if (node.own?.has(name) === true) return true;
   const tree = node.kind.tree;
-  if (hasEntry(tree?.equations, name)) return true;
+  if (hasEntry(tree?.equations, name) || (tree?.forwards !== undefined && tree.forwards !== name)) return true;
   if (node.parent === undefined ? downNames(world).has(name) : hasEntry(node.parent.kind.tree?.down, name)) return true;
   const declared = tree?.attributes !== undefined && Object.hasOwn(tree.attributes, name) ? tree.attributes[name] : undefined;
-  return declared !== undefined && (declared.copy === true || declared.fold !== undefined || declared.collect !== undefined || declared.default !== undefined);
+  return declared !== undefined && (declared.copy === true || declared.fold !== undefined || declared.collect !== undefined || declared.default !== undefined || declared.higher !== undefined);
 }
 
 /**
@@ -908,6 +933,7 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
   const needs: Need[] = [];
   state.needs.set(kind, needs);
   for (const name of Object.keys(kind.tree?.attributes ?? {})) needs.push({ name, why: "the kind declares it", hidden: undefined });
+  if (typeof kind.tree?.forwards === "string" && !Object.hasOwn(STRUCTURAL, kind.tree.forwards)) needs.push({ name: kind.tree.forwards, why: "the kind forwards to it", hidden: undefined });
   const self: SeenNode = { kind, text: kindText, own: undefined, parent: undefined };
   for (const { label, term, names, attribute, down, contributes, at } of equationsOf(kind)) {
     const inner: CheckOptions = { names, ...(of === undefined ? {} : { declaredType: of }), ...(options.caps === undefined ? {} : { caps: [] }) };
@@ -926,6 +952,7 @@ function equationIssues(machine: Machine, kind: Kind, kindText: string, options:
  * structural step gets no read. A tree kind of the run side contradicts the evaluation on demand of its attributes. A
  * declaration `circular` without a start value or with a bad limit gives `#VALUE!` (TREE.CIRCULAR-CHECK). A declaration
  * `collect` without its form gives `#VALUE!` too (TREE.COLLECT). So does an entry of `at` without its form (TREE.AT-CHECK).
+ * A field `forwards` that is not a text gives `#VALUE!`, and a structural name gives `#NAME?` (TREE.FORWARD-CHECK).
  */
 function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
   const out: Issue[] = [];
@@ -946,6 +973,11 @@ function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
   for (const [name, declared] of Object.entries(tree?.at ?? {})) {
     const rule = atRuleOf(declared);
     if (!rule.ok) out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad entry tree.at.${name}. ${rule.reason}` });
+  }
+  const forwards: unknown = tree?.forwards;
+  if (forwards !== undefined && typeof forwards !== "string") out.push({ code: "#VALUE!", place: [], reason: `The kind ${kindText} has a bad field tree.forwards. It must be a text.` });
+  if (typeof forwards === "string" && Object.hasOwn(STRUCTURAL, forwards)) {
+    out.push({ code: "#NAME?", place: [], reason: `The kind ${kindText} gives the reserved attribute tree.forwards: ${String(STRUCTURAL[forwards])}.` });
   }
   if (kind.side === "run") {
     out.push({ code: "#CALC!", place: [], reason: `The tree kind ${kindText} is on the run side: a node evaluates its attributes on demand, thus in no fixed order.` });
