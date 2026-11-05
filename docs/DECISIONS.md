@@ -4162,3 +4162,20 @@ The same read occurs at the root `event`, in the verification of a kept read, an
 The list of reads stays exact, thus each other document keeps its reads, its demands and its order of evaluations. The test SCHED.OWN-NODE-AGREES compares generated documents with the evaluation from scratch, over changes of data, edits and new machines. Four changes of the code each fail these tests. These are no rule, a rule at each depth, a rule for each node in evaluation, and a verification outside `keeping`.
 
 Each kept read that resolves its path costs one call and one `finally`. A read of a node in evaluation costs one compare. A document without a kept read does no new work.
+
+## D160 (2026-11-05): a parameter property becomes a plain field first in its class
+
+The update of the shared config turns on the TypeScript option `erasableSyntaxOnly` (K224). The option refuses a parameter property, thus each one becomes a field and an assignment. The option stays on.
+
+**The form.**
+
+- Each field goes first in its class, in the order of the parameters, with the modifiers and the doc comment of the parameter.
+- The first lines of the constructor assign the fields, in the same order.
+
+**Why this form.** The config sets the target `esnext`, thus class fields use define semantics. The tool esbuild emits a parameter property as a field ahead of the other fields of the class, and the field starts as `undefined`. A plain field in the first place gives the same emitted code.
+
+A `declare` field is not the same. It emits no field, so the object gets its properties in another order. An object with another order can have another hidden class, and a speed run can see that.
+
+**How we examined it.** For each changed file, esbuild emitted the code of the old and the new source. The comparison moved each constructor to the top of its class and removed the doc comments. All 20 files gave the same text. A copy of the source with no installed config also gets define semantics from esbuild. Thus the two arms of a speed run use the same setting.
+
+**SemVer.** No export, signature or enum changes, and the declarations of `Held` keep their members. This work needs no version of its own.

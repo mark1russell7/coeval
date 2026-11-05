@@ -453,7 +453,11 @@ function compileProfile(profile: SyntaxProfile): Compiled {
 
 /** The stop of a parse. The parser throws it, and `parse` gives its issue. */
 class Stop {
-  constructor(readonly issue: SyntaxIssue) {}
+  readonly issue: SyntaxIssue;
+
+  constructor(issue: SyntaxIssue) {
+    this.issue = issue;
+  }
 }
 
 function literalDoc(value: unknown): Json {
@@ -495,13 +499,15 @@ function setOwn(target: Record<string, Json>, key: string, value: Json): void {
 const ESCAPES: Readonly<Record<string, string>> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
 
 class Parser {
+  private readonly syn: Compiled;
+  private readonly text: string;
   private pos = 0;
   private depth = 0;
 
-  constructor(
-    private readonly syn: Compiled,
-    private readonly text: string,
-  ) {}
+  constructor(syn: Compiled, text: string) {
+    this.syn = syn;
+    this.text = text;
+  }
 
   parse(): Json {
     this.skip();

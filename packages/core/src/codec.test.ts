@@ -47,10 +47,13 @@ const sameDate = (a: unknown, b: unknown): boolean | undefined => (a instanceof 
 
 /** A shape of a kind and a size, for the domains of EXT.SPECIFIC. JSON does not write an instance of a class. */
 class Shape {
-  constructor(
-    readonly kind: string,
-    readonly size: number,
-  ) {}
+  readonly kind: string;
+  readonly size: number;
+
+  constructor(kind: string, size: number) {
+    this.kind = kind;
+    this.size = size;
+  }
 }
 
 /**
