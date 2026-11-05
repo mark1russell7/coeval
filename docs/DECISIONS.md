@@ -4282,18 +4282,18 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 - A fault says nothing about noise, so it needs no limit study. A crash, a short run, a missing arm, no cases or different results turns `Speed OK` red at once, with the reason in its log.
 - The jobs `bench` and `verdict` lose the setting.
-- The job `verdict` writes the outputs `state` and `reason`. The state is `same`, `slower` or `no read`. The script `speed-read.ts` gives the answer of the check, and an empty or unknown state is red.
+- The job `verdict` writes the outputs `state` and `reason`. The state is `same`, `slower`, `no read` or `different results`. The script `speed-read.ts` gives the answer of the check, and an empty or unknown state is red.
 - A slower case and a `cannot decide` case stay report only until the flip of `Speed OK`.
 
 **Count of false blocks.** The count covers the 317 runs that started a bench in the 11.4 days of the list. Of these, 30 stopped because a new push cancelled them. Of the other 287, 5 had a fault, and this is 1.7 %.
 
 - Three are the time limit of the job, on 3 heads of one branch.
-- Two are different results, on 2 heads of one branch. The next head of that branch is green.
+- Two are different results, on 2 heads of one branch. The next head of that branch is green, and that does not explain them (K236).
 - None is a fault of a runner, so this decision adds no retry.
 
 One run of the 379 gave a server error, and the count does not read it.
 
-**Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. A pull request that changes a result on purpose also goes red, and that needs a change of the case.
+**Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a fault of determinism and not an absent read. A pull request that changes a result on purpose also goes red, and that needs a change of the case.
 
 **History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
 

@@ -105,12 +105,16 @@ export function holdRead(slower: number, runs: readonly (BenchRun | undefined)[]
   return { hold: false, line: `Hold (D117): no hold. ${String(slower)} slower on equal arms, a row of the A/A table: equal by construction.` };
 }
 
-/** The states of a Speed run that `Speed OK` reads (K235, D167). The state "no read" comes from a fault, and it says nothing about noise. */
-export type SpeedState = "same" | "slower" | "no read";
+/**
+ * The states of a Speed run that `Speed OK` reads (K235, D167). The state "no read" comes from a fault, and it says nothing about noise.
+ * The state "different results" is a finding: two copies gave different results, so a fault of determinism has its own state.
+ */
+export type SpeedState = "same" | "slower" | "no read" | "different results";
 
-/** This function gives the state of a Speed run and its reason, on one line. A fault comes first, because it leaves no reading. */
-export function speedState(slower: number, undecided: number, hold: string, faults: readonly string[]): { readonly state: SpeedState; readonly reason: string } {
+/** This function gives the state of a Speed run and its reason, on one line. Different results come first, then a fault, because each leaves no reading. */
+export function speedState(slower: number, undecided: number, hold: string, faults: readonly string[], different = 0): { readonly state: SpeedState; readonly reason: string } {
   const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
+  if (different > 0) return { state: "different results", reason: oneLine(`${String(different)} cases read different results. ${faults.join(" ")}`) };
   if (faults.length > 0) return { state: "no read", reason: oneLine(faults.join(" ")) };
   if (slower > 0) return { state: "slower", reason: oneLine(`${String(slower)} slower, ${String(undecided)} cannot decide. ${hold}`) };
   return { state: "same", reason: oneLine(`0 slower, ${String(undecided)} cannot decide.`) };
@@ -283,13 +287,13 @@ function main(): void {
     ...runs.flatMap((run, index) => (run === undefined ? [`The run file ${files[index] ?? "(none)"} is missing.`] : [])),
     ...short,
     ...(names.length === 0 ? ["The two run files have no cases."] : []),
-    ...(counts.has("different results") ? [`${String(counts.get("different results"))} cases read different results.`] : []),
   ];
+  const different = counts.get("different results") ?? 0;
   const slower = counts.get("slower") ?? 0;
-  const hold = holdRead(slower, runs, faults.length === 0).line;
+  const hold = holdRead(slower, runs, faults.length === 0 && different === 0).line;
   lines.push("", ...gateLines(gateRead(runs)));
   lines.push("", armLine(runs), hold);
-  const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults);
+  const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different);
   const output = process.env["GITHUB_OUTPUT"];
   if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\n`);
   const text = lines.join("\n");
@@ -298,7 +302,7 @@ function main(): void {
   if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths: the verdict of two runs\n\n${text}\n`);
   for (const line of short) console.error(`::error::${line}`);
   if (names.length === 0) console.error("::error::The two run files have no cases.");
-  if (faults.length > 0) process.exitCode = 1;
+  if (faults.length > 0 || different > 0) process.exitCode = 1;
 }
 
 // A test imports `describeRun`, and only a start of this file gives the verdict.
