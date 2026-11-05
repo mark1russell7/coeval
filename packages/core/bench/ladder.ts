@@ -34,7 +34,8 @@
  *
  * The mode `merge` prints the gate of the verdicts as report only (K227, D164). With `LADDER_BLOCK=1`, a block gives the
  * exit code 3. It also prints the smallest slope that gives a block with the spread of its own runs. Under that size, it
- * has no read. With `LADDER_INJECT=a,b,c,d`, each walk repeats a to d times at the four rungs. The flip job uses this fault.
+ * has no read. With `LADDER_INJECT=s`, each call walks more levels, so the levels of one call grow as `n^s`. The count of
+ * calls does not change, so the fault of a flip keeps the setting of the plain gate.
  *
  * The statistics come from `@mark1russell7/rigor-statistics`: the median, the quantiles, the least squares fit, the
  * mean and the standard deviation (D114). The verdicts and the t quantile stay here, because the shared packages do not
@@ -201,12 +202,15 @@ function chain(levels: number): unknown {
   return doc;
 }
 
-/** This function gives the fault of the flip test: a call that repeats the walk `times` times (K227, D164). */
-function repeated(call: (doc: unknown) => number, times: number): (doc: unknown) => number {
+/**
+ * This function gives the fault of a flip test: a call that walks its document `times` more times, then a shorter document.
+ * No document is deeper than its rung, so the fault does not reach the limit of the stack (K227, D164).
+ */
+function faulted(call: (doc: unknown) => number, times: number, rest: unknown): (doc: unknown) => number {
   return (doc) => {
-    let result = 0;
-    for (let turn = 0; turn < times; turn += 1) result = call(doc);
-    return result;
+    let total = call(doc);
+    for (let time = 0; time < times; time += 1) total += call(doc);
+    return rest === undefined ? total : total + call(rest);
   };
 }
 
@@ -221,13 +225,13 @@ function seenMemory(low: number, high: number): number {
   return fixed(UPPER - (high - low) / 2);
 }
 
-/** This function gives the repeats of a walk at each arm from `LADDER_INJECT`, or nothing with no fault (K227, D164). */
-function injected(aaIndex: number): readonly number[] | undefined {
+/** This function gives the true slope of the fault from `LADDER_INJECT`, or nothing with no fault (K227, D164). */
+function injectedSlope(): number | undefined {
   const text = process.env["LADDER_INJECT"];
   if (text === undefined || text === "") return undefined;
-  const times = text.split(",").map(Number);
-  if (times.length !== STEPS.length || !times.every((value) => Number.isInteger(value) && value > 0)) throw new Error(`Give ${STEPS.length} whole numbers in LADDER_INJECT.`);
-  return [...times, times[aaIndex] as number];
+  const slope = Number(text);
+  if (!(slope >= 1)) throw new Error("Give a slope of at least 1 in LADDER_INJECT.");
+  return slope;
 }
 
 async function measure(): Promise<void> {
@@ -260,8 +264,17 @@ async function measure(): Promise<void> {
   ];
   const results: WalkRun[] = [];
   // arms[walk * docs.length + doc]
-  const faults = injected(aaIndex);
-  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: faults === undefined ? walk.call : repeated(walk.call, faults[d] as number), doc })));
+  // With a fault, one call walks step^(s-1) times the levels of its rung, so the slope over the rungs is s.
+  const fault = injectedSlope();
+  const callOf = (call: (doc: unknown) => number, step: number): ((doc: unknown) => number) => {
+    if (fault === undefined) return call;
+    const more = step ** (fault - 1) - 1;
+    const times = Math.floor(more);
+    const rest = Math.round(step * base * (more - times));
+    return times === 0 && rest === 0 ? call : faulted(call, times, rest === 0 ? undefined : chain(rest));
+  };
+  const steps = [...STEPS, AA_STEP];
+  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: callOf(walk.call, steps[d] as number), doc })));
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {

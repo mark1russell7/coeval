@@ -1,0 +1,134 @@
+# The flip of the ladder gate at the setting of the plain gate: 5 runners, 30 rounds, one call of each walk (K227, D164).
+# Each runner measures a linear walk, and a walk with a true slope of 1.25. That slope is over the size that the gate prints.
+# The job "ladder-flip" of the workflow "measure" runs on each change of the kernel, on one runner. It holds the code of the
+# verdict. This workflow holds the size. A block that does not come means that the printed size is wrong.
+name: Ladder plain
+
+on:
+  # One morning each week, on the minute that the rule runner-budget gives this file.
+  schedule:
+    - cron: "25 5 * * 2"
+  workflow_dispatch:
+  # Each pull request starts this workflow, so its summary check is always there. The job "changes" skips the work when the
+  # pull request does not change the code of the gate (CI.md of the template, "A gate with paths").
+  # The weekly run covers a change of the lock file.
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ladder-plain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      match: ${{ steps.changes.outputs.match }}
+    steps:
+      - id: changes
+        uses: mark1russell7/template/.github/actions/changes@5b6d568175b98264391a21a9da059df7be51d85e # main
+        with:
+          paths: |
+            .github/workflows/ladder-plain.yml
+            .github/workflows/measure.yml
+            packages/core/bench/ladder.ts
+
+  run:
+    name: run ${{ matrix.run }}
+    needs: changes
+    if: needs.changes.outputs.match == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The pnpm version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: A linear walk
+        env:
+          LADDER_RUN: ${{ matrix.run }}
+          LADDER_JSON: ${{ runner.temp }}/linear-${{ matrix.run }}.json
+        run: pnpm exec tsx packages/core/bench/ladder.ts
+      - name: A walk with a slope of 1.25
+        env:
+          LADDER_INJECT: "1.25"
+          LADDER_RUN: ${{ matrix.run }}
+          LADDER_JSON: ${{ runner.temp }}/fault-${{ matrix.run }}.json
+        run: pnpm exec tsx packages/core/bench/ladder.ts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ladder-plain-${{ matrix.run }}
+          path: |
+            ${{ runner.temp }}/linear-${{ matrix.run }}.json
+            ${{ runner.temp }}/fault-${{ matrix.run }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  verdict:
+    needs: [changes, run]
+    if: ${{ !cancelled() && needs.changes.outputs.match == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The script imports the statistics of @mark1russell7/rigor-statistics (D114), thus the job installs the packages.
+      # The pnpm version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ladder-plain-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/plain
+      - name: The gate reads a pass and a block
+        shell: bash
+        env:
+          LADDER_BLOCK: "1"
+        run: |
+          fail=0
+          code=0
+          node packages/core/bench/ladder.ts merge "$RUNNER_TEMP"/plain/linear-*.json 2>&1 | tee linear.txt || code=$?
+          echo "The linear walk: exit code $code, expected 0."
+          test "$code" = 0 || fail=1
+          grep -q 'Gate (report only, D164): pass' linear.txt || fail=1
+          code=0
+          node packages/core/bench/ladder.ts merge "$RUNNER_TEMP"/plain/fault-*.json 2>&1 | tee fault.txt || code=$?
+          echo "The slope of 1.25: exit code $code, expected 3."
+          test "$code" = 3 || { echo "No read at the plain setting: the printed size is wrong."; fail=1; }
+          for reason in 'refsOf is not linear' 'walk is not linear' 'memory of refsOf is over the bound' 'memory of walk is over the bound'; do
+            grep -q "$reason" fault.txt || { echo "The slope of 1.25 has no reason: $reason."; fail=1; }
+          done
+          exit "$fail"
+
+  ladder-plain-ok:
+    name: Ladder plain OK
+    if: always()
+    needs: [changes, run, verdict]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - uses: mark1russell7/template/.github/actions/gate-summary@5b6d568175b98264391a21a9da059df7be51d85e # main
+        with:
+          needs: >-
+            {"changes": ${{ toJSON(needs.changes) }}, "run": ${{ toJSON(needs.run) }},
+            "verdict": ${{ toJSON(needs.verdict) }}}
