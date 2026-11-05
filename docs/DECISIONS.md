@@ -4306,3 +4306,32 @@ The harness SCHED.DEEP-CYCLE-AGREES throws one overflow at each demand of a gene
 - A chain with no cycle keeps the result of the first pass. A node that catches an overflow in such a chain keeps the value of its catch (S2b).
 - The evaluation from scratch of `agreeSchedule` uses the stack of the host for each node. It gives `#DEPTH!` for a ring longer than the stack, thus such a graph is out of its range. Its generated graphs have five nodes.
 - The count of the overflows is one number for the process. An overflow in an unrelated evaluation inside a demand starts a walk, and the bound stays the same.
+
+## D138 (2026-11-03): `parse` gives each issue of a text in its field `issues`, and recovery reads only a text whose brackets and quotes close
+
+**Context.** K144, from C15. `parse` stopped at the first issue, thus an editor saw one fault at each read. The field `issues` of a failed answer is a list, and it held one item. Recovery has two risks. One fault can make a cascade of false issues, and recovery code can slow the read of a valid text.
+
+**Decision.** The field `issues` of a failed answer holds each issue, in the order of the offsets (SYNTAX.ISSUES-ALL). The type `ParseResult` does not change. The new export `MAX_SYNTAX_ISSUES` is the bound, and its value is `20` (SYNTAX.ISSUES-BOUND).
+
+- Two reads. The first read is the parser of before. Only its first issue starts the class `Recovery`, which reads the text again from the start. Thus a valid text runs no recovery code.
+- The first read gives the first item of `issues`, and recovery only adds items after it. Thus a host that reads `issues[0]` gets the same offset, length and message (SYNTAX.ISSUES-FIRST).
+- A gate. Recovery starts only when each quote closes and each bracket closes in its order. Each other bad text keeps its one issue, because its synchronising tokens are not sure.
+- Synchronising tokens come from the profile (SYNTAX.ISSUES-SYNC). They are `calls.separator`, the closer `)`, and the closer `}` when the profile has `constructs.record` or `constructs.let`. The scan skips each quoted text and each inner bracket.
+- A fault in a list moves to the next separator or to the closer of the list. A fault in a group moves to the closer of the group. A bad escape stays in its text, and the read continues after the escape.
+- A fault outside each bracket has no synchronising token, thus the read ends there.
+- Four rules stop a cascade (SYNTAX.ISSUES-CASCADE). The offsets rise, thus `if(1 2)` gets no issue for its count of arguments. The first token after a synchronising token gets no issue, thus `list(,)` gives one issue.
+- The third rule is for a colon in a list. A colon tells that the name of a form has a fault, thus recovery skips the other items of that list.
+- The fourth rule is for a separator in a group. It tells that a function has a fault, thus the fault also ends the item around the group.
+- The end. The scan only moves forward, and the list consumes each synchronising token. The depth stays under `maxDepth`, thus each input ends. An error of a host in a later text ends the read, and the answer keeps the issues so far.
+
+**Alternatives.** A new export `parseAll`. It gives two entries for one job, and a host must change its code to see more. The field `issues` is already a list, and a reader of `issues[0]` sees no change. A new field `more` next to `issues` has the same fault.
+
+Recovery inside the first read. A stack of open brackets or a `try` around each item is on the hot path, and the Speed gate permits no slower case. A read of each item of a list alone, as a small text. Such a read loses the keys and the forms around the item. A resume at the next operator. A scan cannot find an operator safely, because `-` is also inside `2e-3`. A closer that recovery adds for a missing bracket. The text `f(1, (2, 3)` does not tell which bracket is missing.
+
+**Why.** The gate, the rising offsets and the silent first token keep each later issue away from the reach of a fault. A generated test damages printed documents of eight profiles. It reads 38842 bad texts, and the largest count of issues is 5. Of 10501 texts with one fault, each cascade comes from a fault in a quote mark. A digest of each first issue equals the digest from the parser before this decision.
+
+**Limits.** A bad text costs two reads. A text with an open bracket or an open quote gives one issue. A missing closer thus hides each later issue until the host corrects it.
+
+Recovery prefers a missed issue to a false issue. The first token after a synchronising token gets no issue, thus `{a 1, b 2, c 3}` gives one issue. A fault outside brackets ends the read, thus `1 2 + (3 4)` gives one issue.
+
+A fault in a quote mark can pair with a mark inside another text. Then the gate passes, and later issues can be false. This occurred in 9 of the 10501 texts, and each of the 9 holds a text with all three marks. A pattern of a profile that holds a closer can give a false issue at the end of the text.

@@ -4,7 +4,7 @@
 # and private members. The command `api-report check` compares this file with the built .d.ts files.
 # To accept a change of the API, start the build, then `api-report update`, and review the diff.
 
-## . (build/index.d.ts): 398 names
+## . (build/index.d.ts): 399 names
 
 ATTRIBUTE_RUNGS: build/index.d.ts#ATTRIBUTE_RUNGS
 type AgreeOptions: build/index.d.ts#AgreeOptions
@@ -112,6 +112,7 @@ type KindSource: build/index.d.ts#KindSource
 type LazyOp: build/index.d.ts#LazyOp
 type LazyRule: build/index.d.ts#LazyRule
 type Lookup: build/index.d.ts#Lookup
+MAX_SYNTAX_ISSUES: build/index.d.ts#MAX_SYNTAX_ISSUES
 type Machine: build/index.d.ts#Machine
 type MachinePart: build/index.d.ts#MachinePart
 type MergeConflict: build/index.d.ts#MergeConflict
@@ -1215,6 +1216,9 @@ type Lookup = {
   readonly reason: "unknown" | "cycle" | "too-long" | "not-a-kind" | "computed";
   readonly path: readonly Key[];
 };
+
+### build/index.d.ts#MAX_SYNTAX_ISSUES
+export declare const MAX_SYNTAX_ISSUES = 20;
 
 ### build/index.d.ts#Machine
 interface Machine extends Navigator {

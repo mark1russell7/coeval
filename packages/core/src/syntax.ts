@@ -182,7 +182,13 @@ export interface SyntaxIssue {
   readonly message: string;
 }
 
-/** The result of `parse`: a document, or the problems of the text. */
+/**
+ * The most issues that `parse` gives for one text (D138). A person reads a list of this size, and a text with more
+ * issues needs another kind of help.
+ */
+export const MAX_SYNTAX_ISSUES = 20;
+
+/** The result of `parse`: a document, or the problems of the text in the order of their offsets (D138). */
 export type ParseResult = { readonly ok: true; readonly doc: Json } | { readonly ok: false; readonly issues: readonly SyntaxIssue[] };
 
 /**
@@ -499,10 +505,10 @@ function setOwn(target: Record<string, Json>, key: string, value: Json): void {
 const ESCAPES: Readonly<Record<string, string>> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
 
 class Parser {
-  private readonly syn: Compiled;
-  private readonly text: string;
-  private pos = 0;
-  private depth = 0;
+  protected readonly syn: Compiled;
+  protected readonly text: string;
+  protected pos = 0;
+  protected depth = 0;
 
   constructor(syn: Compiled, text: string) {
     this.syn = syn;
@@ -523,11 +529,11 @@ class Parser {
     return this.pos;
   }
 
-  private stop(message: string, offset: number, length: number): never {
+  protected stop(message: string, offset: number, length: number): never {
     throw new Stop({ offset, length, message });
   }
 
-  private skip(): void {
+  protected skip(): void {
     while (this.pos < this.text.length && /\s/.test(this.text[this.pos] as string)) this.pos += 1;
   }
 
@@ -536,7 +542,7 @@ class Parser {
     return pattern.exec(this.text)?.[0];
   }
 
-  private tokenLength(): number {
+  protected tokenLength(): number {
     return (this.at(NAME_AT) ?? this.at(DIGITS_AT) ?? "x").length;
   }
 
@@ -544,7 +550,7 @@ class Parser {
    * This method reads an expression that can have a header name: `name = expr` (D62). The bind symbol of the profile
    * follows the name. A longer operator that starts with the symbol wins, for example `==` over `=`.
    */
-  private bound(): Json {
+  protected bound(): Json {
     const name = this.bindingName();
     if (name === undefined) return this.expr(0);
     this.skip();
@@ -706,7 +712,7 @@ class Parser {
     }
   }
 
-  private escape(): string {
+  protected escape(): string {
     const start = this.pos;
     const c = this.text[start + 1] ?? "";
     if (c === "u") {
@@ -779,14 +785,14 @@ class Parser {
     return { type, value: { bind, body: this.bound() } };
   }
 
-  private group(): Json {
+  protected group(): Json {
     const open = this.pos;
     this.pos += 1;
     const inner = this.bound();
     this.skip();
     if (this.text[this.pos] !== ")") {
       if (this.pos >= this.text.length) this.stop("A closing parenthesis is missing.", open, 1);
-      this.stop("A closing parenthesis is missing.", this.pos, this.tokenLength());
+      this.noEnd(")", false);
     }
     this.pos += 1;
     return inner;
@@ -880,10 +886,16 @@ class Parser {
     return { type: "ref", value: full };
   }
 
-  /** This method reads the arguments of a call in parentheses. `item` reads one argument. `close` ends the arguments. */
-  private argumentsOf<T>(item: () => T, close = ")"): T[] {
-    const open = this.pos;
+  /** This method stops at a token where a group or a list must end. A list can also continue with its separator. */
+  protected noEnd(close: string, list: boolean): never {
     const closer = close === ")" ? "parenthesis" : "brace";
+    const before = list ? `"${this.syn.separator}" or a ` : "";
+    return this.stop(`A ${before}closing ${closer} is missing.`, this.pos, this.tokenLength());
+  }
+
+  /** This method reads the arguments of a call in parentheses. `item` reads one argument. `close` ends the arguments. */
+  protected argumentsOf<T>(item: () => T, close = ")"): T[] {
+    const open = this.pos;
     const args: T[] = [];
     this.pos += 1;
     this.skip();
@@ -902,8 +914,8 @@ class Parser {
         this.pos += 1;
         return args;
       }
-      if (this.pos >= this.text.length) this.stop(`A closing ${closer} is missing.`, open, 1);
-      this.stop(`A "${this.syn.separator}" or a closing ${closer} is missing.`, this.pos, this.tokenLength());
+      if (this.pos >= this.text.length) this.stop(`A closing ${close === ")" ? "parenthesis" : "brace"} is missing.`, open, 1);
+      this.noEnd(close, true);
     }
   }
 
@@ -961,9 +973,171 @@ class Parser {
   }
 }
 
+// === Recovery after the first issue (D138) ===
+
+/** The end of a recovery. The class `Recovery` throws it, and its method `run` catches it. */
+class End {}
+
+function hasBraces(syn: Compiled): boolean {
+  return syn.constructs.record !== undefined || syn.constructs.let !== undefined;
+}
+
+/** This function gives the closer of an opening bracket of a profile, or `undefined` for each other character. */
+function closerOf(syn: Compiled, c: string | undefined): string | undefined {
+  if (c === "(") return ")";
+  return c === "{" && hasBraces(syn) ? "}" : undefined;
+}
+
+function isCloser(syn: Compiled, c: string | undefined): boolean {
+  return c === ")" || (c === "}" && hasBraces(syn));
+}
+
+/** This function gives the position after a quoted text at `at`, or after one other character. An open quote gives `Infinity`. */
+function pastToken(syn: Compiled, text: string, at: number): number {
+  const c = text[at];
+  if (c !== syn.quote && c !== "`") return at + 1;
+  for (let end = at + 1; end < text.length; end += 1) {
+    if (text[end] === "\\" && c === syn.quote && !syn.doubled) end += 1;
+    else if (text[end] === c) return end + 1;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+/** This function tells if each quote of a text closes, and each bracket closes in the order of the brackets. */
+function balanced(syn: Compiled, text: string): boolean {
+  const open: (string | undefined)[] = [];
+  let at = 0;
+  while (at < text.length) {
+    const c = text[at];
+    const closer = closerOf(syn, c);
+    if (closer !== undefined) open.push(closer);
+    else if (isCloser(syn, c) && open.pop() !== c) return false;
+    at = pastToken(syn, text, at);
+  }
+  return at === text.length && open.length === 0;
+}
+
+/**
+ * This parser reads a text again after its first issue and collects the later issues (SYNTAX.ISSUES-SYNC). A fault in
+ * a group or in a list moves the position to a synchronising token of that bracket. The first read has no part of
+ * this class, thus a valid text does not pay for it.
+ */
+class Recovery extends Parser {
+  private readonly issues: SyntaxIssue[];
+  /** The offset of the token after the last synchronising token. An issue at this token can be a result of the fault. */
+  private quiet = -1;
+
+  constructor(syn: Compiled, text: string, issues: SyntaxIssue[]) {
+    super(syn, text);
+    this.issues = issues;
+  }
+
+  /** This method reads the text and gives the issues. An error of a host in the later text ends the read. */
+  run(): readonly SyntaxIssue[] {
+    try {
+      this.parse();
+    } catch (error) {
+      if (error instanceof Stop) this.note(error.issue);
+    }
+    return this.issues;
+  }
+
+  protected override argumentsOf<T>(item: () => T, close = ")"): T[] {
+    return super.argumentsOf(() => this.attempt(item, close, true), close);
+  }
+
+  protected override group(): Json {
+    this.pos += 1;
+    const inner = this.attempt(() => this.bound(), ")", false);
+    this.pos += 1;
+    return inner;
+  }
+
+  /** A bad escape stays inside its text, thus the read continues after the escape. */
+  protected override escape(): string {
+    try {
+      return super.escape();
+    } catch (error) {
+      this.note((error as Stop).issue);
+      this.pos += 2;
+      return "";
+    }
+  }
+
+  /**
+   * This method reads one item of a bracket. A fault moves to the next synchronising token, and the item is then `null`.
+   * A colon in a list tells that the name of a form has a fault, thus the method skips the other items of the list. A
+   * separator in a group tells that a function has a fault, thus the fault also ends the item around the group.
+   */
+  private attempt<T>(item: () => T, close: string, list: boolean): T {
+    const depth = this.depth;
+    try {
+      const made = item();
+      this.skip();
+      if (this.text[this.pos] !== close && !(list && this.atSeparator())) this.noEnd(close, list);
+      return made;
+    } catch (error) {
+      if (!(error instanceof Stop)) throw error;
+      this.depth = depth;
+      this.note(error.issue);
+      const tuple = !list && this.atSeparator();
+      this.sync(close, list && this.text[this.pos] !== ":");
+      if (tuple) {
+        this.pos += 1;
+        throw error;
+      }
+      return null as T;
+    }
+  }
+
+  private atSeparator(): boolean {
+    return this.text.startsWith(this.syn.separator, this.pos);
+  }
+
+  /**
+   * This method keeps a later issue (SYNTAX.ISSUES-CASCADE). The offsets rise, because an issue that starts at or before
+   * the last issue can come from the removed text. The count of the arguments of a form is an example. An issue at the
+   * first token after a synchronising token can come from the same fault, for example a comma inside a number.
+   */
+  private note(issue: SyntaxIssue): void {
+    const last = this.issues[this.issues.length - 1] as SyntaxIssue;
+    if (issue.offset > last.offset && issue.offset !== this.quiet && this.issues.length < MAX_SYNTAX_ISSUES) this.issues.push(issue);
+  }
+
+  /** This method moves to the closer `close` of the bracket, or to a separator of a list, and skips each inner bracket. */
+  private sync(close: string, list: boolean): void {
+    if (this.issues.length >= MAX_SYNTAX_ISSUES) throw new End();
+    let depth = 0;
+    while (this.pos < this.text.length) {
+      const at = this.pos;
+      const c = this.text[at];
+      if (depth === 0 && (c === close || (list && this.atSeparator()))) {
+        this.pos += c === close ? 1 : this.syn.separator.length;
+        this.skip();
+        this.quiet = this.pos;
+        this.pos = at;
+        return;
+      }
+      if (closerOf(this.syn, c) !== undefined) depth += 1;
+      else if (isCloser(this.syn, c)) depth -= 1;
+      this.pos = pastToken(this.syn, this.text, at);
+    }
+    throw new End();
+  }
+}
+
+/**
+ * This function gives each issue of a bad text, with the issue of the first read as the first issue (SYNTAX.ISSUES-FIRST).
+ * Open quotes or brackets make each synchronising token unsure, thus such a text keeps only the first issue.
+ */
+function issuesOf(syn: Compiled, text: string, first: SyntaxIssue): readonly SyntaxIssue[] {
+  return balanced(syn, text) ? new Recovery(syn, text, [first]).run() : [first];
+}
+
 /**
  * This function reads a text into a document with the rules of a profile (SYNTAX.PARSE). It does not throw for a
- * bad text. The issue gives the offset, the length and a message (SYNTAX.SPAN).
+ * bad text. Each issue gives the offset, the length and a message (SYNTAX.SPAN). The field `issues` gives at most
+ * `MAX_SYNTAX_ISSUES` issues (SYNTAX.ISSUES-ALL). A host that reads the first issue reads the first fault of the text.
  *
  * @param profile - The syntax profile.
  * @param text - The text.
@@ -971,11 +1145,12 @@ class Parser {
  * @throws {TypeError} The profile is not valid, for example an operator has two entries of the same place.
  */
 export function parse(profile: SyntaxProfile, text: string): ParseResult {
-  const parser = new Parser(compileProfile(profile), text);
+  const syn = compileProfile(profile);
+  const parser = new Parser(syn, text);
   try {
     return { ok: true, doc: parser.parse() };
   } catch (error) {
-    if (error instanceof Stop) return { ok: false, issues: [error.issue] };
+    if (error instanceof Stop) return { ok: false, issues: issuesOf(syn, text, error.issue) };
     if (isStackOverflow(error)) return { ok: false, issues: [{ offset: parser.position(), length: 0, message: "The text is too deep for the stack of the host." }] };
     throw error;
   }
