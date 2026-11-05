@@ -6,6 +6,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   # release.yml starts these gates before a release
   workflow_call:
@@ -19,7 +20,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: mark1russell7/template/.github/workflows/reusable-ci.yml@c8d2f57af6932442af82d2f2223931e47c11beb1 # main
+    uses: mark1russell7/template/.github/workflows/reusable-ci.yml@5b6d568175b98264391a21a9da059df7be51d85e # main
     with:
       # The property test of one meaning (K9) examines more documents in CI than in a local run
       env: '{"COEVAL_AGREE_COUNT": "2000"}'

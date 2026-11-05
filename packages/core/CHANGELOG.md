@@ -2,6 +2,28 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.22.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. A deep recursion through closures gives `#DEPTH!` at a lower depth than before. No export goes.
+
+### Changes of behavior
+
+- **A clock for `call` gives one `#DEPTH!` in each tier (D125).** Each application of a closure of `fn` counts one level. An application by `call` and an application by an operation of the host both count. The clock permits `ceil(maxDepth / 4)` levels, thus 250 for the default `maxDepth` of 1000.
+  - In 0.21.0, an endless recursion stopped at the stack of the host. It gave `#DEPTH!` with a `RangeError` as its cause, at a place that changed with the tier.
+  - In 0.22.0, it gives `#DEPTH!` with the reason "The applications of functions nest deeper than 250 levels." The document that applies the closure gets the place, in each tier.
+  - The break: a finite recursion of 251 to approximately 1600 nested applications gave its value in 0.21.0. In 0.22.0, it gives `#DEPTH!`. A host that needs a deeper recursion sets a larger `maxDepth`.
+  - The limit comes from one measure. On Node.js 24.21.0 on Windows, the reference tier overflowed the stack of the host after 937 applications, and the plan after 1595.
+  - The test FORMULA.CALL-DEPTH runs the reference at twice the default limit with no `RangeError`. Thus a Node.js version with a smaller stack fails that test in CI first.
+
+### New features
+
+- **Attributes with parameters (D124).** The new table `tree.at` of a tree contract gives an attribute with parameters an entry `{ params, equation }`. The new standard step `tree.at` with the fields `attr` and `args` reads an instance of the node. For example, a parent asks for the height of a child at a given width.
+  - The equation sees each parameter as a name, for example `names.width`. A missing or an extra argument gives `#VALUE!`.
+  - Two arguments share one memo entry only when they are equal by DOC.EQUALS. A host with cells gets one cell for each instance.
+  - `check` examines each entry and each step with literal arguments. The graph of attribute instances gives an exact vertex for such a step, with the new field `args`.
+  - An entry cannot be `circular` or `collect`. The text syntax has no form for `args`, thus a step with arguments is a document.
+  - The new exports are `AtArgs`, `AtEquation`, `AtRule`, `argsKey`, `atArgsOf` and `atRuleOf`.
+
 ## 0.21.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. `typeFromSchema` gives a narrower type for a schema with more than one of `type`, `anyOf` and `oneOf`. `check` finds more type issues. No export goes.

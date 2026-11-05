@@ -44,10 +44,11 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | The syntax kit | `parse`, `print`, `syntaxFormat`, `SyntaxProfile`, `SyntaxOperator`, `SyntaxIssue`, `STD_SYNTAX`, `WORLD_SYNTAX` | One parser and one printer for the text of a language. A profile gives the operators, the literals, the references and the calls. `parse` gives documents or issues with spans, and `print` gives text that `parse` reads back (D41). `WORLD_SYNTAX` is the profile of `STD_WORLD` (D64) |
 | One meaning | `agree`, `reference`, `formulaDefinitions`, `STD_DEFINITIONS`, `generate`, `TierInput` | A reference interpreter that compiles nothing, and `agree`, which compares a plan with it and with the second tier of a language. Each tier gets the mock `perform` and the `verb` of `agree`. `generate` builds random documents from the kind contracts. `agreeRun` compares runs, and the free reads of the plan and of the reference run. The option `reads` of `reference` and `referenceRun` records the reads of the reference (D67) |
 | Conformance | `conforms`, `ConformOptions`, `Finding`, `Obligation`, `ConformProbe` | The obligations of host code, examined for one evaluator, runner, walker or `deref` with probe parts and a probe runtime. Each finding names the obligation, the reason and a probe that shows it (D36) |
+| The laws of a codec | `codecLaws`, `CodecLawsOptions`, `CodecFinding`, `CodecLaw`, `CodecProbe` | The laws of the codec of one domain, examined for sample members and edge values: `encode` gives JSON and one document, and `decode` gives the member again (D130) |
 | Early cutoff | `sameResult` | A safe equality of two results for a schedule. Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place |
 | Reads | `verifyReads`, `printReads`, `Read`, `ReadsCheck`, `VerifyOptions`, `PrintOptions`, `ReadPrints` | The option `reads` of an evaluation records each path that it resolves, with what the path reached. `verifyReads` resolves each free read again in a new context, and it tells if the old result stays valid (D26). The prints of `printReads` find a value that changed in place (D112) |
 | Durability | `durable`, `Durable`, `DurableOptions`, `DurableCounts`, `Epochs` | A cache of plans, facts and results with one epoch for the structure and one for the data. A change of data compiles nothing. A pure document verifies its reads, and another document evaluates again (D30) |
-| Schedules | `schedule`, `Schedule`, `ScheduleOptions`, `ScheduleCounts`, `NodeRunOptions`, `edgesOf`, `NodeEdge`, `NodeInfo` | A graph of named nodes under the root `world`: the edges from the static reads, the side of each node, and an evaluation on demand through `durable`. Each node of a cycle gives `#CYCLE!`, and a node on the run side is a sink (D31). A demand of the host first demands the nodes of its eager edges, deepest first, thus a long chain gives no `#DEPTH!` (D33) |
+| Schedules | `schedule`, `Schedule`, `ScheduleOptions`, `ScheduleCounts`, `NodeRunOptions`, `edgesOf`, `NodeEdge`, `NodeInfo`, `checkCycles`, `CycleIssue` | A graph of named nodes under the root `world`: the edges from the static reads, the side of each node, and an evaluation on demand through `durable`. Each node of a cycle gives `#CYCLE!`, and a node on the run side is a sink (D31). A demand of the host first demands the nodes of its eager edges, deepest first, thus a long chain gives no `#DEPTH!` (D33). `checkCycles` gives the certain cycles as issues before a run (D131) |
 | The analysis of a graph | `components`, `heights`, `nodeLayers`, `necessary`, `cycles`, `NodeGraph`, `GraphNode`, `GraphEdge`, `GraphCycle`, `GraphOptions` | The strongly connected components, the heights of a push schedule, the layers of independent nodes, the nodes that an observer needs, and the certain and the possible cycles. Each function has its own stack, thus a chain of 100000 nodes does not overflow. The graph of a schedule is such a graph (D33) |
 | Types | `ValueType`, `Domain`, `fits`, `member`, `typeIssues`, `join`, `typeText`, `STD_DOMAINS`, `extendDomain`, `DomainExtension` | Value types as JSON terms, for the checks of types. A language adds its base types as domains of its machine, each with a membership test, parents and the types of its steps. `unknown` fits each type, and each type fits it. `join` gives one type for two types, and `typeText` gives the text of a type. `extendDomain` adds parents or steps to a domain of another language through the merge |
 | The check of types | `typeCheck`, `Typing`, `Typed`, `TypeRule`, `TypeInput`, `PartType`, `TypeProblem`, `Declared`, `Signature` | A check that synthesizes the type of each document and checks it against the type that its position needs. The type rule of an evaluator, the signatures of a formula profile, and `result` and `expect` of a contract give the types. A wrong type gives the static issue `#TYPE!`, and an evaluation does not change |
@@ -83,6 +84,7 @@ const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); /
 - `header.bind` is the symbol of a header name, for example `=` in `total = 2 + 3`. A form name can have dots, for example `math.product`.
 - `args` of a form tells how its arguments make the value. `named` reads `panel(width: 300)` as a record, and `literal` reads `text("big")` as data.
 - A step in parentheses after a dot is a document, for example `self.parent.(nearest(type: "panel")).width`.
+- `constructs` names the kinds of four text forms: `{a: 1}`, `let {a: 1} in a`, `(x) => x` and `(f)(1)`. `STD_SYNTAX` sets all four. Each text was an issue before, thus no name becomes reserved.
 - `literals.envelopes` names the kinds of the data envelopes, and `wrap` of a form names the arguments that take a document. A literal there gets its envelope, thus `list(1)` is `list(number(1))`.
 - A bare name is a path from `refs.bare`. A name in `refs.roots` starts a path. `refs.patterns` add other references, for example `A1`, with `read` and `write`.
 - An issue of `parse` has `offset`, `length` and `message`. Show it at its span in an editor.
@@ -108,6 +110,19 @@ for (const name of Object.keys(machine.evaluators)) {
 - A runner that uses `all` runs in up to six orders of its waits. A result that changes with the order is a finding of the check `parallel`. Its reason names the two orders and the two results.
 - A walker gets the checks `result`, `local`, `ladder`, `hops`, `typed` and `C4`. The option `things` adds things before the step. The code of a `deref` gets `result`, `local` and `has`.
 - The checks `typed` and `result` also call the functions of a formula profile. An operation keeps its signatures, and an extension keeps its entry in `extTypes`.
+
+`codecLaws` examines the codec of one domain. Start it in a test for each domain with a codec. An empty list means that each member keeps each law.
+
+```ts
+import { codecLaws } from "@mark1russell7/coeval";
+
+const sameDate = (a: unknown, b: unknown) => (a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : undefined);
+expect(codecLaws(machine, "date", { samples: [new Date(0)], equal: sameDate })).toEqual([]);
+```
+
+- The function tests the given samples, edge values and the lists of the domains, for example `NaN`, `-0` and empty containers. A value outside the domain gets no test.
+- The laws are `samples`, `encode`, `json`, `stable`, `decode` and `roundtrip`. Each finding has a `probe`: the domain, the member and its data.
+- Does a member hold an object? Give the rule `equal`, because `sameValue` compares an object only with itself.
 
 ## License
 

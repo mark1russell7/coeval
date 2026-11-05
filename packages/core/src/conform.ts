@@ -354,6 +354,21 @@ interface Contract {
  * resolution. In a run, a probe part and an effect wait with a promise that the probe driver answers at once.
  */
 class Shot implements Runtime {
+  readonly machine: Machine;
+  /** `true` when the code under test is a runner. */
+  readonly runner: boolean;
+  readonly scenario: Scenario;
+  /** The context of the document. */
+  readonly context: Context;
+  /** The key of each part, for the reasons. */
+  readonly keys: readonly string[];
+  /** `true` for each part that the runner can evaluate with its code, by the rules `drives` (D119). */
+  private readonly driven: readonly boolean[];
+  private readonly perform: Perform | undefined;
+  /** The resolutions of an earlier evaluation. Each resolution with the same path gets the same answer (C4). */
+  private readonly replay: readonly Asked[] | undefined;
+  /** The order of the waits of `all`. */
+  private readonly pick: Pick;
   readonly calls: Call[] = [];
   readonly caused: Caused[] = [];
   readonly asked: Asked[] = [];
@@ -373,22 +388,25 @@ class Shot implements Runtime {
   readonly running: boolean;
 
   constructor(
-    readonly machine: Machine,
-    /** `true` when the code under test is a runner. */
-    readonly runner: boolean,
-    readonly scenario: Scenario,
-    /** The context of the document. */
-    readonly context: Context,
-    /** The key of each part, for the reasons. */
-    readonly keys: readonly string[],
-    /** `true` for each part that the runner can evaluate with its code, by the rules `drives` (D119). */
-    private readonly driven: readonly boolean[],
-    private readonly perform: Perform | undefined,
-    /** The resolutions of an earlier evaluation. Each resolution with the same path gets the same answer (C4). */
-    private readonly replay: readonly Asked[] | undefined,
-    /** The order of the waits of `all`. */
-    private readonly pick: Pick,
+    machine: Machine,
+    runner: boolean,
+    scenario: Scenario,
+    context: Context,
+    keys: readonly string[],
+    driven: readonly boolean[],
+    perform: Perform | undefined,
+    replay: readonly Asked[] | undefined,
+    pick: Pick,
   ) {
+    this.machine = machine;
+    this.runner = runner;
+    this.scenario = scenario;
+    this.context = context;
+    this.keys = keys;
+    this.driven = driven;
+    this.perform = perform;
+    this.replay = replay;
+    this.pick = pick;
     this.running = scenario.running;
   }
 
@@ -1008,7 +1026,10 @@ function differsByOrder(a: Shot, b: Shot, equal: Env["equal"]): string | undefin
   return `The effects differ: [${effects(a)}] and [${effects(b)}].`;
 }
 
-/** This function gives the seed of the orders of a probe document (FNV-1a of its JSON). No time goes into it (D128). */
+/**
+ * This function gives the seed of the orders of a probe document (FNV-1a of its JSON). No time goes into it (D128).
+ * The home of a hash for seeds is `@mark1russell7/rigor-generators`. This copy stays here because core has no dependencies.
+ */
 function orderSeed(doc: Envelope, seed: number): number {
   let hash = (2166136261 ^ seed) >>> 0;
   for (const unit of JSON.stringify(doc)) hash = Math.imul(hash ^ (unit.codePointAt(0) as number), 16777619) >>> 0;

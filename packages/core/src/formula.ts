@@ -97,7 +97,11 @@ const SKIPPED: unique symbol = /* @__PURE__ */ Symbol("skipped");
 
 /** The value of a name whose binding failed. A reference to the name gives the error. */
 export class Held {
-  constructor(readonly error: EvalError) {}
+  readonly error: EvalError;
+
+  constructor(error: EvalError) {
+    this.error = error;
+  }
 }
 
 const CLOSURE: unique symbol = /* @__PURE__ */ Symbol.for("coeval.closure") as never;

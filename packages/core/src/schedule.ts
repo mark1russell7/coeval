@@ -4,7 +4,8 @@ import { type Failed, type Result, Failure, fail } from "./errors.ts";
 import { type Machine, type Perform, type StopSignal, rootContext } from "./evaluate.ts";
 import { type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 import type { DocFacts, StaticRead } from "./facts.ts";
-import { deepestFirst } from "./graph.ts";
+import { type NodeGraph, cycles, deepestFirst } from "./graph.ts";
+import type { Issue } from "./static.ts";
 import type { Side } from "./world.ts";
 
 /*
@@ -187,6 +188,41 @@ interface Epoch {
 }
 
 /**
+ * One certain cycle of a schedule, in the form of an issue of `check` (SCHED.CYCLE-ISSUES). The first node of `nodes`
+ * gives the place and the reason. The place is the key of that node under the root `world`, and the reason has the
+ * text of `#CYCLE!` for that node.
+ */
+export interface CycleIssue extends Issue {
+  readonly code: "#CYCLE!";
+  /** The nodes of the cycle, sorted by name as the record of the root `world` sorts them. */
+  readonly nodes: readonly string[];
+}
+
+/**
+ * This function gives the certain cycles of a schedule before a run (SCHED.CYCLE-ISSUES, D131). It reads only `graph()`,
+ * thus it evaluates no node. A host calls it when it needs the answer. A run does not call it.
+ *
+ * - Each certain cycle of `cycles` gives one issue. The issue has the place `[id]` of its first node.
+ * - A possible cycle gives no issue, because a run can skip its lazy read (SCHED.CYCLE-CERTAIN).
+ * - The order of the `set` calls does not change the answer (SCHED.CYCLE-ORDER).
+ * - No node of an issue gives a value. A read can fail before it reaches the cycle, and the node then gives that
+ *   error (SCHED.CYCLE-AGREES). Thus the demand of D33 still gives the result of each node.
+ *
+ * @param target - The schedule, or another object that gives a graph of nodes.
+ * @returns One issue for each certain cycle, sorted by the first node of each issue.
+ */
+export function checkCycles(target: { graph(): NodeGraph<string> }): readonly CycleIssue[] {
+  const out: CycleIssue[] = [];
+  for (const cycle of cycles(target.graph())) {
+    if (!cycle.certain) continue;
+    const nodes = [...cycle.nodes].sort();
+    const first = nodes[0] as string;
+    out.push({ code: "#CYCLE!", place: [first], reason: cycleOf(first).error.reason, nodes });
+  }
+  return out.sort((a, b) => ((a.nodes[0] as string) < (b.nodes[0] as string) ? -1 : 1));
+}
+
+/**
  * This function makes the demand schedule of a graph of named nodes (S1, R4, D31). A host gives each node a name and
  * a document. The root `world` of each node reaches the other nodes by name. The context of the host gives the other
  * roots.
@@ -229,6 +265,8 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
   const onOpen = new Set<string>();
   // The nodes in evaluation that read themselves.
   const looped = new Set<string>();
+  // The length of the stack at the kept read that resolves at this time, or -1 without such a read (SCHED.OWN-NODE).
+  let keptAt = -1;
   let count = 0;
   let ahead = 0;
 
@@ -292,6 +330,8 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       return known;
     }
     if (busy.has(id)) {
+      // The evaluation of a node did not ask for its kept read of the node itself, thus that read closes no cycle (SCHED.OWN-NODE).
+      if (reader === id && keptAt === stack.length) return cycleOf(id);
       // A read of a node in evaluation closes a cycle. It gives the same error as the final result of that node.
       if (reader !== undefined) lower(reader, order.get(id) as number);
       if (reader === id) looped.add(id);
@@ -380,6 +420,17 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
         if (result === undefined) return undefined;
         if (!result.ok) throw new Failure(result.error);
         return { thing: result.value };
+      },
+      // A kept read that a reference leads to a node still demands that node, and only its own node gives no cycle.
+      // A nested demand has a longer stack, thus each read of its evaluation counts (SCHED.OWN-NODE).
+      keeping(read) {
+        const outer = keptAt;
+        keptAt = stack.length;
+        try {
+          return read();
+        } finally {
+          keptAt = outer;
+        }
       },
     };
     // The context has a world, thus `rootContext` only gives it its grant (CAP.NARROW-CODE). Each evaluation of the

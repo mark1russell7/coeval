@@ -185,7 +185,7 @@ describe("the syntax kit", () => {
     expect(text(STD_SYNTAX, ref("names", "true", "a b"))).toBe("`true`.`a b`");
     expect(text(STD_SYNTAX, { type: "if", value: { test: true, then: "a\"b" } })).toBe('if(true, "a\\"b")');
     // A document without a text form gives #VALUE! at its place.
-    expect(print(STD_SYNTAX, op("add", 1, { type: "let", value: { bind: {}, body: 1 } }))).toMatchObject({ ok: false, error: { code: "#VALUE!", place: [1] } });
+    expect(print(STD_SYNTAX, op("add", 1, { type: "mine", value: 1 }))).toMatchObject({ ok: false, error: { code: "#VALUE!", place: [1] } });
     expect(print(STD_SYNTAX, [1, 2])).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
     expect(print(ALGEBRA, true)).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
     // The verb format (D23): a merge adds it, and a part with its own entry gives its own text.
@@ -470,6 +470,177 @@ describe("the syntax kit", () => {
     expect(run("greater(1)")).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
   });
 
+  it("[SYNTAX.RECORD-TEXT] braces write and read a record of documents, and a key that is not a plain name goes in backticks", () => {
+    const fields: Record<string, Json> = { a: 1, "b c": op("add", x, 1), if: "s", "": y, "0": { type: "lit", value: 2, name: "n" } };
+    Object.defineProperty(fields, "__proto__", { value: 3, enumerable: true, writable: true, configurable: true });
+    const record: Json = { type: "record", value: fields };
+    const written = '{`0`: n = 2, a: 1, `b c`: x + 1, if: "s", ``: y, __proto__: 3}';
+    expect(text(STD_SYNTAX, record)).toBe(written);
+    const back = doc(STD_SYNTAX, written);
+    expect(docEquals(back, record)).toBe(true);
+    expect(Object.hasOwn((back as { value: object }).value, "__proto__")).toBe(true);
+    expect(doc(STD_SYNTAX, "{}")).toEqual({ type: "record", value: {} });
+    expect(doc(STD_SYNTAX, " { a : { b : 1 } } ")).toEqual({ type: "record", value: { a: { type: "record", value: { b: 1 } } } });
+    // A record is one term, thus it needs no parentheses.
+    expect(doc(STD_SYNTAX, "{a: 1} + 2")).toEqual(op("add", { type: "record", value: { a: 1 } }, 2));
+    expect(text(STD_SYNTAX, op("neg", { type: "record", value: {} }))).toBe("- {}");
+    expect(issue(STD_SYNTAX, "{a}")).toEqual({ offset: 1, length: 1, message: 'Each entry of the record is a key, a ":" and a document.' });
+    expect(issue(STD_SYNTAX, "{1: 2}")).toEqual({ offset: 1, length: 1, message: 'Each entry of the record is a key, a ":" and a document.' });
+    expect(issue(STD_SYNTAX, "{a: 1,}")).toEqual({ offset: 6, length: 1, message: 'Each entry of the record is a key, a ":" and a document.' });
+    expect(issue(STD_SYNTAX, "{a: 1, a: 2}")).toEqual({ offset: 7, length: 1, message: "The record has the field a two times." });
+    expect(issue(STD_SYNTAX, "{a: 1")).toEqual({ offset: 0, length: 1, message: "A closing brace is missing." });
+    expect(issue(STD_SYNTAX, "{a: 1 b: 2}")).toEqual({ offset: 6, length: 1, message: 'A "," or a closing brace is missing.' });
+    // A value that is not a record has no text, and a bad field gives its place.
+    expect(print(STD_SYNTAX, { type: "record", value: [1] })).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the kind record." } });
+    expect(print(STD_SYNTAX, { type: "record", value: { a: [1] } })).toMatchObject({ ok: false, error: { place: ["a"] } });
+    // A call form of the kind wins in print, and the two texts read to one document.
+    const small: Json = { type: "record", value: { a: 1 } };
+    expect(text(RECORDS, small)).toBe("record(a: 1)");
+    expect(doc(RECORDS, "{a: 1}")).toEqual(small);
+    expect(constructValue("{a: 1 + 2, b: x}", { x: 4 })).toEqual(ok({ a: 3, b: 4 }));
+    expect(constructFormat({ type: "record", value: { a: op("add", 1, x) } })).toEqual(ok("{a: 1 + x}"));
+  });
+
+  it("[SYNTAX.LET-TEXT] let, a record of bindings, the word in and a body write and read the construct let", () => {
+    const a = ref("names", "a");
+    const b = ref("names", "b");
+    const local = (bind: Readonly<Record<string, Json>>, body: Json): Json => ({ type: "let", value: { bind, body } });
+    expect(doc(STD_SYNTAX, "let {a: 1, b: x} in a + b")).toEqual(local({ a: 1, b: x }, op("add", a, b)));
+    expect(doc(STD_SYNTAX, "let {} in 1")).toEqual(local({}, 1));
+    expect(doc(STD_SYNTAX, "let{a:1}in(a)")).toEqual(local({ a: 1 }, a));
+    // The body goes as far as it can, thus the form needs parentheses as a term of an operator.
+    expect(doc(STD_SYNTAX, "1 + let {a: 2} in a * 3")).toEqual(op("add", 1, local({ a: 2 }, op("mul", a, 3))));
+    expect(text(STD_SYNTAX, op("add", 1, local({ a: 2 }, op("mul", a, 3))))).toBe("1 + (let {a: 2} in a * 3)");
+    expect(text(STD_SYNTAX, op("add", local({ a: 1 }, a), 1))).toBe("(let {a: 1} in a) + 1");
+    expect(text(STD_SYNTAX, local({ a: 1 }, op("add", a, 1)))).toBe("let {a: 1} in a + 1");
+    // A separator or a closing brace ends the body.
+    expect(doc(STD_SYNTAX, "f(let {} in 1, 2)")).toEqual(op("f", local({}, 1), 2));
+    for (const source of ["let {a: let {b: 1} in b} in a", "f(let {} in 1, 2)", "let {a: b = 1} in c = a", "n = let {} in 1", "let {`a b`: 1, in: 2} in in"]) {
+      expect(text(STD_SYNTAX, doc(STD_SYNTAX, source))).toBe(source);
+    }
+    expect(issue(STD_SYNTAX, "let {a: 1} a")).toEqual({ offset: 11, length: 1, message: 'The word "in" is missing after the bindings of let.' });
+    expect(issue(STD_SYNTAX, "let {a: 1} input")).toEqual({ offset: 11, length: 5, message: 'The word "in" is missing after the bindings of let.' });
+    expect(issue(STD_SYNTAX, "let {}")).toEqual({ offset: 6, length: 0, message: 'The word "in" is missing after the bindings of let.' });
+    expect(issue(STD_SYNTAX, "let {} in")).toEqual({ offset: 9, length: 0, message: "A term is missing at the end of the text." });
+    expect(issue(STD_SYNTAX, "let {a}")).toMatchObject({ offset: 5, message: 'Each entry of the record is a key, a ":" and a document.' });
+    // Another value has no text, and a bad part gives its place.
+    for (const value of [{ bind: {} }, { bind: 1, body: 1 }, { bind: {}, body: 1, more: 2 }, [1]]) {
+      expect(print(STD_SYNTAX, { type: "let", value }), JSON.stringify(value)).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the kind let." } });
+    }
+    expect(print(STD_SYNTAX, local({ a: [1] }, 1))).toMatchObject({ ok: false, error: { place: ["bind", "a"] } });
+    expect(print(STD_SYNTAX, local({}, [1]))).toMatchObject({ ok: false, error: { place: ["body"] } });
+    expect(constructValue("let {a: 2, b: 3} in a * b")).toEqual(ok(6));
+    expect(constructFormat(local({ a: op("add", 1, 2) }, a))).toEqual(ok("let {a: 1 + 2} in a"));
+  });
+
+  it("[SYNTAX.FN-TEXT] names in parentheses, the symbol => and a body write and read the construct fn", () => {
+    const fn = (params: readonly string[], body: Json): Json => ({ type: "fn", value: { params: [...params], body } });
+    expect(doc(STD_SYNTAX, "(x, y) => x + y")).toEqual(fn(["x", "y"], op("add", x, y)));
+    expect(doc(STD_SYNTAX, "() => 1")).toEqual(fn([], 1));
+    expect(doc(STD_SYNTAX, "( x ) =>x")).toEqual(fn(["x"], x));
+    // A parameter is a name in each case: a reserved word, a word operator or a name in backticks.
+    expect(doc(STD_SYNTAX, "(`a b`, if, true, not, self, ``) => 1")).toEqual(fn(["a b", "if", "true", "not", "self", ""], 1));
+    // Without the symbol, the text is the same group as before.
+    expect(doc(STD_SYNTAX, "(x)")).toEqual(x);
+    expect(doc(STD_SYNTAX, "(x) + 1")).toEqual(op("add", x, 1));
+    expect(doc(STD_SYNTAX, "(x) >= 1")).toEqual(op("ge", x, 1));
+    // The body goes as far as it can, thus the form needs parentheses as a term of an operator.
+    expect(text(STD_SYNTAX, op("add", fn(["x"], x), 1))).toBe("((x) => x) + 1");
+    expect(text(STD_SYNTAX, op("not", fn([], 1)))).toBe("not (() => 1)");
+    for (const source of ["(x) => (y) => x + y", "f((x) => x, 2)", "g = (x) => x", "(x) => b = 1", "let {f: (x) => x, g: 1} in g", "(`a b`, if) => 1"]) {
+      expect(text(STD_SYNTAX, doc(STD_SYNTAX, source))).toBe(source);
+    }
+    // The contract of fn refuses two equal names, not the text.
+    expect(text(STD_SYNTAX, fn(["x", "x"], 1))).toBe("(x, x) => 1");
+    expect(doc(STD_SYNTAX, "(x, x) => 1")).toEqual(fn(["x", "x"], 1));
+    expect(issue(STD_SYNTAX, "(x) =>")).toEqual({ offset: 6, length: 0, message: "A term is missing at the end of the text." });
+    expect(issue(STD_SYNTAX, "(x, 1) => 2")).toMatchObject({ offset: 2, message: "A closing parenthesis is missing." });
+    expect(issue(STD_SYNTAX, "(x,) => 2")).toMatchObject({ offset: 2, message: "A closing parenthesis is missing." });
+    expect(issue(STD_SYNTAX, "x => 1")).toMatchObject({ offset: 3, message: 'The text ">" cannot start a term.' });
+    expect(issue(STD_SYNTAX, "(`x")).toMatchObject({ offset: 1, message: "A closing backtick is missing." });
+    for (const value of [{ params: [1], body: 1 }, { params: "x", body: 1 }, { params: [] }, { params: [], body: 1, more: 2 }]) {
+      expect(print(STD_SYNTAX, { type: "fn", value }), JSON.stringify(value)).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the kind fn." } });
+    }
+    expect(print(STD_SYNTAX, fn(["x"], [1]))).toMatchObject({ ok: false, error: { place: ["body"] } });
+    expect(constructValue("((x, y) => x * y)(3, 4)")).toEqual(ok(12));
+    expect(constructFormat(fn(["x"], op("add", x, 1)))).toEqual(ok("(x) => x + 1"));
+  });
+
+  it("[SYNTAX.CALL-TEXT] arguments after a group write and read a call of a value, and a name before arguments stays an operation", () => {
+    const f = ref("names", "f");
+    const call = (target: Json, ...args: Json[]): Json => ({ type: "call", value: { fn: target, args } });
+    expect(doc(STD_SYNTAX, "(f)(1, x)")).toEqual(call(f, 1, x));
+    expect(doc(STD_SYNTAX, "f(1, x)")).toEqual(op("f", 1, x));
+    expect(doc(STD_SYNTAX, "(f)()")).toEqual(call(f));
+    expect(doc(STD_SYNTAX, "(f) (1)")).toEqual(call(f, 1));
+    expect(doc(STD_SYNTAX, "(f)(1)(2)")).toEqual(call(call(f, 1), 2));
+    expect(doc(STD_SYNTAX, "(f)(1) ^ 2")).toEqual(op("pow", call(f, 1), 2));
+    expect(doc(STD_SYNTAX, "-(f)(1)")).toEqual(op("neg", call(f, 1)));
+    for (const source of ["(f)(1, x)", "(f)(1)(2)", "((x) => x)(1)", "(let {g: f} in g)(1)", "(a = f)(1)", "(f(1))(2)", "(x + 1)()", "(f)(a = 1, (y) => y) + 2", "(1)(2)"]) {
+      expect(text(STD_SYNTAX, doc(STD_SYNTAX, source))).toBe(source);
+    }
+    // Only a group comes before the arguments, thus these texts stay issues.
+    expect(issue(STD_SYNTAX, "f(1)(2)")).toMatchObject({ offset: 4, message: "The text continues after the expression." });
+    expect(issue(STD_SYNTAX, "1(2)")).toMatchObject({ offset: 1, message: "The text continues after the expression." });
+    expect(issue(STD_SYNTAX, "(f)(1")).toEqual({ offset: 3, length: 1, message: "A closing parenthesis is missing." });
+    // The text `(f)()` reads `args: []`, thus a document without `args` has no text.
+    for (const value of [{ fn: f }, { fn: f, args: 1 }, { fn: f, args: [], more: 2 }, { args: [] }]) {
+      expect(print(STD_SYNTAX, { type: "call", value }), JSON.stringify(value)).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the kind call." } });
+    }
+    expect(print(STD_SYNTAX, call([1], 1))).toMatchObject({ ok: false, error: { place: ["fn"] } });
+    expect(print(STD_SYNTAX, call(f, 1, [2]))).toMatchObject({ ok: false, error: { place: ["args", 1] } });
+    expect(constructValue("let {double: (v) => v + v} in (double)(3)")).toEqual(ok(6));
+    expect(constructValue("(f)(2)", { f: (v: number) => v + 1 })).toEqual(ok(3));
+    expect(constructFormat(call(f, op("add", 1, x)))).toEqual(ok("(f)(1 + x)"));
+  });
+
+  it("[SYNTAX.CONSTRUCTS] the field constructs turns each form on, and each text of before reads as before", () => {
+    const { constructs: _constructs, ...before } = STD_SYNTAX;
+    // Without the field, each form stays an issue.
+    for (const source of ["{a: 1}", "{}", "let {} in 1", "(x) => x", "() => 1", "(f)(1)", "(f) (1)"]) {
+      expect(parse(before, source).ok, source).toBe(false);
+      expect(parse(STD_SYNTAX, source).ok, source).toBe(true);
+    }
+    expect(print(before, { type: "record", value: {} })).toMatchObject({ ok: false, error: { reason: "This syntax has no text for the kind record." } });
+    // No name is reserved: `let`, `in`, `fn`, `call` and `record` stay names and operations.
+    for (const name of ["let", "in", "fn", "call", "record"]) {
+      for (const source of [name, `${name} + 1`, `${name} = 1`, `${name}.a`, `${name}(1, 2)`, `${name}()`, `${name} or x`]) {
+        expect(doc(STD_SYNTAX, source), source).toEqual(doc(before, source));
+        expect(text(STD_SYNTAX, doc(STD_SYNTAX, source)), source).toBe(text(before, doc(before, source)));
+      }
+    }
+    expect(doc(STD_SYNTAX, "let(1, 2)")).toEqual(op("let", 1, 2));
+    // Each generated document of the profile of before has one text, and two profiles read it to one document.
+    const gen: Generator = { ...(GENERATORS["standard"] as Generator), profile: before };
+    for (let seed = 1; seed <= 300; seed += 1) {
+      const made = generateDoc(gen, random(seed), 0);
+      const source = text(before, made);
+      expect(text(STD_SYNTAX, made), source).toBe(source);
+      expect(doc(STD_SYNTAX, source), source).toEqual(doc(before, source));
+    }
+    // A form is one field, and a kind can be a path.
+    const records: SyntaxProfile = { constructs: { record: "my.record" } };
+    expect(doc(records, "{a: 1}")).toEqual({ type: ["my", "record"], value: { a: 1 } });
+    expect(text(records, { type: ["my", "record"], value: { a: 1 } })).toBe("{a: 1}");
+    expect(print(records, { type: "record", value: { a: 1 } })).toMatchObject({ ok: false });
+    for (const source of ["let {} in 1", "(x) => x", "(f)(1)"]) expect(parse(records, source).ok, source).toBe(false);
+    expect(doc({ constructs: { fn: "fn" } }, "(x)")).toEqual(x);
+    expect(parse({ constructs: { fn: "fn" } }, "(f)(1)").ok).toBe(false);
+    expect(doc({ constructs: { call: "call" } }, "(f)(1)")).toEqual({ type: "call", value: { fn: ref("names", "f"), args: [1] } });
+    expect(parse({ constructs: { call: "call" } }, "(x) => x").ok).toBe(false);
+    // An operator that reads the text of a form throws, and an operator beside the forms stays.
+    const withOp = (symbol: string, fixity: "prefix" | "infix", constructs: SyntaxProfile["constructs"] = STD_SYNTAX.constructs): (() => unknown) => () =>
+      parse({ operators: [{ symbol, fixity, prec: 1, kind: "k" }], ...(constructs === undefined ? {} : { constructs }) }, "1");
+    expect(withOp("{", "prefix")).toThrow(TypeError);
+    expect(withOp("}", "infix")).toThrow(TypeError);
+    expect(withOp("=>", "infix")).toThrow(TypeError);
+    expect(withOp("let", "prefix")).toThrow(TypeError);
+    expect(() => parse({ constructs: { let: "" } }, "1")).toThrow(TypeError);
+    expect(withOp("{", "prefix", { call: "call" })).not.toThrow();
+    expect(withOp("=>", "infix", { record: "record" })).not.toThrow();
+    expect(withOp("let", "prefix", { fn: "fn" })).not.toThrow();
+  });
+
   it("[SYNTAX.ROUNDTRIP] parse(print(doc)) gives each generated document of a profile again", () => {
     const bad: string[] = [];
     for (const [name, gen] of Object.entries(GENERATORS)) {
@@ -488,6 +659,17 @@ describe("the syntax kit", () => {
     expect(bad.slice(0, 3)).toEqual([]);
   });
 });
+
+/** This function evaluates a text of `STD_SYNTAX` with the formula kit. */
+function constructValue(source: string, names: Record<string, unknown> = {}): unknown {
+  const machine = formulaMachine({ ops: { add: (a: number, b: number) => a + b, mul: (a: number, b: number) => a * b } });
+  return prepare(machine, doc(STD_SYNTAX, source), { declaredType: "lit" }).evaluate(context({ names }));
+}
+
+/** This function gives the text of a document through the verb `format`, thus each part gives its text through the ladder. */
+function constructFormat(value: Json): unknown {
+  return prepare(mergeMachines(formulaMachine({}), syntaxFormat(STD_SYNTAX)), value, { declaredType: "lit", verb: "format" }).evaluate();
+}
 
 /**
  * The kinds of `STD_WORLD` that have a text by another rule of the profile than an operator or a form, with the rule.
@@ -513,6 +695,7 @@ const WORLD_TEXTS: Readonly<Record<string, string>> = {
   nearest: 'nearest(type: "panel")',
   "tree.named": 'tree.named(name: "title")',
   "tree.at": 'tree.at(attr: "height")',
+  "tree.quote": 'tree.quote("a")',
   panel: "panel(width: 300, children: list(box(width: self.parent.width + -20)))",
   box: "box(height: 20)",
   "math.sum": "math.sum(1, 2)",
@@ -549,6 +732,8 @@ interface Generator {
   readonly steps?: boolean;
   /** `true` gives each literal in a place that takes a document its data envelope, as `parse` reads it (SYNTAX.ENVELOPE). */
   readonly envelopes?: boolean;
+  /** `true` gives some documents a construct form, with the keys of `keys` as keys and parameters (D127). */
+  readonly constructs?: boolean;
 }
 
 /** The names of the forms of `WORLD_SYNTAX` for an operator document with fewer or more terms (K163, D65). */
@@ -569,6 +754,14 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     profile: STD_SYNTAX,
     leaves: [0, 2.5, 7, -3, 1e21, 5e-7, true, false, null, "", "a\"b'`\n ", ...Object.values(NUMBERS), { type: ["ext", "undefined"], value: null }, x, ref("names", "self"), ref("names", "if"), ref("names", "a b"), ref("names", "true"), ref("self", "price"), ref("names", "items", 0), ref("world", "A1"), ref("self")],
     calls: ["f", "math.max", "add", "sub", "neg"],
+  },
+  constructs: {
+    profile: STD_SYNTAX,
+    leaves: [0, 2.5, -3, 1e21, true, null, "", "a\"b'`\n ", ...Object.values(NUMBERS), { type: ["ext", "undefined"], value: null }, x, ref("names", "self"), ref("names", "let"), ref("names", "in"), ref("names", "a b"), ref("self", "price"), ref("self")],
+    calls: ["f", "math.max", "let", "fn", "call", "record"],
+    names: ["a", "if", "let", "in", "a b", "", "`"],
+    keys: ["a", "if", "not", "or", "self", "let", "in", "type", "value", "a b", "", "`", "0", "__proto__"],
+    constructs: true,
   },
   sheet: {
     profile: SHEET,
@@ -633,6 +826,7 @@ function generateDoc(gen: Generator, rng: Random, depth: number): Json {
 
 /** This function builds a random document without a name: operators, call forms, calls and leaves. */
 function generateBare(gen: Generator, rng: Random, depth: number): Json {
+  if (gen.constructs === true && depth <= 3 && rng.int(2) === 0) return constructDoc(gen, rng, depth);
   const choice = depth > 3 ? 0 : rng.int(5);
   const terms = (count: number): Json[] => Array.from({ length: count }, () => generateDoc(gen, rng, depth + 1));
   if (choice <= 1) return gen.steps === true && rng.int(3) === 0 ? stepRef(gen, rng, depth) : pick(rng, gen.leaves);
@@ -656,6 +850,17 @@ function generateBare(gen: Generator, rng: Random, depth: number): Json {
   }
   const name = pick(rng, gen.calls);
   return { type: ["ops", ...name.split(".")], value: terms(name === "floor" || name === "neg" ? 1 : 1 + rng.int(3)) };
+}
+
+/** This function builds a random document of one construct form: `record`, `let`, `fn` or `call`. */
+function constructDoc(gen: Generator, rng: Random, depth: number): Json {
+  const keys = gen.keys ?? [];
+  const part = (): Json => generateDoc(gen, rng, depth + 1);
+  const choice = rng.int(4);
+  if (choice === 0) return { type: "record", value: namedValue(gen, rng, depth, keys) };
+  if (choice === 1) return { type: "let", value: { bind: namedValue(gen, rng, depth, keys), body: part() } };
+  if (choice === 2) return { type: "fn", value: { params: keys.filter(() => rng.int(4) === 0), body: part() } };
+  return { type: "call", value: { fn: part(), args: Array.from({ length: rng.int(3) }, part) } };
 }
 
 /** This function builds the record of a form `named`: some of the keys, in a random order, each with a document. */

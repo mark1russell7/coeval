@@ -978,7 +978,7 @@ A member of a domain, for example a time, had no shared document at all.
 
 **Why.** Each language writes the same value as the same document, also a member of a domain (D12). Documents of several languages can then mix. The codec lives next to the test `is` of the domain, thus one table describes a base type.
 
-**Limits.** Two domains with codecs that both hold a value give the document of the first name. D109 changes this rule: the lower domain comes first. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.
+**Limits.** Two domains with codecs that both hold a value give the document of the first name. D109 changes this rule: the lower domain comes first. A language keeps one codec for each value. `codecLaws` examines the codec laws at this time (K141, D130).
 
 ## D41 (2026-10-25): one syntax kit reads and writes the text of each language with a profile, and its printer is the default of the verb `format`
 
@@ -4017,6 +4017,52 @@ The parts of `allOf` and the other keywords of a schema give the meet of their t
 
 **Why.** In the reference, an application of a short body uses the stack of approximately three nested documents. A quarter of `maxDepth` keeps a body of up to approximately nine nested documents for each application under the stack, in each tier. A recursion that stops under the limit gives its value as before. An endless recursion gives the same error in each tier, thus `agree` compares it without the exception for an overflow. The cost is an increment, a compare and a `finally` for each application. No case of the bench applies a closure.
 
+## D126 (2026-11-03): a higher-order attribute gives a document as data, and the last rung `forward` reads a node that an attribute gives
+
+**Context.** L2i, from R3 P9. An equation gave a value, or a nested node of its own text. It could not compute a document and put it under the node. A kind also could not take its attributes from a node that it builds. Thus a sugar form copied each equation of its expansion.
+
+**Decision.** The new field `higher` of `tree.attributes` holds an equation that gives a document as data (TREE.HIGHER). It sits in the rung `default`, after `fold`, `collect` and `default`. The document evaluates as an equation, with the node as `self`, without names and without capabilities. Its root finds the open tree. Thus its parent is the node, and the rungs `parent` and `copy` work in it. Places in the subtree are relative to the document, as for each nested node of an equation. The subtree is not in `children`, thus a fold and a collection do not visit it unless an equation lists it. The new standard kind `tree.quote` holds a literal document, because the standard world has no literal for a record.
+
+The kit does not change its planner. `documentKey` gives a structural key, and a table gives the first object of each key (TREE.HIGHER-PLAN). `equationPlan` caches by object, thus a new object with a known key compiles nothing. The key keeps the order of the fields, because that order decides the order of the JSON and the first error. A sorted key makes a result depend on the history of the cache, and D3 refuses that. One key means one document, equal by DOC.EQUALS. Two equal documents with two orders get two plans, and that costs only a compile. A weak map gives each object its key one time, thus the cost of a key is linear in the document, for each new object. The table holds at most 1000 documents and 16,000,000 characters of keys, as the table of plans does. A full table starts again.
+
+The host cells of a subtree use `cellPlace` (TREE.HIGHER-CELL). The root of a generated document gets the key of its parent as its scope, thus two generators of one document have two keys. Two attributes of one node with equal documents share their keys, and their values are equal. A changed document has a new plan with new key arrays. The compiler tries a literal document one time, as for each literal nested node. Thus a host sees one demand of each attribute of the document in a scope without a parent.
+
+A generated root keeps its depth in a weak map: the count of generated documents from the root of the tree to it (TREE.HIGHER-DEPTH). A generation walks up the steps `parent` to the nearest depth. Over `GENERATION_LIMIT`, which is 64, the attribute gives `#DEPTH!`. The tiers give the same reason. Thus an equation that generates its own kind forever ends with an error, before the stack ends. The limit bounds a chain, not a width. A kind that generates two subtrees at each level doubles its nodes at each level, up to the limit. That is a known limit of this first form.
+
+A cycle through a generated subtree reaches a cell in evaluation, thus it gives `#CYCLE!` with its chain (TREE.HIGHER-CYCLE). A circular attribute that reads through a subtree works when each attribute on the cycle is circular. A circular attribute that gives a node does not become stable, because two nodes are not equal. It gives `#CYCLE!` at its limit.
+
+The new field `forwards` of a contract names an attribute that gives a node (TREE.FORWARD). The new rung `forward` is the last rung, after `default`. It runs only when each other rung misses, thus the read of an attribute with an answer gets no new work. The rung reads the attribute `forwards` through the plain read, thus it uses the memo, the cells and the chain of a cycle. Then the node answers through its own ladder. A rung before it wins, thus an own part replaces a forwarded attribute. The rung counts each node that it reaches, because an equation can give a node without `higher`. The record of the rungs names `forward` only for a kind with `forwards`, thus each other record keeps its five rungs.
+
+The forward has limits. A path that ends at a node gives its JSON, thus only an equation that gives a node has a target. A node of the document is not a target. The step `tree.at` does not forward. A collection does not walk into the forwarded node. But the attribute `children` does forward, thus a fold folds the forwarded children. An attribute with `copy` in the forwarded node reads its parent, and that parent forwards the read back. Thus such a name without an answer gives `#CYCLE!`, not `#N/A`.
+
+`check` examines the equation of `higher` and the field `forwards` (TREE.HIGHER-CHECK, TREE.FORWARD-CHECK). It does not examine the document, because only the run knows it. A step after a generated subtree has an unknown source, as each read of a value has. A kind with `forwards` accepts each other name, because only the run knows the node. The run gives `#N/A` for a name that the node does not answer. The graph gives `higher` the reads of its equation and one unknown edge. It gives the rung `forward` one edge from the attribute and one unknown edge.
+
+The reference interpreter has the same rules, with its own rungs. It compiles each document again, thus a structural key is not a part of the meaning. `agree` in strict mode compares the tiers with their reasons.
+
+**Alternatives.** A new evaluator kind that puts a subtree in a part. But the place of a subtree belongs to an attribute, and an attribute has a memo, a cell and a chain of a cycle. A key with sorted fields, as `argsKey` has. It finds more equal documents, but the plan of the first document then gives the JSON order of the second. A key in the planner for each term. That adds work to each equation of each read. A budget of generated nodes for each evaluation bounds the width too. But the scope of an evaluation differs between the kit and the reference, and a build of a host stays across evaluations. A limit from the depth of the stack alone. That gives a different limit in each host and each tier. An inheritance for a forwarded root, where it reads each name of its parent. But the rungs `parent` and `copy` read the parent, and a second way gives one read two meanings. A rung `forward` before the rung `default`. But a default of the forwarding kind then has no effect.
+
+**Why.** Both features use the parts of an attribute. The document is an equation, the root is a nested node, and `forwards` is the name of an attribute. Thus the new code sits at the end of the ladder, and a document without the two fields evaluates as before. The one object of a key limits the cost of a repeated document to one key, without a new branch in `equation`. The depth sits in a weak map, thus a node and a read get no new field. A depth limit gives each host the same error, thus an endless generation has one result in each tier.
+
+## D127 (2026-11-03): the field `constructs` gives `STD_SYNTAX` text forms for `record`, `let`, `fn` and `call`, and no name becomes reserved
+
+**Context.** K145, from C15. `STD_SYNTAX` wrote only operators, calls of operations, `if` and `list`. A document of `record`, `let`, `fn` or `call` gave `#VALUE!` from `print`. A call form wins over an operation with the same name (D41), and `STD_SYNTAX` permits each name of an operation. Thus a call form `let(...)` changes the document of each text `let(1)`, and `print` loses the text of `ops.let`.
+
+**Decision.** The new optional field `constructs` of a profile gives the kind of each of four forms, and `STD_SYNTAX` sets all four (SYNTAX.CONSTRUCTS). Each text of a form was an issue before. Thus each text that parsed before gives the same document, and no name becomes reserved.
+
+- ``{a: 1, `b c`: x}`` is a `record` (SYNTAX.RECORD-TEXT). A key is a plain name or a name in backticks, as in a form `named` (D63). Thus a reserved word, `__proto__` and a key with a space are good keys. A key that is not a plain name goes in backticks, for example `` `0` ``.
+- `let {a: 1} in a + 1` is a `let` (SYNTAX.LET-TEXT). The field `bind` is a record of documents, thus the bindings use the text of a record. The word `let` starts the form only before a brace, and the word `in` has its meaning only after the closing brace.
+- `(x, y) => x + y` is a `fn` (SYNTAX.FN-TEXT). A parameter is a plain name or a name in backticks, and each word is a good parameter. Only the symbol `=>` after the closing parenthesis tells a function from a group.
+- `(f)(1, 2)` is a `call` (SYNTAX.CALL-TEXT). A group before the arguments calls a value, and a name before the arguments applies an operation. Thus `f(1)` stays `ops.f`. The text `(f)(1)(2)` calls the result of a call, and `f(1)(2)` stays an issue.
+- Precedence: a record and a call of a value are one term. The body of a `let` or a `fn` goes as far as it can, and it can have a header name. Thus `1 + let {a: 2} in a * 3` has the body `a * 3`. As a term of an operator, `print` writes these two forms in parentheses, as it does for a document with a header name.
+- Round trip: `print` writes a form only for a value of its exact shape, and each other value gives `#VALUE!` as before. The text `(f)()` reads `args: []`, thus a `call` without `args` has no text. A `fn` with two equal parameters has a text, because the contract of `fn` refuses it, not the syntax. A call form of the kind wins in `print`, and a host keeps its text `record(a: 1)`.
+- A profile with `constructs` throws a `TypeError` when an operator reads the text of a form: `{`, `}`, `=>` or the word `let`. A generated round trip examines each form with the keys `in`, `let`, `or`, `0` and `__proto__`.
+
+**Alternatives.** Call forms `let(a: 1, body)`, `fn(x, body)`, `call(f, 1)` and `record(a: 1)` fit the kit. But each one hides an operation of `STD_SYNTAX`, and that changes old texts. A form that falls back to the operation has two readings of `let(1)`. The text `let a = 1 in a` needs quotes for the keys `in`, `and` and `or`, and `=` already gives a header name. The text `x => x` already reads as the header name `x`, thus a parameter stays in parentheses. A call of a value with the text `f(1)` cannot tell a name from an operation. Forms in the parser without a profile field break each profile that gives `{` or `=>` another reading.
+
+**Why.** Each form takes only a text that was an issue, thus the change adds readings and takes none away. The operations `let`, `fn`, `call` and `record` keep their texts, and the reference `let` stays a name. A profile field keeps the rule of D41: data drives the parser and the printer, and each other profile reads as before. The new forms use the entries of a form `named` and the arguments of a call, thus the tokenizer gets no new rule for keys.
+
+**Limits.** `WORLD_SYNTAX` has no forms, because `STD_WORLD` has no such kinds. A host that spreads `STD_SYNTAX` gets the forms, and an operator of that host that reads `{`, `}`, `=>` or `let` throws a `TypeError`.
+
 ## D128 (2026-11-03): the probe `all` keeps the rule ALL, and the check `parallel` compares up to six orders of the waits
 
 **Context.** K122, from K92 (D36). The probe `all` of `conforms` took its items one after the other. A real `all` starts each item up to its first wait, and the host then settles the waits in its own order. Thus code passed each check when it read a value before a wait and wrote the value after the wait. Code that kept its results in the order that they came passed too. One item after the other is also not an order of a run, except with the limit 1.
@@ -4038,6 +4084,101 @@ A finding has the form of each other finding. The obligation is `parallel`, and 
 **Limits.** The seeded orders are a sample. With four or more waits at one time, a fault of one rare order can stay hidden. A shot that `failFast` stopped gets only the checks of one shot. A difference in the resolutions alone gets no finding.
 
 **Changed expected values.** `conforms` reports code that passed before: each runner whose result, parts or effects change with the order of the waits of `all`. A runner under `all` also gets another record in a run, because each item starts before the first wait settles. Thus a part after a failed part can start with `failFast`, as in the kernel. No evaluator or runner of the standard library or the formula kit uses `all`, thus no result of `conforms` for them changes. No existing test of `conforms` changes. The new tests are in `conform.test.ts`.
+
+## D129 (2026-11-03): a language compiles its own paths with `compilePath`, and reads them with `resolveCompiled`
+
+**Context.** K75, from K12 (R1 P2). D29 kept `compilePath` inside the package, because a language that resolves a compiled path itself skips the list of reads. Thus only the formula kit compiled its paths, and each other language resolved its static paths at each evaluation. D13 lets a language keep a second tier, and that tier needs the same read at a lower cost. The kernel already has the route. `resolveCompiled` gives a compiled path to the runtime of the kernel, and the steps to each other runtime. The design calls are the exports, the form of the route and the agreement that the tests pin.
+
+**Decision.** The package exports the functions `compilePath(nav, path)` and `resolveCompiled(rt, ctx, compiled)` and the type `CompiledPath`, with the signatures that the kernel uses (PLAN.PATH-EXPORT). `Runtime` gets no new member. An evaluator calls `compilePath` in its `compile`, with the field `machine` of its input. Its code calls `resolveCompiled` with the context and the runtime that it gets. A compiled runner does the same in `compileRun`. No code of the kernel changes, thus `Session.read`, `resolveCompiled` and the formula kit stay as they are. Only doc comments change. A read through this route records what `Runtime.resolve` records with the same steps (PLAN.PATH-READS). A small language in `paths.test.ts` pins this without the formula kit. Its kind `read` has an interpreter and a second tier. Over 26 documents in 2 contexts, the two give the same value, error, reason, place, list of reads and host calls. The tests compare the plan, the traced evaluation, the run and the reference, also through `agree` and `agreeRun`. A runtime of a host that does not know compiled paths gets the steps through `resolve` (PLAN.PATH-ROUTE). The runtime of a fold refuses a read of a free name. The compiled path keeps the list that `compilePath` gets, thus the host must not change that list. The member `resolve` of a compiled path stays in the type, and its doc comment tells that it records no read.
+
+**Alternatives.** A new optional member of `Runtime`. A runtime that wraps another runtime then must forward the member, and `resolveCompiled` must test for it. The function already chooses the route without help from the host. A compiled path as an argument of `Runtime.resolve`: D29 rejected it. A type `CompiledPath` without the member `resolve`. The export `resolve` already gives a language a read without the list, thus a smaller type closes no gap. A tier outside an evaluation has no runtime, and it needs the member. A copy of the list in `compilePath`. The list of reads then does not hold the list of the document (PLAN.PATH), and the code of the formula kit changes. A new function that gives a `Result` from a read. A language has its own rules for a value that a path reaches, as the formula kit has for a held error. Thus `valueOfThing` and `fail` stay the parts of that step.
+
+**Why.** D29 refused the export only because no route recorded the reads for a language. `resolveCompiled` gives that route, and it ends in the same `Session.read` as `Runtime.resolve`. Thus the two can differ only in the step function, and PLAN.PATH-SAME already compares that. A mutant of the test language calls the member `resolve` of the compiled path, and three tests fail. Thus the tests find a tier that skips the route. The change adds exports and no code on a path of the bench, thus the code of each bench case stays the same.
+
+## D130 (2026-11-03): `codecLaws` examines the laws of the codec of one domain
+
+**Context.** K141, from K140. D40 states that `decode(encode(v))` equals `v` and that `encode` gives JSON, and D12 needs one document for each value. No code of the kernel examined these laws. The limits of D40 left them to a property test of each language. A codec that breaks a law fails only when a document reaches another language or a golden file. No domain of `STD_DOMAINS` has a codec. Thus the codecs of the repository are the domains of the tests, and `encodeValue` with `decodeValue`.
+
+**Decision.** `codecLaws(machine, name, options)` examines the codec of one domain and gives a list of `CodecFinding` (CODEC.LAWS). The function has the shape of `conforms`: a machine, a name and options. A correct codec gives an empty list, and a name without a codec throws. A finding has the form of `Finding`: `obligation`, `reason` and `probe`. Only the first member that breaks a law gives its finding. The probe holds `domain`, `value` and `data`. The machine can be only its domains, thus a language can test one codec with `{ domains: { own } }`. The new module `codec-laws.ts` holds the function. `conforms` does not start it, thus `conform.ts` does not change.
+
+The laws are `samples`, `encode`, `json`, `stable`, `decode` and `roundtrip`, in this order. The law `samples` gives a finding when the check has no member, because an empty check proves nothing (CODEC.SAMPLES). The law `encode` gives a finding when `encode` throws for a member. The law `json` asks that `JSON.parse(JSON.stringify(data))` gives equal data by DOC.EQUALS (CODEC.JSON). The law `stable` asks for equal data from a second `encode` of the member, and from an `encode` of the decoded member (CODEC.STABLE). The law `decode` sends the JSON copy of the data through `decodeDomain`, the path of an evaluation of `ext.domain` (CODEC.DECODE). The law `roundtrip` compares the decoded member with the member by `sameValue` and the option `equal` (CODEC.ROUNDTRIP).
+
+The members come from `membersOf`. A domain with a list `values` gives that list. Each other domain gets the option `samples`, a fixed list of edge values and the lists `samples` of the domains. A value outside the domain gets no test. The edge values are `NaN`, `-0`, the infinities, the limits of the numbers, empty and odd texts, and large integers of the host. They also hold empty containers, containers with such numbers or `undefined`, two dates, a `Map` and a `Set`. The list is fixed, thus the check needs no seed.
+
+No codec of the repository breaks a law (CODEC.STD), thus no behaviour changes. The check does not compare pairs of members, and it does not start `encodeValue`. A member that JSON writes gets the laws here, but its document in a term comes from JSON (D40). D130 replaces the sentence of D40 that keeps the laws out of the kernel.
+
+**Alternatives.** A new check in `conforms`. Its probe holds a document, part results and capabilities, and a codec has none of these. A codec-only signature `codecLaws(codec, samples)`. It cannot test a decoded value against the domain and its parents, and it cannot filter the edge values. A check of each domain of a machine in one call. A host then gives one rule of equality to all domains, and a mistake in a name stays silent. A new field `Domain.equal`. It needs a new rule in `mergeMachines`, and the rule `equal` of `agree` and `conforms` already does this work. Seeded random members. The kernel has no generator of host values, and the fixed list finds the same edges in each run. A check of `JSON.stringify` only. A value that JSON changes in silence, for example `NaN` or `-0`, then passes.
+
+**Why.** One function gives each language the same laws and the same edge values. A language keeps only its samples and its rule of equality. The law `decode` uses the JSON copy, because a document reaches a reader only as JSON. The law `stable` tests the decoded member too, because a coarse rule `equal` can hide a member with two documents. The check runs only in a test of a language, thus no path of an evaluation changes.
+
+## D131 (2026-11-03): `checkCycles` gives the certain cycles of a schedule as issues before a run
+
+**Context.** S2d, from S2. D33 finds the certain cycles of a graph, but a host gave `schedule.graph()` to `cycles`, filtered the answer and made its own message. The function `check` takes one document, thus it does not know a schedule. D107 gave `check` the certain cycles of a tree. A schedule had no such answer.
+
+**Decision.** The new export `checkCycles(target)` takes a schedule, or another object with a function `graph`, and it gives a list of `CycleIssue` (SCHED.CYCLE-ISSUES). It reads only `graph()`, thus it evaluates no node. A `CycleIssue` is an `Issue` with the code `#CYCLE!` and a new field `nodes`. Each certain cycle of `cycles` gives one issue. The list `nodes` is sorted by name, as the record of the root `world` sorts the nodes. The issues are sorted by their first nodes (SCHED.CYCLE-ORDER). The first node gives the place `[id]`, its key under the root `world`, and the reason of `cycleOf`. A node that reads itself gives an issue with one node. An empty schedule gives an empty list.
+
+"Certain" has the meaning of D33: the eager edges with a target close the cycle. A possible cycle gives no issue, as in D107, because a run can skip its lazy read (SCHED.CYCLE-CERTAIN). A certain cycle inside a possible cycle gives an issue with only its own nodes. A host that needs the possible cycles calls `cycles`.
+
+The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-AGREES). An eager read occurs in each evaluation in which each document around it gives a value (FACTS.LAZY). Thus a value at a node of the cycle needs a value at the next node, and the cycle closes. The result can be another error, because a read can fail before it reaches the cycle (D33). A node can also get the `#CYCLE!` of another node at a place, because the first failed read stops its document. The issues are not complete: a run that takes a lazy read gives `#CYCLE!` with no issue.
+
+**Alternatives.** A method of `Schedule`. Each user of `schedule` then bundles the analysis of `graph.ts`, and an object that a host types as `Schedule` fails to compile. An option of `check` that takes a schedule. Then `check` gets a second form of input, and `static.ts` depends on the schedule. An issue for each node of a cycle. A ring of 100000 nodes then gives 100000 issues for one fault. The order of the graph for `nodes`. The order then depends on the order of the `set` calls, and a host that compares two answers finds a false change. An issue for a possible cycle with a second severity. `Issue` has no severity, and D107 refuses such a false positive. A cache of the answer for each structure epoch. The map of `graph()` already stays for an epoch, and a host calls `checkCycles` only when it needs the answer.
+
+**Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
+
+## D136 (2026-11-03): a kept read of the node in evaluation closes no cycle
+
+**Context.** K217, from D56 and D57. A closure keeps a read of each whole root when its path meets a reference (READS.KEPT). That read resolves the root, and a root that holds a reference follows the reference. In a schedule, the reference can reach the root `world`, and the step demands a node.
+
+When that node is the reader, the demand meets the node in evaluation, and the schedule closes a cycle. Thus a closure at a node whose `self` refers to that node gave `#CYCLE!`. The evaluation did not ask for the read, and a run has no such cycle. The evaluation from scratch of `agreeSchedule` gives the closure, because it records no reads. The contexts of SCHED.ONE-MEANING hold no reference, thus the test did not find it.
+
+The same read occurs at the root `event`, in the verification of a kept read, and for a kind that sets another `self`.
+
+**Decision.**
+
+- `HostThing` gets the optional function `keeping(read)`. The kernel calls this function of the root `world` around each kept read that resolves its path, at the record and in `verifyReads`.
+- `keeping` of a schedule notes the length of its stack. A demand of the node on top of the stack, at that length, is the kept read of the node in evaluation. It gives the same error as before, and it adds no mark for the cycle check (SCHED.OWN-NODE).
+- Each other demand stays as it is. A kept read still demands another node, and a nested demand has a longer stack. Thus each read of that evaluation counts, and a true cycle there gives `#CYCLE!`.
+- A read of the evaluation goes outside `keeping`, thus it closes the cycle with the same error.
+- No list of reads changes, also for this node. Its kept read of the root reaches the error of the node (SCHED.OWN-NODE-READS).
+- The reference and a plan without a list of reads do not change, because they keep no reads. A host thing without `keeping` does not change.
+
+**Alternatives.**
+
+- A kept read that does not demand, with a walk through the reference by `known`, as D57 does for a path. This removes each false cycle of this class. But a kept read of another node then reaches another thing, and that node stops its evaluation. Thus the reads of other documents change.
+- A kept read that stops at the reference. The reference stays the same while its target changes, thus a change gives a stale value (D56, Rejected).
+- No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
+- A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
+- An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This also removes the false cycle of the Limits. But it needs a record of the nodes of each kept demand, and it drops final results. The node then also needs a read that changes in each data epoch, and only some lists have one. That is a behaviour change, and it waits for a need.
+
+**Limits.**
+
+- A kept read that reaches its node through another node that reads it still closes a false cycle. An example is a closure at `f`, a `self` that refers to `g`, and a document of `g` that reads `f`. Each order of demands gives `#CYCLE!` for the two nodes, as before this decision.
+- Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
+- A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
+
+**Why.** The kept read of the node itself adds nothing to the invalidation of the node. That read reaches the value of the node, and a pure document gives that value from its other reads (FACTS.PURE). When each other read stays the same, the evaluation gives the same value. A document that really reads the value makes a read of the evaluation, and that read closes the true cycle. Thus the error in the list hides no change, and each other read verifies as before.
+
+The list of reads stays exact, thus each other document keeps its reads, its demands and its order of evaluations. The test SCHED.OWN-NODE-AGREES compares generated documents with the evaluation from scratch, over changes of data, edits and new machines. Four changes of the code each fail these tests. These are no rule, a rule at each depth, a rule for each node in evaluation, and a verification outside `keeping`.
+
+Each kept read that resolves its path costs one call and one `finally`. A read of a node in evaluation costs one compare. A document without a kept read does no new work.
+
+## D160 (2026-11-05): a parameter property becomes a plain field first in its class
+
+The update of the shared config turns on the TypeScript option `erasableSyntaxOnly` (K224). The option refuses a parameter property, thus each one becomes a field and an assignment. The option stays on.
+
+**The form.**
+
+- Each field goes first in its class, in the order of the parameters, with the modifiers and the doc comment of the parameter.
+- The first lines of the constructor assign the fields, in the same order.
+
+**Why this form.** The config sets the target `esnext`, thus class fields use define semantics. The tool esbuild emits a parameter property as a field ahead of the other fields of the class, and the field starts as `undefined`. A plain field in the first place gives the same emitted code.
+
+A `declare` field is not the same. It emits no field, so the object gets its properties in another order. An object with another order can have another hidden class, and a speed run can see that.
+
+**How we examined it.** For each changed file, esbuild emitted the code of the old and the new source. The comparison moved each constructor to the top of its class and removed the doc comments. All 20 files gave the same text. A copy of the source with no installed config also gets define semantics from esbuild. Thus the two arms of a speed run use the same setting.
+
+**SemVer.** No export, signature or enum changes, and the declarations of `Held` keep their members. This work needs no version of its own.
 
 ## D137 (2026-11-03): `conforms` examines walkers, the code of a `deref` and the functions of a formula profile
 

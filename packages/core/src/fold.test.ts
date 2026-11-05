@@ -284,7 +284,11 @@ describe("the shared values of a plan", () => {
     expect(result.ok && Object.getPrototypeOf(result.value)).toBe(Object.prototype);
     expect(result.ok && Object.hasOwn(result.value as object, "__proto__")).toBe(true);
     class Box {
-      constructor(readonly v: number) {}
+      readonly v: number;
+
+      constructor(v: number) {
+        this.v = v;
+      }
     }
     const boxes: Machine = { world: { kinds: { box: { verbs: { eval: "t.box" }, pure: true } }, defaults: {} }, evaluators: { "t.box": () => ok(new Box(1)) } };
     const boxed = prepare(boxes, { type: "box", value: null });

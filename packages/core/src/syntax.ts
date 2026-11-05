@@ -1,4 +1,4 @@
-import { type Json, type Key, isEnvelope, isRecord, typePath } from "./doc.ts";
+import { type Json, type JsonRecord, type Key, isEnvelope, isRecord, typePath } from "./doc.ts";
 import { type Result, describe, fail, isStackOverflow, ok } from "./errors.ts";
 import type { EvalFn, Part } from "./evaluate.ts";
 import type { MachinePart } from "./merge.ts";
@@ -135,6 +135,22 @@ export interface SyntaxHeader {
 }
 
 /**
+ * The text forms of the constructs of the formula kit (K145, D127). Each field is the kind of one form, with dots
+ * between the keys. A construct without a field has no text. Each text of a form was an issue before, and no form
+ * reserves a name.
+ */
+export interface SyntaxConstructs {
+  /** The kind of the form `{a: 1, b: x}`. Its value is a record of documents. */
+  readonly record?: string;
+  /** The kind of the form `let {a: 1} in a + 1`. Its value has the fields `bind` and `body`. */
+  readonly let?: string;
+  /** The kind of the form `(x, y) => x + y`. Its value has the fields `params` and `body`. */
+  readonly fn?: string;
+  /** The kind of the form `(f)(1, 2)`: a call of a value. Its value has the fields `fn` and `args`. */
+  readonly call?: string;
+}
+
+/**
  * The text syntax of a language (D41): an operator table, literal rules, reference syntax and call syntax. `parse`
  * reads a text into a document, and `print` writes a document as text. The profile is data, thus a site, an editor
  * and a language read the same rules.
@@ -150,6 +166,8 @@ export interface SyntaxProfile {
   readonly calls?: SyntaxCalls;
   /** The text of the header of a document. */
   readonly header?: SyntaxHeader;
+  /** The text forms of the constructs. Without a field, the construct has no text. */
+  readonly constructs?: SyntaxConstructs;
   /** The deepest nesting that `parse` accepts. The default is `256`. */
   readonly maxDepth?: number;
 }
@@ -171,7 +189,8 @@ export type ParseResult = { readonly ok: true; readonly doc: Json } | { readonly
  * The standard syntax of the formula kit. It gives the site and the playground a text form. The operators are
  * `or`, `and`, `not`, the comparisons, `+ - * / %`, a minus sign and `^`, from the loosest to the tightest. A call
  * `name(args)` applies the operation `ops.name`. `if(test, then, else)` and `list(items)` make the constructs. The
- * text `total = 2 + 3` gives the document the header name `total` (D62).
+ * text `total = 2 + 3` gives the document the header name `total` (D62). The forms `{a: 1}`, `let {a: 1} in a`,
+ * `(x) => x` and `(f)(1)` make `record`, `let`, `fn` and `call` (D127).
  */
 export const STD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
   operators: [
@@ -200,6 +219,7 @@ export const STD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
     ],
   },
   header: { bind: "=" },
+  constructs: { record: "record", let: "let", fn: "fn", call: "call" },
 } satisfies SyntaxProfile);
 
 // === The compiled profile ===
@@ -258,6 +278,10 @@ interface Compiled {
   readonly formsByKind: ReadonlyMap<string, readonly Form[]>;
   readonly separator: string;
   readonly bind: string | undefined;
+  /** The type of the document of each construct that has a text form. */
+  readonly constructs: { readonly [Name in keyof SyntaxConstructs]?: Json };
+  /** The construct of each kind, by the path of the kind as a JSON text. */
+  readonly constructKinds: ReadonlyMap<string, keyof SyntaxConstructs>;
   readonly reserved: ReadonlySet<string>;
   readonly opWords: ReadonlySet<string>;
   readonly maxDepth: number;
@@ -271,6 +295,7 @@ const SYMBOL = /^[^\sA-Za-z0-9_"'`()$.]+$/;
 const DEFAULT_WORDS: Readonly<Record<string, unknown>> = { true: true, false: false, null: null };
 const DEFAULT_ROOTS: readonly string[] = ["self", "world", "event", "caps"];
 const FORM_ARGS: readonly SyntaxFormArgs[] = ["list", "fields", "named", "literal"];
+const CONSTRUCTS: readonly (keyof SyntaxConstructs)[] = ["record", "let", "fn", "call"];
 
 const compiledProfiles = new WeakMap<SyntaxProfile, Compiled>();
 
@@ -324,6 +349,25 @@ function compileBind(bind: string | undefined, separator: string, binary: Readon
     if (bind.startsWith(symbol)) throw new TypeError(`The bind symbol "${bind}" starts with the operator "${symbol}".`);
   }
   return bind;
+}
+
+/** This function gives the types of the construct forms (K145). An operator that reads the same text throws. */
+function compileConstructs(given: SyntaxConstructs | undefined, ops: Pick<Compiled, "prefixSymbols" | "binarySymbols" | "opWords">): Pick<Compiled, "constructs" | "constructKinds"> {
+  const constructs: { -readonly [Name in keyof SyntaxConstructs]?: Json } = {};
+  const constructKinds = new Map<string, keyof SyntaxConstructs>();
+  for (const name of CONSTRUCTS) {
+    const kind = given?.[name];
+    if (kind === undefined) continue;
+    const { type, key } = typeOfKind(kind);
+    constructs[name] = type;
+    constructKinds.set(key, name);
+  }
+  const braces = constructs.record !== undefined || constructs.let !== undefined;
+  for (const symbol of [...ops.prefixSymbols, ...ops.binarySymbols]) {
+    if ((braces && /^[{}]/.test(symbol)) || (constructs.fn !== undefined && symbol.startsWith("=>"))) throw new TypeError(`The operator "${symbol}" reads the text of a construct form.`);
+  }
+  if (constructs.let !== undefined && ops.opWords.has("let")) throw new TypeError('The operator "let" reads the text of a construct form.');
+  return { constructs, constructKinds };
 }
 
 /** This function examines the field `wrap` of a call form (K159). A name that is not a field of the form throws. */
@@ -397,6 +441,7 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     formsByKind,
     separator,
     bind: compileBind(profile.header?.bind, separator, ops.binary),
+    ...compileConstructs(profile.constructs, ops),
     reserved: new Set([...words.keys(), ...ops.opWords, ...roots]),
     maxDepth: profile.maxDepth ?? 256,
   };
@@ -408,7 +453,11 @@ function compileProfile(profile: SyntaxProfile): Compiled {
 
 /** The stop of a parse. The parser throws it, and `parse` gives its issue. */
 class Stop {
-  constructor(readonly issue: SyntaxIssue) {}
+  readonly issue: SyntaxIssue;
+
+  constructor(issue: SyntaxIssue) {
+    this.issue = issue;
+  }
 }
 
 function literalDoc(value: unknown): Json {
@@ -450,13 +499,15 @@ function setOwn(target: Record<string, Json>, key: string, value: Json): void {
 const ESCAPES: Readonly<Record<string, string>> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
 
 class Parser {
+  private readonly syn: Compiled;
+  private readonly text: string;
   private pos = 0;
   private depth = 0;
 
-  constructor(
-    private readonly syn: Compiled,
-    private readonly text: string,
-  ) {}
+  constructor(syn: Compiled, text: string) {
+    this.syn = syn;
+    this.text = text;
+  }
 
   parse(): Json {
     this.skip();
@@ -605,7 +656,8 @@ class Parser {
     if (/[0-9]/.test(c)) return this.number(false);
     if (c === "-" && this.syn.signed && /[0-9]/.test(this.text[start + 1] ?? "")) return this.number(true);
     if (c === this.syn.quote) return this.string();
-    if (c === "(") return this.group();
+    if (c === "(") return this.parenthesized();
+    if (c === "{" && this.syn.constructs.record !== undefined) return { type: this.syn.constructs.record, value: this.entries(undefined) };
     if (c === "`" || /[A-Za-z_]/.test(c)) return this.named();
     for (const symbol of this.syn.prefixSymbols) {
       if (this.text.startsWith(symbol, start)) {
@@ -669,6 +721,64 @@ class Parser {
     return out;
   }
 
+  /** This method reads a function `(x) => x`, or a group with the calls of a value after it (K145). */
+  private parenthesized(): Json {
+    const { fn, call } = this.syn.constructs;
+    const params = fn === undefined ? undefined : this.arrowParams();
+    if (fn !== undefined && params !== undefined) {
+      this.skip();
+      return { type: fn, value: { params, body: this.bound() } };
+    }
+    let out = this.group();
+    if (call === undefined) return out;
+    for (;;) {
+      const back = this.pos;
+      this.skip();
+      if (this.text[this.pos] !== "(") {
+        this.pos = back;
+        return out;
+      }
+      out = { type: call, value: { fn: out, args: this.argumentsOf(() => this.bound()) } };
+    }
+  }
+
+  /** This method reads `(a, b) =>` and gives the names. Without that text, it gives `undefined` and keeps the position. */
+  private arrowParams(): string[] | undefined {
+    const back = this.pos;
+    const params: string[] = [];
+    this.pos += 1;
+    for (let first = true; ; first = false) {
+      this.skip();
+      if (first && this.text[this.pos] === ")") break;
+      const name = this.key();
+      this.skip();
+      if (name !== undefined) params.push(name);
+      if (name !== undefined && this.text[this.pos] === ")") break;
+      if (name === undefined || !this.text.startsWith(this.syn.separator, this.pos)) {
+        this.pos = back;
+        return undefined;
+      }
+      this.pos += this.syn.separator.length;
+    }
+    this.pos += 1;
+    this.skip();
+    if (!this.text.startsWith("=>", this.pos)) {
+      this.pos = back;
+      return undefined;
+    }
+    this.pos += 2;
+    return params;
+  }
+
+  /** This method reads the bindings between braces, the word `in` and the body of a `let` (K145). */
+  private letTerm(type: Json): Json {
+    const bind = this.entries(undefined);
+    this.skip();
+    if (this.at(NAME_AT) !== "in") this.stop('The word "in" is missing after the bindings of let.', this.pos, Math.min(this.tokenLength(), this.text.length - this.pos));
+    this.pos += 2;
+    return { type, value: { bind, body: this.bound() } };
+  }
+
   private group(): Json {
     const open = this.pos;
     this.pos += 1;
@@ -702,6 +812,14 @@ class Parser {
     }
   }
 
+  /** This method reads a plain name or a name in backticks. Without a name, it gives `undefined`. */
+  private key(): string | undefined {
+    if (this.text[this.pos] === "`") return this.quoted();
+    const name = this.at(NAME_AT);
+    if (name !== undefined) this.pos += name.length;
+    return name;
+  }
+
   /** This method reads a name: a word operator, a call, a literal word or a reference. */
   private named(): Json {
     const start = this.pos;
@@ -712,6 +830,14 @@ class Parser {
       const prefix = this.syn.prefix.get(first);
       if (prefix !== undefined && prefix.word) return opDoc(prefix, [this.expr(prefix.prec + 1)]);
       if (this.syn.binary.get(first)?.word === true) this.stop(`A term is missing before ${first}.`, start, first.length);
+      // The word `let` starts a form only before a brace, thus `let` stays a good name (D127).
+      const construct = first === "let" ? this.syn.constructs.let : undefined;
+      if (construct !== undefined) {
+        const back = this.pos;
+        this.skip();
+        if (this.text[this.pos] === "{") return this.letTerm(construct);
+        this.pos = back;
+      }
     }
     const path: Json[] = [first];
     let allPlain = plain;
@@ -754,13 +880,14 @@ class Parser {
     return { type: "ref", value: full };
   }
 
-  /** This method reads the arguments of a call in parentheses. `item` reads one argument. */
-  private argumentsOf<T>(item: () => T): T[] {
+  /** This method reads the arguments of a call in parentheses. `item` reads one argument. `close` ends the arguments. */
+  private argumentsOf<T>(item: () => T, close = ")"): T[] {
     const open = this.pos;
+    const closer = close === ")" ? "parenthesis" : "brace";
     const args: T[] = [];
     this.pos += 1;
     this.skip();
-    if (this.text[this.pos] === ")") {
+    if (this.text[this.pos] === close) {
       this.pos += 1;
       return args;
     }
@@ -771,44 +898,44 @@ class Parser {
         this.pos += this.syn.separator.length;
         continue;
       }
-      if (this.text[this.pos] === ")") {
+      if (this.text[this.pos] === close) {
         this.pos += 1;
         return args;
       }
-      if (this.pos >= this.text.length) this.stop("A closing parenthesis is missing.", open, 1);
-      this.stop(`A "${this.syn.separator}" or a closing parenthesis is missing.`, this.pos, this.tokenLength());
+      if (this.pos >= this.text.length) this.stop(`A closing ${closer} is missing.`, open, 1);
+      this.stop(`A "${this.syn.separator}" or a closing ${closer} is missing.`, this.pos, this.tokenLength());
     }
   }
 
-  /** This method reads the arguments `key: expr` of a form `named` into a record (SYNTAX.RECORD). */
-  private namedArguments(form: Form): Json {
+  /**
+   * This method reads the entries `key: expr` into a record: the arguments of a form `named` (SYNTAX.RECORD), or the
+   * entries between braces without a form (SYNTAX.RECORD-TEXT).
+   */
+  private entries(form: Form | undefined): Record<string, Json> {
+    const owner = form === undefined ? "record" : `form ${form.name}`;
     const value: Record<string, Json> = {};
-    this.argumentsOf(() => {
+    const entry = (): void => {
       this.skip();
       const at = this.pos;
-      let key: string | undefined;
-      if (this.text[at] === "`") key = this.quoted();
-      else {
-        key = this.at(NAME_AT);
-        if (key !== undefined) this.pos += key.length;
-      }
+      const key = this.key();
       const end = this.pos;
       this.skip();
       if (key === undefined || this.text[this.pos] !== ":") {
-        this.stop(`Each argument of the form ${form.name} is a key, a ":" and a document.`, at, Math.max(end - at, this.tokenLength()));
+        this.stop(`Each ${form === undefined ? "entry" : "argument"} of the ${owner} is a key, a ":" and a document.`, at, Math.max(end - at, this.tokenLength()));
       }
-      if (form.fields !== undefined && !form.fields.includes(key)) this.stop(`The form ${form.name} has no field ${key}.`, at, end - at);
-      if (Object.hasOwn(value, key)) this.stop(`The form ${form.name} has the field ${key} two times.`, at, end - at);
+      if (form?.fields !== undefined && !form.fields.includes(key)) this.stop(`The form ${form.name} has no field ${key}.`, at, end - at);
+      if (Object.hasOwn(value, key)) this.stop(`The ${owner} has the field ${key} two times.`, at, end - at);
       this.pos += 1;
       const arg = this.bound();
-      setOwn(value, key, wraps(form, key) ? envelop(this.syn, arg) : arg);
-    });
-    return opDoc(form, value);
+      setOwn(value, key, form !== undefined && wraps(form, key) ? envelop(this.syn, arg) : arg);
+    };
+    this.argumentsOf(entry, form === undefined ? "}" : ")");
+    return value;
   }
 
   private call(name: string, start: number, nameLength: number): Json {
     const form = this.syn.forms.get(name);
-    if (form?.args === "named") return this.namedArguments(form);
+    if (form?.args === "named") return opDoc(form, this.entries(form));
     const args = this.argumentsOf(() => this.bound());
     if (form?.args === "literal") {
       const [only] = args;
@@ -868,7 +995,15 @@ type Shape =
   | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown, boolean?])[]; readonly named?: boolean }
   | { readonly tag: "path"; readonly segments: readonly (string | readonly [Key, unknown])[] }
   | { readonly tag: "bind"; readonly name: string; readonly doc: unknown }
+  | ConstructShape
   | { readonly tag: "none"; readonly reason: string };
+
+/** The shape of a construct form (K145). The tag `apply` is a call of a value. */
+type ConstructShape =
+  | { readonly tag: "record"; readonly entries: JsonRecord }
+  | { readonly tag: "let"; readonly bind: JsonRecord; readonly body: unknown }
+  | { readonly tag: "fn"; readonly params: readonly string[]; readonly body: unknown }
+  | { readonly tag: "apply"; readonly target: unknown; readonly args: readonly unknown[] };
 
 function none(reason: string): Shape {
   return { tag: "none", reason };
@@ -989,6 +1124,24 @@ function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined
   return { tag: "call", name: form.name, args: present.map((key) => [key, value[key], wraps(form, key)] as const) };
 }
 
+/** This function tells if a record has exactly these two keys. */
+function hasKeys(value: JsonRecord, first: string, second: string): boolean {
+  return Object.keys(value).length === 2 && Object.hasOwn(value, first) && Object.hasOwn(value, second);
+}
+
+/** This function gives the shape of a construct, or `undefined` when its form does not write the value. */
+function constructShape(construct: keyof SyntaxConstructs, value: unknown): ConstructShape | undefined {
+  if (!isRecord(value)) return undefined;
+  if (construct === "record") return { tag: "record", entries: value };
+  const { bind, params, args } = value;
+  if (construct === "let") return hasKeys(value, "bind", "body") && isRecord(bind) ? { tag: "let", bind, body: value["body"] } : undefined;
+  if (construct === "fn") {
+    const names = Array.isArray(params) && params.every((param) => typeof param === "string") ? (params as readonly string[]) : undefined;
+    return hasKeys(value, "params", "body") && names !== undefined ? { tag: "fn", params: names, body: value["body"] } : undefined;
+  }
+  return hasKeys(value, "fn", "args") && Array.isArray(args) ? { tag: "apply", target: value["fn"], args } : undefined;
+}
+
 function opShape(syn: Compiled, key: string, terms: readonly unknown[]): Shape | undefined {
   for (const op of syn.byKind.get(key) ?? []) {
     const fits = op.fixity === "infix" ? terms.length === 2 || (op.assoc === "flat" && terms.length > 2) : terms.length === 1;
@@ -1024,6 +1177,9 @@ function shapeOf(syn: Compiled, doc: unknown): Shape {
     const shape = formShape(syn, form, value);
     if (shape !== undefined) return shape;
   }
+  const construct = syn.constructKinds.get(key);
+  const written = construct === undefined ? undefined : constructShape(construct, value);
+  if (written !== undefined) return written;
   const called = path[0] === "ops" && Array.isArray(value) ? callName(syn, path.slice(1)) : undefined;
   if (called !== undefined) return { tag: "call", name: called, args: (value as readonly unknown[]).map((item, index) => [index, item] as const) };
   return none(`This syntax has no text for the kind ${name}.`);
@@ -1031,8 +1187,10 @@ function shapeOf(syn: Compiled, doc: unknown): Shape {
 
 function levelOf(syn: Compiled, doc: unknown): number {
   const shape = shapeOf(syn, doc);
-  // A document with a name binds more loosely than each operator, thus it needs parentheses as a term.
-  return shape.tag === "op" ? shape.op.prec : shape.tag === "bind" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
+  // A document with a name binds more loosely than each operator, thus it needs parentheses as a term. The body of a
+  // let or a function goes as far as it can, thus these forms need parentheses too (D127).
+  if (shape.tag === "bind" || shape.tag === "let" || shape.tag === "fn") return Number.NEGATIVE_INFINITY;
+  return shape.tag === "op" ? shape.op.prec : Number.POSITIVE_INFINITY;
 }
 
 /** This function tells if a term needs parentheses in its position, so that `parse` reads the same tree. */
@@ -1060,17 +1218,60 @@ function opText(syn: Compiled, op: Op, terms: readonly unknown[], sub: SubText):
   return ok(texts.join(` ${op.symbol} `));
 }
 
+function keyText(key: string): string {
+  return NAME.test(key) ? key : quoteName(key);
+}
+
+/** This function gives the text of each part. `path` is the place of the parts in the value of their document. */
+function partTexts(parts: readonly (readonly [Key, unknown])[], path: readonly Key[], sub: SubText): Result<readonly string[]> {
+  const texts: string[] = [];
+  for (const [key, part] of parts) {
+    const result = sub(part, [...path, key]);
+    if (!result.ok) return result;
+    texts.push(result.value);
+  }
+  return ok(texts);
+}
+
+/** This function writes a record between braces. `path` is the place of the record in the value of its document. */
+function bracesText(syn: Compiled, record: JsonRecord, path: readonly Key[], sub: SubText): Result<string> {
+  const keys = Object.keys(record);
+  const texts = partTexts(keys.map((key) => [key, record[key]] as const), path, sub);
+  if (!texts.ok) return texts;
+  return ok(`{${texts.value.map((text, index) => `${keyText(keys[index] as string)}: ${text}`).join(`${syn.separator} `)}}`);
+}
+
+/** This function writes a construct form (K145). */
+function constructText(syn: Compiled, shape: ConstructShape, sub: SubText): Result<string> {
+  if (shape.tag === "record") return bracesText(syn, shape.entries, [], sub);
+  if (shape.tag === "apply") {
+    const target = sub(shape.target, ["fn"]);
+    if (!target.ok) return target;
+    const args = partTexts(shape.args.map((arg, index) => [index, arg] as const), ["args"], sub);
+    if (!args.ok) return args;
+    // A call of a value follows a group, or another call of a value.
+    const head = shapeOf(syn, shape.target).tag === "apply" ? target.value : `(${target.value})`;
+    return ok(`${head}(${args.value.join(`${syn.separator} `)})`);
+  }
+  const head = shape.tag === "fn" ? ok(`(${shape.params.map(keyText).join(`${syn.separator} `)}) =>`) : bracesText(syn, shape.bind, ["bind"], sub);
+  if (!head.ok) return head;
+  const body = sub(shape.body, ["body"]);
+  if (!body.ok) return body;
+  return ok(shape.tag === "fn" ? `${head.value} ${body.value}` : `let ${head.value} in ${body.value}`);
+}
+
 /** This function writes one document. `sub` gives the text of each part. */
 function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
   const shape = shapeOf(syn, doc);
   if (shape.tag === "text") return ok(shape.text);
   if (shape.tag === "none") return fail("#VALUE!", shape.reason);
   if (shape.tag === "op") return opText(syn, shape.op, shape.terms, sub);
+  if (shape.tag === "record" || shape.tag === "let" || shape.tag === "fn" || shape.tag === "apply") return constructText(syn, shape, sub);
   if (shape.tag === "bind") {
     // The document after a header name takes a document, thus a data envelope of a literal is the bare literal (K159).
     const head = wrappedShape(syn, shape.doc);
     const inner = head === undefined ? printNode(syn, shape.doc, sub) : head.tag === "text" ? ok(head.text) : fail("#VALUE!", WRAPPED);
-    return inner.ok ? ok(`${NAME.test(shape.name) ? shape.name : quoteName(shape.name)} ${syn.bind as string} ${inner.value}`) : inner;
+    return inner.ok ? ok(`${keyText(shape.name)} ${syn.bind as string} ${inner.value}`) : inner;
   }
   if (shape.tag === "path") {
     const texts: string[] = [];
@@ -1089,7 +1290,7 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
   for (const [key, arg, wrapped] of shape.args) {
     const result = sub(arg, [key], wrapped);
     if (!result.ok) return result;
-    texts.push(shape.named === true ? `${NAME.test(String(key)) ? String(key) : quoteName(String(key))}: ${result.value}` : result.value);
+    texts.push(shape.named === true ? `${keyText(String(key))}: ${result.value}` : result.value);
   }
   return ok(`${shape.name}(${texts.join(`${syn.separator} `)})`);
 }

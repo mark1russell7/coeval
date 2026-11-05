@@ -146,6 +146,8 @@ export interface KindFacts {
  *   whose attributes each declare `circular` gives a fixed point.
  * - `collect`: the value of a node without an answer of the first four rungs and without a fold. The node combines
  *   the contributions of each node of its subtree (TREE.COLLECT, D122).
+ * - `higher`: the value of a node without an answer of the rungs before it. The term gives a document as data. The kit
+ *   evaluates that document with the node as `self`, thus its root is a new node under the node (TREE.HIGHER, D126).
  */
 export interface AttributeDeclaration {
   readonly copy?: boolean;
@@ -153,6 +155,7 @@ export interface AttributeDeclaration {
   readonly default?: Json;
   readonly circular?: CircularDeclaration;
   readonly collect?: CollectDeclaration;
+  readonly higher?: Json;
 }
 
 /**
@@ -188,6 +191,9 @@ export interface CircularDeclaration {
   readonly start: Json;
   readonly limit?: number;
 }
+
+/** The most generated documents on the way from a node to the root of its tree (TREE.HIGHER-DEPTH, D126). */
+export const GENERATION_LIMIT = 64;
 
 /** The most rounds of a circular attribute without its own `limit` (TREE.CIRCULAR-LIMIT, D113). */
 export const CIRCULAR_LIMIT = 100;
@@ -260,6 +266,8 @@ export function collectOf(declared: unknown): CollectRule {
  *   equation sees no names.
  * - `at`: the attributes with parameters of the node (TREE.AT, D124). Only the step `tree.at` reads them, and the
  *   equation sees each parameter as a name.
+ * - `forwards`: the name of an attribute that gives a node. An attribute that no other rung answers comes from that
+ *   node (TREE.FORWARD, D126).
  */
 export interface TreeContract {
   readonly equations?: Readonly<Record<string, Json>>;
@@ -267,6 +275,7 @@ export interface TreeContract {
   readonly attributes?: Readonly<Record<string, AttributeDeclaration>>;
   readonly contributes?: Readonly<Record<string, Json>>;
   readonly at?: Readonly<Record<string, AtEquation>>;
+  readonly forwards?: string;
 }
 
 /**
@@ -334,15 +343,27 @@ export function argsKey(value: unknown): string | undefined {
   return keyOf(value, new Set());
 }
 
-function keyOf(value: unknown, open: Set<object>): string | undefined {
+/**
+ * This function gives the structural key of a document (TREE.HIGHER-PLAN, D126). The fields of a record keep their
+ * order, because the order of the parts decides the order of the JSON and the first error. Thus one key means one
+ * document, and the two documents are equal by DOC.EQUALS.
+ *
+ * @param doc - The document.
+ * @returns The JSON text, or `undefined` for a value that is not JSON data.
+ */
+export function documentKey(doc: unknown): string | undefined {
+  return keyOf(doc, new Set(), false);
+}
+
+function keyOf(value: unknown, open: Set<object>, sorted = true): string | undefined {
   if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
   if (typeof value === "number") return !Number.isFinite(value) ? undefined : Object.is(value, -0) ? "-0" : JSON.stringify(value);
   if (typeof value !== "object" || open.has(value) || (!Array.isArray(value) && !isRecord(value))) return undefined;
   open.add(value);
   try {
     const list = Array.isArray(value);
-    const names = list ? [] : Object.keys(value).sort();
-    const items = list ? value.map((item) => keyOf(item, open)) : names.map((name) => keyOf(field(value as JsonRecord, name), open));
+    const names = list ? [] : sorted ? Object.keys(value).sort() : Object.keys(value);
+    const items = list ? value.map((item) => keyOf(item, open, sorted)) : names.map((name) => keyOf(field(value as JsonRecord, name), open, sorted));
     if (items.includes(undefined)) return undefined;
     return list ? `[${items.join(",")}]` : `{${names.map((name, index) => `${JSON.stringify(name)}:${String(items[index])}`).join(",")}}`;
   } finally {
