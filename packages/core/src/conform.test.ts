@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AllOptions,
+  type Cap,
   type CompiledEvaluator,
   type CompiledRunner,
   type Context,
+  type DerefCode,
   type Domain,
+  type Effect,
   type EvalFn,
   type Finding,
   type FormulaProfile,
@@ -11,16 +15,25 @@ import {
   type Machine,
   type Result,
   type RunFn,
+  type RunPart,
+  type Steps,
   type Walker,
+  Failure,
   Held,
+  STD_CAPS,
   STD_DOMAINS,
   STD_MACHINE,
   conforms,
   fail,
   formulaDefinitions,
   formulaMachine,
+  isHostThing,
   jsTruthy,
+  makeContext,
+  mergeMachines,
+  nearestWalker,
   ok,
+  run,
 } from "./index.ts";
 
 /** The standard machine with more kinds, evaluators and runners. */
@@ -598,6 +611,574 @@ describe("the covers of a machine", () => {
     const atLeast: Domain = { is: (value) => (value as number) >= 0, under: ["number"] };
     const machine = withDomains({ half, below, atLeast, number: { ...(STD_DOMAINS["number"] as Domain), covers: [["below", "atLeast"]] } });
     expect(conforms(machine, "math.add")[0]?.reason).toContain("The member -0.5 of the domain number is in no domain of its cover below, atLeast.");
+  });
+});
+
+/** The results of the probe parts of the tests of `all`: other numbers, thus each order gives another list. */
+const NUMBERS: readonly Result[] = [ok(1), ok(2), ok(3), ok(5)];
+
+/** This function gives the value of a result, or the code of its error. */
+function outcome(result: Result): unknown {
+  return result.ok ? result.value : result.error.code;
+}
+
+/** This function wraps each part: `after` gets the index and the result of the part when the part gives its result. */
+function wrapped(parts: readonly RunPart[], after: (index: number, result: Result) => void): readonly RunPart[] {
+  return parts.map((part, index) => ({
+    ...part,
+    *evaluate(context?: Context): Steps {
+      const result = yield* part.evaluate(context);
+      after(index, result);
+      return result;
+    },
+  }));
+}
+
+/** A runner that gives the results in the order that they came. A sequence of the items hides this fault. */
+function arrival(options?: AllOptions): RunFn {
+  return function* ({ parts, all }) {
+    const arrived: unknown[] = [];
+    yield* all(wrapped(parts, (_index, result) => arrived.push(outcome(result))), options);
+    return ok(arrived);
+  };
+}
+
+/** A runner that gives its parts at the same time and each result at the place of its part. */
+function together(options?: AllOptions): RunFn {
+  return function* ({ parts, all }) {
+    return ok((yield* all(parts, options)).map(outcome));
+  };
+}
+
+/** A runner with `failFast`: it gives the first error of its list of results, or each value. */
+function stops(items: (parts: readonly RunPart[]) => readonly RunPart[] = (parts) => parts): RunFn {
+  return function* ({ parts, all }) {
+    const results = yield* all(items(parts), { failFast: true });
+    return results.find((result) => !result.ok) ?? ok(results.map(outcome));
+  };
+}
+
+/** The findings of a runner for the kind `par`, with the numbers as the results of the parts. */
+function ofRunner(code: RunFn | CompiledRunner, more: Partial<Kind> = {}, seed?: number): readonly Finding[] {
+  return conforms(machineWith({ par: listKind("par", more) }, {}, { par: code }), "par", { results: NUMBERS, ...(seed === undefined ? {} : { seed }) });
+}
+
+describe("the orders of the parts of all", () => {
+  it("[CONFORM.PARALLEL] code that gives its results in the order that they came breaks parallel, and the finding has the kind, the two orders and the two results", () => {
+    const found = ofRunner(arrival());
+    expect(obligations(found)).toEqual(["parallel"]);
+    const finding = found[0] as Finding;
+    expect(finding.reason).toMatch(/^The code of par depends on the order of its parallel parts\. The waits of all settle in the order \[the part 0, the part 1\] and the order \[the part 1, the part 0\]\. The first order gives the value \[(\d),(\d)\], and the second gives the value \[\2,\1\]\.$/);
+    expect(finding.probe.type).toBe("par");
+    expect(finding.probe.running).toBe(true);
+    expect(finding.probe.waits).toEqual(["0", "1"]);
+  });
+
+  it("[CONFORM.PARALLEL] the two results of a finding come from the kernel: a real run gives them in the two orders of the host", async () => {
+    const machine = machineWith({ par: listKind("par") }, {}, { par: arrival() });
+    const doc = { type: "par", value: [{ type: "log", value: ["a"] }, { type: "log", value: ["b"] }] };
+    const inOrder = async (order: readonly string[]): Promise<Result> => {
+      const answers = new Map<string, () => void>();
+      const perform = (effect: Effect): Promise<unknown> =>
+        new Promise((done) => {
+          answers.set(effect.payload as string, () => done(effect.payload));
+          // The answers come after the kernel took each wait, thus the order of the answers is the order of the host.
+          if (answers.size === order.length) setTimeout(() => order.forEach((name) => answers.get(name)?.()));
+        });
+      return (await run(machine, doc, makeContext({}, STD_CAPS), { perform })).result;
+    };
+    expect(await inOrder(["a", "b"])).toEqual(ok(["a", "b"]));
+    expect(await inOrder(["b", "a"])).toEqual(ok(["b", "a"]));
+  });
+
+  it("[CONFORM.PARALLEL] a read before a wait and a write after it lose an update, because each item starts before the first wait settles", () => {
+    const lost: RunFn = function* ({ parts, all }) {
+      let total = 0;
+      const items = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          const before = total;
+          const result = yield* part.evaluate(context);
+          total = before + (result.ok ? (result.value as number) : 0);
+          return result;
+        },
+      }));
+      yield* all(items);
+      return ok(total);
+    };
+    const found = ofRunner(lost);
+    expect(obligations(found)).toEqual(["parallel"]);
+    expect(found[0]?.reason).toContain("The first order gives the value");
+  });
+
+  it("[CONFORM.PARALLEL] a choice that only a seeded order changes is found: the part that settles second is the same in the forward and the backward order", () => {
+    const second: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      yield* all(wrapped(parts, (index) => arrived.push(index)));
+      return ok(parts.length === 3 ? arrived[1] : null);
+    };
+    const found = ofRunner(second);
+    expect(obligations(found)).toEqual(["parallel"]);
+    expect(found[0]?.reason).toContain("the order [the part 0, the part 1, the part 2]");
+  });
+
+  it("[CONFORM.PARALLEL] effects and parts count without their order: another payload or another part is a finding", () => {
+    const seen: RunFn = function* ({ parts, all, effect }) {
+      const arrived: unknown[] = [];
+      const logs = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          const result = yield* part.evaluate(context);
+          arrived.push(outcome(result));
+          return yield* effect("log", [...arrived]);
+        },
+      }));
+      yield* all(logs);
+      return ok(null);
+    };
+    const effects = ofRunner(seen, { effects: ["log"] });
+    expect(obligations(effects)).toEqual(["parallel"]);
+    expect(effects[0]?.reason).toMatch(/The effects differ: \[log .*\] and \[log .*\]\.$/);
+
+    // The third item evaluates its part only when the second item came before the first.
+    const skips: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      const items = wrapped(parts, (index) => arrived.push(index)).map((part, index) =>
+        index === 2
+          ? {
+              ...part,
+              *evaluate(context?: Context): Steps {
+                return arrived[0] === 1 ? ok(null) : yield* part.evaluate(context);
+              },
+            }
+          : part,
+      );
+      yield* all(items, { concurrency: 2 });
+      return ok(null);
+    };
+    const skipped = ofRunner(skips, { lazy: [{}] });
+    expect(obligations(skipped)).toContain("parallel");
+    expect(skipped.find((finding) => finding.obligation === "parallel")?.reason).toMatch(/The parts that evaluate differ: \[.*\] and \[.*\]\.$/);
+
+    // A log of each result at its own part gives the same effects in each order.
+    const logs: RunFn = function* ({ parts, all, effect }) {
+      const items = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          const result = yield* part.evaluate(context);
+          return yield* effect("log", outcome(result));
+        },
+      }));
+      return ok((yield* all(items)).map(outcome));
+    };
+    expect(ofRunner(logs, { effects: ["log"] })).toEqual([]);
+  });
+
+  it("[CONFORM.PARALLEL] a function in the result that reads the order is a finding", () => {
+    const later: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      yield* all(wrapped(parts, (index) => arrived.push(index)));
+      return ok(() => arrived[0]);
+    };
+    const equal = (a: unknown, b: unknown): boolean | undefined => (typeof a === "function" && typeof b === "function" ? true : undefined);
+    const found = conforms(machineWith({ par: listKind("par") }, {}, { par: later }), "par", { results: NUMBERS, equal });
+    expect(obligations(found)).toEqual(["parallel"]);
+    expect(found[0]?.reason).toContain("The function that the result gives returns another result.");
+  });
+
+  it("[CONFORM.PARALLEL] code that conforms gets no finding: each limit, failFast, an all inside an item, and compiled code", () => {
+    expect(ofRunner(together())).toEqual([]);
+    expect(ofRunner(together({ concurrency: 2 }))).toEqual([]);
+    // One item at a time has one order, also for the code of the first test.
+    expect(ofRunner(arrival({ concurrency: 1 }))).toEqual([]);
+    // With failFast, the first failure in the order of the host stops the other items. That difference is the rule ALL.
+    // The two errors of the palette give another first error in the two orders, and the check does not count that.
+    expect(conforms(machineWith({ par: listKind("par") }, {}, { par: stops() }), "par")).toEqual([]);
+
+    const nested: RunFn = function* ({ parts, all }) {
+      const inner: RunPart = {
+        key: "inner",
+        path: [],
+        *evaluate(): Steps {
+          return ok((yield* all(parts.slice(1))).map(outcome));
+        },
+      };
+      const first = parts[0];
+      return ok((yield* all(first === undefined ? [] : [first, inner])).map(outcome));
+    };
+    expect(ofRunner(nested)).toEqual([]);
+
+    const compiled: CompiledRunner = {
+      compileRun: ({ parts }) =>
+        function* (ctx, rt) {
+          const results = yield* rt.all(parts.map((part) => () => part.run(ctx, rt)));
+          return ok(results.map(outcome));
+        },
+    };
+    expect(ofRunner(compiled)).toEqual([]);
+  });
+
+  it("[CONFORM.PARALLEL] the rule ALL of the probe: a failed start, a throw, a stopped wait and a wait of the code", () => {
+    // An item that throws at its start or in its steps gives an error at its place.
+    const throwing: CompiledRunner = {
+      compileRun: ({ parts }) =>
+        function* (ctx, rt) {
+          const fails = (): Steps => {
+            throw new Error("The item fails at its start.");
+          };
+          const results = yield* rt.all([
+            ...parts.map((part) => () => part.run(ctx, rt)),
+            fails,
+            function* (): Steps {
+              throw new Error("The item fails in its steps.");
+            },
+          ]);
+          return ok(results.map(outcome));
+        },
+    };
+    expect(ofRunner(throwing)).toEqual([]);
+
+    // The finally code of an item that stops throws. The stop of failFast still holds, and no wait is dropped.
+    const stubborn = stops((parts) =>
+      parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          let ended = false;
+          try {
+            const result = yield* part.evaluate(context);
+            ended = true;
+            return result;
+          } finally {
+            if (!ended) throw new Error("The part does not stop.");
+          }
+        },
+      })),
+    );
+    expect(conforms(machineWith({ par: listKind("par") }, {}, { par: stubborn }), "par")).toEqual([]);
+
+    // A wait of the code under all stops the probe (C6), as a wait outside all does.
+    const own: RunFn = function* ({ parts, all }) {
+      const items = parts.map((part) => ({
+        ...part,
+        *evaluate(context?: Context): Steps {
+          yield Promise.resolve();
+          return yield* part.evaluate(context);
+        },
+      }));
+      return ok((yield* all(items)).map(outcome));
+    };
+    expect(obligations(ofRunner(own))).toEqual(["C6"]);
+  });
+
+  it("[CONFORM.PARALLEL] the orders come from the document and the option seed, not from the time", () => {
+    const second: RunFn = function* ({ parts, all }) {
+      const arrived: number[] = [];
+      yield* all(wrapped(parts, (index) => arrived.push(index)));
+      return ok(parts.length === 3 ? arrived[1] : null);
+    };
+    expect(ofRunner(second)).toEqual(ofRunner(second));
+    expect(ofRunner(second, {}, 7)).toEqual(ofRunner(second, {}, 7));
+    expect(obligations(ofRunner(second, {}, 7))).toEqual(["parallel"]);
+  });
+});
+
+/** The standard machine with the kind `probed`, whose verb `step` names the walker. */
+function walkerMachine(walker: Walker, more: Partial<Kind> = {}): Machine {
+  return mergeMachines(STD_MACHINE, { world: { kinds: { probed: { verbs: { step: "test.walk" }, ...more } } }, walkers: { "test.walk": walker } });
+}
+
+/** A correct walker: one step, with the key of its data, and one visit. */
+const STEPS: Walker = ({ data, here, deref, visit }) => {
+  const key = typeof data === "string" ? data : "a";
+  const thing = deref(here, key);
+  visit?.(key, thing);
+  return { ok: true, thing };
+};
+
+/** The findings of a walker, by the name of the walker. */
+function walkerFindings(walker: Walker, more: Partial<Kind> = {}): readonly string[] {
+  return obligations(conforms(walkerMachine(walker, more), "test.walk"));
+}
+
+describe("the laws of a walker", () => {
+  it("[CONFORM.WALKER-STD] each walker of the standard machine conforms, and a language walker conforms", () => {
+    const names = Object.keys(STD_MACHINE.walkers ?? {});
+    expect(names.length).toBeGreaterThan(2);
+    // The kinds have no shape, thus the option values gives the data of the steps that have an effect.
+    const values = { nearest: [{ type: "panel" }, { type: "panel", self: true }, { type: "box", self: true }], "tree.named": [{ name: "a" }, { name: "a", in: "panel" }], "tree.at": [{ attr: "a" }, { attr: "a", args: [1] }] };
+    for (const name of names) expect(conforms(STD_MACHINE, name, { values }), name).toEqual([]);
+    expect(conforms(walkerMachine(STEPS), "test.walk")).toEqual([]);
+    expect(conforms(walkerMachine(STEPS, { pure: true }), "test.walk")).toEqual([]);
+    expect(conforms(walkerMachine(nearestWalker({ eachStep: true })), "test.walk", { values: { probed: values.nearest } })).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-STD] the name selects a walker, the option verb selects it by force, and an evaluator keeps its place", () => {
+    const machine = mergeMachines(walkerMachine(STEPS), { evaluators: { "test.walk": (() => ok(1)) as EvalFn }, world: { kinds: { both: { verbs: { eval: "test.walk" } } } } });
+    const wrong = mergeMachines(machine, { replaces: [["walkers", "test.walk"]], walkers: { "test.walk": (() => undefined) as unknown as Walker } });
+    expect(conforms(wrong, "test.walk")).toEqual([]);
+    expect(obligations(conforms(wrong, "test.walk", { verb: "step" }))).toEqual(["result"]);
+    // A verb without code of that name stays a verb of an evaluator (D49).
+    expect(() => conforms(walkerMachine(STEPS), "test.walk", { verb: "deref" })).toThrow("no evaluator and no runner");
+    expect(() => conforms(mergeMachines(STD_MACHINE, { walkers: { lonely: STEPS } }), "lonely")).toThrow("option types");
+    expect(conforms(mergeMachines(walkerMachine(STEPS), { walkers: { lonely: STEPS } }), "lonely", { types: ["probed"] })).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-RESULT] a walker gives a thing or the reason of a failure, and each other answer is a finding", () => {
+    const faults: readonly Walker[] = [
+      (() => undefined) as unknown as Walker,
+      (() => 7) as unknown as Walker,
+      (() => ({ ok: true })) as unknown as Walker,
+      (() => ({ ok: false })) as unknown as Walker,
+      (() => ({ ok: false, reason: "No field.", code: "NOPE" })) as unknown as Walker,
+      (async () => ({ ok: true, thing: 1 })) as unknown as Walker,
+      () => {
+        throw new TypeError("no field");
+      },
+    ];
+    for (const fault of faults) expect(walkerFindings(fault)).toEqual(["result"]);
+  });
+
+  it("[CONFORM.WALKER-RESULT] a Failure and a failure with a code are the error channels of a walker", () => {
+    const failing: Walker = () => {
+      throw new Failure({ code: "#REF!", reason: "The step has no target." });
+    };
+    expect(walkerFindings(failing)).toEqual([]);
+    expect(walkerFindings(() => ({ ok: false, reason: "No field.", code: "#REF!" }))).toEqual([]);
+    expect(walkerFindings(() => ({ ok: false, reason: "No field." }))).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-RESULT] a walker that writes to its context throws, thus it cannot widen the context", () => {
+    const widens: Walker = ({ context, here }) => {
+      (context.caps as Cap[]).push("write");
+      return { ok: true, thing: here };
+    };
+    const names: Walker = ({ context, here }) => {
+      (context.names as Record<string, unknown>)["more"] = 1;
+      return { ok: true, thing: here };
+    };
+    expect(walkerFindings(widens)).toEqual(["result"]);
+    expect(walkerFindings(names)).toEqual(["result"]);
+  });
+
+  it("[CONFORM.WALKER-LOCAL] a walker that keeps state gets a finding, and a volatile kind needs no same answer", () => {
+    let calls = 0;
+    const counts: Walker = () => ({ ok: true, thing: (calls += 1) });
+    let turn = false;
+    const turns: Walker = ({ here, deref }) => {
+      turn = !turn;
+      deref(here, turn ? "a" : "x");
+      return { ok: true, thing: 1 };
+    };
+    expect(walkerFindings(counts)).toEqual(["local"]);
+    expect(walkerFindings(turns)).toEqual(["local"]);
+    expect(walkerFindings(counts, { volatile: true })).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-LADDER] a walker that skips its input for a host thing gets a finding with the thing", () => {
+    const direct: Walker = ({ here }) => ({ ok: true, thing: isHostThing(here) ? here.deref("a") : here });
+    const asks: Walker = ({ here }) => ({ ok: true, thing: isHostThing(here) && here.has?.("a") === true });
+    const [finding] = conforms(walkerMachine(direct), "test.walk");
+    expect(finding?.obligation).toBe("ladder");
+    expect(isHostThing(finding?.probe.here)).toBe(true);
+    expect(finding?.reason).toContain("the key a of the leaf directly");
+    expect(walkerFindings(asks)).toEqual(["ladder"]);
+  });
+
+  it("[CONFORM.WALKER-HOPS] each visit tells a step of the walk, and a walk without visit stays the same", () => {
+    const invents: Walker = ({ here, deref, visit }) => {
+      visit?.("a", "another thing");
+      return { ok: true, thing: deref(here, "a") };
+    };
+    const needs: Walker = ({ here, deref, visit }) => ({ ok: true, thing: visit === undefined ? "no visit" : deref(here, "a") });
+    const skips: Walker = ({ here, deref, visit }) => {
+      if (visit !== undefined) deref(here, "a");
+      return { ok: true, thing: 1 };
+    };
+    expect(walkerFindings(invents)).toEqual(["hops"]);
+    expect(walkerFindings(needs)).toEqual(["hops"]);
+    expect(walkerFindings(skips)).toEqual(["hops"]);
+  });
+
+  it("[CONFORM.WALKER-PURE] a pure step kind gets no read of the context, and a kind without the mark can read it", () => {
+    const reads: Walker = ({ context }) => ({ ok: true, thing: context.names["x"] });
+    expect(walkerFindings(reads, { pure: true })).toEqual(["C4"]);
+    expect(walkerFindings(reads)).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-TYPE] a walker keeps its type rule, and a rule that throws stays a type issue of the check", () => {
+    const reaches = (rule: NonNullable<Walker["type"]>): Walker => Object.assign((() => ({ ok: true, thing: "text" })) as Walker, { type: rule });
+    expect(walkerFindings(reaches(() => "text"))).toEqual([]);
+    expect(walkerFindings(reaches(() => ({ union: ["text", "number"] })))).toEqual([]);
+    expect(walkerFindings(reaches(() => "number"))).toEqual(["typed"]);
+    // The rule is wrong only from a thing of one type.
+    expect(walkerFindings(reaches(({ here }) => (here === "number" ? "number" : "text")))).toEqual(["typed"]);
+    const throws = reaches(() => {
+      throw new Error("No rule.");
+    });
+    expect(walkerFindings(throws)).toEqual([]);
+    expect(walkerFindings(reaches(() => "nmber"))).toEqual([]);
+    // A reference that the walker reaches is the next step of the path.
+    const refers = Object.assign((() => ({ ok: true, thing: { type: "ref", value: ["names", "x"] } })) as Walker, { type: () => "number" });
+    expect(walkerFindings(refers)).toEqual([]);
+  });
+});
+
+/** The standard machine with the kind `held`, whose verb `deref` names the code. */
+function derefMachine(code: DerefCode, more: Partial<Kind> = {}): Machine {
+  return mergeMachines(STD_MACHINE, { world: { kinds: { held: { verbs: { deref: "test.deref" }, ...more } } }, derefs: { "test.deref": code } });
+}
+
+/** This code gives the field of a record value. A key that the record does not hold gives `undefined`. */
+const FIELD: DerefCode = (doc, key) => (typeof doc.value === "object" && doc.value !== null ? (doc.value as Readonly<Record<string, unknown>>)[String(key)] : undefined);
+
+/** This function gives new code with the function `has`. */
+function withHas(code: (...args: Parameters<DerefCode>) => unknown, has: unknown): DerefCode {
+  return Object.assign(code, { has }) as DerefCode;
+}
+
+describe("the laws of the code of a deref", () => {
+  it("[CONFORM.DEREF-STD] correct code conforms, with a function has and without one", () => {
+    const told = withHas((doc, key) => FIELD(doc, key), (doc: Parameters<DerefCode>[0], key: Parameters<DerefCode>[1]) => FIELD(doc, key) !== undefined || key === "gone");
+    expect(conforms(derefMachine(FIELD), "test.deref")).toEqual([]);
+    expect(conforms(derefMachine(told), "test.deref")).toEqual([]);
+    expect(conforms(derefMachine(told), "test.deref", { verb: "deref" })).toEqual([]);
+  });
+
+  it("[CONFORM.DEREF-RESULT] code that throws gets a finding with the key, and a Failure is an error channel", () => {
+    const throws: DerefCode = () => {
+      throw new TypeError("no field");
+    };
+    const failing: DerefCode = () => {
+      throw new Failure({ code: "#REF!", reason: "The key has no target." });
+    };
+    const [finding] = conforms(derefMachine(throws), "test.deref");
+    expect(finding?.obligation).toBe("result");
+    expect(finding?.probe.key).toBe("a");
+    expect(obligations(conforms(derefMachine(withHas((doc, key) => FIELD(doc, key), throws)), "test.deref"))).toEqual(["result"]);
+    expect(conforms(derefMachine(failing), "test.deref")).toEqual([]);
+  });
+
+  it("[CONFORM.DEREF-LOCAL] code that keeps state gets a finding, and a volatile kind needs no same answer", () => {
+    let calls = 0;
+    const counts: DerefCode = () => (calls += 1);
+    let told = false;
+    const turns = withHas(() => undefined, () => (told = !told));
+    expect(obligations(conforms(derefMachine(counts), "test.deref"))).toEqual(["local"]);
+    expect(obligations(conforms(derefMachine(turns), "test.deref"))).toEqual(["local"]);
+    expect(conforms(derefMachine(counts, { volatile: true }), "test.deref")).toEqual([]);
+  });
+
+  it("[CONFORM.DEREF-HAS] the function has gives a truth, and true for each key that the code answers", () => {
+    const [finding] = conforms(derefMachine(withHas(() => 1, () => false)), "test.deref");
+    expect(finding?.obligation).toBe("has");
+    expect(finding?.probe.key).toBe("a");
+    expect(obligations(conforms(derefMachine(withHas(() => 1, () => "yes")), "test.deref"))).toEqual(["has"]);
+  });
+});
+
+/** The operations of a small typed language. */
+const TYPED_OPS: FormulaProfile["ops"] = {
+  add: (a: number, b: number) => a + b,
+  neg: (a: number) => -a,
+  sum: (...values: number[]) => values.reduce((total, value) => total + value, 0),
+  label: (a: unknown) => String(a),
+};
+
+/** The signatures of the small typed language. */
+const TYPED_SIGS: FormulaProfile["sigs"] = {
+  add: { params: ["number", "number"], to: "number" },
+  neg: [{ params: ["number"], to: "number" }],
+  sum: { params: [], rest: "number", to: "number" },
+  label: { params: ["unknown"], to: "text" },
+};
+
+/** The findings of `formula.op` of a profile, with the default types. */
+function opFindings(profile: FormulaProfile): readonly string[] {
+  return obligations(conforms(formulaMachine(profile), "formula.op", { definitions: formulaDefinitions(profile) }));
+}
+
+/** The findings of `formula.ext` of a profile, with the default types. */
+function extFindings(profile: FormulaProfile): readonly string[] {
+  return obligations(conforms(formulaMachine(profile), "formula.ext", { definitions: formulaDefinitions(profile) }));
+}
+
+describe("the laws of the functions of a formula profile", () => {
+  it("[CONFORM.PROFILE-STD] the kit with a typed profile conforms, with the default types of each evaluator", () => {
+    const profile: FormulaProfile = {
+      ops: TYPED_OPS,
+      sigs: TYPED_SIGS,
+      lazy: { first: (args) => args[0]?.() ?? fail("#ARGS", "first needs an argument.") },
+      ext: { size: (data) => ok(JSON.stringify(data).length) },
+      extTypes: { size: "number" },
+      omit: (error) => error.code === "#N/A",
+      missing: (value) => value === undefined,
+      check: (value) => (typeof value === "number" && !Number.isFinite(value) ? fail("#NUM!", "The number is not finite.") : undefined),
+      combine: (errors) => ({ code: "#MANY", reason: `${errors.length} parts failed.` }),
+    };
+    const machine = formulaMachine(profile);
+    for (const name of Object.keys(machine.evaluators)) {
+      if (name === "formula.step") continue;
+      expect(conforms(machine, name, { definitions: formulaDefinitions(profile) }), name).toEqual([]);
+    }
+  });
+
+  it("[CONFORM.PROFILE-NAMES] the default types hold each named function, thus the older checks see its code", () => {
+    let calls = 0;
+    expect(opFindings({ ops: { tick: () => (calls += 1) } })).toContain("local");
+    expect(opFindings({ ops: { tick: () => (calls += 1) }, volatile: ["tick"] })).toEqual([]);
+    expect(extFindings({ ext: { tick: () => ok((calls += 1)) } })).toContain("local");
+    expect(extFindings({ ext: { here: (_data, ctx) => ok(ctx.names["x"]) }, pureExt: ["here"] })).toContain("C4");
+    expect(extFindings({ ext: { here: (_data, ctx) => ok(ctx.names["x"]) } })).toEqual([]);
+    // The option types keeps its place.
+    expect(obligations(conforms(formulaMachine({ ops: { tick: () => (calls += 1) } }), "formula.op", { types: [["ops", "probe"]] }))).toEqual([]);
+  });
+
+  it("[CONFORM.PROFILE-SIGNATURE] an operation keeps the result type of each signature that its arguments match", () => {
+    const number = { neg: { params: ["number"], to: "number" } };
+    expect(opFindings({ ops: { neg: (a: number) => String(-a) }, sigs: number })).toEqual(["typed"]);
+    expect(opFindings({ ops: { sum: () => "none" }, sigs: { sum: { params: [], rest: "number", to: "number" } } })).toEqual(["typed"]);
+    expect(opFindings({ ops: { pick: (a: unknown) => a }, sigs: { pick: [{ params: ["text"], to: "text" }, { params: ["number"], to: "text" }] } })).toEqual(["typed"]);
+    // The hook check gives the result of the kit, thus a wrong hook fails a correct operation.
+    expect(opFindings({ ops: { neg: (a: number) => -a }, sigs: number, check: (value) => ok(String(value)) })).toEqual(["typed"]);
+    expect(opFindings({ lazy: { size: () => ok("big") }, sigs: { size: { params: ["number"], to: "number" } } })).toEqual(["typed"]);
+    const finding = conforms(formulaMachine({ ops: { neg: (a: number) => String(-a) }, sigs: number }), "formula.op")[0];
+    expect(finding?.probe.type).toBe("ops.neg");
+    expect(finding?.reason).toContain("its signature gives number");
+  });
+
+  it("[CONFORM.PROFILE-SIGNATURE] a throw and an error stay the errors of the language, and a bad type is a type issue of the check", () => {
+    const throws = () => {
+      throw new TypeError("no value");
+    };
+    expect(opFindings({ ops: { neg: throws }, sigs: { neg: { params: ["number"], to: "number" } } })).toEqual([]);
+    expect(opFindings({ ops: { neg: (a: number) => String(a) }, sigs: { neg: { params: ["nmber"], to: "number" } } })).toEqual([]);
+    expect(opFindings({ ops: { neg: () => "a" }, check: () => fail("#NUM!", "No value."), sigs: { neg: { params: ["number"], to: "number" } } })).toEqual([]);
+  });
+
+  it("[CONFORM.PROFILE-EXT] an extension gives a member of its entry in extTypes", () => {
+    expect(extFindings({ ext: { size: () => ok("big") }, extTypes: { size: "number" } })).toEqual(["typed"]);
+    expect(extFindings({ ext: { size: (data) => ok(data === 1 ? "one" : 2) }, extTypes: { size: "number" } })).toEqual(["typed"]);
+    expect(extFindings({ ext: { size: () => ok("big") } })).toEqual([]);
+    expect(extFindings({ ext: { size: () => fail("#N/A", "No size.") }, extTypes: { size: "number" } })).toEqual([]);
+    const profile: FormulaProfile = { ext: { size: (data) => ok(data === "only here" ? "text" : 1) }, extTypes: { size: "number" } };
+    expect(obligations(conforms(formulaMachine(profile), "formula.ext", { definitions: formulaDefinitions(profile), values: { "ext.size": ["only here"] } }))).toEqual(["typed"]);
+  });
+
+  it("[CONFORM.PROFILE-FORM] each function of a profile gives the form that its type states", () => {
+    const wrong = <T,>(value: unknown): T => value as T;
+    const form = (profile: FormulaProfile, name: string): readonly string[] => obligations(conforms(formulaMachine(profile), name, { definitions: formulaDefinitions(profile) }));
+    expect(form({ ext: { size: wrong(() => 1) } }, "formula.ext")).toContain("result");
+    expect(form({ lazy: { first: wrong(() => 1) } }, "formula.op")).toContain("result");
+    expect(form({ check: wrong(() => 1) }, "formula.op")).toContain("result");
+    expect(form({ combine: wrong(() => "many") }, "formula.op")).toContain("result");
+    expect(form({ omit: wrong(() => 1) }, "formula.record")).toContain("result");
+    expect(form({ missing: wrong(() => "yes") }, "formula.ref")).toContain("result");
+    // A throw of these functions gives an error of the language (E-THROW).
+    const throws = () => {
+      throw new TypeError("no value");
+    };
+    expect(form({ omit: throws }, "formula.record")).not.toContain("result");
+    expect(form({ check: throws }, "formula.op")).not.toContain("result");
   });
 });
 

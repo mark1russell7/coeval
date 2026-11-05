@@ -33,6 +33,8 @@ export interface Measured {
   readonly calls: number;
   /** The median time of one call in nanoseconds. */
   readonly ns: number;
+  /** The time of one call in each sample of the process, with the warmup, in nanoseconds (`levels.ts`). */
+  readonly samples: readonly number[];
 }
 
 const ref = (...path: kernel.Json[]): kernel.Json => ({ type: "ref", value: path });
@@ -286,11 +288,8 @@ export function run(counts?: readonly number[], only?: readonly number[]): Measu
     const result = show(fn());
     const calls = counts?.[index] ?? calibrate(fn);
     const samples: number[] = [];
-    for (let round = 0; round < WARMUP + SAMPLES; round += 1) {
-      const ns = measure(fn, calls);
-      if (round >= WARMUP) samples.push(ns);
-    }
-    return { name: item.name, result, calls, ns: median(samples) };
+    for (let round = 0; round < WARMUP + SAMPLES; round += 1) samples.push(measure(fn, calls));
+    return { name: item.name, result, calls, ns: median(samples.slice(WARMUP)), samples };
   });
 }
 

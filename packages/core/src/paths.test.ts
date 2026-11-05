@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   type CompiledEvaluator,
+  type CompiledRunner,
   type Context,
+  type Definitions,
   type DerefCode,
   type Envelope,
+  type EvalFn,
   type HostThing,
   type Json,
   type Key,
@@ -11,24 +14,32 @@ import {
   type Navigator,
   type Read,
   type Resolution,
+  type Result,
+  type RunFn,
   type Runtime,
   type Walker,
   type World,
   Held,
   THING,
+  agree,
+  agreeRun,
+  compilePath,
   context,
   evaluate,
+  fail,
   formulaMachine,
   isHostThing,
   isRecord,
   ok,
   prepare,
   random,
+  reference,
   resolve,
+  resolveCompiled,
+  run,
+  valueOfThing,
   worldThing,
 } from "./index.ts";
-import { compilePath } from "./deref.ts";
-import { resolveCompiled } from "./evaluate.ts";
 
 /** The number of random paths of the property test. CI can raise it with COEVAL_PATHS_COUNT. */
 const COUNT = Number(process.env["COEVAL_PATHS_COUNT"] ?? 4000);
@@ -420,5 +431,249 @@ describe("the memo of the kinds", () => {
     const before = lookups();
     expect(resolve(nav, ctx, ["names", "p", "x"])).toMatchObject({ ok: true });
     expect(lookups()).toBe(before);
+  });
+});
+
+/*
+ * A small language outside the formula kit (PLAN.PATH-EXPORT). The kind `read` gives the value of the path in its
+ * value. Its interpreter resolves the steps at each evaluation, and its second tier compiles the path one time.
+ */
+
+/** This function gives the result of a resolution in the small language, for each form of `read`. */
+function given(found: Resolution): Result {
+  return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
+}
+
+const readFn: EvalFn = ({ doc, resolve: read }) => given(read(doc.value as readonly unknown[]));
+
+const readCode: CompiledEvaluator = {
+  compile: ({ doc, machine }) => {
+    const compiled = compilePath(machine, doc.value as readonly unknown[]);
+    return (ctx, rt) => given(resolveCompiled(rt, ctx, compiled));
+  },
+};
+
+const readRun: RunFn = function* ({ doc, resolve: read }) {
+  return given(read(doc.value as readonly unknown[]));
+};
+
+const readCompiledRun: CompiledRunner = {
+  compileRun: ({ doc, machine }) => {
+    const compiled = compilePath(machine, doc.value as readonly unknown[]);
+    return function* (ctx, rt) {
+      return given(resolveCompiled(rt, ctx, compiled));
+    };
+  },
+};
+
+/** The list of the results of the parts, or the first error. */
+const bothFn: EvalFn = ({ parts }) => {
+  const values: unknown[] = [];
+  for (const part of parts) {
+    const result = part.evaluate();
+    if (!result.ok) return result;
+    values.push(result.value);
+  }
+  return ok(values);
+};
+
+/** The result of the first part, with the name `bound` and a new value of the name `a`. Thus these reads are not free. */
+const withFn: EvalFn = ({ parts, context: ctx }) => parts[0]?.evaluate({ ...ctx, names: { ...ctx.names, bound: 5, a: 6 } }) ?? fail("#VALUE!", "No part.");
+
+const TINY_WORLD: World = {
+  kinds: {
+    ...KINDS,
+    read: { verbs: { eval: "tiny.read" }, pure: true },
+    both: { verbs: { eval: "tiny.both" }, parts: { shape: "list" }, pure: true },
+    with: { verbs: { eval: "tiny.with" }, parts: { shape: "list" } },
+  },
+  defaults: {},
+};
+
+const TINY: Machine = { world: TINY_WORLD, derefs: DEREFS, walkers: WALKERS, evaluators: { "tiny.read": readFn, "tiny.both": bothFn, "tiny.with": withFn } };
+const TINY_COMPILED: Machine = { ...TINY, evaluators: { ...TINY.evaluators, "tiny.read": readCode } };
+const TINY_RUNNERS: Machine = { ...TINY_COMPILED, runners: { "tiny.read": readCompiledRun } };
+const TINY_RUN: Machine = { ...TINY, runners: { "tiny.read": readRun } };
+const TINY_DEFINITIONS: Definitions = { evaluators: { "tiny.read": readFn }, runners: { "tiny.read": readRun } };
+
+const read = (...path: unknown[]): Envelope => ({ type: "read", value: path as Json });
+const both = (...parts: readonly Envelope[]): Envelope => ({ type: "both", value: parts as unknown as Json });
+const bound = (part: Envelope): Envelope => ({ type: "with", value: [part as unknown as Json] });
+
+const AT_ONE = { type: ["moves", "at"], value: 1 };
+
+const TINY_DOCS: readonly Envelope[] = [
+  read("names", "a"),
+  read("names", "x", "b", "c"),
+  read("names", "nope"),
+  read("names", "hop"),
+  read("names", "loop"),
+  read("names", "deep", "c"),
+  read("names", "h", "a", "b"),
+  read("names", "p", "x"),
+  read("names", "held"),
+  read("names", "b", AT_ONE),
+  read("names", "a", AT_ONE),
+  read("names", "boom"),
+  read("names"),
+  read("self", "a"),
+  read("self"),
+  read("event", 0),
+  read("world", "n1"),
+  read("caps"),
+  read("nope", "a"),
+  read(),
+  both(read("names", "a"), read("self", "a")),
+  both(read("names", "a"), read("names", "nope")),
+  both(read("names", "a"), both(read("names", "x", "a"), read("names", "boom"))),
+  bound(read("names", "bound")),
+  bound(read("names", "a")),
+  bound(both(read("names", "x"), read("names", "bound"), read("self"), read("names", "nope"))),
+];
+
+/** The contexts of the small language. A read of the name `boom` throws in the host. A walk over the names does not meet it. */
+const TINY_CONTEXTS: readonly Context[] = CONTEXTS.map((ctx) =>
+  context({
+    ...ctx,
+    names: Object.defineProperty({ ...NAMES }, "boom", {
+      get: () => {
+        throw new Error("The host failed.");
+      },
+    }),
+  }),
+);
+
+describe("the compiled paths of a language", () => {
+  const each = (test: (doc: Envelope, ctx: Context, where: string) => void): void => {
+    TINY_CONTEXTS.forEach((ctx, index) => {
+      for (const doc of TINY_DOCS) test(doc, ctx, `${JSON.stringify(doc)} in the context ${index}`);
+    });
+  };
+
+  it("[PLAN.PATH-EXPORT] a language outside the formula kit compiles a path one time in its evaluator, and each evaluation walks the values", () => {
+    let asked = 0;
+    let compiles = 0;
+    const walkers = new Proxy(WALKERS, {
+      getOwnPropertyDescriptor: (target, key) => {
+        asked += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    const counted: CompiledEvaluator = {
+      compile: (input) => {
+        compiles += 1;
+        return readCode.compile(input);
+      },
+    };
+    const machine: Machine = { ...TINY, walkers, evaluators: { ...TINY.evaluators, "tiny.read": counted } };
+    expect(Object.keys(machine.evaluators).filter((name) => name.startsWith("formula."))).toEqual([]);
+    const doc = read("names", "b", AT_ONE);
+    const ctx = context({ names: NAMES });
+    const plan = prepare(machine, doc);
+    const once = asked;
+    expect(once).toBeGreaterThan(0);
+    for (let index = 0; index < 3; index += 1) {
+      expect(plan.evaluate(ctx)).toEqual({ ok: true, value: "two" });
+      expect(plan.evaluate(ctx, { reads: [] })).toEqual({ ok: true, value: "two" });
+    }
+    expect({ compiles, asked }).toEqual({ compiles: 1, asked: once });
+    // The interpreter of the same language asks the ladder at each evaluation.
+    const interpreter = prepare({ ...TINY, walkers }, doc);
+    asked = 0;
+    expect(interpreter.evaluate(ctx)).toEqual({ ok: true, value: "two" });
+    expect(asked).toBeGreaterThan(0);
+  });
+
+  it("[PLAN.PATH-READS] the second tier of a language gives the value, the error, the place, the reads and the host calls of its interpreter", () => {
+    let errors = 0;
+    each((doc, ctx, where) => {
+      const list = (machine: Machine): { readonly result: Result; readonly reads: readonly Read[]; readonly calls: readonly string[] } => {
+        calls = [];
+        const reads: Read[] = [];
+        const result = prepare(machine, doc).evaluate(ctx, { reads });
+        return { result, reads, calls };
+      };
+      const interpreted = list(TINY);
+      expect(list(TINY_COMPILED), where).toEqual(interpreted);
+      if (!interpreted.result.ok) {
+        errors += 1;
+        expect(interpreted.result.error.place, where).toBeDefined();
+      }
+      // A traced evaluation of the second tier resolves the steps again, and it gives the same list.
+      const traced: Read[] = [];
+      expect(evaluate(TINY_COMPILED, doc, ctx, { reads: traced }).result, where).toEqual(interpreted.result);
+      expect(traced, where).toEqual(interpreted.reads);
+      // Without a list, the second tier gives the same result.
+      expect(prepare(TINY_COMPILED, doc).evaluate(ctx), where).toEqual(interpreted.result);
+      // The reference reads the definition of the language, and it gives the same result and the same list.
+      const direct: Read[] = [];
+      expect(reference(TINY_COMPILED, doc, ctx, { definitions: TINY_DEFINITIONS, reads: direct }), where).toEqual(interpreted.result);
+      expect(direct, where).toEqual(interpreted.reads);
+    });
+    expect(errors).toBeGreaterThan(5);
+    // The free mark comes from the path, thus a read of a bound name is not free in the second tier.
+    const reads: Read[] = [];
+    const ctx = TINY_CONTEXTS[0] as Context;
+    prepare(TINY_COMPILED, bound(both(read("names", "bound"), read("names", "x")))).evaluate(ctx, { reads });
+    expect(reads.map((each) => each.free)).toEqual([false, true]);
+  });
+
+  it("[PLAN.PATH-READS] agree compares the second tier with the reference and with the interpreter as a tier", () => {
+    each((doc, ctx, where) => {
+      const other = (given: unknown, at: Context): Result => prepare(TINY, given).evaluate(at);
+      expect(agree(TINY_COMPILED, doc, ctx, { strict: true, definitions: TINY_DEFINITIONS, other }), where).toMatchObject({ ok: true });
+    });
+    const wrong = (): Result => ok("another value");
+    expect(agree(TINY_COMPILED, read("names", "a"), TINY_CONTEXTS[0], { tiers: [], other: wrong })).toMatchObject({ ok: false, tier: "other" });
+  });
+
+  it("[PLAN.PATH-READS] a compiled runner reads a compiled path, and a run records the reads of the interpreter", async () => {
+    for (const [machine, interpreter] of [[TINY_COMPILED, TINY], [TINY_RUNNERS, TINY_RUN]] as const) {
+      for (const ctx of TINY_CONTEXTS) {
+        for (const doc of TINY_DOCS) {
+          const where = JSON.stringify(doc);
+          const [mine, theirs]: Read[][] = [[], []];
+          const [ran, interpreted] = [await run(machine, doc, ctx, { reads: mine as Read[] }), await run(interpreter, doc, ctx, { reads: theirs as Read[] })];
+          expect(ran.result, where).toEqual(interpreted.result);
+          expect(mine, where).toEqual(theirs);
+          await expect(agreeRun(machine, doc, ctx, { definitions: TINY_DEFINITIONS }), where).resolves.toMatchObject({ ok: true });
+        }
+      }
+    }
+  });
+
+  it("[PLAN.PATH-ROUTE] a runtime of the host that does not know compiled paths gets the steps, and the list of reads stays the same", () => {
+    const seen: unknown[] = [];
+    // The code wraps the runtime of the kernel, as a host that watches the paths does.
+    const wrapped: CompiledEvaluator = {
+      compile: ({ doc, machine }) => {
+        const compiled = compilePath(machine, doc.value as readonly unknown[]);
+        return (ctx, rt) => {
+          const host: Runtime = {
+            machine: rt.machine,
+            running: rt.running,
+            resolve: (at, path, options) => (seen.push(path), rt.resolve(at, path, options)),
+            effect: (at, kind, payload, place) => rt.effect(at, kind, payload, place),
+            runEffect: (at, kind, payload, place) => rt.runEffect(at, kind, payload, place),
+            all: (list, options) => rt.all(list, options),
+          };
+          return given(resolveCompiled(host, ctx, compiled));
+        };
+      },
+    };
+    const machine: Machine = { ...TINY, evaluators: { ...TINY.evaluators, "tiny.read": wrapped } };
+    const doc = both(read("names", "x", "b"), read("names", "nope"));
+    const ctx = context({ names: NAMES });
+    const [mine, theirs]: Read[][] = [[], []];
+    // A fold also calls the code, thus this plan has no folds.
+    expect(prepare(machine, doc, { fold: false }).evaluate(ctx, { reads: mine as Read[] })).toEqual(prepare(TINY, doc).evaluate(ctx, { reads: theirs as Read[] }));
+    expect(mine).toEqual(theirs);
+    expect(seen).toEqual([["names", "x", "b"], ["names", "nope"]]);
+  });
+
+  it("[PLAN.PATH-ROUTE] the runtime of a fold gets the steps and refuses the read, thus a pure part of a language does not keep a value of a context", () => {
+    const plan = prepare(TINY_COMPILED, read("names", "a"), { fold: true });
+    expect(plan.evaluate(context({ names: { a: 1 } }))).toEqual(ok(1));
+    expect(plan.evaluate(context({ names: { a: 2 } }))).toEqual(ok(2));
   });
 });

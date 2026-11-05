@@ -40,7 +40,7 @@ The diagram above gets its graph from the formulas: `refsOf` finds the names tha
 
 From the graph, a static analysis gives three results before the start. It finds the cycles, an order for a push schedule, and the independent groups of nodes. Independent groups can compute at the same time.
 
-The functions `cycles`, `heights` and `nodeLayers` give these three results, and `necessary` gives the nodes that an observer needs (decision D33). A cycle of eager reads is certain. A cycle through a branch of `if` is only possible, because the test can skip the read. The demand still gives the value of each node.
+The functions `cycles`, `heights` and `nodeLayers` give these three results, and `necessary` gives the nodes that an observer needs (decision D33). A cycle of eager reads is certain. A cycle through a branch of `if` is only possible, because the test can skip the read. The demand still gives the value of each node. The function `checkCycles` gives each certain cycle as an issue with the code `#CYCLE!`, before a run (decision D131).
 
 ## Stop early when nothing changed
 

@@ -1064,6 +1064,22 @@ function readingOf(list: Read[] | undefined, root: Context): Reading | undefined
 
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
+  readonly machine: Machine;
+  /**
+   * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
+   * keeps its grant only in an evaluation of the same epoch.
+   */
+  readonly epoch: readonly Cap[];
+  readonly running: boolean;
+  readonly traced: boolean;
+  readonly perform: Perform | undefined;
+  readonly signal: StopSignal | undefined;
+  /**
+   * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
+   * shares the record of the evaluation around it (READS.EQUATION).
+   */
+  readonly reading: Reading | undefined;
+
   /** The list of the effects. It is made at the first effect, thus an evaluation without effects makes no list. */
   private list: Effect[] | undefined;
   tick = 0;
@@ -1082,23 +1098,22 @@ class Session implements Runtime {
   private scope: Scope | undefined;
 
   constructor(
-    readonly machine: Machine,
-    /**
-     * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
-     * keeps its grant only in an evaluation of the same epoch.
-     */
-    readonly epoch: readonly Cap[],
-    readonly running: boolean,
-    readonly traced: boolean,
-    readonly perform: Perform | undefined,
-    readonly signal: StopSignal | undefined,
+    machine: Machine,
+    epoch: readonly Cap[],
+    running: boolean,
+    traced: boolean,
+    perform: Perform | undefined,
+    signal: StopSignal | undefined,
     effects: Effect[] | undefined,
-    /**
-     * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
-     * shares the record of the evaluation around it (READS.EQUATION).
-     */
-    readonly reading: Reading | undefined = undefined,
+    reading: Reading | undefined = undefined,
   ) {
+    this.machine = machine;
+    this.epoch = epoch;
+    this.running = running;
+    this.traced = traced;
+    this.perform = perform;
+    this.signal = signal;
+    this.reading = reading;
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
@@ -1437,7 +1452,9 @@ class Session implements Runtime {
 
 /**
  * This function resolves a compiled path through a runtime (PLAN.PATH). The runtime of the kernel uses the compiled
- * path. Each other runtime gets the steps through `resolve`, thus a runtime that wraps another runtime sees each path.
+ * path. Each other runtime gets the steps through `resolve`, thus a runtime that wraps another runtime sees each path
+ * (PLAN.PATH-ROUTE). The result and the list of reads are the same as for `rt.resolve(ctx, compiled.path)`
+ * (PLAN.PATH-READS).
  *
  * @param rt - The runtime.
  * @param ctx - The context.
@@ -1846,6 +1863,7 @@ function freeOf(doc: Envelope, kind: Kind, slots: readonly PartSlot[], frees: re
 
 /** This class is the runtime of a fold. It reads only the names that the folded part binds, and it causes no effect. */
 class Probe implements Runtime {
+  readonly machine: Machine;
   readonly running = false;
   /** `true` after the part asked for something that a fold cannot give. */
   refused = false;
@@ -1857,7 +1875,8 @@ class Probe implements Runtime {
    */
   readonly root: Context;
 
-  constructor(readonly machine: Machine) {
+  constructor(machine: Machine) {
+    this.machine = machine;
     const refuse = (): void => {
       this.refused = true;
     };
