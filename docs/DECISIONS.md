@@ -4215,3 +4215,48 @@ A closure of `fn` with the cell as an argument. Such a host gets one plan, but t
 - A closure with a kept read that meets a reference keeps each whole root (READS.KEPT). A `self` that is itself a reference to its own node closes no cycle since D136 (K217). The `self` of a host context gives the same answer. The limit of D136 stays: a `self` that reaches its node through another node still closes a false `#CYCLE!` (K218).
 
 **Why.** The function adds no state to the schedule. The host keeps its cells, and a change of many cells is one change of data. The verification of D26 already compares what a read reaches in a new context, thus a node gets its own invalidation with no new rule. The test SCHED.NODE-PLAN counts 1000 cells of one formula with one compilation and one facts object. The test SCHED.NODE-AGREES compares each answer with a model from scratch, and it finds an engine that keeps an old `self`.
+
+## D139 (2026-11-03): after an overflow of the stack, a walk with its own stack finds each cycle of real reads, and a chain with no cycle keeps its `#DEPTH!`
+
+**Context.** S2c, from S2a and the limits of D33. A demand uses the stack of the host for each node that it enters. The demands ahead do not help on a ring, because each of them enters the ring again. On Node.js 24, a ring of 2000 nodes gave `#DEPTH!` with the reason of the evaluator `formula.ref`. D31 gives each node of a cycle `#CYCLE!`. A ring of nodes that catch the error was worse: each node gave the value of its catch, from the depth of the overflow.
+
+The same overflow showed two more faults. A compilation near the limit of the stack gave a plan that fails, and `durable` kept that plan for the document. Then a later evaluation at a shallow depth failed too. The cleanup in `visit` called a function near the limit, and that call failed at times. Then a node stayed open, and its reader found two nodes in its component. A lazy chain with no cycle gave a false `#CYCLE!` in 1 of 400 runs, in a local measure. The test SCHED.LONG-CHAIN had a comment about this result.
+
+**Decision.**
+
+- **The trigger.** `thrown` counts each stack overflow that it changes into `#DEPTH!`, and the internal function `overflowCount` gives the count. A demand of the host compares the count before and after `visit`. A document that catches the error cannot hide the overflow from this count.
+- A demand of the host with an overflow makes a walk, and each later demand of the host in that data epoch walks too. An earlier `#DEPTH!` can stop a read before the cycle (SCHED.DEEP-CYCLE-REAL).
+- A nested demand does no new work. A demand of the host reads one number two times and one field of the epoch. Thus a document with no overflow pays only that.
+- **The walk.** The walk starts at the node of the demand, and it uses the lists of `visit` as its own stack. It evaluates one node at a time, through the plan of the node and a root `world` of its own.
+- A read of a node with a result of the walk gives that result. A read of a node on the stack of the walk gives `#CYCLE!`, as in `visit`. A read of a node on the run side gives `#REF!`.
+- A read of each other node stops the evaluation. The walk enters that node and finishes it. Then the reader evaluates again, and its read finds the result.
+- The links of the algorithm of Tarjan stay the links of `visit`. Thus a walk gives each order of demands the components of D31, also when a document catches the error.
+- After the first stop, each read of the evaluation stops too. Such a read does not happen in a real evaluation.
+- **Certain means real.** Each link of a walk is a read that an evaluation really made. A static edge makes no cycle, thus the rule of D33 stays: a read can fail or be skipped before it occurs.
+- **The results.** A walk that reaches no cycle changes nothing, thus a chain keeps its `#DEPTH!`. A walk that reaches a cycle gives each node that it entered its error, and it drops the durable result of each such node.
+- A node of that walk with a value evaluates again at its next demand. Its value can hold the root `world` of the walk, and that root does not answer a host.
+- **The bound.** Each evaluation of a walk enters a new node or finishes a node. Thus the walks of one data epoch do at most `2V` evaluations for `V` entered nodes. The count of the reads of a node does not change this bound (SCHED.DEEP-CYCLE-BOUND).
+- One evaluation of a walk costs one evaluation of a node. It keeps no trace and no list of reads. A node evaluates again at most one time after a walk, thus an epoch adds at most `3V` evaluations.
+- The memory is one result and one entry in each list for each entered node, thus `O(V)`. The results stay until the data epoch changes. `V` is at most the count of the nodes that the real reads reach.
+- **The coverage.** The check is in `demand`, thus `read`, `run`, the host thing at the root `world` and the record of the root all reach it. A plan, a traced plan, a run and the reference reach it through the root `world`. The walk itself evaluates in the plain plan tier (SCHED.DEEP-CYCLE-ENTRY).
+- **The two faults.** `durable` does not keep a plan when the count of the overflows changed during its compilation. The cleanup in `visit` is a loop with no call of a function of the module.
+
+**Alternatives.**
+
+- `cycles` over the static edges after an overflow. It costs less, but SCHED.DEEP-CYCLE-REAL has a certain ring of edges with a node that fails before its read, and D33 refuses this answer.
+- A test of the result of `visit` for `#DEPTH!`. A document that catches the error then hides the overflow, and a ring of `ifError` nodes keeps its wrong value.
+- A limit of depth in `visit` that starts the walk before an overflow. That adds a compare to each demand, and a lazy chain that fits the stack also pays for a walk.
+- A demand with its own stack in place of the stack of the host. A plan evaluates a read inside its code, thus such a demand needs a stop at each read of each document. That is the walk, on the path of each document.
+- Values of the walk for the host. That solves S2b too, but such a value can hold the root of the walk, and S2b has its own decision about evaluations that repeat.
+- Each result of the walk in place of each memo after a cycle. A closure from the walk then reaches a host, and SCHED.DEEP-CYCLE-REAL finds it.
+
+**Why.** The work runs only after the limit fires, thus the Speed gate has no new work on the path of a demand. D33 rejected a restart because each node evaluates at most one time in a data epoch (SCHED.DEMAND). A walk gives no node a value, thus that rule stays for each value that a host gets.
+
+The harness SCHED.DEEP-CYCLE-AGREES throws one overflow at each demand of a generated graph. Each node with `#CYCLE!` in the plain demand gives the same error after a walk, and no other node gives `#CYCLE!`. Thirteen mutants of the walk, the trigger, the results and the cache all fail the tests. After the change of the cleanup, 900 runs of a lazy chain gave no false `#CYCLE!`.
+
+**Limits.**
+
+- A walk evaluates a node again, and `counts` does not count this evaluation. A document that is not pure can read other nodes in the walk.
+- A chain with no cycle keeps the result of the first pass. A node that catches an overflow in such a chain keeps the value of its catch (S2b).
+- The evaluation from scratch of `agreeSchedule` uses the stack of the host for each node. It gives `#DEPTH!` for a ring longer than the stack, thus such a graph is out of its range. Its generated graphs have five nodes.
+- The count of the overflows is one number for the process. An overflow in an unrelated evaluation inside a demand starts a walk, and the bound stays the same.
