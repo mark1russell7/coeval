@@ -278,6 +278,7 @@ export {
   type SyntaxProfile,
   type SyntaxRefPattern,
   type SyntaxRefs,
+  MAX_SYNTAX_ISSUES,
   STD_SYNTAX,
   parse,
   print,

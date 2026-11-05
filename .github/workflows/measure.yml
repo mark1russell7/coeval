@@ -30,14 +30,40 @@ jobs:
       pull-requests: read
     outputs:
       match: ${{ steps.changes.outputs.match }}
+    env:
+      GATE_PATHS: |
+        .github/workflows/measure.yml
+        packages/core/bench/ladder.ts
+        packages/core/bench/mode.ts
+        packages/core/bench/merge.ts
+        packages/core/bench/limits.ts
+        packages/core/bench/limits.json
+        packages/core/bench/cases.ts
+        packages/core/bench/paths.ts
+        packages/core/bench/settings.ts
+        pnpm-lock.yaml
+        packages/core/package.json
+        packages/core/tsconfig.json
+        pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@c8d2f57af6932442af82d2f2223931e47c11beb1 # main
+        uses: mark1russell7/template/.github/actions/changes@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
         with:
-          paths: |
-            .github/workflows/measure.yml
-            packages/core/bench/ladder.ts
-            packages/core/bench/mode.ts
+          paths: ${{ env.GATE_PATHS }}
+      # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
+      # A list with no lock file reads false, so each line of the check can fail (K232, D166).
+      - name: The filter on fixtures (K232, D166)
+        run: |
+          rules=("${RUNNER_WORKSPACE%/*}"/_actions/mark1russell7/template/*/.github/actions/changes/match.jq)
+          if [ "${#rules[@]}" != 1 ] || [ ! -f "${rules[0]}" ]; then echo "::error::No single match.jq of the action changes."; exit 1; fi
+          check() {
+            got=$(printf '%s\n' "$3" | jq -R -s -r --arg paths "$2" --arg ignore "" -f "${rules[0]}")
+            echo "FIXTURE $1: $got"
+            if [ "$got" != "$4" ]; then echo "::error::The filter reads $got for $1, not $4."; exit 1; fi
+          }
+          check "the lock file" "$GATE_PATHS" pnpm-lock.yaml true
+          check "a docs file" "$GATE_PATHS" docs/ROADMAP.md false
+          check "the lock file with no lock line" "$(printf '%s\n' "$GATE_PATHS" | grep -v '^pnpm-lock.yaml$')" pnpm-lock.yaml false
 
   # The job "checks" of ci.yml does not apply the limit of PLAN.LEAN. Thus the job "measure" is its gate (K211, D104).
   core-changes:
@@ -48,15 +74,33 @@ jobs:
       pull-requests: read
     outputs:
       match: ${{ steps.changes.outputs.match }}
+    env:
+      GATE_PATHS: |
+        packages/core/src/**
+        packages/core/package.json
+        packages/core/tsconfig.json
+        pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .github/workflows/measure.yml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@c8d2f57af6932442af82d2f2223931e47c11beb1 # main
+        uses: mark1russell7/template/.github/actions/changes@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
         with:
-          paths: |
-            packages/core/src/**
-            packages/core/package.json
-            pnpm-lock.yaml
-            .github/workflows/measure.yml
+          paths: ${{ env.GATE_PATHS }}
+      # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
+      # A list with no lock file reads false, so each line of the check can fail (K232, D166).
+      - name: The filter on fixtures (K232, D166)
+        run: |
+          rules=("${RUNNER_WORKSPACE%/*}"/_actions/mark1russell7/template/*/.github/actions/changes/match.jq)
+          if [ "${#rules[@]}" != 1 ] || [ ! -f "${rules[0]}" ]; then echo "::error::No single match.jq of the action changes."; exit 1; fi
+          check() {
+            got=$(printf '%s\n' "$3" | jq -R -s -r --arg paths "$2" --arg ignore "" -f "${rules[0]}")
+            echo "FIXTURE $1: $got"
+            if [ "$got" != "$4" ]; then echo "::error::The filter reads $got for $1, not $4."; exit 1; fi
+          }
+          check "the lock file" "$GATE_PATHS" pnpm-lock.yaml true
+          check "a docs file" "$GATE_PATHS" docs/ROADMAP.md false
+          check "the lock file with no lock line" "$(printf '%s\n' "$GATE_PATHS" | grep -v '^pnpm-lock.yaml$')" pnpm-lock.yaml false
 
   measure:
     needs: core-changes
@@ -69,6 +113,11 @@ jobs:
       max-parallel: 3
       matrix:
         run: [1, 2, 3, 4, 5]
+        # The flip test of this gate (K227, D162). This row runs the same step with 20 bytes more on the value of PLAN.LEAN.
+        # The 5 jobs above are the copy with no fault. The lowest value of D161 is 391.1, so 20 bytes pass the limit in each job.
+        include:
+          - run: flip
+            inject: "20"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pnpm version comes from "packageManager" in package.json
@@ -79,14 +128,31 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: PLAN.LEAN and WORLD.LAWS
+        id: plan
+        # Only the flip row continues, and its next step decides. The outcome of this step stays failure.
+        continue-on-error: ${{ matrix.inject != '' }}
         working-directory: packages/core
+        # The default shell has no pipefail, and the pipe into tee then hid each failed test of this step (K228).
+        shell: bash
         env:
           COEVAL_MEASURE: "1"
+          COEVAL_MEASURE_INJECT: ${{ matrix.inject }}
         run: |
-          pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" | tee out.txt
+          # K229 reads the values of PLAN.LEAN against these facts of the runner, and the logs do not name all of them.
+          echo "Runner: cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs) image=$ImageVersion kernel=$(uname -r) node=$(node -v) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled)"
+          pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" 2>&1 | tee out.txt
           grep -o 'MEASURE {.*}' out.txt | sed 's/^MEASURE //' > measures.jsonl
           cat measures.jsonl
           { echo "### Run ${{ matrix.run }}"; echo '```'; cat measures.jsonl; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # A step that stays green with the injected value is a gate that does not hold. Another failure of the step is no flip.
+      - name: The injected value turned the step red, by the limit of PLAN.LEAN
+        if: ${{ matrix.inject != '' }}
+        working-directory: packages/core
+        env:
+          OUTCOME: ${{ steps.plan.outcome }}
+        run: |
+          test "$OUTCOME" = failure
+          grep -q 'bytes for each plan' out.txt
 
   ladder:
     needs: changes
@@ -211,7 +277,7 @@ jobs:
     # The action "gate-summary" reads one job of the action "changes". Thus each step gets one filter and its jobs.
     steps:
       - name: The jobs of the filter "changes"
-        uses: mark1russell7/template/.github/actions/gate-summary@c8d2f57af6932442af82d2f2223931e47c11beb1 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
         with:
           needs: >-
             {"changes": ${{ toJSON(needs.changes) }}, "ladder": ${{ toJSON(needs.ladder) }},
@@ -220,7 +286,7 @@ jobs:
       # This step also runs when the first step failed, thus the summary shows both verdicts.
       - name: The jobs of the filter "core-changes"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@c8d2f57af6932442af82d2f2223931e47c11beb1 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
         with:
           changes: core-changes
           needs: >-

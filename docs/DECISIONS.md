@@ -2883,6 +2883,8 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 **Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 395 bytes, and WORLD.LAWS gets exact counts.
 
+**Correction (2026-11-05).** D161 replaces this limit. It is 401.1 bytes, from 99 jobs.
+
 **Since D104.** The limit of PLAN.LEAN applies only in the job `measure`, the job that measured it. The job `checks` applies no limit of PLAN.LEAN.
 
 ## D96 (2026-11-02): a seeded property test splits its corpus into parts of a fixed size, and CI checks the share of the timeout
@@ -3378,6 +3380,8 @@ The behavior changes for a caller only with the new field. A check with types th
 **Public types.** None.
 
 **Changed expected values.** None. The limit stays at 395 bytes, and the counts of WORLD.LAWS stay the same.
+
+**Correction (2026-11-05).** This decision made the job `measure` the only gate of the limit, and a pipe in that job hid each failed test. So the limit of 395 bytes was not enforced from 2026-11-02 to 2026-11-05. See D161.
 
 **Limits.**
 
@@ -3930,7 +3934,7 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 
 **Why.** The rule of the gate limits is the worst of 5 or more CI jobs plus their spread, with the runs beside it. A fixed margin had no source. The limits of each family keep a quiet family strict, and they give a noisy family a wider margin.
 
-**End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again.
+**End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again. Since 2026-11-05 (K232, D166), a pooled "slower" does not block when all arm hashes of the complete runs are equal. Such a reading is noise of the method.
 
 **A suspect case (rigor #48).** 12 of the 16 deciding A/A verdicts between jobs come from one case: `factsOf` of a tree with an equation. That is a bias of one case between jobs, and the run-level test of rigor #30 does not find it. Thus the verdicts of that case are suspect until rigor #48 lands. The caps of plan and tree are near 30 % because one noisy job gives each of them. rigor #48 replays the records of the 90 days.
 
@@ -4167,3 +4171,304 @@ The count is not complete.
 - Each node of a schedule has its own evaluation and its own count. Thus its cache keeps `#WORK!`, as it keeps each other result that depends on the node.
 
 **Why.** The count stays off the read path. A plan without a closure, a tree or a function evaluator has the same code and the same runtime as before. The first version stored the end in each plan, and the bench gave 7 slower cases, with +23 % on one formula. A compiled evaluator tells that it keeps its runtime with the field `keeps`. Without the field the count goes on after the end, and the limit stops the host sooner. One limit covers each source of doubling that the check found, and a host raises it as it raises `maxDepth`.
+
+## D136 (2026-11-03): a kept read of the node in evaluation closes no cycle
+
+**Context.** K217, from D56 and D57. A closure keeps a read of each whole root when its path meets a reference (READS.KEPT). That read resolves the root, and a root that holds a reference follows the reference. In a schedule, the reference can reach the root `world`, and the step demands a node.
+
+When that node is the reader, the demand meets the node in evaluation, and the schedule closes a cycle. Thus a closure at a node whose `self` refers to that node gave `#CYCLE!`. The evaluation did not ask for the read, and a run has no such cycle. The evaluation from scratch of `agreeSchedule` gives the closure, because it records no reads. The contexts of SCHED.ONE-MEANING hold no reference, thus the test did not find it.
+
+The same read occurs at the root `event`, in the verification of a kept read, and for a kind that sets another `self`.
+
+**Decision.**
+
+- `HostThing` gets the optional function `keeping(read)`. The kernel calls this function of the root `world` around each kept read that resolves its path, at the record and in `verifyReads`.
+- `keeping` of a schedule notes the length of its stack. A demand of the node on top of the stack, at that length, is the kept read of the node in evaluation. It gives the same error as before, and it adds no mark for the cycle check (SCHED.OWN-NODE).
+- Each other demand stays as it is. A kept read still demands another node, and a nested demand has a longer stack. Thus each read of that evaluation counts, and a true cycle there gives `#CYCLE!`.
+- A read of the evaluation goes outside `keeping`, thus it closes the cycle with the same error.
+- No list of reads changes, also for this node. Its kept read of the root reaches the error of the node (SCHED.OWN-NODE-READS).
+- The reference and a plan without a list of reads do not change, because they keep no reads. A host thing without `keeping` does not change.
+
+**Alternatives.**
+
+- A kept read that does not demand, with a walk through the reference by `known`, as D57 does for a path. This removes each false cycle of this class. But a kept read of another node then reaches another thing, and that node stops its evaluation. Thus the reads of other documents change.
+- A kept read that stops at the reference. The reference stays the same while its target changes, thus a change gives a stale value (D56, Rejected).
+- No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
+- A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
+- An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This also removes the false cycle of the Limits. But it needs a record of the nodes of each kept demand, and it drops final results. The node then also needs a read that changes in each data epoch, and only some lists have one. That is a behaviour change, and it waits for a need.
+
+**Limits.**
+
+- A kept read that reaches its node through another node that reads it still closes a false cycle. An example is a closure at `f`, a `self` that refers to `g`, and a document of `g` that reads `f`. Each order of demands gives `#CYCLE!` for the two nodes, as before this decision.
+- Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
+- A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
+
+**Why.** The kept read of the node itself adds nothing to the invalidation of the node. That read reaches the value of the node, and a pure document gives that value from its other reads (FACTS.PURE). When each other read stays the same, the evaluation gives the same value. A document that really reads the value makes a read of the evaluation, and that read closes the true cycle. Thus the error in the list hides no change, and each other read verifies as before.
+
+The list of reads stays exact, thus each other document keeps its reads, its demands and its order of evaluations. The test SCHED.OWN-NODE-AGREES compares generated documents with the evaluation from scratch, over changes of data, edits and new machines. Four changes of the code each fail these tests. These are no rule, a rule at each depth, a rule for each node in evaluation, and a verification outside `keeping`.
+
+Each kept read that resolves its path costs one call and one `finally`. A read of a node in evaluation costs one compare. A document without a kept read does no new work.
+
+## D160 (2026-11-05): a parameter property becomes a plain field first in its class
+
+The update of the shared config turns on the TypeScript option `erasableSyntaxOnly` (K224). The option refuses a parameter property, thus each one becomes a field and an assignment. The option stays on.
+
+**The form.**
+
+- Each field goes first in its class, in the order of the parameters, with the modifiers and the doc comment of the parameter.
+- The first lines of the constructor assign the fields, in the same order.
+
+**Why this form.** The config sets the target `esnext`, thus class fields use define semantics. The tool esbuild emits a parameter property as a field ahead of the other fields of the class, and the field starts as `undefined`. A plain field in the first place gives the same emitted code.
+
+A `declare` field is not the same. It emits no field, so the object gets its properties in another order. An object with another order can have another hidden class, and a speed run can see that.
+
+**How we examined it.** For each changed file, esbuild emitted the code of the old and the new source. The comparison moved each constructor to the top of its class and removed the doc comments. All 20 files gave the same text. A copy of the source with no installed config also gets define semantics from esbuild. Thus the two arms of a speed run use the same setting.
+
+**SemVer.** No export, signature or enum changes, and the declarations of `Held` keep their members. This work needs no version of its own.
+
+## D161 (2026-11-05): a failed test of the measure step turns it red, and the limit of PLAN.LEAN comes from 99 jobs
+
+**Context.** K228. The step of PLAN.LEAN in `measure.yml` pipes its test run into `tee`, and it has no key `shell`. GitHub then starts the step with `bash -e` and no pipefail, thus the exit code of the test run is lost. D104 made this job the only gate of the limit. So the limit of 395 bytes was not enforced from K211 (2026-11-02) to this decision. Each statement that the limit held in that time is wrong.
+
+**The read.** The read uses the logs of each job `measure` of 20 runs, from 41832320878 to 41977634472 (2026-11-04 and 2026-11-05). It starts no new job.
+
+- There are 99 jobs, and each one concluded `success`.
+- 8 jobs have a failed test, and 6 of the 20 runs have such a job. The failed test of each job is PLAN.LEAN, with 395.6 to 396.1 bytes.
+- The other 91 jobs read 391.1 to 394.6 bytes.
+- One head gives 392.4, 393.3 and 395.8 bytes in run 41971426548, thus a change of code does not explain the two levels.
+
+**Decision.**
+
+- The step has `shell: bash`, which has pipefail. A failed test turns the step red.
+- The limit is the worst value plus the spread: 396.1 + 5.0 = 401.1 bytes. The owner of the gate accepted this one limit with this formula, up to 405 bytes.
+- The step prints the CPU model of the runner, ahead of the pipe.
+
+**What this limit gives up.** The limit goes up by 6.1 bytes, and most jobs read approximately 393 bytes. So a change that adds up to approximately 8 bytes to a plan does not turn most jobs red. The measure has two levels, and the top level hides this cost. K229 examines the cause, and it ends with a limit for each cause or a measure with one level.
+
+**What we did not find.** The logs do not name the CPU model, thus this read cannot test the CPU model as the cause. All jobs have Node 26.13.0. The region and the runner image do not separate the levels: the 8 jobs are in 6 regions and 3 images.
+
+**Limit of the claim.** No flip test shows yet that this step turns red. K227 adds it, by 2026-11-12.
+
+**Changed expected values.** The limit of PLAN.LEAN goes from 395 to 401.1 bytes. No result of the kernel changes.
+
+**SemVer.** No export changes. This work needs no version of its own.
+
+## D162 (2026-11-05): the flip test of PLAN.LEAN is a matrix row of the same job
+
+**Context.** K227, first part. D161 gave the step of PLAN.LEAN a working exit code, and no run had shown that the step turns red.
+
+**Decision.**
+
+- The matrix of the job `measure` has one more row, `flip`, with `inject: "20"`. It runs the same step, so a change of the step, its shell or its limit also changes the flip.
+- The test adds `COEVAL_MEASURE_INJECT` to the value that the limit reads. The line `MEASURE` keeps the true value, so the row is also a sixth true value for K229.
+- Only the flip row has `continue-on-error` on that step. Its next step passes only if the outcome of the step is `failure` and the log has the text of the PLAN.LEAN assertion. So a failure of another kind is no flip, and the job goes red.
+- The 5 plain jobs of the same run are the copy with no fault.
+
+**Why 20 bytes.** The lowest value of D161 is 391.1 bytes, and the limit is 401.1. So approximately 10 bytes is the smallest injection that passes the limit in each of the 99 jobs. 20 bytes leaves the same margin again if the values go lower.
+
+**Limit of the claim.** The flip shows that the step turns red for a value over the limit. It does not show that a real cost of 8 bytes on a plan goes red. D161 tells why that cost stays under the limit in most jobs.
+
+**Changed expected values.** The job `measure` has 6 rows. No result of the kernel changes.
+
+**SemVer.** No export changes. This work needs no version of its own.
+
+## D163 (2026-11-05): the gate `notSlowerVerdict` runs as report only beside the pooled verdict
+
+**Context.** K225. The pooled verdict gives `same`, `faster`, `slower` or `cannot decide`, and the merge rule of this repository blocks only on `slower`. So a case with `cannot decide` counts as a pass. K121 read 13 of 16 cases so. `@mark1russell7/rigor-bench` 0.2.15 adds `notSlowerVerdict`, a gate that gives `pass`, `block` or `no read`.
+
+**Decision.**
+
+- The script `merge.ts` prints the gate of the two runs under the pooled verdict. Nothing reads its result, so it blocks nothing.
+- The margin of each case is the margin of its family (D117). The gate uses the 3 looks of the bench core, so its level is the level of a gate that takes more rounds.
+- `bench.yml` gets the inputs `rounds` and `jobs`, for the control run of this item.
+- The check `Speed OK` and `continue-on-error` do not change.
+
+**Limit of the claim.** This work shows the gate in each log. It does not show that the gate is fit to block. Three results are still open: the control run, the count of false blocks, and the flip test in CI. The unit test pins only that an injected 10 % gives a block on records.
+
+**What this version does not see.** The names of the cases come from the records of the candidate. So a case that is absent from the candidate does not appear in the gate. `rigor-bench` 0.2.16 adds the option `expected` for this.
+
+**SemVer.** No export of the package changes. The dependencies are for the bench, and they are development dependencies.
+
+## D166 (2026-11-05): the filters of the gates read the lock file, and a slower reading holds a merge only when the arm hashes differ
+
+**Context.** K225 read a gap in the filter of Speed. The list had no lock file, so a dependency update skipped the gate and `Speed OK` passed. A run with both arms from one install does not read a slowdown from a dependency. The two arms differ only by the file of the kernel. K225 also read slower on 2 of 17 rows with equal code, on 2 of 7 branches (range 8 % to 64 %).
+
+**Decision.**
+
+- The filter of Speed adds `pnpm-lock.yaml`, `packages/core/package.json`, `packages/core/tsconfig.json` and `pnpm-workspace.yaml`.
+- The two filters of Measure add the same files. The filter of the jobs at the head also adds each bench file that `mode.ts` reaches.
+- A step in each filter job gives the rules of the pinned action a list of files. The lock file reads true, a docs file reads false, and the lock file reads false for a list with no lock line.
+- Each Speed job records the hash of the bundle of each arm, with `cases.ts`. The script `merge.ts` prints the hashes and the line `Hold (D117)`.
+- A slower reading does not hold a merge only when each run is complete and all hashes of the two jobs are equal. A list of files has no part in this reading.
+- Each such row goes in the A/A table with the mark "equal by construction". A count keeps those rows apart from the rows with equal code on other pull requests.
+
+**Rejected.**
+
+- A skip of the bench on equal code. Equal-code runs are the only cheap read of the false-block rate, and K225 has its control run to come.
+- A rule that a change only to the pins of two actions does not count. A pin of an action can change what a gate does.
+
+**Limits.**
+
+- The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
+- A short or absent run fails the job `verdict`, and `Speed OK` stays green. Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). A flip of `Speed OK` cannot read this value while that setting stays.
+- The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
+- A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
+- The hash reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it. Both real arms use the name `src`. A different name reads as different arms, so it holds a merge and lifts no hold.
+- K233 holds the read of a dependency slowdown.
+
+## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
+
+**Context.** S1f, from S1 (D31). A schedule gave each node the one context of the host. One formula at each cell of a grid then needed the data of the cell in its document. Thus each cell had its own document, and each document compiled its own plan. `durable` keeps a plan for each document object and a result for each key, and its `evaluate` takes a context for each key (D30). Only the schedule gave a host no way to use this.
+
+**Decision.** The new option `selfOf(id, host)` of `schedule` gives the `self` of a node (SCHED.NODE-CONTEXT). The schedule starts the function for each evaluation or verification of a node, and for each run of a node. Thus it starts at most one time for a demanded node in a data epoch. It gets the name of the node and the context of the host, without the nodes at the root `world`. The value `undefined` keeps the `self` of the host. A node gets a copy of the context of the epoch with its `self`. The copy keeps the grant and each other root.
+
+- **One plan.** A plan, a facts object and a list of edges stay for each document object (SCHED.NODE-PLAN). Thus nodes with one document share them, and `durable` needs no change. The value, the reads and the place on a cycle stay for each node.
+- **A change.** A new `self` is a change of data (SCHED.NODE-STALE). The host tells it with `changeData`, and it has no epoch of its own. Each demanded node then verifies its reads with its new `self`. A node that reads no changed field keeps its result, and a new `self` object with equal data changes no read.
+- **Static facts.** `factsOf`, `edgesOf` and `graph()` read only the document. A read of `self` is a read of the data of the host, thus it is not an edge, and `NodeInfo` does not change.
+- **Cycles.** A cycle is a cycle of nodes, not of documents (SCHED.NODE-CYCLE). A reference in a `self` can lead a read to another node, and the reads of the evaluation show it. The demand then gives `#CYCLE!` by D31, in each order of demands.
+- **Runs.** A run gets the `self` of its node, and the `event` of the run as before.
+- **Closures.** A closure keeps the `self` of the node that made it, also in the evaluation of a reader. A reference in the value of a node resolves in the context of its reader (DEREF.COLLAPSE). Thus a root `self` there is the `self` of the reader.
+- **The harness.** `agreeSchedule` gets the option `selves`, and the model gives each node its `self` (SCHED.NODE-AGREES).
+
+A host without the option keeps each behaviour. Each node then uses the one context of the epoch, with no copy, and each evaluation of a node pays one test for `undefined`.
+
+**Alternatives.** An option of `set`. A `set` is a change of the structure, thus a new `self` then rebuilds the graph, or it needs a second method. The schedule then also keeps a table that the host already has.
+
+A new method for the `self` of one node, with a mark for that node. A reader of the node has its value in the epoch, thus such a change needs a new data epoch too. D31 has no push of dirty marks, and only S3 can use them.
+
+A function that gives a whole context. Capabilities for each node can widen a grant, and `event` belongs to a run. A host puts each field of a cell into `self`, thus the names of each node have no first need. Another option can add them.
+
+Edges for each node from the references in its `self`. The facts then need a walk of the data of each `self` in each epoch, and that is the open item S1d.
+
+A closure of `fn` with the cell as an argument. Such a host gets one plan, but the reads of a node then do not show the fields of its cell.
+
+**Limits.**
+
+- One plan needs one document object. Equal documents in new objects compile one time each (PLAN.CACHE).
+- No edge shows a read through a reference in a `self`. Thus a demand of the deep end of a long column uses the stack of the host for each cell. Such a demand fails at 2000 cells. A host that demands the cells in the order of the rows gets each value.
+- A new `self` of one cell verifies each demanded node, as each change of data does.
+- `selfOf` gives the same data for a node in one data epoch. This is the promise of DURABLE.REUSE. `context` of a schedule keeps the `self` of the host.
+- A closure with a kept read that meets a reference keeps each whole root (READS.KEPT). A `self` that is itself a reference to its own node closes no cycle since D136 (K217). The `self` of a host context gives the same answer. The limit of D136 stays: a `self` that reaches its node through another node still closes a false `#CYCLE!` (K218).
+
+**Why.** The function adds no state to the schedule. The host keeps its cells, and a change of many cells is one change of data. The verification of D26 already compares what a read reaches in a new context, thus a node gets its own invalidation with no new rule. The test SCHED.NODE-PLAN counts 1000 cells of one formula with one compilation and one facts object. The test SCHED.NODE-AGREES compares each answer with a model from scratch, and it finds an engine that keeps an old `self`.
+
+## D137 (2026-11-03): `conforms` examines walkers, the code of a `deref` and the functions of a formula profile
+
+**Context.** K121, from K92 (D36). `conforms` threw for the name of a walker and for the name of the code of a `deref`. It examined `formula.op` and `formula.ext` only for the types in the option `types`. Thus the laws of this code stayed text. Each check below tests a law that the docs state. Four laws need a reading, and this entry records them.
+
+**Decision.** The name selects the code. An evaluator and a runner keep their place. Without the option `verb`, each other name selects its walker, and then its `deref`. The option `verb` with the value `step` or `deref` selects that code by force. A finding has the form of each other finding. Its probe also holds the new field `here` for a walker, or the new field `key` for a `deref`.
+
+A walker gets its input from the probes, as R-WALKER gives it. The things are three linked host things, a document, `undefined` and the values of the palette. The option `things` adds more. The steps of the probe use the ladder and `adopt`. The checks of a walker are these:
+
+- `result` (CONFORM.WALKER-RESULT): the answer has the form of `WalkResult`, and a failure code starts with `#` (the type `ErrorCode`).
+- `local` (CONFORM.WALKER-LOCAL): the same input gives the same outcome and the same steps in a later call (EVAL.DETERMINISTIC). A volatile kind gets no such test (FACTS.VOLATILE).
+- `ladder` (CONFORM.WALKER-LADDER): a step on a host thing goes through `deref` and `has` of the input (R-WALKER).
+- `hops` (CONFORM.WALKER-HOPS): each `visit` tells a key that the walk followed and the thing that the key reached (the type `WalkInput`). The walk stays the same without `visit` (DEREF.HOPS).
+- `C4` (CONFORM.WALKER-PURE): the walker of a pure kind gives the same walk with other values in the roots (FACTS.VERB).
+- `typed` (CONFORM.WALKER-TYPE): each thing that the walker reaches is a member of the type of its rule (TYPE.WALKER). The probes ask the rule for the type `unknown` and for the plain type of the thing before the step.
+
+The code of a `deref` gets each probe document with each probe key. Its checks are `result` (CONFORM.DEREF-RESULT), `local` (CONFORM.DEREF-LOCAL) and `has` (CONFORM.DEREF-HAS). This code gets no context, thus C1 and the roots do not apply to it.
+
+The default types of `formula.op` and `formula.ext` hold each operation and each extension that the tables of the profile list, except a volatile name (CONFORM.PROFILE-NAMES). Thus C3, C4, C8, `local` and `agree` see the code of each named function. Two checks call the functions directly:
+
+- `typed` (CONFORM.PROFILE-SIGNATURE, CONFORM.PROFILE-EXT): an operation gives a member of the result of each signature that its arguments match, after the hook `check`. An extension gives a member of its entry in `extTypes`. This is the text of `FormulaProfile`.
+- `result` (CONFORM.PROFILE-FORM): `ext`, `lazy`, `check`, `omit`, `missing` and `combine` give the form of their types.
+
+The first reading is the law of a throw. An evaluator has E-THROW, and R-WALKER has no premise for a throw. A plain throw of a walker or a `deref` leaves `resolve` and drops its hops, thus it is a finding of `result`. A `Failure` is the error channel that the walker of `tree.at` uses, thus it gets no finding.
+
+The second reading is the law of the ladder. R-WALKER gives the walker the step `adopt∘step`. A direct read of a host thing skips `adopt`. A probe node records each read outside the input, and that read is a finding. The field `type` of a host thing is not a step, thus `nearest` stays correct.
+
+The third reading is the law of `has`. The type `DerefCode` tells that `has` gives `true` when the document has the field. The kernel asks it only after an `undefined`. The check reads the text: a key that the code answers needs `true`.
+
+The fourth reading is the widening of a context, which K121 names. `WalkInput` has no call that takes a context, and it has no effect and no wait. Thus a write to the context is the only channel. The probe context is frozen, and that write throws. The throw is a finding of `result`.
+
+**Alternatives.** A function next to `conforms` for each form of code. D86 and D94 rejected that form, because a host then has two lists of findings. A walk through `resolve` with a step document. That walk hides a stray `visit` and a direct read, and a plain throw ends the whole probe. A law against a throw of an operation, a lazy operation, an extension or `check`. The kit catches each of these and gives an error (E-THROW), and an existing test throws from an operation on purpose. A proxy that records each read of the context. C4 sees a read through other values in the roots, and a proxy changes what a walker gets. A generator of random arguments for a signature. Each list of arguments here comes from the fixed palette, thus each finding repeats.
+
+**Limits.** Each check is a sample of the probes, thus a fault outside the probes stays hidden.
+
+- The probe of a signature takes at most 64 lists of arguments. A longer product keeps the first 64.
+- Only the probe nodes record a direct read. A host thing of the option `things` gets no such test.
+- A `sigs` or `ops` that is a function lists no names. Give the types in the option `types`.
+- The default step of a world and each kind under `defaults` need the option `types`.
+- Code in sloppy mode writes to a frozen context without a throw, and that write gets no finding.
+- A write to the data of a step or to a document gets no finding when the result stays the same.
+- Hidden state that changes outside a call gets no finding. An extension that counts the names stays as D47 tells.
+
+**Why.** Each law has a line in the docs or a reading in this entry, and a host can see the source of a finding. The check keeps the standard machine as its main guard: each walker of `STD_MACHINE` and each evaluator of the kit give no finding. Each law has a planted fault in a test. `conforms` runs in no hot path, thus the evaluation of a program stays the same.
+
+**Changed expected values.** `conforms` gives a list for a name that threw before. A host that uses the default types also gets probes of each named function. Each of these can give a finding for code that passed before. `Obligation` has five new members, and `ConformProbe` and `ConformOptions` have new optional fields. An evaluation gives the same results.
+
+## D139 (2026-11-03): after an overflow of the stack, a walk with its own stack finds each cycle of real reads, and a chain with no cycle keeps its `#DEPTH!`
+
+**Context.** S2c, from S2a and the limits of D33. A demand uses the stack of the host for each node that it enters. The demands ahead do not help on a ring, because each of them enters the ring again. On Node.js 24, a ring of 2000 nodes gave `#DEPTH!` with the reason of the evaluator `formula.ref`. D31 gives each node of a cycle `#CYCLE!`. A ring of nodes that catch the error was worse: each node gave the value of its catch, from the depth of the overflow.
+
+The same overflow showed two more faults. A compilation near the limit of the stack gave a plan that fails, and `durable` kept that plan for the document. Then a later evaluation at a shallow depth failed too. The cleanup in `visit` called a function near the limit, and that call failed at times. Then a node stayed open, and its reader found two nodes in its component. A lazy chain with no cycle gave a false `#CYCLE!` in 1 of 400 runs, in a local measure. The test SCHED.LONG-CHAIN had a comment about this result.
+
+**Decision.**
+
+- **The trigger.** `thrown` counts each stack overflow that it changes into `#DEPTH!`, and the internal function `overflowCount` gives the count. A demand of the host compares the count before and after `visit`. A document that catches the error cannot hide the overflow from this count.
+- A demand of the host with an overflow makes a walk, and each later demand of the host in that data epoch walks too. An earlier `#DEPTH!` can stop a read before the cycle (SCHED.DEEP-CYCLE-REAL).
+- A nested demand does no new work. A demand of the host reads one number two times and one field of the epoch. Thus a document with no overflow pays only that.
+- **The walk.** The walk starts at the node of the demand, and it uses the lists of `visit` as its own stack. It evaluates one node at a time, through the plan of the node and a root `world` of its own.
+- A read of a node with a result of the walk gives that result. A read of a node on the stack of the walk gives `#CYCLE!`, as in `visit`. A read of a node on the run side gives `#REF!`.
+- A read of each other node stops the evaluation. The walk enters that node and finishes it. Then the reader evaluates again, and its read finds the result.
+- The links of the algorithm of Tarjan stay the links of `visit`. Thus a walk gives each order of demands the components of D31, also when a document catches the error.
+- After the first stop, each read of the evaluation stops too. Such a read does not happen in a real evaluation.
+- **Certain means real.** Each link of a walk is a read that an evaluation really made. A static edge makes no cycle, thus the rule of D33 stays: a read can fail or be skipped before it occurs.
+- **The results.** A walk that reaches no cycle changes nothing, thus a chain keeps its `#DEPTH!`. A walk that reaches a cycle gives each node that it entered its error, and it drops the durable result of each such node.
+- A node of that walk with a value evaluates again at its next demand. Its value can hold the root `world` of the walk, and that root does not answer a host.
+- **The bound.** Each evaluation of a walk enters a new node or finishes a node. Thus the walks of one data epoch do at most `2V` evaluations for `V` entered nodes. The count of the reads of a node does not change this bound (SCHED.DEEP-CYCLE-BOUND).
+- One evaluation of a walk costs one evaluation of a node. It keeps no trace and no list of reads. A node evaluates again at most one time after a walk, thus an epoch adds at most `3V` evaluations.
+- The memory is one result and one entry in each list for each entered node, thus `O(V)`. The results stay until the data epoch changes. `V` is at most the count of the nodes that the real reads reach.
+- **The coverage.** The check is in `demand`, thus `read`, `run`, the host thing at the root `world` and the record of the root all reach it. A plan, a traced plan, a run and the reference reach it through the root `world`. The walk itself evaluates in the plain plan tier (SCHED.DEEP-CYCLE-ENTRY).
+- **The two faults.** `durable` does not keep a plan when the count of the overflows changed during its compilation. The cleanup in `visit` is a loop with no call of a function of the module.
+
+**Alternatives.**
+
+- `cycles` over the static edges after an overflow. It costs less, but SCHED.DEEP-CYCLE-REAL has a certain ring of edges with a node that fails before its read, and D33 refuses this answer.
+- A test of the result of `visit` for `#DEPTH!`. A document that catches the error then hides the overflow, and a ring of `ifError` nodes keeps its wrong value.
+- A limit of depth in `visit` that starts the walk before an overflow. That adds a compare to each demand, and a lazy chain that fits the stack also pays for a walk.
+- A demand with its own stack in place of the stack of the host. A plan evaluates a read inside its code, thus such a demand needs a stop at each read of each document. That is the walk, on the path of each document.
+- Values of the walk for the host. That solves S2b too, but such a value can hold the root of the walk, and S2b has its own decision about evaluations that repeat.
+- Each result of the walk in place of each memo after a cycle. A closure from the walk then reaches a host, and SCHED.DEEP-CYCLE-REAL finds it.
+
+**Why.** The work runs only after the limit fires, thus the Speed gate has no new work on the path of a demand. D33 rejected a restart because each node evaluates at most one time in a data epoch (SCHED.DEMAND). A walk gives no node a value, thus that rule stays for each value that a host gets.
+
+The harness SCHED.DEEP-CYCLE-AGREES throws one overflow at each demand of a generated graph. Each node with `#CYCLE!` in the plain demand gives the same error after a walk, and no other node gives `#CYCLE!`. Thirteen mutants of the walk, the trigger, the results and the cache all fail the tests. After the change of the cleanup, 900 runs of a lazy chain gave no false `#CYCLE!`.
+
+**Limits.**
+
+- A walk evaluates a node again, and `counts` does not count this evaluation. A document that is not pure can read other nodes in the walk.
+- A chain with no cycle keeps the result of the first pass. A node that catches an overflow in such a chain keeps the value of its catch (S2b).
+- The evaluation from scratch of `agreeSchedule` uses the stack of the host for each node. It gives `#DEPTH!` for a ring longer than the stack, thus such a graph is out of its range. Its generated graphs have five nodes.
+- The count of the overflows is one number for the process. An overflow in an unrelated evaluation inside a demand starts a walk, and the bound stays the same.
+
+## D138 (2026-11-03): `parse` gives each issue of a text in its field `issues`, and recovery reads only a text whose brackets and quotes close
+
+**Context.** K144, from C15. `parse` stopped at the first issue, thus an editor saw one fault at each read. The field `issues` of a failed answer is a list, and it held one item. Recovery has two risks. One fault can make a cascade of false issues, and recovery code can slow the read of a valid text.
+
+**Decision.** The field `issues` of a failed answer holds each issue, in the order of the offsets (SYNTAX.ISSUES-ALL). The type `ParseResult` does not change. The new export `MAX_SYNTAX_ISSUES` is the bound, and its value is `20` (SYNTAX.ISSUES-BOUND).
+
+- Two reads. The first read is the parser of before. Only its first issue starts the class `Recovery`, which reads the text again from the start. Thus a valid text runs no recovery code.
+- The first read gives the first item of `issues`, and recovery only adds items after it. Thus a host that reads `issues[0]` gets the same offset, length and message (SYNTAX.ISSUES-FIRST).
+- A gate. Recovery starts only when each quote closes and each bracket closes in its order. Each other bad text keeps its one issue, because its synchronising tokens are not sure.
+- Synchronising tokens come from the profile (SYNTAX.ISSUES-SYNC). They are `calls.separator`, the closer `)`, and the closer `}` when the profile has `constructs.record` or `constructs.let`. The scan skips each quoted text and each inner bracket.
+- A fault in a list moves to the next separator or to the closer of the list. A fault in a group moves to the closer of the group. A bad escape stays in its text, and the read continues after the escape.
+- A fault outside each bracket has no synchronising token, thus the read ends there.
+- Four rules stop a cascade (SYNTAX.ISSUES-CASCADE). The offsets rise, thus `if(1 2)` gets no issue for its count of arguments. The first token after a synchronising token gets no issue, thus `list(,)` gives one issue.
+- The third rule is for a colon in a list. A colon tells that the name of a form has a fault, thus recovery skips the other items of that list.
+- The fourth rule is for a separator in a group. It tells that a function has a fault, thus the fault also ends the item around the group.
+- The end. The scan only moves forward, and the list consumes each synchronising token. The depth stays under `maxDepth`, thus each input ends. An error of a host in a later text ends the read, and the answer keeps the issues so far.
+
+**Alternatives.** A new export `parseAll`. It gives two entries for one job, and a host must change its code to see more. The field `issues` is already a list, and a reader of `issues[0]` sees no change. A new field `more` next to `issues` has the same fault.
+
+Recovery inside the first read. A stack of open brackets or a `try` around each item is on the hot path, and the Speed gate permits no slower case. A read of each item of a list alone, as a small text. Such a read loses the keys and the forms around the item. A resume at the next operator. A scan cannot find an operator safely, because `-` is also inside `2e-3`. A closer that recovery adds for a missing bracket. The text `f(1, (2, 3)` does not tell which bracket is missing.
+
+**Why.** The gate, the rising offsets and the silent first token keep each later issue away from the reach of a fault. A generated test damages printed documents of eight profiles. It reads 38842 bad texts, and the largest count of issues is 5. Of 10501 texts with one fault, each cascade comes from a fault in a quote mark. A digest of each first issue equals the digest from the parser before this decision.
+
+**Limits.** A bad text costs two reads. A text with an open bracket or an open quote gives one issue. A missing closer thus hides each later issue until the host corrects it.
+
+Recovery prefers a missed issue to a false issue. The first token after a synchronising token gets no issue, thus `{a 1, b 2, c 3}` gives one issue. A fault outside brackets ends the read, thus `1 2 + (3 4)` gives one issue.
+
+A fault in a quote mark can pair with a mark inside another text. Then the gate passes, and later issues can be false. This occurred in 9 of the 10501 texts, and each of the 9 holds a text with all three marks. A pattern of a profile that holds a closer can give a false issue at the end of the text.

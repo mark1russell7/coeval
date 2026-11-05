@@ -119,7 +119,11 @@ describe("documents", () => {
 
   it("[DOC.HOST-EQUALS] a value that is not plain JSON is equal only to itself, and a cycle does not stop the comparison", () => {
     class Point {
-      constructor(readonly x: number) {}
+      readonly x: number;
+
+      constructor(x: number) {
+        this.x = x;
+      }
     }
     const date = new Date(0);
     // Each pair has no own keys, or the same own keys, thus a comparison of the own keys finds them equal.

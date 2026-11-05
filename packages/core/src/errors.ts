@@ -117,6 +117,19 @@ export function isStackOverflow(error: unknown): boolean {
   }
 }
 
+/** The count of the stack overflows that `thrown` changed into `#DEPTH!`. */
+let overflows = 0;
+
+/**
+ * This function gives the count of the stack overflows that `thrown` changed into `#DEPTH!`. A schedule compares two
+ * counts. Thus it finds an overflow also when a document catches the error (SCHED.DEEP-CYCLE).
+ *
+ * @returns The count since the start of the process.
+ */
+export function overflowCount(): number {
+  return overflows;
+}
+
 /**
  * This function changes an exception into an error value. A `Failure` gives its error value. A stack overflow
  * gives `#DEPTH!`. Each other exception gives `#CALC!`, with the exception as the cause.
@@ -127,7 +140,10 @@ export function isStackOverflow(error: unknown): boolean {
  */
 export function thrown(error: unknown, who: string): Failed {
   if (error instanceof Failure) return { ok: false, error: error.error };
-  if (isStackOverflow(error)) return fail("#DEPTH!", `The nesting of ${who} is too deep for the stack of the host.`, { cause: error });
+  if (isStackOverflow(error)) {
+    overflows += 1;
+    return fail("#DEPTH!", `The nesting of ${who} is too deep for the stack of the host.`, { cause: error });
+  }
   return fail("#CALC!", `${upper(who)} threw: ${describe(error)}`, { cause: error });
 }
 

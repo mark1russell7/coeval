@@ -1040,8 +1040,23 @@ function keptPath(nav: Navigator, root: Context, path: readonly unknown[]): Kept
 }
 
 /**
+ * This function resolves the path of a kept read. A reference on the path can reach a node of a schedule, thus the
+ * resolution goes through `keeping` of the root `world` (SCHED.OWN-NODE).
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param ctx - The context.
+ * @param path - The path of the kept read.
+ * @returns What the path reaches.
+ */
+function readKept(nav: Navigator, ctx: Context, path: readonly unknown[]): Result {
+  const read = (): Result => readAgain(nav, ctx, path, false).reached;
+  const world = ctx.world;
+  return isHostThing(world) && world.keeping !== undefined ? world.keeping(read) : read();
+}
+
+/**
  * This function resolves the path of a kept read again, for `verifyReads` (SCHED.CLOSURE). It walks the path as
- * `keptPath` did. A host thing with `known` answers its step. A path without such a step resolves with `readAgain`.
+ * `keptPath` did. A host thing with `known` answers its step. A path without such a step resolves with `readKept`.
  *
  * @param nav - The world and the code of the evaluators.
  * @param ctx - The new context.
@@ -1053,7 +1068,7 @@ export function keptAgain(nav: Navigator, ctx: Context, path: readonly unknown[]
   let here = adopt(ctx[path[0] as Root]);
   let known = false;
   // Before a step of `known`, each other answer of the walk is the answer of `readAgain`, as before SCHED.CLOSURE.
-  const other = (): Result | undefined => (known ? undefined : readAgain(nav, ctx, path, false).reached);
+  const other = (): Result | undefined => (known ? undefined : readKept(nav, ctx, path));
   for (let index = 1; index < path.length; index += 1) {
     if (isHostThing(here)) {
       if (here.known === undefined) return other();
@@ -1091,6 +1106,27 @@ class Session implements Runtime {
   declare work?: number;
   /** The count of the applications of closures that run at this time. `formula.fn` writes it (FORMULA.CALL-DEPTH). */
   declare applying?: number;
+  readonly machine: Machine;
+  /**
+   * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
+   * keeps its grant only in an evaluation of the same epoch.
+   */
+  readonly epoch: readonly Cap[];
+  readonly running: boolean;
+  readonly traced: boolean;
+  readonly perform: Perform | undefined;
+  /**
+   * The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). The runtime of a root holds
+   * itself after the end of its evaluation (WORK.AFTER, WORK.KEEPS), thus the end mark adds no field to the object.
+   * Each runtime has this field, thus a tree and its equations have one object shape.
+   */
+  top: Session | undefined;
+  /**
+   * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
+   * shares the record of the evaluation around it (READS.EQUATION).
+   */
+  readonly reading: Reading | undefined;
+
   /** The list of the effects. It is made at the first effect, thus an evaluation without effects makes no list. */
   private list: Effect[] | undefined;
   tick = 0;
@@ -1109,28 +1145,22 @@ class Session implements Runtime {
   private scope: Scope | undefined;
 
   constructor(
-    readonly machine: Machine,
-    /**
-     * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
-     * keeps its grant only in an evaluation of the same epoch.
-     */
-    readonly epoch: readonly Cap[],
-    readonly running: boolean,
-    readonly traced: boolean,
-    readonly perform: Perform | undefined,
-    /**
-     * The runtime of the root, on the runtime of an equation of a tree (WORK.EQUATION). The runtime of a root holds
-     * itself after the end of its evaluation (WORK.AFTER, WORK.KEEPS), thus the end mark adds no field to the object.
-     * Each runtime has this field, thus a tree and its equations have one object shape.
-     */
-    public top: Session | undefined,
+    machine: Machine,
+    epoch: readonly Cap[],
+    running: boolean,
+    traced: boolean,
+    perform: Perform | undefined,
+    top: Session | undefined,
     effects: Effect[] | undefined,
-    /**
-     * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
-     * shares the record of the evaluation around it (READS.EQUATION).
-     */
-    readonly reading: Reading | undefined = undefined,
+    reading: Reading | undefined = undefined,
   ) {
+    this.machine = machine;
+    this.epoch = epoch;
+    this.running = running;
+    this.traced = traced;
+    this.perform = perform;
+    this.top = top;
+    this.reading = reading;
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
@@ -1255,7 +1285,7 @@ class Session implements Runtime {
     if (paths.has(text) || paths.has(JSON.stringify([root]))) return true;
     paths.add(text);
     if (path.length === 1 && root === "self") reading.self = true;
-    reading.list.push({ path, reached: walk.reached ?? readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+    reading.list.push({ path, reached: walk.reached ?? readKept(this.machine, reading.root, path), free: true, kept: true });
     return true;
   }
 
@@ -1267,7 +1297,7 @@ class Session implements Runtime {
     for (const root of roots) {
       if (root === "self") reading.self = true;
       const path = [root];
-      reading.list.push({ path, reached: readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+      reading.list.push({ path, reached: readKept(this.machine, reading.root, path), free: true, kept: true });
     }
   }
 
@@ -1907,6 +1937,7 @@ function freeOf(doc: Envelope, kind: Kind, slots: readonly PartSlot[], frees: re
 
 /** This class is the runtime of a fold. It reads only the names that the folded part binds, and it causes no effect. */
 class Probe implements Runtime {
+  readonly machine: Machine;
   readonly running = false;
   /** `true` after the part asked for something that a fold cannot give. */
   refused = false;
@@ -1920,7 +1951,8 @@ class Probe implements Runtime {
    */
   readonly root: Context;
 
-  constructor(readonly machine: Machine) {
+  constructor(machine: Machine) {
+    this.machine = machine;
     const refuse = (): void => {
       this.refused = true;
     };

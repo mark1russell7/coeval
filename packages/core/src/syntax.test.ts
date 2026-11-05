@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { corpus } from "./corpus.test-support.ts";
 import {
   type Json,
   type Random,
+  type SyntaxIssue,
   type SyntaxProfile,
   STD_CAPS,
   STD_MACHINE,
@@ -9,6 +11,7 @@ import {
   STD_WORLD,
   WORLD_SYNTAX,
   type WorldEntry,
+  MAX_SYNTAX_ISSUES,
   docEquals,
   context,
   evaluate,
@@ -47,6 +50,11 @@ function text(profile: SyntaxProfile, value: unknown): string {
 function issue(profile: SyntaxProfile, source: string): unknown {
   const result = parse(profile, source);
   return result.ok ? result.doc : result.issues[0];
+}
+
+function issues(profile: SyntaxProfile, source: string): (readonly [number, string])[] {
+  const result = parse(profile, source);
+  return result.ok ? [] : result.issues.map((each) => [each.offset, each.message] as const);
 }
 
 /** A spreadsheet-like profile: A1 references, `&`, `^`, `<>`, a postfix `%` and `IF`. */
@@ -658,6 +666,145 @@ describe("the syntax kit", () => {
     }
     expect(bad.slice(0, 3)).toEqual([]);
   });
+
+  it("[SYNTAX.ISSUES-ALL] parse gives each issue of a text in the order of the offsets", () => {
+    const list = 'A "," or a closing parenthesis is missing.';
+    const group = "A closing parenthesis is missing.";
+    expect(issues(STD_SYNTAX, "f(1 2, 3 4)")).toEqual([[4, list], [9, list]]);
+    expect(issues(STD_SYNTAX, "(1 2) + (3 4)")).toEqual([[3, group], [11, group]]);
+    expect(issues(STD_SYNTAX, "self.(1 2).x + g(3 4, $)").map(([offset]) => offset)).toEqual([8, 19]);
+    expect(issues(STD_SYNTAX, "(1 2) + 3 4")).toEqual([[3, group], [10, "The text continues after the expression."]]);
+    expect(issues(STD_SYNTAX, "{a 1, b: 2 3, c: (4 5)}")).toEqual([
+      [1, 'Each entry of the record is a key, a ":" and a document.'],
+      [11, 'A "," or a closing brace is missing.'],
+      [20, group],
+    ]);
+    expect(issues(RECORDS, "panel(width: 1 2, height: 3, depth: 4)")).toEqual([[15, list], [29, "The form panel has no field depth."]]);
+    expect(issues(STD_SYNTAX, "f(if(1), 2, if(3, 4, 5, 6))")).toEqual([[2, "The form if takes 2 to 3 arguments."], [12, "The form if takes 2 to 3 arguments."]]);
+    expect(issues(STD_SYNTAX, String.raw`"a\q" + "\w"`)).toEqual([[2, "The escape \\q is not valid."], [9, "The escape \\w is not valid."]]);
+    expect(issues(STD_SYNTAX, "x + ")).toEqual([[4, "A term is missing at the end of the text."]]);
+    expect(issues(STD_SYNTAX, "")).toEqual([[0, "The text is empty."]]);
+    expect(parse(STD_SYNTAX, "f(1, 2)").ok).toBe(true);
+  });
+
+  it("[SYNTAX.ISSUES-FIRST] the first issue of a text with more issues is the issue of the first read", () => {
+    expect(issue(STD_SYNTAX, "f(1 2, 3 4)")).toEqual({ offset: 4, length: 1, message: 'A "," or a closing parenthesis is missing.' });
+    expect(issue(STD_SYNTAX, "(1 2) + (3 4)")).toEqual({ offset: 3, length: 1, message: "A closing parenthesis is missing." });
+    expect(issue(STD_SYNTAX, "(x 1")).toEqual({ offset: 3, length: 1, message: "A closing parenthesis is missing." });
+    expect(issue(STD_SYNTAX, "{a 1, b: 2 3}")).toEqual({ offset: 1, length: 1, message: 'Each entry of the record is a key, a ":" and a document.' });
+    expect(issue(STD_SYNTAX, "if(1) + (2 3)")).toEqual({ offset: 0, length: 5, message: "The form if takes 2 to 3 arguments." });
+    expect(issue({ ...STD_SYNTAX, maxDepth: 2 }, "(((1)))")).toEqual({ offset: 2, length: 0, message: "The text is deeper than 2 levels." });
+  });
+
+  it("[SYNTAX.ISSUES-SYNC] recovery moves to a separator or a closer of the bracket of the fault", () => {
+    const places = (profile: SyntaxProfile, source: string): number[] => issues(profile, source).map(([offset]) => offset);
+    const semicolons: SyntaxProfile = { ...STD_SYNTAX, calls: { ...STD_SYNTAX.calls, separator: ";" } };
+    expect(places(semicolons, "f(1 2; 3 4)")).toEqual([4, 9]);
+    expect(places(semicolons, "f(1 2, 3 4)")).toEqual([4]);
+    expect(places(STD_SYNTAX, "f(1 g(2, 3) 4, 5 6)")).toEqual([4, 17]);
+    expect(places(STD_SYNTAX, "f(1 {a: 2, b: 3} 4, 5 6)")).toEqual([4, 22]);
+    expect(places(STD_SYNTAX, String.raw`f(1 "a\",b", 2 3)`)).toEqual([4, 15]);
+    expect(places(STD_SYNTAX, "f(1 `a,b`, 2 3)")).toEqual([4, 13]);
+    expect(places(SHEET, 'IF(1 "a"",b", 2 3)')).toEqual([5, 16]);
+    // Without a form of braces, a brace is no bracket of the profile.
+    expect(places(ALGEBRA, "min(1 { 2, 3 4)")).toEqual([6, 13]);
+    expect(places(ALGEBRA, "min(1 } 2, 3 4)")).toEqual([6, 13]);
+    // Each place outside brackets, and each text with an open quote or an open bracket, has no sure synchronising token.
+    expect(places(STD_SYNTAX, "1 2 + (3 4)")).toEqual([2]);
+    expect(places(STD_SYNTAX, "f(1 2, g(3 4)")).toEqual([4]);
+    expect(places(STD_SYNTAX, "(1 2}")).toEqual([3]);
+    expect(places(STD_SYNTAX, "(1 2))")).toEqual([3]);
+    expect(places(STD_SYNTAX, 'f(1 2, "a)')).toEqual([4]);
+    expect(places(STD_SYNTAX, "f(1 2, `a)")).toEqual([4]);
+  });
+
+  it("[SYNTAX.ISSUES-CASCADE] one fault gives one issue, and recovery adds no issue of its own", () => {
+    const count = (source: string, profile: SyntaxProfile = STD_SYNTAX): number => issues(profile, source).length;
+    // The removed text changes the count of the arguments, and the form does not report that count.
+    expect(count("if(1 2)")).toBe(1);
+    expect(count("text($)", RECORDS)).toBe(1);
+    // The token after a synchronising token is not an issue.
+    expect(count("list(,)")).toBe(1);
+    expect(count("{let:,true, b: 1}")).toBe(1);
+    expect(count("f((1 2) 3)")).toBe(1);
+    expect(count("{a 1, b 2, c 3}")).toBe(1);
+    // A colon tells that the name of a form has a fault, thus the arguments are not read.
+    expect(count("pael(width: 1, height: 2, children: 3)", RECORDS)).toBe(1);
+    // A separator in a group tells that a function has a fault, thus the rest of its item is not read.
+    expect(count("(x, y z) => 1")).toBe(1);
+    expect(count("(x, y) > (a, b) > c = 1")).toBe(1);
+    expect(issues(STD_SYNTAX, "f((x, y z) => 1, 2 3)").map(([offset]) => offset)).toEqual([4, 19]);
+  });
+
+  it("[SYNTAX.ISSUES-BOUND] parse gives at most MAX_SYNTAX_ISSUES issues, and each read ends", () => {
+    const many = `f(${Array.from({ length: 30 }, () => "1 2").join(", ")})`;
+    expect(issues(STD_SYNTAX, many)).toHaveLength(MAX_SYNTAX_ISSUES);
+    expect(issues(STD_SYNTAX, `"${"\\q".repeat(30)}" + (1 2)`)).toHaveLength(MAX_SYNTAX_ISSUES);
+    // A fault inside a nesting keeps the count of the levels for the next item.
+    expect(issues({ ...STD_SYNTAX, maxDepth: 3 }, "f(g($), g($), g($), g($))")).toHaveLength(4);
+    // A nesting under the limit of the depth keeps each issue of the depth.
+    const deep = `${"(".repeat(4)}1${")".repeat(4)}`;
+    expect(issues({ ...STD_SYNTAX, maxDepth: 3 }, `f(${deep}, ${deep})`)).toHaveLength(2);
+    const closing: SyntaxProfile = {
+      refs: {
+        patterns: [
+          {
+            pattern: /<\)>|@[0-9]+/,
+            read: (cell) => {
+              if (cell === "@9") throw new Error("A host fault.");
+              return ["world", cell];
+            },
+            write: () => undefined,
+          },
+        ],
+      },
+    };
+    // A pattern can hide a closer from the brackets of the text, and recovery ends at the end of the text.
+    expect(issues(closing, "f(<)> 2, (1)").map(([offset]) => offset)).toEqual([6, 12]);
+    // An error of a host in a later text keeps the answer of a text that had an issue.
+    expect(issues(closing, "f(1 2, @9 3)").map(([offset]) => offset)).toEqual([4]);
+  });
+
+  // One test for each part of each generator, because one generator took 3.0 s on a slow runner (K230, D96). The parts
+  // give the same seeds in the same order as one loop, thus the last test reads the same pins.
+  describe.each(Object.entries(GENERATORS))("with the generator %s", (name, gen) => {
+    const seeds = corpus(2000, 500);
+    const summary = { texts: 0, most: 0, single: 0 };
+    const cascades: string[] = [];
+    const quoteCascades: string[] = [];
+    let digest = 2166136261;
+    for (const part of seeds.parts) {
+      it("[SYNTAX.ISSUES-GENERATED] a damaged text gives a first issue as before, rising offsets and no cascade, " + part.name, () => {
+        for (const index of part) {
+          const seed = index + 1;
+          const made = generateDoc(gen, random(seed), 0);
+          const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
+          if (!printed.ok) continue;
+          for (let faults = 1; faults <= 3; faults += 1) {
+            const bad = damaged(random(seed * 7 + faults), printed.value, faults);
+            const result = parse(gen.profile, bad);
+            if (result.ok) continue;
+            const first = result.issues[0] as SyntaxIssue;
+            digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
+            const offsets = result.issues.map((each) => each.offset);
+            expect(offsets).toEqual([...new Set(offsets)].sort((x, y) => x - y));
+            summary.texts += 1;
+            summary.most = Math.max(summary.most, result.issues.length);
+            if (faults > 1) continue;
+            summary.single += 1;
+            if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
+          }
+        }
+        expect(cascades.slice(0, 3)).toEqual([]);
+      });
+    }
+    it("[SYNTAX.ISSUES-GENERATED] the parts of a generator give the pinned summary and digest", () => {
+      expect(seeds.unfinished(), "parts that did not finish").toEqual([]);
+      // A fault in a quote mark can pair with a mark inside a text that holds each mark (D138, Limits). A digest comes
+      // from the parser before D138. A change to a generator or to `print` changes it.
+      expect({ ...summary, quoteCascades: quoteCascades.length, digest }).toEqual(GENERATED_PINS[name]);
+    });
+  });
 });
 
 /** This function evaluates a text of `STD_SYNTAX` with the formula kit. */
@@ -749,6 +896,18 @@ const WORLD_D64: SyntaxProfile = {
   calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name)) },
 };
 
+/** The expected summary of [SYNTAX.ISSUES-GENERATED] for each generator. */
+const GENERATED_PINS: Readonly<Record<string, unknown>> = {
+  standard: { texts: 4586, most: 3, single: 1197, quoteCascades: 0, digest: 3920759258 },
+  constructs: { texts: 4896, most: 5, single: 1309, quoteCascades: 9, digest: 359370749 },
+  sheet: { texts: 4716, most: 3, single: 1271, quoteCascades: 0, digest: 1508490836 },
+  paths: { texts: 4728, most: 3, single: 1241, quoteCascades: 0, digest: 2906695574 },
+  algebra: { texts: 5114, most: 3, single: 1473, quoteCascades: 0, digest: 4265921408 },
+  records: { texts: 4823, most: 3, single: 1291, quoteCascades: 0, digest: 21554679 },
+  world: { texts: 5018, most: 3, single: 1388, quoteCascades: 0, digest: 215319946 },
+  envelopes: { texts: 4993, most: 3, single: 1361, quoteCascades: 0, digest: 1780189153 },
+};
+
 const GENERATORS: Readonly<Record<string, Generator>> = {
   standard: {
     profile: STD_SYNTAX,
@@ -814,6 +973,31 @@ function kindType(kind: string): Json {
 
 function pick<T>(rng: Random, items: readonly T[]): T {
   return items[rng.int(items.length)] as T;
+}
+
+const DAMAGE = ["(", ")", "{", "}", ",", ":", '"', "`", "\\", "$", " ", "+", "a", "1", "=", "."];
+
+/** This function makes faults in a text. Each fault removes, adds or replaces one character. */
+function damaged(rng: Random, source: string, faults: number): string {
+  let out = source;
+  for (let made = 0; made < faults; made += 1) {
+    const at = rng.int(Math.max(out.length, 1));
+    const kind = rng.int(3);
+    out = out.slice(0, at) + (kind === 0 ? "" : pick(rng, DAMAGE)) + out.slice(kind === 1 ? at : at + 1);
+  }
+  return out;
+}
+
+/** This function gives the quote marks of a text. A fault that changes them can pair a quote with a quote of another text. */
+function quoteMarks(source: string): string {
+  return source.replace(/[^"`\\]/g, "");
+}
+
+/** This function adds a text to an FNV-1a hash. */
+function hashText(hash: number, source: string): number {
+  let out = hash;
+  for (let at = 0; at < source.length; at += 1) out = Math.imul(out ^ source.charCodeAt(at), 16777619) >>> 0;
+  return out;
 }
 
 /** This function builds a random document that the profile writes. Some documents get a header name. */

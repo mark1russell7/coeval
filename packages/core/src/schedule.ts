@@ -1,6 +1,6 @@
 import type { Key } from "./doc.ts";
 import { type Context, type HostThing, type Thing, THING, context as contextOf } from "./deref.ts";
-import { type Failed, type Result, Failure, fail } from "./errors.ts";
+import { type Failed, type Result, Failure, fail, overflowCount } from "./errors.ts";
 import { type Machine, type Perform, type StopSignal, rootContext } from "./evaluate.ts";
 import { type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 import type { DocFacts, StaticRead } from "./facts.ts";
@@ -49,6 +49,17 @@ export interface NodeInfo {
 export interface ScheduleOptions extends DurableOptions {
   /** The context of the host: the names, `self`, `event` and the capabilities. The schedule sets the root `world` to the nodes. */
   readonly context?: Context;
+  /**
+   * This function gives a node its own `self` (SCHED.NODE-CONTEXT, D135). Thus one document at each cell of a grid
+   * shares one plan, and each cell has its own value and its own reads. In one data epoch, the function gives the same
+   * data for a node. New data comes with `changeData`, and each node then verifies its reads with its new `self`.
+   * Without the function, each node gets the context of the host.
+   *
+   * @param id - The name of the node.
+   * @param host - The context of the host, without the nodes at the root `world`.
+   * @returns The `self` of the node, or `undefined` for the `self` of the host.
+   */
+  readonly selfOf?: (id: string, host: Context) => Thing;
 }
 
 /** The work of a schedule since its start: the work of its `durable` cache, and the demands ahead of a node. */
@@ -79,7 +90,7 @@ export interface Schedule {
   readonly epochs: Epochs;
   /** The work of the schedule since its start: the compilations, the evaluations, the verifications, the reuses and the demands ahead. */
   readonly counts: ScheduleCounts;
-  /** The context of each node in the current data epoch: the context of the host, with the nodes at the root `world`. */
+  /** The context of the current data epoch: the context of the host, with the nodes at the root `world`. The option `selfOf` changes only the `self` of a node. */
   readonly context: Context;
   /**
    * This function gives each node with its facts, its side and its edges (SCHED.GRAPH). The map stays the same object
@@ -94,7 +105,7 @@ export interface Schedule {
    *
    * - First, the schedule demands each node that the eager edges reach, deepest first (SCHED.LONG-CHAIN).
    * - After a change, a pure node verifies its reads, and it keeps its result when each read is the same (SCHED.STALE).
-   * - Each node of a cycle gives `#CYCLE!`, in each order of demands (SCHED.CYCLE).
+   * - Each node of a cycle gives `#CYCLE!`, in each order of demands (SCHED.CYCLE), at each length (SCHED.DEEP-CYCLE).
    * - A node on the run side gives `#REF!`, because the schedule does not evaluate it (SCHED.SIDE).
    *
    * @param id - The name of the node.
@@ -118,7 +129,8 @@ export interface Schedule {
   remove(id: string): boolean;
   /**
    * This function tells the schedule that the data of the host changed (DURABLE.EPOCHS). The values of a context do
-   * not change in place, thus new data comes in a new context, or through a host thing.
+   * not change in place, thus new data comes in a new context, or through a host thing. A new `self` of a node is a
+   * change of data too (SCHED.NODE-STALE).
    *
    * @param context - The new context of the host, or `undefined` to keep the context.
    */
@@ -131,7 +143,8 @@ export interface Schedule {
   changeMachine(machine: Machine): void;
   /**
    * This function starts a run of the document of a node, and the host does each effect (SCHED.RUN). Only the host
-   * starts a run, for example at an event. A change of data does not start or repeat a run (L3).
+   * starts a run, for example at an event. A change of data does not start or repeat a run (L3). The run gets the
+   * `self` of its node (SCHED.NODE-CONTEXT).
    *
    * @param id - The name of the node.
    * @param options - The event, the host code that does the effects, and a signal to stop the run.
@@ -181,10 +194,17 @@ function missing(id: string): Failed {
   return fail("#N/A", `The schedule has no node ${id}.`);
 }
 
-/** The state of one data epoch: the context of the nodes, and the value of each node that a demand reached. */
+/** The walk of a data epoch (D139): the result of each node that the walk finished, and the root `world` of the walk. */
+interface Walk {
+  readonly results: Map<string, Result>;
+  readonly context: Context;
+}
+
+/** The state of one data epoch: the context of the nodes, the value of each reached node, and the walk after an overflow. */
 interface Epoch {
   readonly context: Context;
   readonly values: Map<string, Result>;
+  walk?: Walk;
 }
 
 /**
@@ -237,16 +257,20 @@ export function checkCycles(target: { graph(): NodeGraph<string> }): readonly Cy
  * - A demand of the host, or of a run, first demands each node that the eager edges reach, deepest first. Thus each
  *   read of such a node finds a value, and a chain of 100000 nodes does not overflow the stack (SCHED.LONG-CHAIN).
  *   Each such demand starts with no node in evaluation, thus the order of demands keeps the values of D31.
+ * - After an overflow of the stack, a walk with its own stack follows the same reads. It gives each node of a cycle
+ *   `#CYCLE!` at each length (SCHED.DEEP-CYCLE, D139). A demand without an overflow does no such work.
  * - A node on the run side is a sink. Only `run` evaluates it, and only the host uses `run`.
+ * - The option `selfOf` gives a node its own `self` (D135). The plan, the facts and the edges stay for each document
+ *   object, thus nodes with one document share them. The value, the reads and the place on a cycle stay for each node.
  *
  * The host keeps the promises of `durable`. The documents and the values of a context do not change in place.
  *
  * @param machine - The machine of the first structure epoch.
- * @param options - The options of `durable`, and the context of the host.
+ * @param options - The options of `durable`, the context of the host and the `self` of each node.
  * @returns The schedule.
  */
 export function schedule(machine: Machine, options: ScheduleOptions = {}): Schedule {
-  const { context: given, ...cacheOptions } = options;
+  const { context: given, selfOf, ...cacheOptions } = options;
   const cache = durable(machine, cacheOptions);
   const docs = new Map<string, unknown>();
   const edges = new WeakMap<DocFacts, readonly NodeEdge[]>();
@@ -265,8 +289,12 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
   const onOpen = new Set<string>();
   // The nodes in evaluation that read themselves.
   const looped = new Set<string>();
+  // The length of the stack at the kept read that resolves at this time, or -1 without such a read (SCHED.OWN-NODE).
+  let keptAt = -1;
   let count = 0;
   let ahead = 0;
+  // The node that stopped the evaluation of a walk, because the walk has no result for it.
+  let wanted: string | undefined;
 
   const lower = (id: string, to: number): void => {
     if (to < (low.get(id) as number)) low.set(id, to);
@@ -302,19 +330,35 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     return facts.side === "run" ? undefined : edgesFrom(facts);
   };
 
+  /** This function gives the context of a node: the context of the epoch, or a copy with the `self` of the node. A copy keeps the grant. */
+  const contextFor = (id: string, shared: Context): Context => {
+    if (selfOf === undefined) return shared;
+    const self = selfOf(id, base);
+    return self === undefined ? shared : { ...shared, self };
+  };
+
   /**
    * This function gives the value of a node. A demand of the host or of a run has no node in evaluation. It first
    * demands each node that the eager edges reach, deepest first. Each of these demands also starts with no node in
    * evaluation, thus it is a demand of the host too. D31 gives each order of such demands the same values.
    */
   const demand = (id: string): Result => {
-    if (stack.length === 0) {
-      for (const first of deepestFirst(id, edgesFor)) {
-        ahead += 1;
-        visit(first);
-      }
+    if (stack.length > 0) return visit(id);
+    for (const first of deepestFirst(id, edgesFor)) {
+      ahead += 1;
+      hostDemand(first);
     }
-    return visit(id);
+    return hostDemand(id);
+  };
+
+  /**
+   * This function demands one node with no node in evaluation. An overflow of the stack, in this demand or earlier in
+   * the data epoch, makes a walk from the node. A `#DEPTH!` of an earlier demand can stop a read of this demand.
+   */
+  const hostDemand = (id: string): Result => {
+    const before = overflowCount();
+    const result = visit(id);
+    return overflowCount() === before && current().walk === undefined ? result : settle(id, result);
   };
 
   /** This function demands one node, with the algorithm of Tarjan over the demands for the cycles of D31. */
@@ -328,6 +372,8 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       return known;
     }
     if (busy.has(id)) {
+      // The evaluation of a node did not ask for its kept read of the node itself, thus that read closes no cycle (SCHED.OWN-NODE).
+      if (reader === id && keptAt === stack.length) return cycleOf(id);
       // A read of a node in evaluation closes a cycle. It gives the same error as the final result of that node.
       if (reader !== undefined) lower(reader, order.get(id) as number);
       if (reader === id) looped.add(id);
@@ -349,14 +395,21 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     stack.push(id);
     let result: Result | undefined;
     try {
-      result = cache.evaluate(id, doc, epoch.context);
+      result = cache.evaluate(id, doc, contextFor(id, epoch.context));
     } finally {
       stack.pop();
       busy.delete(id);
       // An exception of the host leaves the node without a result. A later demand evaluates it again.
       if (result === undefined) {
         looped.delete(id);
-        close(from);
+        // This loop calls no function of the module. Near the limit of the stack such a call can fail. Then this node
+        // stays open, and its reader finds two nodes in its component, as on a cycle (SCHED.DEEP-CYCLE-CHAIN).
+        while (open.length > from) {
+          const left = open.pop() as string;
+          onOpen.delete(left);
+          order.delete(left);
+          low.delete(left);
+        }
       }
     }
     const reached = low.get(id) as number;
@@ -376,17 +429,171 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     return value;
   };
 
+  /** This function gives the walk of a data epoch. Its root `world` answers from the walk, and each other read stops the evaluation. */
+  const startWalk = (): Walk => {
+    const results = new Map<string, Result>();
+    const stop = new Failure(fail("#CALC!", "A walk stopped this evaluation at a read.").error);
+    const read = (id: string): Result => {
+      // After the first stop, a document that catches the error reads nothing more: such a read does not happen.
+      if (wanted !== undefined) throw stop;
+      const reader = stack[stack.length - 1] as string;
+      const known = results.get(id);
+      if (known !== undefined) {
+        if (onOpen.has(id)) lower(reader, order.get(id) as number);
+        return known;
+      }
+      if (busy.has(id)) {
+        lower(reader, order.get(id) as number);
+        if (reader === id) looped.add(id);
+        return cycleOf(id);
+      }
+      if (cache.facts(docs.get(id)).side === "run") {
+        const refused = runSide(id);
+        results.set(id, refused);
+        return refused;
+      }
+      wanted = id;
+      throw stop;
+    };
+    return { results, context: rooted(worldOf(results, read)) };
+  };
+
+  /** This function gives the node that stopped the last evaluation of a walk, and it clears the mark. */
+  const takeWanted = (): string | undefined => {
+    const id = wanted;
+    wanted = undefined;
+    return id;
+  };
+
+  /**
+   * This function follows the reads of the evaluations from a node after an overflow of the stack (SCHED.DEEP-CYCLE,
+   * D139). `visit` uses the stack of the host for each node. This walk uses the lists of `visit` as its own stack.
+   *
+   * An evaluation has no nested demand. A read of a node without a result stops the evaluation, and the walk finishes
+   * that node. Then the reader evaluates again. Thus the algorithm of Tarjan of `visit` finds each cycle of real reads.
+   *
+   * Each evaluation enters a new node or finishes a node. Thus the walks of a data epoch do at most `2V` evaluations
+   * for `V` entered nodes. They keep one result and one entry in each list for each such node.
+   *
+   * A walk that reaches no cycle changes nothing, thus a chain keeps its `#DEPTH!`. After a cycle, each entered node
+   * keeps only its error. A node with a value evaluates again at its next demand, because a value can hold the root of
+   * the walk.
+   *
+   * @param id - The node of the demand.
+   * @param given - The result of the demand.
+   * @returns The final result of the demand.
+   */
+  const settle = (id: string, given: Result): Result => {
+    const epoch = current();
+    const walk = (epoch.walk ??= startWalk());
+    const { results } = walk;
+    if (results.has(id) || cache.facts(docs.get(id)).side === "run") return given;
+    const entered: string[] = [];
+    const starts: number[] = [];
+    const enter = (node: string): void => {
+      const mine = count++;
+      order.set(node, mine);
+      low.set(node, mine);
+      starts.push(open.length);
+      open.push(node);
+      onOpen.add(node);
+      busy.add(node);
+      stack.push(node);
+      entered.push(node);
+    };
+    let found = false;
+    // An overflow can stop `visit` between two steps of its lists. The walk starts with empty lists.
+    close(0);
+    looped.clear();
+    enter(id);
+    try {
+      while (stack.length > 0) {
+        const node = stack[stack.length - 1] as string;
+        const result = cache.plan(docs.get(node)).evaluate(contextFor(node, walk.context));
+        const next = takeWanted();
+        if (next !== undefined) {
+          enter(next);
+          continue;
+        }
+        stack.pop();
+        busy.delete(node);
+        const from = starts.pop() as number;
+        const reached = low.get(node) as number;
+        const self = looped.delete(node);
+        const onCycle = reached < (order.get(node) as number) || close(from) > 1 || self;
+        results.set(node, onCycle ? cycleOf(node) : result);
+        // A node behind a cycle of an earlier walk finds that cycle too.
+        found ||= onCycle || (!result.ok && result.error.code === "#CYCLE!");
+        const reader = stack[stack.length - 1];
+        if (reader !== undefined) lower(reader, reached);
+      }
+    } finally {
+      takeWanted();
+      stack.length = 0;
+      busy.clear();
+      looped.clear();
+      close(0);
+    }
+    if (!found) return given;
+    for (const node of entered) {
+      const result = results.get(node) as Result;
+      cache.forget(node);
+      if (result.ok) epoch.values.delete(node);
+      else epoch.values.set(node, result);
+    }
+    return visit(id);
+  };
+
   /** This function gives the record of the derive nodes, for a path that ends at the root `world`. */
-  const record = (): unknown => {
+  const record = (get: (id: string) => Result): unknown => {
     const out: Record<string, unknown> = {};
     for (const id of [...docs.keys()].sort()) {
       if (cache.facts(docs.get(id)).side === "run") continue;
-      const result = demand(id);
+      const result = get(id);
       if (!result.ok) throw new Failure(result.error);
       Object.defineProperty(out, id, { value: result.value, enumerable: true, writable: true, configurable: true });
     }
     return out;
   };
+
+  /** This function gives the host thing at the root `world`: `get` gives the result of a node, and `values` holds each final result. */
+  const worldOf = (values: ReadonlyMap<string, Result>, get: (id: string) => Result): HostThing => ({
+    [THING]: true,
+    label: "nodes",
+    deref(key) {
+      const id = String(key);
+      if (!docs.has(id)) return undefined;
+      const result = get(id);
+      // A failed node gives its own error to each reader, as a failed attribute of a tree does (D16).
+      if (!result.ok) throw new Failure(result.error);
+      return result.value;
+    },
+    has: (key) => docs.has(String(key)),
+    toJson: () => record(get),
+    // A demand from a kept read can reach the node in evaluation, and that cycle is false (SCHED.ONE-MEANING).
+    // Thus only a node with its result in this epoch gives a value. Each such value is final (D31).
+    known(key) {
+      const result = values.get(String(key));
+      if (result === undefined) return undefined;
+      if (!result.ok) throw new Failure(result.error);
+      return { thing: result.value };
+    },
+    // A kept read that a reference leads to a node still demands that node, and only its own node gives no cycle.
+    // A nested demand has a longer stack, thus each read of its evaluation counts (SCHED.OWN-NODE).
+    keeping(read) {
+      const outer = keptAt;
+      keptAt = stack.length;
+      try {
+        return read();
+      } finally {
+        keptAt = outer;
+      }
+    },
+  });
+
+  // The context has a world, thus `rootContext` only gives it its grant (CAP.NARROW-CODE). Each evaluation of the
+  // epoch then uses this object with no copy.
+  const rooted = (world: HostThing): Context => rootContext(machine, { ...base, world });
 
   /**
    * This function gives the state of the current data epoch. Each data epoch has a new host thing at the root
@@ -396,31 +603,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
   const current = (): Epoch => {
     if (now !== undefined) return now;
     const values = new Map<string, Result>();
-    const nodesThing: HostThing = {
-      [THING]: true,
-      label: "nodes",
-      deref(key) {
-        const id = String(key);
-        if (!docs.has(id)) return undefined;
-        const result = demand(id);
-        // A failed node gives its own error to each reader, as a failed attribute of a tree does (D16).
-        if (!result.ok) throw new Failure(result.error);
-        return result.value;
-      },
-      has: (key) => docs.has(String(key)),
-      toJson: record,
-      // A demand from a kept read can reach the node in evaluation, and that cycle is false (SCHED.ONE-MEANING).
-      // Thus only a node with its result in this epoch gives a value. Each such value is final (D31).
-      known(key) {
-        const result = values.get(String(key));
-        if (result === undefined) return undefined;
-        if (!result.ok) throw new Failure(result.error);
-        return { thing: result.value };
-      },
-    };
-    // The context has a world, thus `rootContext` only gives it its grant (CAP.NARROW-CODE). Each evaluation of the
-    // epoch then uses this object with no copy.
-    now = { context: rootContext(machine, { ...base, world: nodesThing }), values };
+    now = { context: rooted(worldOf(values, demand)), values };
     return now;
   };
 
@@ -472,7 +655,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     },
     run(id, runOptions = {}) {
       if (!docs.has(id)) return Promise.resolve(missing(id));
-      const ctx = current().context;
+      const ctx = contextFor(id, current().context);
       return cache.plan(docs.get(id)).run(runOptions.event === undefined ? ctx : { ...ctx, event: runOptions.event }, {
         ...(runOptions.perform === undefined ? {} : { perform: runOptions.perform }),
         ...(runOptions.signal === undefined ? {} : { signal: runOptions.signal }),
