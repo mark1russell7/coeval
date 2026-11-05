@@ -441,6 +441,7 @@ interface AgreeScheduleOptions {
   readonly names?: readonly string[];
   readonly values?: readonly unknown[];
   readonly contexts?: readonly Context[];
+  readonly selves?: readonly unknown[];
   readonly count?: number;
   readonly steps?: number;
   readonly seed?: number;
@@ -1775,6 +1776,8 @@ interface ScheduleAgreementCounts {
   readonly removes: number;
   readonly same: number;
   readonly machines: number;
+  readonly selves: number;
+  readonly shared: number;
 }
 
 ### build/index.d.ts#ScheduleCounts
@@ -1798,11 +1801,13 @@ type ScheduleEngineFactory = (machine: Machine, start: ScheduleEngineStart) => S
 interface ScheduleEngineStart {
   readonly context: Context;
   readonly declaredType?: string;
+  readonly selfOf?: (id: string, host: Context) => unknown;
 }
 
 ### build/index.d.ts#ScheduleOptions
 interface ScheduleOptions extends DurableOptions {
   readonly context?: Context;
+  readonly selfOf?: (id: string, host: Context) => Thing;
 }
 
 ### build/index.d.ts#ScopeRule
