@@ -4293,7 +4293,9 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 One run of the 379 gave a server error, and the count does not read it.
 
-**Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a finding and not an absent read. On equal arms it is a fault of determinism. On different arms, a changed result can explain it, and the reason says which. A pull request that changes a result on purpose also goes red, and that needs a change of the case.
+**Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a finding and not an absent read. On equal arms it is a fault of determinism. On different arms, a changed result can explain it, and the reason says which. 
+
+**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints.
 
 **History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
 
