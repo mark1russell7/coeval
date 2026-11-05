@@ -4239,10 +4239,14 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 - A third filter starts the jobs of the ladder: the kernel, `ladder.ts`, the lock file and the workflow. The jobs of `mode` keep their filter. One job takes approximately 1 minute.
 - The mode `merge` prints one line of the gate. A time verdict other than `linear`, a memory verdict other than `at most linear` or no counted run is a block. With `LADDER_BLOCK=1`, a block gives the exit code 3.
 - The job `ladder-verdict` accepts the exit code 3, so the gate is report only. Another failure of that step turns the job red. To make the gate block, a later pull request removes `|| test $? -eq 3`.
-- The job `ladder-flip` runs one ladder with `LADDER_INJECT=1`. Each walk repeats by its rung, so its true slope is 2, on the time and on the memory. The job needs a failed step and a named reason for each walk and each verdict.
-- The five plain runs are the copy with no fault. Their line of the gate reads `pass`.
+- The job `ladder-flip` runs three ladders at 250 levels and 10 rounds, on one runner. Each walk repeats by a stated count at each rung, so the fault acts on the time and on the memory.
+- The counts `1,2,4,8` give a true slope of 2, and the gate must read a block. The counts `8,10,12,15` give a true slope of 1.3, just over the limit of 1.2 on the upper end, and the gate must read a block. The counts `8,8,8,8` give a true slope of 1 with similar work, and the gate must read `pass`.
+- The job passes only if all three rows read as stated, and each block names each walk and each verdict.
+- The line of the gate gives the smallest slope that gives a block, from the spread of its own runs. The time verdict blocks at the lower of `1 + half` and `1.2 - half`, where `half` is half of the 90 % interval. The memory verdict blocks at `1.2 - half`. Under that size, the gate has no read.
+- **The size, stated before the first read.** The past 9 runs read `half` from 0.075 to 0.116 on time, so the plain gate sees a time slope of at most 1.12. The memory interval is narrow, so the plain gate sees a memory slope of at most 1.20. A slope of 1.05 is under this size, and a pass does not exclude it.
+- The five plain runs are also a copy with no fault. Their line of the gate reads `pass`.
 
-**Limit of the claim.** The flip shows that a slope of 2 gives a block. It does not give the smallest slope that gives a block. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. The rule of three allows up to 33 % false blocks with so few rows. The new filter gives more rows with each change of the kernel.
+**Limit of the claim.** The flip tests the slopes 2, 1.3 and 1, at a setting with more repeats than the plain gate. So it does not measure the width of the plain gate. The plain gate prints that width in its own run. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. The rule of three allows up to 33 % false blocks with so few rows, so this count is too small for a ruling. The new filter gives more rows with each change of the kernel.
 
 **SemVer.** No export of the package changes.
 

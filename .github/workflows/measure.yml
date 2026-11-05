@@ -2,7 +2,7 @@
 # A limit is the worst value of the runs plus the spread of the values. A seeded count is the same in each run, thus a test pins it.
 # Each job prints its values in its log and in its summary. A local machine is shared, thus the measures run here.
 # The jobs "ladder" measure the slope of the walks of STATIC.LINEAR (K208, D97). The job "ladder-verdict" pools them.
-# The job "ladder-flip" injects a walk with a slope of 2, and its gate must read a block (K227, D164).
+# The job "ladder-flip" reads injected walks with the slopes 2, 1.3 and 1 at one setting. The gate must read block, block and pass (K227, D164).
 # The jobs "mode" compare each bench case alone with the same case in the order of cases.ts (K210, D98).
 # Each part measures 8 cases on its runner in 341 processes, approximately 2 minutes by the times of run 41430307699.
 # The job "mode-verdict" pools the parts.
@@ -192,7 +192,7 @@ jobs:
     needs: ladder-changes
     if: needs.ladder-changes.outputs.match == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pnpm version comes from "packageManager" in package.json
@@ -202,26 +202,27 @@ jobs:
           node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: A walk with a slope of 2
-        env:
-          LADDER_INJECT: "1"
-          LADDER_JSON: ${{ runner.temp }}/flip.json
-        run: pnpm exec tsx packages/core/bench/ladder.ts 250 10
-      - name: The gate reads the fault
-        id: flip
-        continue-on-error: true
+      # Each row: a name, the repeats at the four rungs, the exit code, and the text of the gate. 8 repeats at each rung give
+      # a slope of 1 with the same work per rung as the slope of 1.3, so that row is the copy with no fault at one setting.
+      - name: Three walks at one setting
         shell: bash
-        env:
-          LADDER_BLOCK: "1"
-        run: node packages/core/bench/ladder.ts merge "$RUNNER_TEMP/flip.json" 2>&1 | tee out.txt
-      - name: The gate gave a block on the time and on the memory of each walk
-        env:
-          OUTCOME: ${{ steps.flip.outcome }}
         run: |
-          test "$OUTCOME" = failure
-          for reason in 'refsOf is not linear' 'walk is not linear' 'memory of refsOf is over the bound' 'memory of walk is over the bound'; do
-            grep -q "$reason" out.txt
+          fail=0
+          for row in 'slope-2 1,2,4,8 3 block' 'slope-1.3 8,10,12,15 3 block' 'linear 8,8,8,8 0 pass'; do
+            read -r name times want gate <<< "$row"
+            LADDER_INJECT="$times" LADDER_JSON="$RUNNER_TEMP/$name.json" pnpm exec tsx packages/core/bench/ladder.ts 250 10
+            code=0
+            LADDER_BLOCK=1 node packages/core/bench/ladder.ts merge "$RUNNER_TEMP/$name.json" 2>&1 | tee "$name.txt" || code=$?
+            echo "Flip row $name: exit code $code, expected $want."
+            test "$code" = "$want" || fail=1
+            grep -q "Gate (report only, D164): $gate" "$name.txt" || fail=1
           done
+          for name in slope-2 slope-1.3; do
+            for reason in 'refsOf is not linear' 'walk is not linear' 'memory of refsOf is over the bound' 'memory of walk is over the bound'; do
+              grep -q "$reason" "$name.txt" || { echo "Flip row $name has no reason: $reason."; fail=1; }
+            done
+          done
+          exit "$fail"
 
   mode:
     needs: changes
