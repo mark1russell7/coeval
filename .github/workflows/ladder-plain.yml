@@ -9,7 +9,13 @@ on:
   # One morning each week, on the minute that the rule runner-budget gives this file.
   schedule:
     - cron: "25 5 * * 2"
+  # A one-off read can name another slope. The weekly run and the call from "measure" use 1.25.
   workflow_dispatch:
+    inputs:
+      fault:
+        description: The true slope of the walk with a fault
+        type: string
+        default: "1.25"
   # The weekly run covers a change of the lock file.
   workflow_call:
 
@@ -44,9 +50,9 @@ jobs:
           LADDER_RUN: ${{ matrix.run }}
           LADDER_JSON: ${{ runner.temp }}/linear-${{ matrix.run }}.json
         run: pnpm exec tsx packages/core/bench/ladder.ts
-      - name: A walk with a slope of 1.25
+      - name: A walk with a fault
         env:
-          LADDER_INJECT: "1.25"
+          LADDER_INJECT: ${{ inputs.fault || '1.25' }}
           LADDER_RUN: ${{ matrix.run }}
           LADDER_JSON: ${{ runner.temp }}/fault-${{ matrix.run }}.json
         run: pnpm exec tsx packages/core/bench/ladder.ts
@@ -83,6 +89,7 @@ jobs:
         shell: bash
         env:
           LADDER_BLOCK: "1"
+          FAULT: ${{ inputs.fault || '1.25' }}
         run: |
           fail=0
           code=0
@@ -92,9 +99,14 @@ jobs:
           grep -q 'Gate (report only, D164): pass' linear.txt || fail=1
           code=0
           node packages/core/bench/ladder.ts merge "$RUNNER_TEMP"/plain/fault-*.json 2>&1 | tee fault.txt || code=$?
-          echo "The slope of 1.25: exit code $code, expected 3."
+          echo "The slope of $FAULT: exit code $code, expected 3."
           test "$code" = 3 || { echo "No read at the plain setting: the printed size is wrong."; fail=1; }
-          for reason in 'refsOf is not linear' 'walk is not linear' 'memory of refsOf is over the bound' 'memory of walk is over the bound'; do
-            grep -q "$reason" fault.txt || { echo "The slope of 1.25 has no reason: $reason."; fail=1; }
+          reasons=('refsOf is not linear' 'walk is not linear')
+          # Under the memory limit of 1.2, a fault can block only on time. So only the slope of 1.25 expects the memory reasons.
+          if [ "$FAULT" = "1.25" ]; then
+            reasons+=('memory of refsOf is over the bound' 'memory of walk is over the bound')
+          fi
+          for reason in "${reasons[@]}"; do
+            grep -q "$reason" fault.txt || { echo "The slope of $FAULT has no reason: $reason."; fail=1; }
           done
           exit "$fail"
