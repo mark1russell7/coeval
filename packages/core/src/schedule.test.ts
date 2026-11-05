@@ -53,7 +53,11 @@ const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const op = (name: string, ...args: Json[]): Json => ({ type: ["ops", name], value: args });
 
 class Box {
-  constructor(readonly v: unknown) {}
+  readonly v: unknown;
+
+  constructor(v: unknown) {
+    this.v = v;
+  }
 }
 
 /** The rule of the tests for two results: a box compares its value, and two closures compare their parameters. */
@@ -824,6 +828,18 @@ describe("a certain cycle longer than the stack", () => {
     expect(s.read(`t${RING - 1}`)).toMatchObject({ ok: false, error: { code: "#CYCLE!", reason } });
   });
 
+  it("[SCHED.DEEP-CYCLE-SELF] a long ring through the self of each node gives #CYCLE! after an overflow, thus a walk evaluates each node with its own self", () => {
+    const next = (id: string): Json => ({ next: ref("world", `n${(Number(id.slice(1)) + 1) % RING}`) });
+    const up: Json = op("add", ref("self", "next"), 1);
+    for (const first of [0, 777, RING - 1]) {
+      const s = schedule(strictMachine, { ...LIT, selfOf: next });
+      for (let index = 0; index < RING; index += 1) s.set(`n${index}`, up);
+      expect(s.read(`n${first}`), `from n${first}`).toEqual(cycle(`n${first}`));
+      const wrong = Array.from({ length: RING }, (_item, index) => `n${index}`).filter((id) => !sameResult(s.read(id), cycle(id)));
+      expect(wrong, `from n${first}`).toEqual([]);
+    }
+  });
+
   it("[SCHED.DEEP-CYCLE-OWN] after an overflow, a kept read of the node in evaluation closes no cycle, and the ring keeps its error", () => {
     const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "f") }) });
     ring(s, (next) => next);
@@ -1492,5 +1508,255 @@ describe("the certain cycles of a schedule", () => {
       expect(found.slice(0, 3), config.name).toEqual([]);
       expect(seen.certain, config.name).toBeGreaterThan(COUNT / 4);
     }
+  }, 120_000);
+});
+
+/* A context for each node (S1f, D135): `selfOf` gives a node its own `self`, and nodes with one document share one plan. */
+
+/** The cells of a column: each cell reads the cell above it through a reference in its `self`. */
+const column = (length: number): ReadonlyMap<string, Json> => new Map(Array.from({ length }, (_, index): [string, Json] => [`r${index}`, { above: index === 0 ? 0 : ref("world", `r${index - 1}`) }]));
+
+/** This function gives the option `selfOf` of a host with a table of cells. */
+const cellsOf = (cells: Readonly<Record<string, Json>>): ((id: string) => Json | undefined) => (id) => cells[id];
+
+describe("a context for each node", () => {
+  it("[SCHED.NODE-CONTEXT] selfOf gives each node its own self for its evaluation and its run, another root stays the root of the host, and undefined keeps the self of the host", async () => {
+    const cells: Readonly<Record<string, Json>> = { a: { x: 1 }, b: { x: 2 } };
+    const formula: Json = op("add", ref("self", "x"), ref("names", "k"));
+    const asked: unknown[] = [];
+    const s = schedule(strictMachine, {
+      ...LIT,
+      context: context({ names: { k: 10 }, self: { x: 100 } }),
+      selfOf(id, host) {
+        asked.push(host.names["k"]);
+        return cells[id];
+      },
+    });
+    for (const id of ["a", "b", "c"]) s.set(id, formula);
+    s.set("sum", op("add", ref("world", "a"), ref("world", "b")));
+    expect(["a", "b", "c", "sum"].map((id) => s.read(id))).toEqual([ok(11), ok(12), ok(110), ok(23)]);
+    // The function gets the context of the host, one time for each node in a data epoch, and the context of the epoch keeps the self of the host.
+    expect(asked).toEqual([10, 10, 10, 10]);
+    expect(s.context.self).toEqual({ x: 100 });
+    // A closure keeps the self of its node, also in the evaluation of a reader. A reader with another self gets the value of the closure.
+    const closures = schedule(strictMachine, { ...LIT, selfOf: cellsOf({ f: { x: 1 }, g: { x: 2 } }) });
+    closures.set("f", { type: "fn", value: { params: ["v"], body: ref("self", "x") } });
+    closures.set("g", op("apply", ref("world", "f"), 0));
+    expect(closures.read("g")).toEqual(ok(1));
+    // A reference in the value of a node resolves in the context of its reader (DEREF.COLLAPSE).
+    const held = schedule(strictMachine, { ...LIT, selfOf: cellsOf({ data: { x: "mine" }, reader: { x: "yours" } }) });
+    held.set("data", { type: "lit", value: { v: ref("self", "x") } });
+    held.set("reader", ref("world", "data", "v"));
+    expect(held.read("reader")).toEqual(ok("yours"));
+    // A run gets the self of its node and the event of the host. A demand of a node on the run side still gives #REF!.
+    const payloads: unknown[] = [];
+    const log: Json = { type: "log", value: [ref("self", "x"), ref("event", "e")] };
+    const runs = schedule(STD_MACHINE, { context: context({ caps: ["log"], event: { e: 0 } }), selfOf: cellsOf(cells) });
+    runs.set("a", log);
+    runs.set("b", log);
+    const perform = (effect: Effect): unknown => payloads.push(effect.payload);
+    await runs.run("a", { perform });
+    await runs.run("b", { perform, event: { e: 1 } });
+    expect(payloads).toEqual([[1, 0], [2, 1]]);
+    expect(runs.read("a")).toEqual(refused("a"));
+    // A node of a tree reaches the self of its node through its parent, and one tree document gives each node its own answer.
+    const tree = schedule(treeMachine({ seen: ref("self", "parent", "x") }), { selfOf: cellsOf(cells) });
+    const watch: Json = { type: "watch", value: { got: ref("self", "seen") } };
+    tree.set("a", watch);
+    tree.set("b", watch);
+    expect([tree.read("a"), tree.read("b")]).toEqual([ok({ got: 1 }), ok({ got: 2 })]);
+    expect(tree.counts).toMatchObject({ compiles: 1, evaluations: 2 });
+    // An exception of the function reaches the host, and it leaves the node without a result.
+    let broken = true;
+    const throws = schedule(strictMachine, {
+      ...LIT,
+      selfOf() {
+        if (broken) throw new Error("no cell");
+        return { x: 1 };
+      },
+    });
+    throws.set("a", ref("self", "x"));
+    expect(() => throws.read("a")).toThrow("no cell");
+    broken = false;
+    expect(throws.read("a")).toEqual(ok(1));
+  });
+
+  it("[SCHED.NODE-PLAN] nodes with one document object share one plan, one facts object and one list of edges, and each node keeps its own result", () => {
+    const LENGTH = 1000;
+    const formula: Json = op("add", ref("self", "x"), ref("world", "base"));
+    const s = schedule(strictMachine, { ...LIT, selfOf: (id) => ({ x: Number(id.slice(1)) }) });
+    s.set("base", 1);
+    for (let index = 0; index < LENGTH; index += 1) s.set(`c${index}`, formula);
+    for (let index = 0; index < LENGTH; index += 1) expect(s.read(`c${index}`)).toEqual(ok(index + 1));
+    // The base and one formula compile, with one facts object each, and each cell evaluates.
+    expect(s.counts).toMatchObject({ compiles: 2, facts: 2, evaluations: LENGTH + 1 });
+    const graph = s.graph();
+    expect(graph.get("c7")?.facts).toBe(graph.get("c8")?.facts);
+    expect(graph.get("c7")?.edges).toBe(graph.get("c8")?.edges);
+    expect(graph.get("c7")?.edges.map((edge) => edge.to)).toEqual(["base"]);
+    // A change of data compiles nothing, and an edit of one cell compiles only that document.
+    s.changeData();
+    expect(s.read("c7")).toEqual(ok(8));
+    expect(s.counts.compiles).toBe(2);
+    s.set("c7", ref("self", "x"));
+    expect(s.read("c7")).toEqual(ok(7));
+    expect(s.read("c8")).toEqual(ok(9));
+    expect(s.counts).toMatchObject({ compiles: 3, facts: 3 });
+    // The measure: equal documents in new objects compile one time for each node (PLAN.CACHE).
+    const copies = schedule(strictMachine, { ...LIT, selfOf: (id) => ({ x: Number(id.slice(1)) }) });
+    copies.set("base", 1);
+    for (let index = 0; index < 100; index += 1) copies.set(`c${index}`, op("add", ref("self", "x"), ref("world", "base")));
+    for (let index = 0; index < 100; index += 1) copies.read(`c${index}`);
+    expect(copies.counts).toMatchObject({ compiles: 101, facts: 101 });
+    // A new machine compiles the shared document one time.
+    const next = s.counts;
+    s.changeMachine(looseMachine);
+    expect(s.read("c8")).toEqual(ok(9));
+    expect(s.read("c9")).toEqual(ok(10));
+    expect(s.counts.compiles - next.compiles).toBe(2);
+  });
+
+  it("[SCHED.NODE-STALE] a new self is a change of data: each node verifies its reads with its new self, and only a node with a changed read evaluates again", () => {
+    let cells: Readonly<Record<string, Json>> = { a: { x: 1, y: 1 }, b: { x: 2, y: 1 } };
+    const formula: Json = ref("self", "x");
+    const whole: Json = ref("self");
+    const s = schedule(strictMachine, { ...LIT, context: context({ names: { n: 1 } }), selfOf: (id) => cells[id.slice(0, 1)] });
+    for (const id of ["a", "b"]) s.set(id, formula);
+    s.set("a2", whole);
+    s.set("free", ref("names", "n"));
+    s.set("sum", op("add", ref("world", "a"), ref("world", "b")));
+    const ids = ["a", "b", "a2", "free", "sum"];
+    const read = (): readonly Result[] => ids.map((id) => s.read(id));
+    expect(read()).toEqual([ok(1), ok(2), ok({ x: 1, y: 1 }), ok(1), ok(3)]);
+    expect(s.counts).toMatchObject({ evaluations: 5, compiles: 4 });
+    // Without a change of data the schedule keeps each value: a host tells each change.
+    cells = { a: { x: 5, y: 1 }, b: { x: 2, y: 1 } };
+    expect(s.read("a")).toEqual(ok(1));
+    // A new x of one cell evaluates that cell, the reader of its whole self and the sum. The other cell and the free node verify.
+    let counts = s.counts;
+    s.changeData();
+    expect(read()).toEqual([ok(5), ok(2), ok({ x: 5, y: 1 }), ok(1), ok(7)]);
+    expect(s.counts.evaluations - counts.evaluations).toBe(3);
+    expect(s.counts.compiles - counts.compiles).toBe(0);
+    expect(s.counts.reuses - counts.reuses).toBe(2);
+    // A new self object with the same data changes no read: each node verifies and keeps its result.
+    counts = s.counts;
+    cells = { a: { x: 5, y: 1 }, b: { x: 2, y: 1 } };
+    s.changeData();
+    expect(read()).toEqual([ok(5), ok(2), ok({ x: 5, y: 1 }), ok(1), ok(7)]);
+    expect(s.counts.evaluations - counts.evaluations).toBe(0);
+    // A new field that a formula does not read keeps its node, and the reader of the whole self evaluates again.
+    counts = s.counts;
+    cells = { a: { x: 5, y: 2 }, b: { x: 2, y: 1 } };
+    s.changeData();
+    expect(read()).toEqual([ok(5), ok(2), ok({ x: 5, y: 2 }), ok(1), ok(7)]);
+    expect(s.counts.evaluations - counts.evaluations).toBe(1);
+    // The new context of the host reaches the function, and the same function reads it.
+    const hosted = schedule(strictMachine, { ...LIT, context: context({ names: { rows: { a: { x: 1 } } } }), selfOf: (id, host) => (host.names["rows"] as Readonly<Record<string, unknown>>)[id] });
+    hosted.set("a", formula);
+    expect(hosted.read("a")).toEqual(ok(1));
+    hosted.changeData(context({ names: { rows: { a: { x: 2 } } } }));
+    expect(hosted.read("a")).toEqual(ok(2));
+    // An extension reads the context outside resolve, thus its node evaluates again, with its own self.
+    const here: Json = { type: ["ext", "here"], value: null };
+    const ext = schedule(strictMachine, { ...LIT, selfOf: (id) => (id === "a" ? { x: 1 } : undefined) });
+    ext.set("a", here);
+    ext.set("b", here);
+    expect([ext.read("a"), ext.read("b")]).toEqual([ok("self"), ok("none")]);
+  });
+
+  it("[SCHED.NODE-CYCLE] a reference in a self gives one formula a read of another cell, the demand gives #CYCLE! for each node of a cycle, and the static graph does not show such a read", () => {
+    const up: Json = op("add", ref("self", "above"), 1);
+    const selves: Readonly<Record<string, Json>> = { a: { above: ref("world", "b") }, b: { above: ref("world", "a") }, c: { above: ref("world", "d") }, d: { above: 0 } };
+    for (const order of [["a", "b", "c", "d"], ["d", "c", "b", "a"], ["b", "d", "a", "c"]]) {
+      const s = schedule(strictMachine, { ...LIT, selfOf: cellsOf(selves) });
+      for (const id of Object.keys(selves)) s.set(id, up);
+      const want: Readonly<Record<string, Result>> = { a: cycle("a"), b: cycle("b"), c: ok(2), d: ok(1) };
+      for (const id of order) expect(s.read(id), `${id} in the order ${order.join(" ")}`).toEqual(want[id]);
+      // The facts and the edges belong to the document, thus the static graph has no edge and no cycle here.
+      expect(cycles(s.graph())).toEqual([]);
+      expect(s.graph().get("a")?.edges).toEqual([]);
+      expect(s.counts).toMatchObject({ compiles: 1, ahead: 0 });
+      s.changeData();
+      for (const id of [...order].reverse()) expect(s.read(id), `${id} after a change of data`).toEqual(want[id]);
+      expect(s.counts.compiles).toBe(1);
+    }
+    // No edge shows the read of the cell above, thus a demand of the deep end of a long column uses the stack of the host for each cell.
+    const LENGTH = 2000;
+    const cells = column(LENGTH);
+    const long = schedule(strictMachine, { ...LIT, selfOf: (id) => cells.get(id) });
+    for (const id of cells.keys()) long.set(id, up);
+    expect(long.read(`r${LENGTH - 1}`).ok, "a column of this length overflows the stack of the host").toBe(false);
+    expect(long.counts.ahead).toBe(0);
+    // A host demands the cells in the order of the rows, thus each read finds a value, also after a change of data.
+    long.changeData();
+    for (const id of cells.keys()) long.read(id);
+    expect(long.read(`r${LENGTH - 1}`)).toEqual(ok(LENGTH));
+    long.changeData();
+    for (const id of cells.keys()) long.read(id);
+    expect(long.read(`r${LENGTH - 1}`)).toEqual(ok(LENGTH));
+    expect(long.counts.compiles).toBe(1);
+    // A closure keeps each whole root, and a self that is a reference to its own node closes no cycle (D136). The self of the host gives the same answer.
+    const closure: Json = { type: "fn", value: { params: [], body: ref("self", "x") } };
+    for (const options of [{ selfOf: () => ref("world", "f") }, { context: context({ self: ref("world", "f") }) }]) {
+      const own = schedule(strictMachine, { ...LIT, ...options });
+      own.set("f", closure);
+      expect(own.read("f").ok).toBe(true);
+    }
+  });
+
+  it("[SCHED.NODE-AGREES] agreeSchedule finds no stale answer for nodes with their own self and shared documents, and it finds an engine that keeps an old self", () => {
+    const wire = (rng: Random, node: () => Json): Json => {
+      const own = ref("self", rng.pick(["a", "b"]));
+      const roll = rng.int(6);
+      if (roll === 0) return ref("self");
+      if (roll === 1) return op("pair", own, op("ifError", node(), 0));
+      if (roll === 2) return op("ifError", own, node());
+      if (roll === 3) return { type: "fn", value: { params: ["v"], body: own } };
+      if (roll === 4) return op("pair", own, ref("names", "a"));
+      return op("add", own, 1);
+    };
+    const selves: readonly unknown[] = [undefined, undefined, null, 1, { a: 1 }, { a: 1 }, { a: 2, b: 3 }, { a: ref("world", "p") }, { a: ref("world", "q"), b: ref("self", "a") }, ref("names", "a"), new Box(1)];
+    const options: AgreeScheduleOptions = {
+      machines: [strictMachine, looseMachine],
+      declaredType: "lit",
+      generate: { declaredType: "lit", maxSize: 8, types: [...OP_TYPES, ["ref"], ["lit"]] },
+      runs: false,
+      value: (rng) => rng.pick<unknown>([0, 1, 2]),
+      wire,
+      wired: 0.7,
+      selves,
+      steps: STEPS,
+      equal,
+    };
+    const outcome = agreeSchedule(schedule, { ...options, count: COUNT });
+    expect(told(outcome)).toEqual([]);
+    for (const name of ["selves", "shared", "cycles"] as const) expect(outcome.counts[name], name).toBeGreaterThan(COUNT / 2);
+    expect(outcome.counts.compared).toBeGreaterThan(COUNT * 10);
+    expect(outcome.counts.values).toBeGreaterThan(COUNT * 3);
+    // The schedule keeps old results for a change of a self that no node of a demand reads.
+    const engines: Schedule[] = [];
+    const counted: ScheduleEngineFactory = (machine, start) => {
+      const s = schedule(machine, start);
+      engines.push(s);
+      return s;
+    };
+    agreeSchedule(counted, { ...options, count: COUNT / 4 });
+    expect(engines.reduce((sum, s) => sum + s.counts.reuses, 0)).toBeGreaterThan(COUNT / 4);
+    // An engine that ignores selfOf gives the self of the host to each node, and the harness finds it.
+    const ignores: ScheduleEngineFactory = (machine, start) => schedule(machine, { ...LIT, context: start.context });
+    expect(agreeSchedule(ignores, { ...options, count: 20 }).ok).toBe(false);
+    // An engine that keeps the first self of each node misses a change, and the harness finds it.
+    const keeps: ScheduleEngineFactory = (machine, start) => {
+      const seen = new Map<string, unknown>();
+      const first = (id: string, host: Context): unknown => {
+        if (!seen.has(id)) seen.set(id, start.selfOf?.(id, host));
+        return seen.get(id);
+      };
+      return schedule(machine, { ...start, selfOf: first });
+    };
+    expect(agreeSchedule(keeps, { ...options, count: 40 }).ok).toBe(false);
+    // A harness without the option gives no node its own self.
+    expect(agreeSchedule(schedule, { count: 5 }).counts).toMatchObject({ selves: 0, shared: 0 });
   }, 120_000);
 });

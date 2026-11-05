@@ -49,7 +49,11 @@ import {
 
 /** The text of a part in the value of a document. The printer writes it as it is. */
 class Text {
-  constructor(readonly text: string) {}
+  readonly text: string;
+
+  constructor(text: string) {
+    this.text = text;
+  }
 }
 
 /** This function writes a value with texts of parts in it. A list and a record keep their form. */
