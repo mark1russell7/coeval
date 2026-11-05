@@ -4230,6 +4230,23 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 **SemVer.** No export changes. This work needs no version of its own.
 
+## D163 (2026-11-05): the gate `notSlowerVerdict` runs as report only beside the pooled verdict
+
+**Context.** K225. The pooled verdict gives `same`, `faster`, `slower` or `cannot decide`, and the merge rule of this repository blocks only on `slower`. So a case with `cannot decide` counts as a pass. K121 read 13 of 16 cases so. `@mark1russell7/rigor-bench` 0.2.15 adds `notSlowerVerdict`, a gate that gives `pass`, `block` or `no read`.
+
+**Decision.**
+
+- The script `merge.ts` prints the gate of the two runs under the pooled verdict. Nothing reads its result, so it blocks nothing.
+- The margin of each case is the margin of its family (D117). The gate uses the 3 looks of the bench core, so its level is the level of a gate that takes more rounds.
+- `bench.yml` gets the inputs `rounds` and `jobs`, for the control run of this item.
+- The check `Speed OK` and `continue-on-error` do not change.
+
+**Limit of the claim.** This work shows the gate in each log. It does not show that the gate is fit to block. Three results are still open: the control run, the count of false blocks, and the flip test in CI. The unit test pins only that an injected 10 % gives a block on records.
+
+**What this version does not see.** The names of the cases come from the records of the candidate. So a case that is absent from the candidate does not appear in the gate. `rigor-bench` 0.2.16 adds the option `expected` for this.
+
+**SemVer.** No export of the package changes. The dependencies are for the bench, and they are development dependencies.
+
 ## D164 (2026-11-05): the ladder starts on a change of the kernel, and a flip job shows that its gate can block
 
 **Context.** K227. The ladder prints a verdict for STATIC.LINEAR, and nothing reads it. The jobs started only when the workflow, `ladder.ts` or `mode.ts` changed. So a pull request that made a walk quadratic did not start the ladder. Of the last 100 Measure runs, 9 pooled a verdict, and no run in that set changed the kernel.
@@ -4247,6 +4264,8 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 - The line of the gate gives the smallest slope that gives a block, from the spread of its own runs. The time verdict blocks at the lower of `1 + half` and `1.2 - half`, where `half` is half of the 90 % interval. The memory verdict blocks at `1.2 - half`. Under that size, the gate has no read.
 - **The size, stated before the first read.** The past 9 runs read `half` from 0.075 to 0.116 on time, so the plain gate sees a time slope of at most 1.12. The memory interval is narrow, so the plain gate sees a memory slope of at most 1.20. A slope of 1.05 is under this size, and a pass does not exclude it.
 - The five plain runs are also a copy with no fault. Their line of the gate reads `pass`.
+
+**First read.** In the CI run 42003078738, the linear walk read `pass`. The gate printed 1.07 on time and 1.19 on memory, and these sizes are in the stated sizes. The slope of 1.25 read a block on each walk and each verdict. Its time slope read 1.277 and its memory slope read 1.238, so the fault is near its stated slope, and not equal to it.
 
 **Limit of the claim.** The flips test the slopes 2, 1.3, 1.25 and 1. They do not test a slope between the printed size and 1.25. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. With so few rows, the rule of three gives a rate of up to 33 % false blocks. This count is too small for a ruling. The new filter gives more rows with each change of the kernel.
 
