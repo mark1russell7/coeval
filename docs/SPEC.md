@@ -600,6 +600,22 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | CONFORM.COVER | Each sample of a covered domain of the machine is in one domain of each valid cover, or each evaluator and each runner breaks `cover` (D94). The samples come from the list `values`, or from the palette and the samples of the domains. A cover that does not count by the line rule of D85 gets no test. |
 | CONFORM.SAMPLES | The checks `truth` and `cover` add the list `samples` of each domain to the palette, after its results (D99). The domain `number` gives `0` and `-1`. A sample outside the type gets no test. |
 | CONFORM.PARALLEL | Code whose result, parts or effects change with the order of the waits of `all` breaks `parallel` (D128). The probe `all` keeps the rule ALL. Each scenario with a choice of waits runs in up to six orders, from the probe document and the option `seed`. The order of the effects, and a stop by `failFast`, give no finding. |
+| CONFORM.WALKER-STD | Each walker of `STD_MACHINE` and a correct walker give no finding. A name that no evaluator and no runner has selects its walker, and then its `deref`. The option `verb` selects that code by force (D137). |
+| CONFORM.WALKER-RESULT | A walker that gives no `WalkResult`, a promise or a failure code without `#` breaks `result`. A throw breaks it too, except a `Failure` (D137). The probe context is frozen, thus a write to the context throws. |
+| CONFORM.WALKER-LOCAL | A walker that gives another outcome or other steps for the same input in a later call breaks `local`. A volatile kind gets no such test. |
+| CONFORM.WALKER-LADDER | A walker that reads a host thing outside `deref` and `has` of its input breaks `ladder` (R-WALKER, D137). |
+| CONFORM.WALKER-HOPS | A `visit` that names no step of the input breaks `hops`. A walk that changes without `visit` breaks it too (DEREF.HOPS). |
+| CONFORM.WALKER-PURE | The walker of a pure kind breaks C4 when other values in the roots of the context change its walk (FACTS.VERB). |
+| CONFORM.WALKER-TYPE | A walker that reaches a thing outside the type of its rule breaks `typed` (TYPE.WALKER). The probes ask the rule for `unknown` and for the plain type of the thing before the step. A rule that throws gets no finding here. A reached reference gets no test. |
+| CONFORM.DEREF-STD | Correct code of a `deref` gives no finding, with a function `has` and without one (D137). |
+| CONFORM.DEREF-RESULT | Code of a `deref` or its `has` that throws breaks `result`, except a `Failure`. The probe of the finding names the key. |
+| CONFORM.DEREF-LOCAL | Code of a `deref` that gives another answer for the same document and key in a later call breaks `local`. A volatile kind gets no such test. |
+| CONFORM.DEREF-HAS | A function `has` that gives no truth breaks `has`. A function `has` that gives `false` for a key that the code answers breaks it too (D137). |
+| CONFORM.PROFILE-STD | The kit with a typed profile gives no finding, with the default types of each evaluator (D137). |
+| CONFORM.PROFILE-NAMES | The default types of `formula.op` and `formula.ext` hold each name that the tables of the profile list, except a volatile name. The option `types` replaces them. |
+| CONFORM.PROFILE-SIGNATURE | An operation that gives a value outside the result of a signature that its arguments match breaks `typed`. The value is the value after the hook `check`. A throw, an error and a bad type get no finding. |
+| CONFORM.PROFILE-EXT | An extension that gives a value outside its entry in `extTypes` breaks `typed`. The data comes from the fixed list and from the option `values`. |
+| CONFORM.PROFILE-FORM | A function `ext`, `lazy`, `check`, `omit`, `missing` or `combine` that gives another form than its type breaks `result`. A throw gets no finding here (E-THROW). |
 
 ## The calculus
 

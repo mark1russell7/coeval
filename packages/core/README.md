@@ -43,7 +43,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | The codec of values | `encodeValue`, `decodeValue`, `decodeDomain`, `DomainCodec`, `STD_EXT` | A host value as one term document. JSON stays as it is. `ext.number`, `ext.undefined` and `ext.domain` hold the other values. A domain gives its codec (D40) |
 | The syntax kit | `parse`, `print`, `syntaxFormat`, `SyntaxProfile`, `SyntaxOperator`, `SyntaxIssue`, `STD_SYNTAX`, `WORLD_SYNTAX` | One parser and one printer for the text of a language. A profile gives the operators, the literals, the references and the calls. `parse` gives documents or issues with spans, and `print` gives text that `parse` reads back (D41). `WORLD_SYNTAX` is the profile of `STD_WORLD` (D64) |
 | One meaning | `agree`, `reference`, `formulaDefinitions`, `STD_DEFINITIONS`, `generate`, `TierInput` | A reference interpreter that compiles nothing, and `agree`, which compares a plan with it and with the second tier of a language. Each tier gets the mock `perform` and the `verb` of `agree`. `generate` builds random documents from the kind contracts. `agreeRun` compares runs, and the free reads of the plan and of the reference run. The option `reads` of `reference` and `referenceRun` records the reads of the reference (D67) |
-| Conformance | `conforms`, `ConformOptions`, `Finding`, `Obligation`, `ConformProbe` | The obligations of host code, examined for one evaluator or runner with probe parts and a probe runtime. Each finding names the obligation, the reason and a probe that shows it (D36) |
+| Conformance | `conforms`, `ConformOptions`, `Finding`, `Obligation`, `ConformProbe` | The obligations of host code, examined for one evaluator, runner, walker or `deref` with probe parts and a probe runtime. Each finding names the obligation, the reason and a probe that shows it (D36) |
 | The laws of a codec | `codecLaws`, `CodecLawsOptions`, `CodecFinding`, `CodecLaw`, `CodecProbe` | The laws of the codec of one domain, examined for sample members and edge values: `encode` gives JSON and one document, and `decode` gives the member again (D130) |
 | Early cutoff | `sameResult` | A safe equality of two results for a schedule. Plain JSON compares by structure, and each other object only as itself. Two errors need the same code, reason and place |
 | Reads | `verifyReads`, `printReads`, `Read`, `ReadsCheck`, `VerifyOptions`, `PrintOptions`, `ReadPrints` | The option `reads` of an evaluation records each path that it resolves, with what the path reached. `verifyReads` resolves each free read again in a new context, and it tells if the old result stays valid (D26). The prints of `printReads` find a value that changed in place (D112) |
@@ -93,7 +93,7 @@ const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); /
 
 ## Check the code of a language
 
-`conforms` examines the code of an evaluator or a runner against the obligations of host code, C1 to C8 of [`docs/SEMANTICS.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SEMANTICS.md). Start it in a test for each name of your machine. An empty list means that the code conforms.
+`conforms` examines the code of an evaluator, a runner, a walker or a `deref` against the obligations of host code, C1 to C8 of [`docs/SEMANTICS.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SEMANTICS.md). Start it in a test for each name of your machine. An empty list means that the code conforms.
 
 ```ts
 import { conforms, formulaDefinitions } from "@mark1russell7/coeval";
@@ -103,11 +103,13 @@ for (const name of Object.keys(machine.evaluators)) {
 }
 ```
 
-- The kinds of the world that name the code give the probe documents. For code under a namespace, for example `formula.op`, give the types in the option `types`.
+- The kinds of the world that name the code give the probe documents. The evaluators `formula.op` and `formula.ext` also take each name in the tables of their profile. For other code under a namespace, give the types in the option `types`.
 - The option `values` adds values for a type, for example data that the contract does not describe.
 - The option `definitions` gives the code for the reference. Then `conforms` also compares the compiled code with it.
 - Each finding has a `probe`: the document, the result of each part, the waits and the capabilities. The probe shows one case that breaks the obligation.
 - A runner that uses `all` runs in up to six orders of its waits. A result that changes with the order is a finding of the check `parallel`. Its reason names the two orders and the two results.
+- A walker gets the checks `result`, `local`, `ladder`, `hops`, `typed` and `C4`. The option `things` adds things before the step. The code of a `deref` gets `result`, `local` and `has`.
+- The checks `typed` and `result` also call the functions of a formula profile. An operation keeps its signatures, and an extension keeps its entry in `extTypes`.
 
 `codecLaws` examines the codec of one domain. Start it in a test for each domain with a codec. An empty list means that each member keeps each law.
 

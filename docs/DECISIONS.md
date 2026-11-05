@@ -4216,6 +4216,52 @@ A closure of `fn` with the cell as an argument. Such a host gets one plan, but t
 
 **Why.** The function adds no state to the schedule. The host keeps its cells, and a change of many cells is one change of data. The verification of D26 already compares what a read reaches in a new context, thus a node gets its own invalidation with no new rule. The test SCHED.NODE-PLAN counts 1000 cells of one formula with one compilation and one facts object. The test SCHED.NODE-AGREES compares each answer with a model from scratch, and it finds an engine that keeps an old `self`.
 
+## D137 (2026-11-03): `conforms` examines walkers, the code of a `deref` and the functions of a formula profile
+
+**Context.** K121, from K92 (D36). `conforms` threw for the name of a walker and for the name of the code of a `deref`. It examined `formula.op` and `formula.ext` only for the types in the option `types`. Thus the laws of this code stayed text. Each check below tests a law that the docs state. Four laws need a reading, and this entry records them.
+
+**Decision.** The name selects the code. An evaluator and a runner keep their place. Without the option `verb`, each other name selects its walker, and then its `deref`. The option `verb` with the value `step` or `deref` selects that code by force. A finding has the form of each other finding. Its probe also holds the new field `here` for a walker, or the new field `key` for a `deref`.
+
+A walker gets its input from the probes, as R-WALKER gives it. The things are three linked host things, a document, `undefined` and the values of the palette. The option `things` adds more. The steps of the probe use the ladder and `adopt`. The checks of a walker are these:
+
+- `result` (CONFORM.WALKER-RESULT): the answer has the form of `WalkResult`, and a failure code starts with `#` (the type `ErrorCode`).
+- `local` (CONFORM.WALKER-LOCAL): the same input gives the same outcome and the same steps in a later call (EVAL.DETERMINISTIC). A volatile kind gets no such test (FACTS.VOLATILE).
+- `ladder` (CONFORM.WALKER-LADDER): a step on a host thing goes through `deref` and `has` of the input (R-WALKER).
+- `hops` (CONFORM.WALKER-HOPS): each `visit` tells a key that the walk followed and the thing that the key reached (the type `WalkInput`). The walk stays the same without `visit` (DEREF.HOPS).
+- `C4` (CONFORM.WALKER-PURE): the walker of a pure kind gives the same walk with other values in the roots (FACTS.VERB).
+- `typed` (CONFORM.WALKER-TYPE): each thing that the walker reaches is a member of the type of its rule (TYPE.WALKER). The probes ask the rule for the type `unknown` and for the plain type of the thing before the step.
+
+The code of a `deref` gets each probe document with each probe key. Its checks are `result` (CONFORM.DEREF-RESULT), `local` (CONFORM.DEREF-LOCAL) and `has` (CONFORM.DEREF-HAS). This code gets no context, thus C1 and the roots do not apply to it.
+
+The default types of `formula.op` and `formula.ext` hold each operation and each extension that the tables of the profile list, except a volatile name (CONFORM.PROFILE-NAMES). Thus C3, C4, C8, `local` and `agree` see the code of each named function. Two checks call the functions directly:
+
+- `typed` (CONFORM.PROFILE-SIGNATURE, CONFORM.PROFILE-EXT): an operation gives a member of the result of each signature that its arguments match, after the hook `check`. An extension gives a member of its entry in `extTypes`. This is the text of `FormulaProfile`.
+- `result` (CONFORM.PROFILE-FORM): `ext`, `lazy`, `check`, `omit`, `missing` and `combine` give the form of their types.
+
+The first reading is the law of a throw. An evaluator has E-THROW, and R-WALKER has no premise for a throw. A plain throw of a walker or a `deref` leaves `resolve` and drops its hops, thus it is a finding of `result`. A `Failure` is the error channel that the walker of `tree.at` uses, thus it gets no finding.
+
+The second reading is the law of the ladder. R-WALKER gives the walker the step `adopt∘step`. A direct read of a host thing skips `adopt`. A probe node records each read outside the input, and that read is a finding. The field `type` of a host thing is not a step, thus `nearest` stays correct.
+
+The third reading is the law of `has`. The type `DerefCode` tells that `has` gives `true` when the document has the field. The kernel asks it only after an `undefined`. The check reads the text: a key that the code answers needs `true`.
+
+The fourth reading is the widening of a context, which K121 names. `WalkInput` has no call that takes a context, and it has no effect and no wait. Thus a write to the context is the only channel. The probe context is frozen, and that write throws. The throw is a finding of `result`.
+
+**Alternatives.** A function next to `conforms` for each form of code. D86 and D94 rejected that form, because a host then has two lists of findings. A walk through `resolve` with a step document. That walk hides a stray `visit` and a direct read, and a plain throw ends the whole probe. A law against a throw of an operation, a lazy operation, an extension or `check`. The kit catches each of these and gives an error (E-THROW), and an existing test throws from an operation on purpose. A proxy that records each read of the context. C4 sees a read through other values in the roots, and a proxy changes what a walker gets. A generator of random arguments for a signature. Each list of arguments here comes from the fixed palette, thus each finding repeats.
+
+**Limits.** Each check is a sample of the probes, thus a fault outside the probes stays hidden.
+
+- The probe of a signature takes at most 64 lists of arguments. A longer product keeps the first 64.
+- Only the probe nodes record a direct read. A host thing of the option `things` gets no such test.
+- A `sigs` or `ops` that is a function lists no names. Give the types in the option `types`.
+- The default step of a world and each kind under `defaults` need the option `types`.
+- Code in sloppy mode writes to a frozen context without a throw, and that write gets no finding.
+- A write to the data of a step or to a document gets no finding when the result stays the same.
+- Hidden state that changes outside a call gets no finding. An extension that counts the names stays as D47 tells.
+
+**Why.** Each law has a line in the docs or a reading in this entry, and a host can see the source of a finding. The check keeps the standard machine as its main guard: each walker of `STD_MACHINE` and each evaluator of the kit give no finding. Each law has a planted fault in a test. `conforms` runs in no hot path, thus the evaluation of a program stays the same.
+
+**Changed expected values.** `conforms` gives a list for a name that threw before. A host that uses the default types also gets probes of each named function. Each of these can give a finding for code that passed before. `Obligation` has five new members, and `ConformProbe` and `ConformOptions` have new optional fields. An evaluation gives the same results.
+
 ## D139 (2026-11-03): after an overflow of the stack, a walk with its own stack finds each cycle of real reads, and a chain with no cycle keeps its `#DEPTH!`
 
 **Context.** S2c, from S2a and the limits of D33. A demand uses the stack of the host for each node that it enters. The demands ahead do not help on a ring, because each of them enters the ring again. On Node.js 24, a ring of 2000 nodes gave `#DEPTH!` with the reason of the evaluator `formula.ref`. D31 gives each node of a cycle `#CYCLE!`. A ring of nodes that catch the error was worse: each node gave the value of its catch, from the depth of the overflow.
