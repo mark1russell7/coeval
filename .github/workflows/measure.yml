@@ -94,8 +94,8 @@ jobs:
           COEVAL_MEASURE: "1"
           COEVAL_MEASURE_INJECT: ${{ matrix.inject }}
         run: |
-          # The logs of a job do not name the CPU model, and K229 reads the levels of PLAN.LEAN against it.
-          echo "CPU model:$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
+          # K229 reads the values of PLAN.LEAN against these facts of the runner, and the logs do not name all of them.
+          echo "Runner: cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs) image=$ImageVersion kernel=$(uname -r) node=$(node -v) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled)"
           pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" 2>&1 | tee out.txt
           grep -o 'MEASURE {.*}' out.txt | sed 's/^MEASURE //' > measures.jsonl
           cat measures.jsonl
