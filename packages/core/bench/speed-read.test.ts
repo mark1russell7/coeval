@@ -26,9 +26,9 @@ function benchCase(name: string, ratio: number, offset: number): BenchCase {
 }
 
 /** This function writes a run file, and gives its path. */
-function runFile(name: string, cases: readonly BenchCase[]): string {
+function runFile(name: string, cases: readonly BenchCase[], arms: { readonly base: string; readonly head: string } = { base: "a", head: "a" }): string {
   const file = join(dir, `${name}.json`);
-  const run: BenchRun = { run: name, cpu: "a CPU", node: "v26", rounds: 12, arms: { base: "a", head: "a" }, cases };
+  const run: BenchRun = { run: name, cpu: "a CPU", node: "v26", rounds: 12, arms, cases };
   writeFileSync(file, JSON.stringify(run));
   return file;
 }
@@ -54,7 +54,7 @@ describe("the check reads the state of the verdict (K235, D167)", () => {
     ["same", 0, "Speed OK: same. the reason"],
     ["slower", 0, "Speed OK: slower, report only. the reason"],
     ["no read", 1, "::error::Speed OK: no read. the reason"],
-    ["different results", 1, "::error::Speed OK: different results, a fault of determinism. the reason"],
+    ["different results", 1, "::error::Speed OK: different results. the reason"],
     ["", 1, "::error::Speed OK: the job verdict wrote no state, so it crashed or it did not run."],
     ["other", 1, "::error::Speed OK: the job verdict wrote the unknown state other."],
   ])("gives for the state %j the exit status %i and the reason", (state, status, text) => {
@@ -103,7 +103,14 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
   it("writes its own state on different results, and not no read", () => {
     const read = verdict("different", runFile("different-1", [{ ...benchCase("x", 1, 0), different: "1 and 2" }]), runFile("different-2", [benchCase("x", 1, 12)]));
     expect(read).toMatchObject({ status: 1, state: "different results" });
-    expect(read.reason).toContain("1 cases read different results.");
+    expect(read.reason).toBe("1 cases read different results. The arms are equal, so this is a fault of determinism.");
+  });
+
+  it("names a changed result as a cause on different arms, as K236 read", () => {
+    const arms = { base: "a", head: "b" };
+    const read = verdict("changed", runFile("changed-1", [{ ...benchCase("x", 1, 0), different: "1 and 2" }], arms), runFile("changed-2", [benchCase("x", 1, 12)], arms));
+    expect(read).toMatchObject({ status: 1, state: "different results" });
+    expect(read.reason).toBe("1 cases read different results. The arms differ or have no hashes, so a changed result can explain this.");
   });
 
   it("writes no state at all on a run file that is not JSON, so the check is red", () => {
@@ -118,6 +125,6 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
   it("gives a fault before a slower case, and a reason on one line", () => {
     expect(speedState(3, 0, "a hold", ["The first\nfault.", "The second."])).toEqual({ state: "no read", reason: "The first fault. The second." });
     expect(speedState(1, 2, "a hold", []).reason).toBe("1 slower, 2 cannot decide. a hold");
-    expect(speedState(3, 0, "a hold", ["A short run."], 2)).toEqual({ state: "different results", reason: "2 cases read different results. A short run." });
+    expect(speedState(3, 0, "a hold", ["A short run."], 2)).toEqual({ state: "different results", reason: "2 cases read different results. The arms differ or have no hashes, so a changed result can explain this. A short run." });
   });
 });

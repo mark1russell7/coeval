@@ -16,7 +16,7 @@ export function speedAnswer(state: string, reason: string): SpeedAnswer {
   if (state === "same") return { status: 0, line: `Speed OK: same. ${reason}` };
   if (state === "slower") return { status: 0, line: `Speed OK: slower, report only. ${reason}` };
   if (state === "no read") return { status: 1, line: `::error::Speed OK: no read. ${reason}` };
-  if (state === "different results") return { status: 1, line: `::error::Speed OK: different results, a fault of determinism. ${reason}` };
+  if (state === "different results") return { status: 1, line: `::error::Speed OK: different results. ${reason}` };
   if (state === "") return { status: 1, line: "::error::Speed OK: the job verdict wrote no state, so it crashed or it did not run." };
   return { status: 1, line: `::error::Speed OK: the job verdict wrote the unknown state ${state}.` };
 }
