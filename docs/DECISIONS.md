@@ -3934,7 +3934,7 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 
 **Why.** The rule of the gate limits is the worst of 5 or more CI jobs plus their spread, with the runs beside it. A fixed margin had no source. The limits of each family keep a quiet family strict, and they give a noisy family a wider margin.
 
-**End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again.
+**End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again. Since 2026-11-05 (K232, D166), a pooled "slower" does not block when all arm hashes of the complete runs are equal. Such a reading is noise of the method.
 
 **A suspect case (rigor #48).** 12 of the 16 deciding A/A verdicts between jobs come from one case: `factsOf` of a tree with an equation. That is a bias of one case between jobs, and the run-level test of rigor #30 does not find it. Thus the verdicts of that case are suspect until rigor #48 lands. The caps of plan and tree are near 30 % because one noisy job gives each of them. rigor #48 replays the records of the 90 days.
 
@@ -4246,6 +4246,31 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 **What this version does not see.** The names of the cases come from the records of the candidate. So a case that is absent from the candidate does not appear in the gate. `rigor-bench` 0.2.16 adds the option `expected` for this.
 
 **SemVer.** No export of the package changes. The dependencies are for the bench, and they are development dependencies.
+
+## D166 (2026-11-05): the filters of the gates read the lock file, and a slower reading holds a merge only when the arm hashes differ
+
+**Context.** K225 read a gap in the filter of Speed. The list had no lock file, so a dependency update skipped the gate and `Speed OK` passed. A run with both arms from one install does not read a slowdown from a dependency. The two arms differ only by the file of the kernel. K225 also read slower on 2 of 17 rows with equal code, on 2 of 7 branches (range 8 % to 64 %).
+
+**Decision.**
+
+- The filter of Speed adds `pnpm-lock.yaml`, `packages/core/package.json`, `packages/core/tsconfig.json` and `pnpm-workspace.yaml`.
+- The two filters of Measure add the same files. The filter of the jobs at the head also adds each bench file that `mode.ts` reaches.
+- A step in each filter job gives the rules of the pinned action a list of files. The lock file reads true, a docs file reads false, and the lock file reads false for a list with no lock line.
+- Each Speed job records the hash of the bundle of each arm, with `cases.ts`. The script `merge.ts` prints the hashes and the line `Hold (D117)`.
+- A slower reading does not hold a merge only when each run is complete and all hashes of the two jobs are equal. A list of files has no part in this reading.
+- Each such row goes in the A/A table with the mark "equal by construction". A count keeps those rows apart from the rows with equal code on other pull requests.
+
+**Rejected.**
+
+- A skip of the bench on equal code. Equal-code runs are the only cheap read of the false-block rate, and K225 has its control run to come.
+- A rule that a change only to the pins of two actions does not count. A pin of an action can change what a gate does.
+
+**Limits.**
+
+- The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
+- The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
+- A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
+- K233 holds the read of a dependency slowdown.
 
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
