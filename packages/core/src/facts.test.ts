@@ -76,7 +76,11 @@ function thing(label: string, fields: Readonly<Record<string, unknown>>, withRes
 }
 
 class Box {
-  constructor(readonly v: unknown) {}
+  readonly v: unknown;
+
+  constructor(v: unknown) {
+    this.v = v;
+  }
 }
 
 const parent = thing("node panel", { width: 4, a: 1 }, false, "panel");

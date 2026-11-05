@@ -4125,6 +4125,61 @@ The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-A
 
 **Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
 
+## D136 (2026-11-03): a kept read of the node in evaluation closes no cycle
+
+**Context.** K217, from D56 and D57. A closure keeps a read of each whole root when its path meets a reference (READS.KEPT). That read resolves the root, and a root that holds a reference follows the reference. In a schedule, the reference can reach the root `world`, and the step demands a node.
+
+When that node is the reader, the demand meets the node in evaluation, and the schedule closes a cycle. Thus a closure at a node whose `self` refers to that node gave `#CYCLE!`. The evaluation did not ask for the read, and a run has no such cycle. The evaluation from scratch of `agreeSchedule` gives the closure, because it records no reads. The contexts of SCHED.ONE-MEANING hold no reference, thus the test did not find it.
+
+The same read occurs at the root `event`, in the verification of a kept read, and for a kind that sets another `self`.
+
+**Decision.**
+
+- `HostThing` gets the optional function `keeping(read)`. The kernel calls this function of the root `world` around each kept read that resolves its path, at the record and in `verifyReads`.
+- `keeping` of a schedule notes the length of its stack. A demand of the node on top of the stack, at that length, is the kept read of the node in evaluation. It gives the same error as before, and it adds no mark for the cycle check (SCHED.OWN-NODE).
+- Each other demand stays as it is. A kept read still demands another node, and a nested demand has a longer stack. Thus each read of that evaluation counts, and a true cycle there gives `#CYCLE!`.
+- A read of the evaluation goes outside `keeping`, thus it closes the cycle with the same error.
+- No list of reads changes, also for this node. Its kept read of the root reaches the error of the node (SCHED.OWN-NODE-READS).
+- The reference and a plan without a list of reads do not change, because they keep no reads. A host thing without `keeping` does not change.
+
+**Alternatives.**
+
+- A kept read that does not demand, with a walk through the reference by `known`, as D57 does for a path. This removes each false cycle of this class. But a kept read of another node then reaches another thing, and that node stops its evaluation. Thus the reads of other documents change.
+- A kept read that stops at the reference. The reference stays the same while its target changes, thus a change gives a stale value (D56, Rejected).
+- No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
+- A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
+- An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This also removes the false cycle of the Limits. But it needs a record of the nodes of each kept demand, and it drops final results. The node then also needs a read that changes in each data epoch, and only some lists have one. That is a behaviour change, and it waits for a need.
+
+**Limits.**
+
+- A kept read that reaches its node through another node that reads it still closes a false cycle. An example is a closure at `f`, a `self` that refers to `g`, and a document of `g` that reads `f`. Each order of demands gives `#CYCLE!` for the two nodes, as before this decision.
+- Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
+- A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
+
+**Why.** The kept read of the node itself adds nothing to the invalidation of the node. That read reaches the value of the node, and a pure document gives that value from its other reads (FACTS.PURE). When each other read stays the same, the evaluation gives the same value. A document that really reads the value makes a read of the evaluation, and that read closes the true cycle. Thus the error in the list hides no change, and each other read verifies as before.
+
+The list of reads stays exact, thus each other document keeps its reads, its demands and its order of evaluations. The test SCHED.OWN-NODE-AGREES compares generated documents with the evaluation from scratch, over changes of data, edits and new machines. Four changes of the code each fail these tests. These are no rule, a rule at each depth, a rule for each node in evaluation, and a verification outside `keeping`.
+
+Each kept read that resolves its path costs one call and one `finally`. A read of a node in evaluation costs one compare. A document without a kept read does no new work.
+
+## D160 (2026-11-05): a parameter property becomes a plain field first in its class
+
+The update of the shared config turns on the TypeScript option `erasableSyntaxOnly` (K224). The option refuses a parameter property, thus each one becomes a field and an assignment. The option stays on.
+
+**The form.**
+
+- Each field goes first in its class, in the order of the parameters, with the modifiers and the doc comment of the parameter.
+- The first lines of the constructor assign the fields, in the same order.
+
+**Why this form.** The config sets the target `esnext`, thus class fields use define semantics. The tool esbuild emits a parameter property as a field ahead of the other fields of the class, and the field starts as `undefined`. A plain field in the first place gives the same emitted code.
+
+A `declare` field is not the same. It emits no field, so the object gets its properties in another order. An object with another order can have another hidden class, and a speed run can see that.
+
+**How we examined it.** For each changed file, esbuild emitted the code of the old and the new source. The comparison moved each constructor to the top of its class and removed the doc comments. All 20 files gave the same text. A copy of the source with no installed config also gets define semantics from esbuild. Thus the two arms of a speed run use the same setting.
+
+**SemVer.** No export, signature or enum changes, and the declarations of `Held` keep their members. This work needs no version of its own.
+
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
 **Context.** S1f, from S1 (D31). A schedule gave each node the one context of the host. One formula at each cell of a grid then needed the data of the cell in its document. Thus each cell had its own document, and each document compiled its own plan. `durable` keeps a plan for each document object and a result for each key, and its `evaluate` takes a context for each key (D30). Only the schedule gave a host no way to use this.
@@ -4157,6 +4212,6 @@ A closure of `fn` with the cell as an argument. Such a host gets one plan, but t
 - No edge shows a read through a reference in a `self`. Thus a demand of the deep end of a long column uses the stack of the host for each cell. Such a demand fails at 2000 cells. A host that demands the cells in the order of the rows gets each value.
 - A new `self` of one cell verifies each demanded node, as each change of data does.
 - `selfOf` gives the same data for a node in one data epoch. This is the promise of DURABLE.REUSE. `context` of a schedule keeps the `self` of the host.
-- A closure with a kept read that meets a reference keeps each whole root (READS.KEPT). A `self` that is itself a reference to its own node then closes a false `#CYCLE!`. The `self` of a host context gives the same answer since D56, thus this item does not add it. A reference in a field of a `self` has no such read.
+- A closure with a kept read that meets a reference keeps each whole root (READS.KEPT). A `self` that is itself a reference to its own node closes no cycle since D136 (K217). The `self` of a host context gives the same answer. The limit of D136 stays: a `self` that reaches its node through another node still closes a false `#CYCLE!` (K218).
 
 **Why.** The function adds no state to the schedule. The host keeps its cells, and a change of many cells is one change of data. The verification of D26 already compares what a read reaches in a new context, thus a node gets its own invalidation with no new rule. The test SCHED.NODE-PLAN counts 1000 cells of one formula with one compilation and one facts object. The test SCHED.NODE-AGREES compares each answer with a model from scratch, and it finds an engine that keeps an old `self`.

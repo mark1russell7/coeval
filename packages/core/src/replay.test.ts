@@ -259,7 +259,11 @@ const sameDate = (a: unknown, b: unknown): boolean | undefined => (a instanceof 
 
 /** A value of a class without a codec. */
 class Box {
-  constructor(readonly v: unknown) {}
+  readonly v: unknown;
+
+  constructor(v: unknown) {
+    this.v = v;
+  }
 }
 
 /** The names of the generated runs: values that JSON cannot write, a time, and a value without a codec. */

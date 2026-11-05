@@ -9,10 +9,12 @@ const rows: readonly Readonly<Record<string, unknown>>[] = [
 ];
 
 class Row implements HostThing {
+  readonly index: number;
   readonly [THING] = true as const;
   readonly label: string;
 
-  constructor(readonly index: number) {
+  constructor(index: number) {
+    this.index = index;
     this.label = `row ${index}`;
   }
 

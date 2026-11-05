@@ -9,10 +9,13 @@ const sameRange = (a: unknown, b: unknown): boolean | undefined => (a instanceof
 
 /** A shape of a kind and a size. JSON does not write an instance of a class. */
 class Shape {
-  constructor(
-    readonly kind: string,
-    readonly size: number,
-  ) {}
+  readonly kind: string;
+  readonly size: number;
+
+  constructor(kind: string, size: number) {
+    this.kind = kind;
+    this.size = size;
+  }
 }
 
 const sameShape = (a: unknown, b: unknown): boolean | undefined => (a instanceof Shape && b instanceof Shape ? a.kind === b.kind && a.size === b.size : undefined);
