@@ -50,7 +50,11 @@ const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const op = (name: string, ...args: Json[]): Json => ({ type: ["ops", name], value: args });
 
 class Box {
-  constructor(readonly v: unknown) {}
+  readonly v: unknown;
+
+  constructor(v: unknown) {
+    this.v = v;
+  }
 }
 
 /** The rule of the tests for two results: a box compares its value, and two closures compare their parameters. */
