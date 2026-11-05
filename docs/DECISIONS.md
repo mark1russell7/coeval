@@ -4211,6 +4211,25 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 **SemVer.** No export changes. This work needs no version of its own.
 
+## D162 (2026-11-05): the flip test of PLAN.LEAN is a matrix row of the same job
+
+**Context.** K227, first part. D161 gave the step of PLAN.LEAN a working exit code, and no run had shown that the step turns red.
+
+**Decision.**
+
+- The matrix of the job `measure` has one more row, `flip`, with `inject: "20"`. It runs the same step, so a change of the step, its shell or its limit also changes the flip.
+- The test adds `COEVAL_MEASURE_INJECT` to the value that the limit reads. The line `MEASURE` keeps the true value, so the row is also a sixth true value for K229.
+- Only the flip row has `continue-on-error` on that step. Its next step passes only if the outcome of the step is `failure` and the log has the text of the PLAN.LEAN assertion. So a failure of another kind is no flip, and the job goes red.
+- The 5 plain jobs of the same run are the copy with no fault.
+
+**Why 20 bytes.** The lowest value of D161 is 391.1 bytes, and the limit is 401.1. So approximately 10 bytes is the smallest injection that passes the limit in each of the 99 jobs. 20 bytes leaves the same margin again if the values go lower.
+
+**Limit of the claim.** The flip shows that the step turns red for a value over the limit. It does not show that a real cost of 8 bytes on a plan goes red. D161 tells why that cost stays under the limit in most jobs.
+
+**Changed expected values.** The job `measure` has 6 rows. No result of the kernel changes.
+
+**SemVer.** No export changes. This work needs no version of its own.
+
 ## D163 (2026-11-05): the gate `notSlowerVerdict` runs as report only beside the pooled verdict
 
 **Context.** K225. The pooled verdict gives `same`, `faster`, `slower` or `cannot decide`, and the merge rule of this repository blocks only on `slower`. So a case with `cannot decide` counts as a pass. K121 read 13 of 16 cases so. `@mark1russell7/rigor-bench` 0.2.15 adds `notSlowerVerdict`, a gate that gives `pass`, `block` or `no read`.

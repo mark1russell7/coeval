@@ -69,6 +69,11 @@ jobs:
       max-parallel: 3
       matrix:
         run: [1, 2, 3, 4, 5]
+        # The flip test of this gate (K227, D162). This row runs the same step with 20 bytes more on the value of PLAN.LEAN.
+        # The 5 jobs above are the copy with no fault. The lowest value of D161 is 391.1, so 20 bytes pass the limit in each job.
+        include:
+          - run: flip
+            inject: "20"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pnpm version comes from "packageManager" in package.json
@@ -79,18 +84,31 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: PLAN.LEAN and WORLD.LAWS
+        id: plan
+        # Only the flip row continues, and its next step decides. The outcome of this step stays failure.
+        continue-on-error: ${{ matrix.inject != '' }}
         working-directory: packages/core
         # The default shell has no pipefail, and the pipe into tee then hid each failed test of this step (K228).
         shell: bash
         env:
           COEVAL_MEASURE: "1"
+          COEVAL_MEASURE_INJECT: ${{ matrix.inject }}
         run: |
-          # The logs of a job do not name the CPU model, and K229 reads the levels of PLAN.LEAN against it.
-          echo "CPU model:$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
-          pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" | tee out.txt
+          # K229 reads the values of PLAN.LEAN against these facts of the runner, and the logs do not name all of them.
+          echo "Runner: cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs) image=$ImageVersion kernel=$(uname -r) node=$(node -v) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled)"
+          pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" 2>&1 | tee out.txt
           grep -o 'MEASURE {.*}' out.txt | sed 's/^MEASURE //' > measures.jsonl
           cat measures.jsonl
           { echo "### Run ${{ matrix.run }}"; echo '```'; cat measures.jsonl; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # A step that stays green with the injected value is a gate that does not hold. Another failure of the step is no flip.
+      - name: The injected value turned the step red, by the limit of PLAN.LEAN
+        if: ${{ matrix.inject != '' }}
+        working-directory: packages/core
+        env:
+          OUTCOME: ${{ steps.plan.outcome }}
+        run: |
+          test "$OUTCOME" = failure
+          grep -q 'bytes for each plan' out.txt
 
   ladder:
     needs: changes
