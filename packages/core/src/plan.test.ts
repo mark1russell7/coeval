@@ -117,7 +117,9 @@ describe("plans", () => {
     const measure = process.env["COEVAL_MEASURE"] !== undefined;
     if (measure) console.log(`MEASURE ${JSON.stringify({ id: "PLAN.LEAN", bytes: Number(bytes.toFixed(1)) })}`);
     // Before K105, such a plan kept approximately 1500 bytes: closures for each path, the split and the document.
-    if (measure) expect(bytes, `${bytes.toFixed(0)} bytes for each plan`).toBeLessThan(401.1);
+    // The flip row of `measure.yml` adds a stated number of bytes to the value that the limit reads (K227, D162). The line above stays the true value.
+    const read = bytes + Number(process.env["COEVAL_MEASURE_INJECT"] ?? 0);
+    if (measure) expect(read, `${read.toFixed(0)} bytes for each plan`).toBeLessThan(401.1);
   });
 
   it("[PLAN.TRACE] a traced plan gives the trace of evaluate, an untraced one gives none", () => {

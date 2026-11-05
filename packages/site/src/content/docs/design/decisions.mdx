@@ -135,6 +135,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D136 | A kept read that a reference leads to the node in evaluation closes no cycle (K217). Thus a closure at a node whose `self` refers to that node gives its value. Each list of reads stays the same. |
 | D160 | Each parameter property becomes a plain field first in its class, and the constructor assigns it first (K224). The emitted code stays the same, and the option `erasableSyntaxOnly` stays on. |
 | D161 | A failed test of the measure step turns it red. The limit of PLAN.LEAN was not enforced from K211 to this decision, and it failed in 8 of 99 jobs. The limit is 401.1 bytes, the worst of these jobs plus their spread. |
+| D162 | The flip test of PLAN.LEAN is a matrix row of the same job. It adds 20 bytes to the value, the step turns red, and the 5 plain jobs stay green. |
 | D135 | The option `selfOf` of `schedule` gives each node its own `self` (S1f). Nodes with one document share one plan, and a new `self` is a change of data. |
 | D137 | `conforms` also examines walkers, the code of a `deref` and the functions of a formula profile (K121). Each check tests a stated law. A plain throw of a walker is a finding, and a `Failure` is not. |
 | D139 | After an overflow of the stack, a walk with its own stack follows the real reads (S2c). Each cycle gives `#CYCLE!` at each length, and a chain with no cycle keeps its `#DEPTH!`. |
