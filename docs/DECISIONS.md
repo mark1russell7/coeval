@@ -4193,7 +4193,7 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 - There are 99 jobs, and each one concluded `success`.
 - 8 jobs have a failed test, and 6 of the 20 runs have such a job. The failed test of each job is PLAN.LEAN, with 395.6 to 396.1 bytes.
 - The other 91 jobs read 391.1 to 394.6 bytes.
-- Run 41971426548 of one head gives 392.4, 393.3 and 395.8 bytes, thus a change of code does not explain the two levels.
+- One head gives 392.4, 393.3 and 395.8 bytes in run 41971426548, thus a change of code does not explain the two levels.
 
 **Decision.**
 
@@ -4201,7 +4201,7 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 - The limit is the worst value plus the spread: 396.1 + 5.0 = 401.1 bytes. The owner of the gate accepted this one limit with this formula, up to 405 bytes.
 - The step prints the CPU model of the runner, ahead of the pipe.
 
-**What this limit gives up.** The limit goes up by 6.1 bytes, and most jobs read about 393 bytes. So a change that adds up to about 8 bytes to a plan does not turn most jobs red. The measure has two levels, and the top level hides this cost. K229 examines the cause, and it ends with a limit for each cause or a measure with one level.
+**What this limit gives up.** The limit goes up by 6.1 bytes, and most jobs read approximately 393 bytes. So a change that adds up to approximately 8 bytes to a plan does not turn most jobs red. The measure has two levels, and the top level hides this cost. K229 examines the cause, and it ends with a limit for each cause or a measure with one level.
 
 **What we did not find.** The logs do not name the CPU model, thus this read cannot test the CPU model as the cause. All jobs have Node 26.13.0. The region and the runner image do not separate the levels: the 8 jobs are in 6 regions and 3 images.
 
