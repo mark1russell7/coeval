@@ -459,7 +459,11 @@ function compileProfile(profile: SyntaxProfile): Compiled {
 
 /** The stop of a parse. The parser throws it, and `parse` gives its issue. */
 class Stop {
-  constructor(readonly issue: SyntaxIssue) {}
+  readonly issue: SyntaxIssue;
+
+  constructor(issue: SyntaxIssue) {
+    this.issue = issue;
+  }
 }
 
 function literalDoc(value: unknown): Json {
@@ -501,13 +505,15 @@ function setOwn(target: Record<string, Json>, key: string, value: Json): void {
 const ESCAPES: Readonly<Record<string, string>> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
 
 class Parser {
+  protected readonly syn: Compiled;
+  protected readonly text: string;
   protected pos = 0;
   protected depth = 0;
 
-  constructor(
-    protected readonly syn: Compiled,
-    protected readonly text: string,
-  ) {}
+  constructor(syn: Compiled, text: string) {
+    this.syn = syn;
+    this.text = text;
+  }
 
   parse(): Json {
     this.skip();
@@ -1017,15 +1023,13 @@ function balanced(syn: Compiled, text: string): boolean {
  * this class, thus a valid text does not pay for it.
  */
 class Recovery extends Parser {
+  private readonly issues: SyntaxIssue[];
   /** The offset of the token after the last synchronising token. An issue at this token can be a result of the fault. */
   private quiet = -1;
 
-  constructor(
-    syn: Compiled,
-    text: string,
-    private readonly issues: SyntaxIssue[],
-  ) {
+  constructor(syn: Compiled, text: string, issues: SyntaxIssue[]) {
     super(syn, text);
+    this.issues = issues;
   }
 
   /** This method reads the text and gives the issues. An error of a host in the later text ends the read. */

@@ -833,6 +833,7 @@ const WORLD_TEXTS: Readonly<Record<string, string>> = {
   nearest: 'nearest(type: "panel")',
   "tree.named": 'tree.named(name: "title")',
   "tree.at": 'tree.at(attr: "height")',
+  "tree.quote": 'tree.quote("a")',
   panel: "panel(width: 300, children: list(box(width: self.parent.width + -20)))",
   box: "box(height: 20)",
   "math.sum": "math.sum(1, 2)",
@@ -894,8 +895,8 @@ const GENERATED_PINS: Readonly<Record<string, unknown>> = {
   paths: { texts: 4728, most: 3, single: 1241, quoteCascades: 0, digest: 2906695574 },
   algebra: { texts: 5114, most: 3, single: 1473, quoteCascades: 0, digest: 4265921408 },
   records: { texts: 4823, most: 3, single: 1291, quoteCascades: 0, digest: 21554679 },
-  world: { texts: 5003, most: 3, single: 1359, quoteCascades: 0, digest: 4161453596 },
-  envelopes: { texts: 4976, most: 3, single: 1360, quoteCascades: 0, digest: 448853778 },
+  world: { texts: 5018, most: 3, single: 1388, quoteCascades: 0, digest: 215319946 },
+  envelopes: { texts: 4993, most: 3, single: 1361, quoteCascades: 0, digest: 1780189153 },
 };
 
 const GENERATORS: Readonly<Record<string, Generator>> = {

@@ -59,7 +59,11 @@ function thing(label: string, fields: Readonly<Record<string, unknown>>, withRes
 }
 
 class Box {
-  constructor(readonly v: unknown) {}
+  readonly v: unknown;
+
+  constructor(v: unknown) {
+    this.v = v;
+  }
 }
 
 /** The rule of the tests for two results: a box compares its value, and two closures compare their parameters. */

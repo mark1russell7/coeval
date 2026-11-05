@@ -60,9 +60,11 @@ export {
   type World,
   type WorldEntry,
   CIRCULAR_LIMIT,
+  GENERATION_LIMIT,
   argsKey,
   atArgsOf,
   atRuleOf,
+  documentKey,
   circularOf,
   collectOf,
   effectsOfVerb,
@@ -104,6 +106,7 @@ export {
 export { type StepKey, type StepLadder, type StepNeed, type StepReason, type StepRefusal, type StepWalk, checkStep, isStep, stepLadder, stepOf, stepRank } from "./steps.ts";
 export {
   type Cap,
+  type CompiledPath,
   type Context,
   type DerefCode,
   type Hop,
@@ -121,6 +124,7 @@ export {
   type Walker,
   ROOTS,
   THING,
+  compilePath,
   context,
   derefStep,
   isHostThing,
@@ -176,6 +180,7 @@ export {
   permits,
   planner,
   prepare,
+  resolveCompiled,
   run,
 } from "./evaluate.ts";
 export {
@@ -255,6 +260,7 @@ export {
   jsTruthy,
 } from "./formula.ts";
 export { decodeDomain, decodeValue, encodeValue } from "./codec.ts";
+export { type CodecFinding, type CodecLaw, type CodecLawsOptions, type CodecProbe, codecLaws } from "./codec-laws.ts";
 export {
   type ParseResult,
   type SyntaxAssoc,
@@ -284,12 +290,14 @@ export { sameResult } from "./same.ts";
 export { type PrintOptions, type ReadPrints, type ReadsCheck, type VerifyOptions, printReads, verifyReads } from "./reads.ts";
 export { type Durable, type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 export {
+  type CycleIssue,
   type NodeEdge,
   type NodeInfo,
   type NodeRunOptions,
   type Schedule,
   type ScheduleCounts,
   type ScheduleOptions,
+  checkCycles,
   edgesOf,
   schedule,
 } from "./schedule.ts";
