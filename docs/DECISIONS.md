@@ -4299,11 +4299,36 @@ So the top level is code that the JIT makes in the window of the measure, in som
 **Limits.**
 
 - The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
-- A short or absent run fails the job `verdict`, and `Speed OK` stays green. Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). A flip of `Speed OK` cannot read this value while that setting stays.
+- Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). So a short or absent run left `Speed OK` green. D167 ends this.
 - The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
 - A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
 - The hash reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it. Both real arms use the name `src`. A different name reads as different arms, so it holds a merge and lifts no hold.
 - K233 holds the read of a dependency slowdown.
+
+## D167 (2026-11-05): a crash, a short run or a missing arm turns Speed OK red
+
+**Context.** The jobs `bench` and `verdict` had `continue-on-error` at the level of the job. Run 42034457935 reads `needs.<job>.result` as `success` for a failed job under this setting, and `gate-summary` ends `success` over it. So a crashed bench gave a green check on each merge.
+
+**Decision.**
+
+- A fault says nothing about noise, so it needs no limit study. A crash, a short run, a missing arm, no cases or different results turns `Speed OK` red at once, with the reason in its log.
+- The jobs `bench` and `verdict` lose the setting.
+- The job `verdict` writes the outputs `state` and `reason`. The state is `same`, `slower`, `no read` or `different results`. The script `speed-read.ts` gives the answer of the check, and an empty or unknown state is red.
+- A slower case and a `cannot decide` case stay report only until the flip of `Speed OK`.
+
+**Count of false blocks.** The count covers the 317 runs that started a bench in the 11.4 days of the list. Of these, 30 stopped because a new push cancelled them. Of the other 287, 5 had a fault, and this is 1.7 %.
+
+- Three are the time limit of the job, on 3 heads of one branch.
+- Two are different results, on 2 heads of one branch. The branch changed the result of the case on purpose, and its next head changed the case (K236). So these two are true reds, and no fault of determinism.
+- None is a fault of a runner, so this decision adds no retry.
+
+One run of the 379 gave a server error, and the count does not read it.
+
+**Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a finding and not an absent read. On equal arms it is a fault of determinism. On different arms, a changed result can explain it, and the reason says which. 
+
+**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints.
+
+**History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
 
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
