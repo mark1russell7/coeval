@@ -143,6 +143,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D137 | `conforms` also examines walkers, the code of a `deref` and the functions of a formula profile (K121). Each check tests a stated law. A plain throw of a walker is a finding, and a `Failure` is not. |
 | D139 | After an overflow of the stack, a walk with its own stack follows the real reads (S2c). Each cycle gives `#CYCLE!` at each length, and a chain with no cycle keeps its `#DEPTH!`. |
 | D138 | The field `issues` of a failed `parse` holds each issue of a text, at most `MAX_SYNTAX_ISSUES` (K144). The first issue stays as before, a second read finds the others at separators and closers, and a valid text runs no recovery code. |
+| D143 | A kept read that meets a node in evaluation below it closes no cycle (K218). The nodes of that read evaluate again at a real demand. |
 
 ## Open
 
