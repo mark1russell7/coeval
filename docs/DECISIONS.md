@@ -4295,9 +4295,26 @@ One run of the 379 gave a server error, and the count does not read it.
 
 **Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a finding and not an absent read. On equal arms it is a fault of determinism. On different arms, a changed result can explain it, and the reason says which. 
 
-**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints.
+**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints. D169 is this acceptance.
 
 **History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
+
+## D169 (2026-11-06): a row of `changed-results.json` accepts a result that changes on purpose, and the fresh runner times the case
+
+**Context.** K237, from D167. Two copies with different results in a case do not do the same work, so `Speed OK` goes red. A pull request that changes a result on purpose then had one path: a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads it. Each bench has this question, so the rule went to `@mark1russell7/rigor-bench` 0.2.23 first (`resultRows`, `resultVerdict`).
+
+**Decision.**
+
+- A row of `packages/core/bench/changed-results.json` names the case, the result hash of the base, the result hash of the head, and a reason. The function `resultHash` of `merge.ts` gives each hash: the first 16 hexadecimal digits of the SHA-256 of the result text. The run and the rows use this one function.
+- `paths.ts` reads the rows of the base and of the head, each from its own tree, and gives them to `resultVerdict`. A base without the file has no rows.
+- A new row of the exact hashes accepts the change. The fresh runner then times the case as each other case, with head and A/A pairs and its time verdict. The table marks the case "accepted change", and the log prints the line of the row.
+- A change with no row, a spent row or a row of other hashes is refused. The case gets no time, and the run fails with the line of `resultVerdict`. A refused line with no row gives the row to add.
+- A row of the base is spent and accepts nothing. A new row is a fault of the run when it accepts no change, or when the run has no such case. `merge.ts` adds it to the faults, so `Speed OK` goes red.
+- The run record keeps the verdict of the rows (`results`). `merge.ts` prints its lines one time under "Changed results (K237)".
+
+**The flip.** `bench/changed.test.ts` makes a head kernel whose `context` reads the name `x` one higher. So `FORMULA.SPEED formula` gives 5 and not 4. A real run with a new row of the two hashes passes, and the fresh runner times the case with different arm hashes. With no row, a spent row or a row of another head, the run fails and times nothing. A new row on equal results is a fault.
+
+**What does not change.** The rule reads results only, so an accepted change buys no time reading. The mode run `mode.ts` keeps its own read of different results, because it compares two modes of one copy.
 
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 

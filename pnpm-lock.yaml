@@ -200,8 +200,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       '@mark1russell7/rigor-bench':
-        specifier: ^0.2.15
-        version: 0.2.15
+        specifier: ^0.2.23
+        version: 0.2.23(esbuild@0.28.2)
       '@mark1russell7/rigor-statistics':
         specifier: ^0.1.12
         version: 0.1.12
@@ -861,16 +861,29 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
-  '@mark1russell7/rigor-bench@0.2.15':
-    resolution: {integrity: sha512-nW/akUUUpBN7cKrIroDb7yPF0kgDQfPJaz1PyMks5FdwJI1VCZvq9luIH4nLQlJHD9r95lxau9fBDxWjFLBDZg==}
+  '@mark1russell7/rigor-bench@0.2.23':
+    resolution: {integrity: sha512-/zuSClxNKIwZ1RFy+9giLK0kIpvNNkrD184EP6onk/4vYRJXKV8pB4+EPpuZOvRuND2lTVY3PUFnm+Amvf9BBw==}
     engines: {node: '>=22'}
+    peerDependencies:
+      esbuild: ^0.28.2
+    peerDependenciesMeta:
+      esbuild:
+        optional: true
 
   '@mark1russell7/rigor-generators@0.1.5':
     resolution: {integrity: sha512-YkABrG6+AV4oZKWoSIayDGxKTqcTMbp/eGa+3u00X09Jv9TfpHFDeqHlEQARMBzJ/kvy/EMNIXQZMGa3Nobuzw==}
     engines: {node: '>=22'}
 
+  '@mark1russell7/rigor-generators@0.1.6':
+    resolution: {integrity: sha512-eSuVS6nNd2H63dMrfleop+ffBtNd8Ua0/JrcUWUMxf2jHWw432fSwJ+aSa4ecAYq1Pa2ReCfwpqFUP4MII5+GA==}
+    engines: {node: '>=22'}
+
   '@mark1russell7/rigor-statistics@0.1.12':
     resolution: {integrity: sha512-7Cc2Ro1CzxcHDYHjQoewYJo+WIoOyBMxhbNk2pgcuvvm6kYP7HcRBwWW/gENIdj3HxzUup4t4M78bvAj0/XsIA==}
+    engines: {node: '>=22'}
+
+  '@mark1russell7/rigor-statistics@0.1.14':
+    resolution: {integrity: sha512-gM548QU4hUtD9EOhZOporO7lyzktzuuEpu88m2TOqqAs/3/6goqoe86U64jDvAWAxEyaEkng/GN2B/9LprAG1A==}
     engines: {node: '>=22'}
 
   '@mark1russell7/ste-lint@0.1.2':
@@ -3102,16 +3115,24 @@ snapshots:
 
   '@mark1russell7/cue@2.1.1': {}
 
-  '@mark1russell7/rigor-bench@0.2.15':
+  '@mark1russell7/rigor-bench@0.2.23(esbuild@0.28.2)':
     dependencies:
-      '@mark1russell7/rigor-generators': 0.1.5
-      '@mark1russell7/rigor-statistics': 0.1.12
+      '@mark1russell7/rigor-generators': 0.1.6
+      '@mark1russell7/rigor-statistics': 0.1.14
+    optionalDependencies:
+      esbuild: 0.28.2
 
   '@mark1russell7/rigor-generators@0.1.5': {}
+
+  '@mark1russell7/rigor-generators@0.1.6': {}
 
   '@mark1russell7/rigor-statistics@0.1.12':
     dependencies:
       '@mark1russell7/rigor-generators': 0.1.5
+
+  '@mark1russell7/rigor-statistics@0.1.14':
+    dependencies:
+      '@mark1russell7/rigor-generators': 0.1.6
 
   '@mark1russell7/ste-lint@0.1.2':
     dependencies:
