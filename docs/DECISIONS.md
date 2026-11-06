@@ -4153,11 +4153,11 @@ The same read occurs at the root `event`, in the verification of a kept read, an
 - No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
 - A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
 - An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
-- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This also removes the false cycle of the Limits. But it needs a record of the nodes of each kept demand, and it drops final results. The node then also needs a read that changes in each data epoch, and only some lists have one. That is a behaviour change, and it waits for a need.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This removes the false cycle of the Limits. D143 does it.
 
 **Limits.**
 
-- A kept read that reaches its node through another node that reads it still closes a false cycle. An example is a closure at `f`, a `self` that refers to `g`, and a document of `g` that reads `f`. Each order of demands gives `#CYCLE!` for the two nodes, as before this decision.
+- D143 removes the false cycle of a kept read that reaches its node through another node.
 - Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
 - A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
 
@@ -4210,6 +4210,37 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 **Changed expected values.** The limit of PLAN.LEAN goes from 395 to 401.1 bytes. No result of the kernel changes.
 
 **SemVer.** No export changes. This work needs no version of its own.
+
+**Correction (2026-11-06).** The cause of the two levels is code of the JIT in the window of the measure. The CPU model, the region and the image are not the cause. See D170.
+
+## D170 (2026-11-06): the second level of PLAN.LEAN is code of the JIT, and the measure also reads the data spaces of the heap
+
+**Context.** K229, from D161. 91 of 99 jobs read 391.1 to 394.6 bytes, and 8 jobs read 395.6 to 396.1 bytes. A measure with two levels hides a small cost. Since K227, each job prints its CPU model, runner image, kernel, Node version and setting of transparent huge pages.
+
+**The read.**
+
+- The logs of the 58 jobs `measure` of 12 runs, from 2026-11-05 11:14Z to 2026-11-06 03:00Z, give two levels again. 50 jobs read 391.2 to 394.6 bytes, and 8 jobs read 395.8 to 395.9 bytes.
+- No column explains the levels. The kernel, the Node version and the setting of huge pages have one value in all jobs. The top level occurs on 4 CPU models and on both runner images.
+- 6 of the 12 runs give both levels with one head. The matrix index of the 8 jobs has no pattern.
+- A local read splits the heap by space with `getHeapSpaceStatistics`. In 48 new processes, `heapUsed` gave 373.6 to 376.1 bytes for each plan.
+- Each high value of `heapUsed` came with 12 KB more in the code space and 7 to 10 KB more in the trusted space. These spaces hold the code of the JIT and its metadata, not plans.
+- The other spaces, the data spaces, gave 374.9 to 375.3 bytes in all 48 processes.
+
+So the top level is code that the JIT makes in the window of the measure, in some processes only.
+
+**Decision.**
+
+- The test also reads the data spaces: each space of the heap except the code space and the trusted space. The line `MEASURE` gives `bytes` and `data`.
+- The limit stays on `bytes` (401.1) until the jobs `measure` give 20 or more values of `data`. Then the limit moves to `data`, as the worst value plus the spread, with the run ids and the CPU models. K229 ends with that change.
+- A flip fixture of that change keeps one more array of 1 KB for each document. The data limit fails with it.
+- The line keeps `bytes` after the change, so a growth of the code stays visible. It gates nothing.
+- If the range of `data` in CI is more than 1.0 byte, the limit does not move until a new read.
+
+**What this gives.** A measure with one level can have a limit near its values. Then a small cost of a plan turns the gate red.
+
+**Limit of the claim.** The local read used Node 24, and CI uses Node 26. The values of `data` in CI decide the limit.
+
+**SemVer.** Only a test changes. This work needs no version of its own.
 
 ## D162 (2026-11-05): the flip test of PLAN.LEAN is a matrix row of the same job
 
@@ -4454,3 +4485,27 @@ Recovery inside the first read. A stack of open brackets or a `try` around each 
 Recovery prefers a missed issue to a false issue. The first token after a synchronising token gets no issue, thus `{a 1, b 2, c 3}` gives one issue. A fault outside brackets ends the read, thus `1 2 + (3 4)` gives one issue.
 
 A fault in a quote mark can pair with a mark inside another text. Then the gate passes, and later issues can be false. This occurred in 9 of the 10501 texts, and each of the 9 holds a text with all three marks. A pattern of a profile that holds a closer can give a false issue at the end of the text.
+
+## D143 (2026-11-04): a kept read that meets a node in evaluation below it closes no cycle
+
+**Context.** K218, from the Limits of D136. A closure at `f` has a `self` that refers to `g`, and a document of `g` reads `f`. The kept read of `f` demands `g`, and `g` meets `f` in evaluation. Thus both nodes gave `#CYCLE!`. The evaluation of `f` did not ask for that read, and a run has no such cycle.
+
+**Decision.**
+
+- In a kept read, a demand of a node in evaluation below that read gives the same error as before. It adds no mark for the cycle check (SCHED.KEPT-BELOW).
+- At the end of such a kept read, the schedule drops the nodes that finished in it. It removes their values of the epoch and their entries of the store. A real demand then evaluates them again.
+- A node of a component that is still open stays. It is on a true cycle, and its value is final (D31).
+- A read of an evaluation goes outside `keeping`, thus a true cycle gives `#CYCLE!`. A cycle between nodes that a kept read evaluates also stays, because these nodes are above the read.
+
+**Alternatives.**
+
+- A store that keeps no entry of the reader. D136 expected this need. A test of each part found no case for it. `verifyReads` asks `known` for a kept read, and `known` has no value for a node that is not finished. Thus the list fails, and the node evaluates again.
+- A kept read that does not demand. D136 has the reason against it.
+
+**Limits.**
+
+- The nodes of such a kept read evaluate two times in an epoch.
+- A kept read that reaches a true cycle still joins that cycle. The nodes of the read then give a false `#CYCLE!` (K220). The check of the open component in the drop has no test that tells it from no check.
+- The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
+
+**Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
