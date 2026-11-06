@@ -1042,8 +1042,14 @@ class Recovery extends Parser {
     return this.issues;
   }
 
+  /** An item at the offset of the item before tells that no step moved forward, thus the read ends (SYNTAX.ISSUES-BOUND). */
   protected override argumentsOf<T>(item: () => T, close = ")"): T[] {
-    return super.argumentsOf(() => this.attempt(item, close, true), close);
+    let last = -1;
+    return super.argumentsOf(() => {
+      if (this.pos === last) throw new End();
+      last = this.pos;
+      return this.attempt(item, close, true);
+    }, close);
   }
 
   protected override group(): Json {
