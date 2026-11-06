@@ -1,4 +1,4 @@
-import { setFlagsFromString } from "node:v8";
+import { getHeapSpaceStatistics, setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
@@ -32,6 +32,16 @@ import {
 } from "./index.ts";
 
 const sum = { type: "add", value: [1, 2, { type: "multiply", value: [3, 4] }] };
+
+/**
+ * This function gives the used bytes of the spaces of the heap that hold data (K229, D170). The code space and the
+ * trusted space hold the code of the JIT and its metadata, thus it does not count them.
+ */
+function dataSpaces(): number {
+  return getHeapSpaceStatistics()
+    .filter((space) => !/^(code|trusted)/.test(space.space_name))
+    .reduce((sum, space) => sum + space.space_used_size, 0);
+}
 
 describe("plans", () => {
   it("[PLAN.ONCE] a plan evaluates many times with the same result as evaluate", () => {
@@ -101,10 +111,12 @@ describe("plans", () => {
     gc();
     gc();
     const before = process.memoryUsage().heapUsed;
+    const dataBefore = dataSpaces();
     const plans = docs.map((doc) => prepare(machine, doc));
     gc();
     gc();
     const bytes = (process.memoryUsage().heapUsed - before) / COUNT;
+    const data = (dataSpaces() - dataBefore) / COUNT;
     // The documents stay alive during the measure, thus it counts only what the plans keep.
     expect(plans).toHaveLength(docs.length);
     const row = Array.from({ length: COUNT }, (_, index) => index * 2);
@@ -115,7 +127,9 @@ describe("plans", () => {
     // The limit applies only in the job `measure`, because that job measured it (K211, D104). The full suite of
     // the job `checks` gave 396.0 bytes in run 41442630692 and 418.5 bytes in run 41488821854.
     const measure = process.env["COEVAL_MEASURE"] !== undefined;
-    if (measure) console.log(`MEASURE ${JSON.stringify({ id: "PLAN.LEAN", bytes: Number(bytes.toFixed(1)) })}`);
+    // K229: `data` reads the spaces of the heap without the code and the trusted spaces. Those spaces hold the code of
+    // the JIT, and a compile in the window of the measure gave the second level of `bytes` (D170).
+    if (measure) console.log(`MEASURE ${JSON.stringify({ id: "PLAN.LEAN", bytes: Number(bytes.toFixed(1)), data: Number(data.toFixed(1)) })}`);
     // Before K105, such a plan kept approximately 1500 bytes: closures for each path, the split and the document.
     // The flip row of `measure.yml` adds a stated number of bytes to the value that the limit reads (K227, D162). The line above stays the true value.
     const read = bytes + Number(process.env["COEVAL_MEASURE_INJECT"] ?? 0);
