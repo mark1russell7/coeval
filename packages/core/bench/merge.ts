@@ -33,8 +33,10 @@ export interface BenchCase {
   readonly headNs: number;
   readonly change: number;
   readonly noise: number;
-  /** The different results of the copies, when the copies do not agree. */
+  /** The different results of the copies, when the copies do not agree and no row accepts the change. */
   readonly different?: string;
+  /** The line of a row that accepts a changed result (K237, D169). The case has its times as each other case. */
+  readonly accepted?: string;
   /** The pair of the base (arm `a`) and the head (arm `b`) in each round (D114). A record from before K212 has no pairs. */
   readonly head?: readonly PairedTime[];
   /** The A/A pair of the base (arm `a`) and the second copy of the base (arm `b`) in each round (D114). */
@@ -63,6 +65,27 @@ export interface BenchRun {
   /** The hash of the bundle of each arm. A record from before K232 has no hashes. */
   readonly arms?: ArmHashes;
   readonly cases: readonly BenchCase[];
+  /** The verdict of the rows of changed results (K237, D169). A record from before K237 has none. */
+  readonly results?: ResultsRead;
+}
+
+/** The verdict of `resultVerdict` over the results of one run, as the record keeps it. */
+export interface ResultsRead {
+  readonly outcome: "pass" | "fail";
+  readonly lines: readonly string[];
+  /** The lines of the new rows that accept nothing: a row of a case with one result, or of a case that the run does not have. */
+  readonly faults: readonly string[];
+}
+
+/** The mark of a case whose changed result a row accepts. */
+export const ACCEPTED = " (accepted change)";
+
+/**
+ * This function gives the hash of the result of one case: the first 16 hexadecimal digits of its SHA-256.
+ * A row of `changed-results.json` names the hash of each arm. The run and the rows use this one function.
+ */
+export function resultHash(result: string): string {
+  return createHash("sha256").update(result).digest("hex").slice(0, 16);
 }
 
 /** The hash of the bundle of each arm in one job, each with `cases.ts` (K232, D166). */
@@ -201,7 +224,7 @@ export function fallbackMark(name: string): string {
 function cells(item: BenchCase | undefined): string {
   if (item === undefined) return " | | ";
   if (item.different !== undefined) return `different results | ${item.different} | `;
-  return `${percent(item.change)} | ${percent(item.noise)} | ${outcomeOf(item)}${fallbackMark(item.name)}`;
+  return `${percent(item.change)} | ${percent(item.noise)} | ${outcomeOf(item)}${fallbackMark(item.name)}${item.accepted === undefined ? "" : ACCEPTED}`;
 }
 
 function read(file: string | undefined): BenchRun | undefined {
@@ -294,7 +317,10 @@ function main(): void {
     ...runs.flatMap((run, index) => (run === undefined ? [`The run file ${files[index] ?? "(none)"} is missing.`] : [])),
     ...short,
     ...(names.length === 0 ? ["The two run files have no cases."] : []),
+    ...runs.flatMap((run) => (run?.results?.faults ?? []).map((line) => `Run ${run?.run ?? "?"}: ${line}`)),
   ];
+  const changed = [...new Set(runs.flatMap((run) => run?.results?.lines ?? []))];
+  if (changed.length > 0) lines.push("", "Changed results (K237):", ...changed);
   const different = counts.get("different results") ?? 0;
   const slower = counts.get("slower") ?? 0;
   const hold = holdRead(slower, runs, faults.length === 0 && different === 0).line;
