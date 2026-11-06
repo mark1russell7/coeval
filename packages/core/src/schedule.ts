@@ -291,6 +291,9 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
   const looped = new Set<string>();
   // The length of the stack at the kept read that resolves at this time, or -1 without such a read (SCHED.OWN-NODE).
   let keptAt = -1;
+  // The nodes that finished in a kept read, and if that read met a node in evaluation below it (D143).
+  const keptNodes: string[] = [];
+  let keptMet = false;
   let count = 0;
   let ahead = 0;
   // The node that stopped the evaluation of a walk, because the walk has no result for it.
@@ -374,6 +377,11 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     if (busy.has(id)) {
       // The evaluation of a node did not ask for its kept read of the node itself, thus that read closes no cycle (SCHED.OWN-NODE).
       if (reader === id && keptAt === stack.length) return cycleOf(id);
+      // The evaluation of the node below did not ask for this demand either, thus it closes no cycle (SCHED.KEPT-BELOW).
+      if (keptAt >= 0 && stack.indexOf(id) < keptAt) {
+        keptMet = true;
+        return cycleOf(id);
+      }
       // A read of a node in evaluation closes a cycle. It gives the same error as the final result of that node.
       if (reader !== undefined) lower(reader, order.get(id) as number);
       if (reader === id) looped.add(id);
@@ -425,6 +433,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       cache.forget(id);
     }
     epoch.values.set(id, value);
+    if (keptAt >= 0) keptNodes.push(id);
     if (reader !== undefined) lower(reader, reached);
     return value;
   };
@@ -582,11 +591,24 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     // A nested demand has a longer stack, thus each read of its evaluation counts (SCHED.OWN-NODE).
     keeping(read) {
       const outer = keptAt;
+      const outerMet = keptMet;
+      const from = keptNodes.length;
       keptAt = stack.length;
+      keptMet = false;
       try {
         return read();
       } finally {
+        // These nodes read an error that a run does not give, thus a real demand evaluates them again (SCHED.KEPT-BELOW).
+        // A node of an open component stays: it is on a true cycle, and its value is final (D31).
+        if (keptMet) {
+          for (const id of keptNodes.splice(from)) {
+            if (onOpen.has(id)) continue;
+            current().values.delete(id);
+            cache.forget(id);
+          }
+        }
         keptAt = outer;
+        keptMet = outerMet;
       }
     },
   });
