@@ -26,6 +26,10 @@ on:
       jobs:
         description: The jobs, as a JSON list of numbers
         default: "[1, 2]"
+      # A case name: each job writes CPU profiles of that case in both arms, and does not run the bench (K216).
+      profile:
+        description: The name of a case to profile
+        default: ""
 
 permissions:
   contents: read
@@ -103,11 +107,23 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
       - name: Compare the base with this commit
+        if: ${{ (inputs.profile || '') == '' }}
         run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts
         env:
           BENCH_RUN: ${{ matrix.run }}
           BENCH_ROUNDS: ${{ inputs.rounds || '12' }}
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
+      - name: Profile one case in both arms (K216)
+        if: ${{ (inputs.profile || '') != '' }}
+        run: pnpm exec tsx packages/core/bench/profile.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts "$PROFILE" "$RUNNER_TEMP/profile" | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          PROFILE: ${{ inputs.profile }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ (inputs.profile || '') != '' && !cancelled() }}
+        with:
+          name: profile-run-${{ matrix.run }}
+          path: ${{ runner.temp }}/profile
+          retention-days: 14
       # A run with different results also gives its table to the verdict.
       # The records stay 90 days, because the limits of the verdict come from them (K214, D117).
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
