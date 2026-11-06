@@ -4211,6 +4211,37 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 **SemVer.** No export changes. This work needs no version of its own.
 
+**Correction (2026-11-06).** The cause of the two levels is code of the JIT in the window of the measure. The CPU model, the region and the image are not the cause. See D170.
+
+## D170 (2026-11-06): the second level of PLAN.LEAN is code of the JIT, and the measure also reads the data spaces of the heap
+
+**Context.** K229, from D161. 91 of 99 jobs read 391.1 to 394.6 bytes, and 8 jobs read 395.6 to 396.1 bytes. A measure with two levels hides a small cost. Since K227, each job prints its CPU model, runner image, kernel, Node version and setting of transparent huge pages.
+
+**The read.**
+
+- The logs of the 58 jobs `measure` of 12 runs, from 2026-11-05 11:14Z to 2026-11-06 03:00Z, give two levels again. 50 jobs read 391.2 to 394.6 bytes, and 8 jobs read 395.8 to 395.9 bytes.
+- No column explains the levels. The kernel, the Node version and the setting of huge pages have one value in all jobs. The top level occurs on 4 CPU models and on both runner images.
+- 6 of the 12 runs give both levels with one head. The matrix index of the 8 jobs has no pattern.
+- A local read splits the heap by space with `getHeapSpaceStatistics`. In 48 new processes, `heapUsed` gave 373.6 to 376.1 bytes for each plan.
+- Each high value of `heapUsed` came with 12 KB more in the code space and 7 to 10 KB more in the trusted space. These spaces hold the code of the JIT and its metadata, not plans.
+- The other spaces, the data spaces, gave 374.9 to 375.3 bytes in all 48 processes.
+
+So the top level is code that the JIT makes in the window of the measure, in some processes only.
+
+**Decision.**
+
+- The test also reads the data spaces: each space of the heap except the code space and the trusted space. The line `MEASURE` gives `bytes` and `data`.
+- The limit stays on `bytes` (401.1) until the jobs `measure` give 20 or more values of `data`. Then the limit moves to `data`, as the worst value plus the spread, with the run ids and the CPU models. K229 ends with that change.
+- A flip fixture of that change keeps one more array of 1 KB for each document. The data limit fails with it.
+- The line keeps `bytes` after the change, so a growth of the code stays visible. It gates nothing.
+- If the range of `data` in CI is more than 1.0 byte, the limit does not move until a new read.
+
+**What this gives.** A measure with one level can have a limit near its values. Then a small cost of a plan turns the gate red.
+
+**Limit of the claim.** The local read used Node 24, and CI uses Node 26. The values of `data` in CI decide the limit.
+
+**SemVer.** Only a test changes. This work needs no version of its own.
+
 ## D162 (2026-11-05): the flip test of PLAN.LEAN is a matrix row of the same job
 
 **Context.** K227, first part. D161 gave the step of PLAN.LEAN a working exit code, and no run had shown that the step turns red.
