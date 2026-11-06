@@ -4231,7 +4231,10 @@ So the top level is code that the JIT makes in the window of the measure, in som
 **Decision.**
 
 - The test also reads the data spaces: each space of the heap except the code space and the trusted space. The line `MEASURE` gives `bytes` and `data`.
-- The limit stays on `bytes` (401.1) until the jobs `measure` give 20 or more values of `data`. Then the limit moves to `data`, as the worst value plus the spread, with the run ids. K229 ends with that change.
+- The limit stays on `bytes` (401.1) until the jobs `measure` give 20 or more values of `data`. Then the limit moves to `data`, as the worst value plus the spread, with the run ids and the CPU models. K229 ends with that change.
+- A flip fixture of that change keeps one more array of 1 KB for each document. The data limit fails with it.
+- The line keeps `bytes` after the change, so a growth of the code stays visible. It gates nothing.
+- If the range of `data` in CI is more than 1.0 byte, the limit does not move until a new read.
 
 **What this gives.** A measure with one level can have a limit near its values. Then a small cost of a plan turns the gate red.
 
