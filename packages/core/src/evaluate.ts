@@ -1100,17 +1100,12 @@ function readingOf(list: Read[] | undefined, root: Context): Reading | undefined
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
   /**
-   * The count of the work, on the runtime of the root of the evaluation (WORK.LIMIT). The constructor sets each field,
-   * thus each runtime has one object shape, also after its first count (K216).
+   * The count of the work, on the runtime of the root of the evaluation (WORK.LIMIT). The first count adds the field,
+   * thus an evaluation without a counted point has no field.
    */
-  work: number | undefined;
+  declare work?: number;
   /** The count of the applications of closures that run at this time. `formula.fn` writes it (FORMULA.CALL-DEPTH). */
-  applying: number | undefined;
-  /**
-   * The value `true` marks the runtime of an equation of a tree (WORK.NODE). The field `top` changes only from
-   * `undefined` to the runtime itself, thus this value stays the value at the start.
-   */
-  readonly nested: boolean;
+  declare applying?: number;
   readonly machine: Machine;
   /**
    * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
@@ -1165,13 +1160,16 @@ class Session implements Runtime {
     this.traced = traced;
     this.perform = perform;
     this.top = top;
-    this.nested = top !== undefined && top !== this;
-    this.work = undefined;
-    this.applying = undefined;
     this.reading = reading;
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
+  }
+
+  /** This getter gives `true` for the runtime of an equation of a tree (WORK.NODE). */
+  get nested(): boolean {
+    const top = this.top;
+    return top !== undefined && top !== this;
   }
 
   /**
