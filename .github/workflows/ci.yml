@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: mark1russell7/template/.github/workflows/reusable-ci.yml@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+    uses: mark1russell7/template/.github/workflows/reusable-ci.yml@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
     with:
       # The property test of one meaning (K9) examines more documents in CI than in a local run
       env: '{"COEVAL_AGREE_COUNT": "2000"}'
