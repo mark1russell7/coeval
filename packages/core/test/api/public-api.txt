@@ -4,7 +4,7 @@
 # and private members. The command `api-report check` compares this file with the built .d.ts files.
 # To accept a change of the API, start the build, then `api-report update`, and review the diff.
 
-## . (build/index.d.ts): 399 names
+## . (build/index.d.ts): 402 names
 
 ATTRIBUTE_RUNGS: build/index.d.ts#ATTRIBUTE_RUNGS
 type AgreeOptions: build/index.d.ts#AgreeOptions
@@ -221,6 +221,8 @@ type SyntaxAssoc: build/index.d.ts#SyntaxAssoc
 type SyntaxCalls: build/index.d.ts#SyntaxCalls
 type SyntaxConstructs: build/index.d.ts#SyntaxConstructs
 type SyntaxEnvelopes: build/index.d.ts#SyntaxEnvelopes
+type SyntaxFinding: build/index.d.ts#SyntaxFinding
+type SyntaxFindingCode: build/index.d.ts#SyntaxFindingCode
 type SyntaxFixity: build/index.d.ts#SyntaxFixity
 type SyntaxForm: build/index.d.ts#SyntaxForm
 type SyntaxFormArgs: build/index.d.ts#SyntaxFormArgs
@@ -279,6 +281,7 @@ checkCycles: build/index.d.ts#checkCycles
 checkLatent: build/index.d.ts#checkLatent
 checkStep: build/index.d.ts#checkStep
 checkSteps: build/index.d.ts#checkSteps
+checkSyntax: build/index.d.ts#checkSyntax
 checkWorld: build/index.d.ts#checkWorld
 circularOf: build/index.d.ts#circularOf
 classify: build/index.d.ts#classify
@@ -2005,6 +2008,16 @@ interface SyntaxEnvelopes {
   readonly bool?: string;
 }
 
+### build/index.d.ts#SyntaxFinding
+interface SyntaxFinding {
+  readonly code: SyntaxFindingCode;
+  readonly place: readonly Key[];
+  readonly reason: string;
+}
+
+### build/index.d.ts#SyntaxFindingCode
+type SyntaxFindingCode = "invalid" | "operator" | "grouping" | "longest-match" | "word" | "root" | "pattern" | "form" | "call" | "separator" | "construct";
+
 ### build/index.d.ts#SyntaxFixity
 type SyntaxFixity = "prefix" | "infix" | "postfix";
 
@@ -2366,6 +2379,9 @@ export declare function checkStep<N, S extends string>(ladder: StepLadder<S>, ne
 
 ### build/index.d.ts#checkSteps
 export declare function checkSteps(steps: readonly StepSpec[]): readonly OrderProblem[];
+
+### build/index.d.ts#checkSyntax
+export declare function checkSyntax(profile: SyntaxProfile): readonly SyntaxFinding[];
 
 ### build/index.d.ts#checkWorld
 export declare function checkWorld(machine: Machine, verbs: readonly string[], options?: WorldOptions): readonly WorldIssue[];

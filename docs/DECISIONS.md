@@ -1639,7 +1639,7 @@ The risk of R1 is a stale plan: an old value without an error. The design calls 
 
 - The own entries have no text in each profile.
 - The reason for a name without a bind symbol is new: "This syntax has no text for the name of a document." Before, a name and an own entry gave the same reason.
-- A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check.
+- A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check (D140).
 - A choice has no text, because K158 has no text for a data envelope. A tree has no text, because K160 has no form for a record kind.
 
 ## D63 (2026-10-28): a call form names the way its arguments make the value, and a step of a path in parentheses is a document
@@ -4460,6 +4460,45 @@ Recovery inside the first read. A stack of open brackets or a `try` around each 
 Recovery prefers a missed issue to a false issue. The first token after a synchronising token gets no issue, thus `{a 1, b 2, c 3}` gives one issue. A fault outside brackets ends the read, thus `1 2 + (3 4)` gives one issue.
 
 A fault in a quote mark can pair with a mark inside another text. Then the gate passes, and later issues can be false. This occurred in 9 of the 10501 texts, and each of the 9 holds a text with all three marks. A pattern of a profile that holds a closer can give a false issue at the end of the text.
+
+## D140 (2026-11-03): `checkSyntax` reports the faults of a syntax profile, and each finding is a small document that breaks the law
+
+**Context.** K146, from C15. `compileProfile` refuses many clashes with a `TypeError`, and it stops at the first one. Other faults pass it. With `+` at the precedence `1` and `*` at `1.5`, the document `add(a, mul(b, c))` prints `a + b * c`, and that text reads `mul(add(a, b), c)`. A host finds such a fault only when a document fails. The law of the kit is that `parse(print(doc))` gives `doc` (SYNTAX.ROUNDTRIP).
+
+**Decision.** The new export `checkSyntax(profile)` gives a list of `SyntaxFinding` with `code`, `place` and `reason` (SYNTAX.PROFILE-CHECK). The list has at most one finding for each code and place. The function uses the law as its oracle.
+
+- The function writes and reads small documents. It has one for each operator and one for each ordered pair of operators. It also has one for each root, form, name of `calls.ops` and construct. A `flat` operator also has documents with three terms.
+- A finding is a document that does not come back, thus it is not a style opinion. Each test plants a fault and shows the failure of the law without `checkSyntax`.
+- A literal word is the one exception. The function compares the text of the word with the literal, because `print` writes that text.
+- The separator has a control. The function writes a document with the separator of the profile and with a neutral separator. A document that only the neutral separator keeps blames the separator. These documents use `ops: true`, thus the probe does not depend on the operations of the profile.
+- A pattern that reads the start of a failing text takes the finding, with the code `pattern`, because `parse` tries patterns first.
+- A small `maxDepth` is a limit of the host, thus each probe uses the default limit.
+- A `TypeError` of `compileProfile` becomes one finding `invalid` with an empty place.
+
+The codes are `invalid`, `operator`, `grouping`, `longest-match`, `word`, `root`, `pattern`, `form`, `call`, `separator` and `construct`.
+
+The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE-CHECK-SETTLED):
+
+- `-` as prefix and infix, and `!` as prefix and postfix, because the place of the token settles them.
+- `<` with `<=` and `<-`, because longest match reads them and the printer writes spaces around an infix operator.
+- An infix word `in` with `let`, because `in` has its meaning only after the closing brace.
+- A form name that a pattern matches, for example `LOG10(x)`, because a pattern does not read a name before `(`.
+- An infix `:` in a record, and a bind `=` with `==`, because a key reads first and a longer symbol wins.
+- Two spellings of one kind, a separator `, ` with a trailing space, and a prefix `;` with the separator `;;`.
+- A word literal `let`, because `let` starts a form only before a brace.
+
+**Alternatives.** A part of `check` has the wrong input. `check` takes a machine and a document, and a profile is a separate value that a site reads without code (D41). `checkWorld` is the model: a separate function with its own finding form. A static list of rules is a second copy of the grammar, and it drifts from the parser. An early separator rule was static, and a generated run showed gaps at the backtick, the quote and the closing brace. The control replaced that rule. A check in `compileProfile` adds a cost to the first `parse`, and it changes which profiles throw.
+
+**Why.** The oracle is the law, thus the check and the grammar agree on each document that the check writes. The standard profiles give no finding, and that test guards against a false report (SYNTAX.PROFILE-CHECK-CLEAN). A generated test guards the other direction: a generated profile with no finding keeps the law over generated documents (SYNTAX.PROFILE-CHECK-LAW). A local run of 60000 profiles gave 11083 profiles with no finding. These profiles gave no miss in 60 documents for each one. `parse` and `print` do not change, and only a host calls the check, thus the Speed gate stays 0 slower by design.
+
+**Limits.**
+
+- An empty list tells that the small documents come back. It does not prove the law for each document.
+- The function examines pairs of operators. Three postfix operators and one longer symbol, for example `!`, `!!` and `!!!`, can pass.
+- A profile with `ops: true` permits each name, thus the function probes only one dotted name, and only when the profile has field steps. With `fields: false`, `print` writes a dotted call as a text that `parse` refuses. The check does not report it, because this profile shape is good for each other name.
+- The probes use the names `probe__` and `m.p`, and the keys `x` and `y`. A word operator with one of these names gives a finding, and the host does not use that text.
+- A separator counts as used when the profile has any call or construct, also when each form takes one argument.
+- A `read` or a `write` function of a pattern is code of the host. An error of such a function leaves `checkSyntax` with no change.
 
 ## D143 (2026-11-04): a kept read that meets a node in evaluation below it closes no cycle
 
