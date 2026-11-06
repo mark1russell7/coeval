@@ -31,6 +31,9 @@ import {
   run,
 } from "./index.ts";
 
+/** The limit of PLAN.LEAN on `data`, in bytes for each plan (K229, D170). PROVISIONAL: from 5 jobs, set from 20 or more. */
+const DATA_LIMIT = 393.2;
+
 const sum = { type: "add", value: [1, 2, { type: "multiply", value: [3, 4] }] };
 
 /**
@@ -98,7 +101,7 @@ describe("plans", () => {
     expect(ref.plan.evaluate(makeContext({ x: { y: 5 } }))).toEqual({ ok: true, value: 5 });
   });
 
-  it("[PLAN.LEAN] a plan of one bare reference keeps less than 401.1 bytes", () => {
+  it("[PLAN.LEAN] a plan of one bare reference keeps less than 393.2 bytes of data", () => {
     setFlagsFromString("--expose-gc");
     const gc = runInNewContext("gc") as () => void;
     const machine = formulaMachine();
@@ -113,12 +116,17 @@ describe("plans", () => {
     const before = process.memoryUsage().heapUsed;
     const dataBefore = dataSpaces();
     const plans = docs.map((doc) => prepare(machine, doc));
+    // The second flip row of `measure.yml` makes each plan keep an array of this many bytes: a true retained cost (K229).
+    const retain = Number(process.env["COEVAL_MEASURE_RETAIN"] ?? 0);
+    // Without the fault, the list is empty, thus the measure counts no list of its own.
+    const kept = retain > 0 ? plans.map(() => new Array<number>(retain / 8).fill(0)) : [];
     gc();
     gc();
     const bytes = (process.memoryUsage().heapUsed - before) / COUNT;
     const data = (dataSpaces() - dataBefore) / COUNT;
     // The documents stay alive during the measure, thus it counts only what the plans keep.
     expect(plans).toHaveLength(docs.length);
+    expect(kept).toHaveLength(retain > 0 ? docs.length : 0);
     const row = Array.from({ length: COUNT }, (_, index) => index * 2);
     expect(plans[4]?.evaluate(makeContext({ row }))).toEqual({ ok: true, value: 8 });
     // The value is the retained bytes of each plan: gc() runs before both readings, and the plans stay alive.
@@ -131,9 +139,10 @@ describe("plans", () => {
     // the JIT, and a compile in the window of the measure gave the second level of `bytes` (D170).
     if (measure) console.log(`MEASURE ${JSON.stringify({ id: "PLAN.LEAN", bytes: Number(bytes.toFixed(1)), data: Number(data.toFixed(1)) })}`);
     // Before K105, such a plan kept approximately 1500 bytes: closures for each path, the split and the document.
-    // The flip row of `measure.yml` adds a stated number of bytes to the value that the limit reads (K227, D162). The line above stays the true value.
-    const read = bytes + Number(process.env["COEVAL_MEASURE_INJECT"] ?? 0);
-    if (measure) expect(read, `${read.toFixed(0)} bytes for each plan`).toBeLessThan(401.1);
+    // The limit reads `data`, and `bytes` stays on the line above as a report (K229, D170).
+    // The first flip row of `measure.yml` adds a stated number of bytes to the value that the limit reads (K227, D162). The line above stays the true value.
+    const read = data + Number(process.env["COEVAL_MEASURE_INJECT"] ?? 0);
+    if (measure) expect(read, `${read.toFixed(1)} bytes of data for each plan`).toBeLessThan(DATA_LIMIT);
   });
 
   it("[PLAN.TRACE] a traced plan gives the trace of evaluate, an untraced one gives none", () => {
