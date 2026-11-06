@@ -27,7 +27,7 @@ o     ::= {β: n, …}                                 own entries: a verb to th
 n     ::= s                                         the name of an evaluator, a runner, a deref or a walker
 ρ, ℓ  ::= [k, …]                                    a place from the root document, and a path in a value
 c     ::= #PART? | #DEPTH! | #KIND? | #NOEVAL | #VALUE! | #NAME? | #N/A | #REF!
-        | #CYCLE! | #STEP? | #CAP! | #CALC! | #ABORT | #ARGS | …          the code of an error
+        | #CYCLE! | #STEP? | #CAP! | #CALC! | #ABORT | #ARGS | #WORK! | … the code of an error
 r     ::= ok(u) | err(c, ρ?)                        a result: a value, or an error with an optional place
 
 σ     ::= none | term | list | map | record | deep | text | number | one   a shape
@@ -35,7 +35,7 @@ r     ::= ok(u) | err(c, ρ?)                        a result: a value, or an er
 κ     ::= {verbs: β ⇀ n, parts: σ, scope, caps: [γ, …], side, effects, pure, lazy, tree}    a kind and its contract
 e     ::= κ | ns({s: e, …}, κ?) | alias([world, k, …])                      an entry of the world
 W     ::= {kinds: {s: e, …}, defaults: β ⇀ n, fallback: κ?}                a world
-M     ::= {W, E: n ⇀ code, R: n ⇀ code, derefs, walkers, permits?, maxDepth?, plain?, roots?, adopt?}
+M     ::= {W, E: n ⇀ code, R: n ⇀ code, derefs, walkers, permits?, maxDepth?, maxWork?, plain?, roots?, adopt?}
 Γ     ::= {self, names, world, event, caps}         a context: the five roots (D10)
 ε     ::= [(kind, payload, ρ, Γ, address), …]       the effects, in their order
 S     ::= done(r) | wait(p, a ↦ S)                  the steps of a run: a one-shot resumption (D11)
@@ -509,7 +509,15 @@ F-FN  [FORMULA.FN, FORMULA.FN-PARAMS, FORMULA.CALL-DEPTH, CAP.LATENT]
     f(ū) throws Failure(e) when the body gives err(e)
     each application of f counts one level of the evaluation that made f, and the count goes down after it
     f(ū) throws Failure(err(#DEPTH!)) when ceil(maxDepth / 4) applications of that evaluation are active (D125)
+    after that clock, each application of f adds one point to the count of work (see WORK)
     the closure keeps Γ, thus it keeps the capabilities of the document that made it
+
+WORK  [WORK.LIMIT, WORK.NODE, WORK.EQUATION, WORK.SHARED, WORK.AFTER, WORK.PREPARE]
+    one evaluation has one count w, from 0. The equations of its trees add to the same count
+    an application of a closure adds 1, a node that an equation makes adds 8, a second visit in the JSON of a tree adds 1
+    w > maxWork ⇒ the point throws Failure(err(#WORK!)). The default of maxWork is 200000 (D134)
+    after the end of the evaluation, each entry from the host starts from w = 0
+    a fold stops at the first point, thus prepare adds no point
 
 F-CALL  [FORMULA.FN]
     q_fn() = err(e) ⇒ err(e)        q_fn() = ok(f), and f is no function ⇒ err(#VALUE!)

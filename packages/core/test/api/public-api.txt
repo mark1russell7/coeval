@@ -4,7 +4,7 @@
 # and private members. The command `api-report check` compares this file with the built .d.ts files.
 # To accept a change of the API, start the build, then `api-report update`, and review the diff.
 
-## . (build/index.d.ts): 399 names
+## . (build/index.d.ts): 400 names
 
 ATTRIBUTE_RUNGS: build/index.d.ts#ATTRIBUTE_RUNGS
 type AgreeOptions: build/index.d.ts#AgreeOptions
@@ -251,6 +251,7 @@ type Use: build/index.d.ts#Use
 type ValueType: build/index.d.ts#ValueType
 type VerbEffects: build/index.d.ts#VerbEffects
 type VerifyOptions: build/index.d.ts#VerifyOptions
+WORK_LIMIT: build/index.d.ts#WORK_LIMIT
 WORLD_SYNTAX: build/index.d.ts#WORLD_SYNTAX
 type WalkInput: build/index.d.ts#WalkInput
 type WalkOptions: build/index.d.ts#WalkOptions
@@ -717,6 +718,7 @@ interface CompileInput {
 interface CompiledEvaluator {
   readonly compile: (input: CompileInput) => Code;
   readonly type?: TypeRule;
+  readonly keeps?: boolean;
 }
 
 ### build/index.d.ts#CompiledPart
@@ -1164,7 +1166,7 @@ type JsonRecord = {
 };
 
 ### build/index.d.ts#KernelCode
-type KernelCode = "#KIND?" | "#NOEVAL" | "#PART?" | "#NAME?" | "#REF!" | "#N/A" | "#CYCLE!" | "#STEP?" | "#VALUE!" | "#NUM!" | "#ARGS" | "#CAP!" | "#CALC!" | "#DEPTH!" | "#ABORT" | "#REPLAY!" | "#TYPE!";
+type KernelCode = "#KIND?" | "#NOEVAL" | "#PART?" | "#NAME?" | "#REF!" | "#N/A" | "#CYCLE!" | "#STEP?" | "#VALUE!" | "#NUM!" | "#ARGS" | "#CAP!" | "#CALC!" | "#DEPTH!" | "#WORK!" | "#ABORT" | "#REPLAY!" | "#TYPE!";
 
 ### build/index.d.ts#Key
 type Key = string | number;
@@ -1225,6 +1227,7 @@ interface Machine extends Navigator {
   readonly evaluators: Readonly<Record<string, Evaluator>>;
   readonly runners?: Readonly<Record<string, Runner>>;
   readonly maxDepth?: number;
+  readonly maxWork?: number;
   readonly permits?: (caps: readonly Cap[], kind: readonly Key[], context: Context) => boolean;
   readonly known?: (path: readonly Key[], evaluator: string) => true | string;
   readonly domains?: Readonly<Record<string, Domain>>;
@@ -1694,6 +1697,8 @@ type Runner = RunFn | CompiledRunner;
 interface Runtime {
   readonly machine: Machine;
   readonly running: boolean;
+  readonly nested?: boolean;
+  spend?(points: number): void;
   resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution;
   effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result;
   runEffect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps;
@@ -2230,6 +2235,9 @@ interface VerifyOptions {
   readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
   readonly prints?: ReadPrints;
 }
+
+### build/index.d.ts#WORK_LIMIT
+export declare const WORK_LIMIT = 2e5;
 
 ### build/index.d.ts#WORLD_SYNTAX
 export declare const WORLD_SYNTAX: SyntaxProfile;
