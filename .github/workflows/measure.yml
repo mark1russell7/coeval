@@ -21,6 +21,10 @@ concurrency:
   group: measure-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -47,7 +51,7 @@ jobs:
         pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -84,7 +88,7 @@ jobs:
         .github/workflows/measure.yml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -275,7 +279,7 @@ jobs:
 
   measure-ok:
     name: Measure OK
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [changes, core-changes, measure, ladder, ladder-verdict, mode, mode-verdict]
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -283,7 +287,7 @@ jobs:
     # The action "gate-summary" reads one job of the action "changes". Thus each step gets one filter and its jobs.
     steps:
       - name: The jobs of the filter "changes"
-        uses: mark1russell7/template/.github/actions/gate-summary@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           needs: >-
             {"changes": ${{ toJSON(needs.changes) }}, "ladder": ${{ toJSON(needs.ladder) }},
@@ -292,7 +296,7 @@ jobs:
       # This step also runs when the first step failed, thus the summary shows both verdicts.
       - name: The jobs of the filter "core-changes"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           changes: core-changes
           needs: >-

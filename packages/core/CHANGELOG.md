@@ -2,6 +2,39 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.23.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `conforms` gives findings for host code that passed before, and some documents give another error. No export goes.
+
+### Changes of behavior
+
+- **`conforms` examines walkers, the code of a `deref` and the functions of a profile (D137).** In 0.22.0, `conforms` threw for the name of a walker or of the code of a `deref`. It examined `formula.op` and `formula.ext` only for the types in the option `types`. In 0.23.0, the name selects the code, and the default types hold each named function of a profile. Thus host code that passed before can get a finding.
+- **The probe `all` of `conforms` keeps the rule ALL of the kernel (D128).** A scenario with a choice of waits runs in up to six orders. The new obligation `parallel` gives a finding when the result, the parts or the effects change with the order. The type `Obligation` gets the member `parallel`.
+- **A certain cycle longer than the stack gives `#CYCLE!` (D139).** In 0.22.0, a long ring of nodes overflowed the stack of the host and gave `#DEPTH!`. In 0.23.0, a walk with its own stack finds the cycle at each length. A chain with no cycle keeps its `#DEPTH!`.
+- **A kept read closes no false cycle (D136, D143).** In 0.22.0, a closure whose `self` refers to its own node gave `#CYCLE!`. A closure at `f` whose `self` refers to `g`, with a `g` that reads `f`, also gave `#CYCLE!`. In 0.23.0, both give their values. A true cycle gives `#CYCLE!` as before.
+- **A failed `parse` gives each issue of a text (D138).** The field `issues` can hold more than one item, at most `MAX_SYNTAX_ISSUES`. The first item is the same issue as before. A valid text runs no recovery code. The new export is `MAX_SYNTAX_ISSUES`.
+- **`STD_SYNTAX` has text forms for `record`, `let`, `fn` and `call` (D127).** In 0.22.0, `print` gave `#VALUE!` for these documents, and `parse` gave an issue for these texts. In 0.23.0, they have a text. Each text that parsed before gives the same document. A host that spreads `STD_SYNTAX` and adds an operator that starts with `{`, `}` or `=>`, or the word operator `let`, gets a `TypeError`.
+- **The union `AttributeRung` and the list `ATTRIBUTE_RUNGS` get `"forward"` (D126).** An exhaustive match over the union does not compile until it has the new member. `STD_WORLD` gets the kind `tree.quote`.
+
+### New features
+
+- **Higher-order attributes and forwarding (D126).** An equation of `tree.attributes.<name>.higher` gives a document as data. The document evaluates with the node as `self`, as a new node under the node. `TreeContract.forwards` gives an attribute that no other rung answers from a node that an attribute gives. An endless generation gives `#DEPTH!` at `GENERATION_LIMIT` generated documents. The new exports are `documentKey` and `GENERATION_LIMIT`.
+- **Text forms in a syntax profile (D127).** The new optional field `constructs` of a `SyntaxProfile` names the kind of each of the four forms. The new export is the type `SyntaxConstructs`.
+- **A language compiles its own paths (D129).** A language outside the formula kit compiles a static path one time and reads it through `Runtime`. The new exports are `compilePath`, `resolveCompiled` and the type `CompiledPath`.
+- **The laws of the codec of one domain (D130).** `codecLaws(machine, name, options)` examines the laws `samples`, `encode`, `json`, `stable`, `decode` and `roundtrip`. The new exports are `codecLaws`, `CodecFinding`, `CodecLaw`, `CodecLawsOptions` and `CodecProbe`.
+- **Certain cycles as issues, with no run (D131).** `checkCycles(target)` gives one issue for each certain cycle of a schedule. Each issue is a cycle that a run reports. The new exports are `checkCycles` and the type `CycleIssue`.
+- **A node of a schedule can have its own `self` (D135).** The option `ScheduleOptions.selfOf(id, host)` gives each node its own `self`. Nodes with one document share one plan. `agreeSchedule` gets the option `selves`, and `ScheduleAgreementCounts` gets two fields.
+- **A kept read is marked for the schedule (D136).** The new optional member `HostThing.keeping(read)` wraps each kept read that resolves its path.
+
+### Fixes
+
+- **Recovery ends with an empty separator (K226).** In the code of D138 on `main`, `parse` did not end for a profile with `separator: ""` and a text with a call. Recovery ends the read at the second item at one offset. This fault was in no release.
+- **Each parameter property is a plain field (D160).** The emitted JavaScript keeps the same members.
+
+### Tests and CI
+
+These changes are not in the package. Each failed test of the measure step turns the step red, and PLAN.LEAN also reads the data spaces of the heap (D161, D162, D170). The gates read a change of the lock file, and a slower reading holds a merge only when the arm hashes differ (D166). A Speed dispatch takes the number of rounds and jobs (K225).
+
 ## 0.22.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. A deep recursion through closures gives `#DEPTH!` at a lower depth than before. No export goes.
