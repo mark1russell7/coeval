@@ -142,7 +142,7 @@ describe("the check of a syntax profile", () => {
   it("[SYNTAX.PROFILE-CHECK-CALL] finds a name of the calls that does not come back", () => {
     planted({ calls: { ops: ["if"], forms: [{ name: "if", kind: "k" }] } }, call("ops.if", a), undefined, "call", ["calls", "ops", 0]);
     planted({ operators: [infix("and", 1, "k.and")], calls: { ops: ["and"] } }, call("ops.and", a), undefined, "call", ["calls", "ops", 0]);
-    planted({ refs: { fields: false }, calls: { ops: ["m.p"] } }, call("ops.m.p", a), "m.p(a)", "call", ["calls", "ops", 0]);
+    planted({ refs: { fields: false }, calls: { ops: ["m.p"] } }, call("ops.m.p", a), undefined, "call", ["calls", "ops", 0]);
   });
 
   it("[SYNTAX.PROFILE-CHECK-SEPARATOR] finds a separator that does not end an argument", () => {
