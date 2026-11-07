@@ -137,6 +137,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D161 | A failed test of the measure step turns it red. The limit of PLAN.LEAN was not enforced from K211 to this decision, and it failed in 8 of 99 jobs. The limit is 401.1 bytes, the worst of these jobs plus their spread. |
 | D162 | The flip test of PLAN.LEAN is a matrix row of the same job. It adds 20 bytes to the value, the step turns red, and the 5 plain jobs stay green. |
 | D163 | The gate `notSlowerVerdict` runs as report only beside the pooled verdict. It blocks nothing until a control run, a count of false blocks and a flip test. |
+| D164 | The ladder starts on a change of the kernel, and a flip job shows that its report-only gate can block. |
 | D166 | The filters of the gates read the lock file. A slower reading holds a merge only when the bundle hashes of the arms differ. |
 | D168 | Both arms of Speed build under one resolved `tsconfig.json`, and a file that does not resolve stops the bundle. |
 | D170 | The second level of PLAN.LEAN is code of the JIT. The test also reads the data spaces of the heap, and the limit moves there after 20 jobs. |
