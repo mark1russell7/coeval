@@ -559,17 +559,6 @@ describe("the interface of a schedule", () => {
       for (const id of order) expect(s.read(id).ok, show(s.read(id))).toBe(true);
       expect(s.read("k")).toEqual(ok(2));
     }
-    // A limit of D143: a kept read that reaches an open component joins that component, thus c and x give a false cycle.
-    const open = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "x") }) });
-    open.set("a", op("ifError", ref("world", "b"), ref("world", "c")));
-    open.set("b", ref("world", "a"));
-    open.set("c", { type: "fn", value: { params: [], body: ref("self") } });
-    open.set("x", op("ifError", ref("world", "b"), ref("world", "c")));
-    const seen = (["a", "b", "c", "x"] as const).map((id) => {
-      const result = open.read(id);
-      return result.ok ? "value" : result.error.code;
-    });
-    expect(seen).toEqual(["#CYCLE!", "#CYCLE!", "#CYCLE!", "#CYCLE!"]);
     // A read that the evaluation asks for is a true cycle, also with a kept read before it.
     const real = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "g") }) });
     real.set("f", op("pair", { type: "fn", value: { params: [], body: ref("self") } }, ref("world", "g")));
@@ -616,7 +605,38 @@ describe("the interface of a schedule", () => {
     expect(outcome.counts.cycles).toBeGreaterThan(COUNT);
   });
 
-  it("[SCHED.KEPT-BELOW-AGREES] agreeSchedule finds no false cycle and no stale answer for two nodes, with a host context that refers to each of them", () => {
+  it("[SCHED.KEPT-OPEN] a kept read that reaches a true cycle joins no component, in each order of demands", () => {
+    const code = (s: Schedule, id: string): string => {
+      const result = s.read(id);
+      return result.ok ? "value" : result.error.code;
+    };
+    const make = (x: Json): Schedule => {
+      const s = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "x") }) });
+      s.set("a", op("ifError", ref("world", "b"), ref("world", "c")));
+      s.set("b", ref("world", "a"));
+      s.set("c", { type: "fn", value: { params: [], body: ref("self") } });
+      s.set("x", x);
+      return s;
+    };
+    const ids = ["a", "b", "c", "x"];
+    const orders = ids.flatMap((one) => ids.filter((two) => two !== one).map((two) => [one, two, ...ids.filter((id) => id !== one && id !== two)]));
+    for (const order of orders) {
+      // The node x reads the cycle and falls back. No read of an evaluation reaches x, thus it is outside the cycle.
+      const outside = make(op("ifError", ref("world", "b"), ref("world", "c")));
+      for (const id of order) code(outside, id);
+      expect(ids.map((id) => code(outside, id)), order.join()).toEqual(["#CYCLE!", "#CYCLE!", "value", "value"]);
+      // A read of an evaluation reaches x, thus x is on the cycle in each order.
+      const inside = schedule(strictMachine, { ...LIT, context: context({ self: ref("world", "x") }) });
+      inside.set("a", op("ifError", ref("world", "b"), op("pair", ref("world", "c"), ref("world", "x"))));
+      inside.set("b", ref("world", "a"));
+      inside.set("c", { type: "fn", value: { params: [], body: ref("self") } });
+      inside.set("x", op("ifError", ref("world", "b"), 1));
+      for (const id of order) code(inside, id);
+      expect(ids.map((id) => code(inside, id)), order.join()).toEqual(["#CYCLE!", "#CYCLE!", "value", "#CYCLE!"]);
+    }
+  });
+
+  it("[SCHED.KEPT-BELOW-AGREES] agreeSchedule finds no false cycle and no stale answer for three nodes, with a host context that refers to each of them", () => {
     const fn = (body: Json): Json => ({ type: "fn", value: { params: ["v"], body } });
     const wire = (rng: Random, node: () => Json): Json => {
       const read = rng.pick<Json>([ref("self"), ref("self", "a"), ref("event"), ref("names", "a"), node()]);
@@ -632,6 +652,7 @@ describe("the interface of a schedule", () => {
       context({ self: g, names: { a: 1 } }),
       context({ self: f, event: g, names: { a: 1 } }),
       context({ self: g, event: f, names: { a: 1 } }),
+      context({ self: ref("world", "h"), event: g, names: { a: 1 } }),
     ];
     const outcome = agreeSchedule(schedule, {
       machines: [strictMachine, looseMachine],
@@ -641,7 +662,7 @@ describe("the interface of a schedule", () => {
       value: (rng) => rng.pick<unknown>([0, 1, 2]),
       wire,
       wired: 0.8,
-      nodes: ["f", "g"],
+      nodes: ["f", "g", "h"],
       contexts,
       count: COUNT,
       steps: STEPS,

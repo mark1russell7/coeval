@@ -3947,6 +3947,7 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 **Alternatives.** A field in the envelope document can declare the effects of its own entry. But a document cannot vouch for code of the host. The language that has the code knows its effects. A second hook can give the effects. But the hook `facts` already describes the code of a name, with its reads and its purity.
 
 **Why.** An answer without the field changes nothing, thus each old hook keeps its results. An empty list in an answer removes the effects of the contract, because the hook describes the code of its name. Another verb than `eval` keeps the table `verbEffects` of the kind (D49).
+
 ## D119 (2026-11-03): a kind declares in `drives` the parts that its runner evaluates without a wait
 
 **Context.** K65, from K19. A compiled runner can evaluate a part with its code, and that code does not wait. The check of the waits assumed that a runner passes each wait of its parts through. Since K110, such a part fails in a run only when it really waits. But `check` did not find that failure, and `conform` refused each such runner (C6).
@@ -4673,7 +4674,6 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 
 - In a kept read, a demand of a node in evaluation below that read gives the same error as before. It adds no mark for the cycle check (SCHED.KEPT-BELOW).
 - At the end of such a kept read, the schedule drops the nodes that finished in it. It removes their values of the epoch and their entries of the store. A real demand then evaluates them again.
-- A node of a component that is still open stays. It is on a true cycle, and its value is final (D31).
 - A read of an evaluation goes outside `keeping`, thus a true cycle gives `#CYCLE!`. A cycle between nodes that a kept read evaluates also stays, because these nodes are above the read.
 
 **Alternatives.**
@@ -4684,7 +4684,7 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 **Limits.**
 
 - The nodes of such a kept read evaluate two times in an epoch.
-- A kept read that reaches a true cycle still joins that cycle. The nodes of the read then give a false `#CYCLE!` (K220). The check of the open component in the drop has no test that tells it from no check.
+- D145 removes the false cycle of a kept read that reaches a true cycle.
 - The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
 
 **Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
@@ -4729,6 +4729,26 @@ The first study of 2026-11-04 was one local run with Node.js 24.21.0 on Windows.
 - The numbers are of one version of Node.js. Another version of V8 gives other sizes.
 
 **Why.** The claim of K116 was about the peak of a test, and that peak is gone. A change to `visit` adds risk to the code of the cycle check for each host. It needs a need that a host measures.
+
+## D145 (2026-11-04): a kept read that reaches a true cycle joins no component
+
+**Context.** K220, from the Limits of D143. The nodes `a` and `b` read each other. The fallback of `a` reads `c`, a closure with a `self` that refers to `x`. The node `x` reads `b`. The kept read of `c` demands `x`, and `b` is a finished node of an open component. Thus the marks of the cycle check reached `x` and `c`, and both gave a false `#CYCLE!`.
+
+**Decision.**
+
+- In a kept read, a read of a finished node of an open component adds no mark when that node started below the read (SCHED.KEPT-OPEN).
+- Such a read counts as a meeting of D143. The schedule drops the nodes of the kept read, and a real demand evaluates them again.
+- Thus a node with a real read from the cycle stays on the cycle in each order. A node without one stays outside it.
+- The drop no longer tests for an open component. No node of a kept read can stay in an open component, because no mark goes below the read.
+
+**Alternatives.**
+
+- No mark and no drop. A test shows that the value of a node then depends on the order of demands, and that breaks D31.
+- A mark only at the reader of the kept read. The node `x` then still gives a false `#CYCLE!`.
+
+**Limits.** The nodes of such a kept read evaluate two times in an epoch. The restore of the start of an outer kept read has no test. Without it, a nested read gives the same values, with one more evaluation.
+
+**Why.** A path of a real cycle has only reads that an evaluation asks for. A kept read is not such a read, thus no mark goes through it. The drop keeps D31, because no value of a kept read reaches a node outside it.
 
 ## D146 (2026-11-04): a handler is a frame in the context, and a clause is a capability that the kernel gives
 
@@ -4878,3 +4898,27 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** A signal library from npm. The tests of the kernel then depend on a third party, and the marks stay hidden. A public export. No host asked for it, and an engine of a host has its own graph.
 
 **Limits.** A change of data gives a new context signal, thus each node evaluates again and stops at its cutoff. A host that wants a change of one field holds that field in a host thing, as the tests show. The adapter is a first push-pull engine for S3d, not a schedule of the kernel.
+
+## D152 (2026-11-04): `mapDocs` changes the documents of a document from the root to the parts
+
+**Context.** K222. The static kit has `walk`, which only reads, and `mapRefs`, which changes only free references. A host that changes each step of a document kept its own recursion. That recursion named its step kinds and kept its own limit of depth.
+
+**Decision.** The function `mapDocs(world, doc, change, options)` runs on `walk` (STATIC.MAPDOCS). The function `change` reads each visit from the root to the parts and gives one of four answers. The answer `undefined` keeps the document and goes into its parts. The answer `"skip"` keeps the document and stops. The answer `{ to }` replaces the document and stops. The answer `{ to, into: true }` replaces it and goes into the parts of the old document.
+
+**Why.** A visit already has the kind, the parent, the slot and the declared type of a position. Thus the host decides which kinds are steps, and the kernel names none. The order and the stop come from `walk`, thus a deep document needs no second stack and no second limit. A document deeper than `maxDepth` gets its change, and the kernel gives `#DEPTH!` at its evaluation.
+
+**Alternatives.** A map from the parts to the root. The function then reads a part that it changed, but it cannot stop at a node before it goes in. The request needs the stop.
+
+**Limits.** The function reads only the original documents. A new document is not walked. With `into: true`, the new document must keep the path of each part. Each change copies the path from the root, thus `c` changes at depth `d` take `O(c d)` time.
+
+## D153 (2026-11-04): `ifRunner` gives an `if` with the truth of a host
+
+**Context.** K221. The runner `control.if` can wait for the host, but it accepts only a boolean test. The `if` of the formula kit reads the function `truthy` of a profile, but it is an evaluator, and an evaluator cannot wait. A host with its own truth and steps that wait kept a copy of the runner.
+
+**Decision.** The function `ifRunner(truth)` gives the runner, and `control.if` is `ifRunner` of the boolean truth (RUN.IF-TRUTH). A host passes `profile.truthy` and names the runner in `machine.runners`. A document selects it with `own`.
+
+**Why.** One body holds the three failures and the order of the parts, thus a host has no copy of them. The parameter has the type of `FormulaProfile.truthy`.
+
+**Alternatives.** A runner for `formula.if` in each formula machine. A runner wins over an evaluator of the same name. Thus each formula `if` then pays for a generator, and the bench refuses a slower read. A formula `if` holds no effect, so it has no need to wait.
+
+**Limits.** A bare value in a part stays a literal of the kit. A missing `then` stays an error of `check`. A host that reads older documents keeps these two rewrites, and `mapDocs` (D152) is the place for them.
