@@ -4402,6 +4402,7 @@ One run of the 379 gave a server error, and the count does not read it.
 - Each group has its total time, its number of parts and its share of the timeout of one part. It also has its fraction of the time of all tests of the run.
 - In CI, the reporter prints each group in the log. This step is a report, and it does not fail a run.
 - The limit of a group and its flip test come in a second step, by 2026-11-12. That limit comes from 5 or more CI runs, with the run ids and the formula beside it.
+- D174 gives that step. The group report is a gate since D174.
 - That step also states the meaning of the limit. A larger corpus is a fair reason for a larger share, so one limit in timeouts for all groups does not fit.
 
 **Rejected.**
@@ -4733,3 +4734,51 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - The tests start the real script of the verdict with a folder of records from `BENCH_ACCEPTED`. They cover no hold, a hold with a record, and a hold with no record. A CI run of a real hold with a record is still to come.
 
 **Why.** A gate holds each gain only when it is code. A record is the cheap path for a hold from noise on different arms, and it leaves a trail for a score.
+
+## D174 (2026-11-07): a group of parts above 0.0359 of the test time fails a run of all tests
+
+**Context.** K231, the second step of D165. The reporter printed each group of split parts, as a report only. A split lowers the share of each part and saves no time, thus a slow test passed the gate of D96 after a split.
+
+**The measure.** The fraction of a group is its total time, divided by the time of all tests of the same run. Five CI runs of all tests on 2026-11-07 printed 29 groups each: 42396929367, 42397725803, 42397768621, 42399231485 and 42399576673. The share in timeouts of the top group went from 0.304 to 0.568. Its fraction went only from 0.0219 to 0.0289. Thus the fraction removes most of the speed of the runner, and the share in timeouts does not.
+
+**Decision.**
+
+- `GROUP_LIMIT` is 0.0359. It is the worst fraction of the five runs plus the largest spread of one group between the runs: 0.0289 + 0.0070. The run ids and the formula are beside the constant.
+- In CI, a group above the limit fails the run with a line `::error::` that names the group. This line tells the two fixes: a smaller corpus, or a new limit from 5 CI runs.
+- The limit applies only to a run of all tests. A run with a filter of files or of names has another total, thus it only prints its groups. Two CI jobs run such a filter: the nightly job of `agree.yml` and the step of `measure.yml`.
+- The flip test runs the real reporter with a fake run of Vitest. Two parts of 400 ms in 10 000 ms of tests fail the run. The same times with a filter pass.
+
+**The meaning of the limit.** No group of parts costs more of the run than the worst group of today, plus its spread. The limit holds the cost of each corpus at the level of today. A larger corpus on purpose is a fair reason for a larger share, as D165 says. Such a change measures a new limit from 5 CI runs in its pull request, and the diff shows the cost.
+
+**Alternatives.**
+
+- A limit in timeouts for each group, for example `FAIL` of D96. The top group already reads 0.568 on a slow runner, so it fails with no change of code.
+- A limit for each group by its name. A rename of a test then needs a new limit, and a new group has no limit.
+
+**Limits.**
+
+- The five runs ran on one day, on the runners of that day. A runner with another CPU model can give another fraction. A false fail then gets a new measure, not a larger margin by hand.
+- The test of a run of all tests compares the count of test files with the count that Vitest finds. A CI run of all tests shows the line `No group used more than` in its log. The first CI run of this change is the first such read.
+- The limit does not find the test of K230 as it is today, because that group is the top group of the five runs. It finds each growth above that level.
+
+**Why.** A gate holds each gain only when it is code. The fraction is a share of a time in its own run, thus a slow runner does not move it much.
+
+## D175 (2026-11-07): the tree kit is complete, and each open question of R3 has an answer
+
+**Context.** L2, from R3. L2a to L2i gave the nine proposals of R3 (D16, D42, D106, D107, D108, D113, D122, D124, D126). The seven open questions of R3 had no record of their answers, thus L2 stayed open.
+
+**Decision.** L2 is done. This record gives the answer to each open question of R3.
+
+1. **Structural steps.** A node reserves only the steps `parent` and `type` (D16). `index` and `prev` are names of an equation of `down`, not steps (D42). `next` follows the same rule. Thus a record keeps each other field name.
+2. **Inherited reads.** The two forms stay, and they read two attributes. `["self", "width"]` reads the attribute of the node through the ladder of D42. `["self", "parent", "width"]` reads the attribute of the parent. A declaration `copy` makes the first form fall back to the second when no nearer rung answers (TREE.COPY).
+3. **Rungs.** The kernel keeps its trace. `attributeTrace` of the tree kit gives the rungs (TREE.RUNGS, D42).
+4. **Declarations.** Each declaration is in the contract `tree` of its kind, not in the spec of a kit (D42, D14).
+5. **Circularity.** A declared circular attribute evaluates to a fixed point, and each other cycle gives `#CYCLE!` (D113).
+6. **A store of named nodes.** The schedule of D31 keeps named nodes without the rungs of a tree. It uses the same analysis `graph.ts` as the graph of attribute instances (D107). Thus the two layers share one cycle finder.
+7. **A tree space.** Coeval gives no space. A space is a host: its things and its walkers (DEREF.HOST, D10). The test `positions.test.ts` gives a space of rows in this form. A tree space with a zipper is the work of the language that uses it, on the same interface.
+
+**Alternatives.** Keep L2 open until a language asks for a tree space. That gives no work to coeval, thus the item only blocks the view of the roadmap.
+
+**Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
+
+**Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
