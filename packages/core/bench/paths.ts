@@ -33,11 +33,18 @@
  *
  * Each copy is an esbuild bundle without `keepNames`, as the bundler of a host makes it. The loader of tsx keeps the
  * name of each function, and that adds a call at each closure that the kernel makes.
+ *
+ * Each arm builds with the esbuild of its own lock file (K233, D172). `BENCH_BASE_ESBUILD` names a folder with the
+ * esbuild of the base, and the workflow sets it only when the two lock files give different versions. The script then
+ * also builds the base with the esbuild of the head, and prints the two hashes of the base. Equal hashes show that the
+ * new version gives the same code. Different hashes make the table a time read of the new version.
  */
-import { build, type Plugin } from "esbuild";
+import * as esbuild from "esbuild";
+import type { Plugin } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { join, resolve as resolveFile } from "node:path";
 import { fileURLToPath } from "node:url";
 import { caseRatios, type PairedTime } from "@mark1russell7/rigor-bench";
@@ -79,8 +86,19 @@ const CASES_FILE = fileURLToPath(new URL("./cases.ts", import.meta.url));
 /** The one tsconfig of both arms. The base arm has no install, so its own file cannot find the file that it extends (K234). */
 const TSCONFIG = fileURLToPath(new URL("../tsconfig.json", import.meta.url));
 
+/** The part of esbuild that the bench uses: the build and the version. */
+export interface Bundler {
+  readonly build: typeof esbuild.build;
+  readonly version: string;
+}
+
+/** This function gives the esbuild in the folder `prefix`, which `npm install --prefix` made (K233). */
+export function bundlerIn(prefix: string): Bundler {
+  return createRequire(join(resolveFile(prefix), "package.json"))("esbuild") as Bundler;
+}
+
 /** This function bundles the cases with one copy of the kernel, under one tsconfig. A tsconfig that does not resolve stops it. */
-export async function bundle(kernelFile: string, name: string, dir: string, tsconfig: string = TSCONFIG): Promise<string> {
+export async function bundle(kernelFile: string, name: string, dir: string, tsconfig: string = TSCONFIG, bundler: Bundler = esbuild): Promise<string> {
   const outfile = join(dir, `${name}.mjs`);
   const kernel = resolveFile(kernelFile);
   const copy: Plugin = {
@@ -89,7 +107,7 @@ export async function bundle(kernelFile: string, name: string, dir: string, tsco
       builder.onResolve({ filter: /^\.\.\/src\/index\.ts$/ }, (args) => (resolveFile(args.importer) === CASES_FILE ? { path: kernel } : undefined));
     },
   };
-  const { warnings } = await build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, plugins: [copy] });
+  const { warnings } = await bundler.build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, plugins: [copy] });
   const unresolved = warnings.filter((warning) => warning.text.includes("Cannot find base config file"));
   if (unresolved.length > 0) throw new Error(`The tsconfig of the arms does not resolve: ${unresolved.map((warning) => warning.text).join(" ")}`);
   return outfile;
@@ -124,8 +142,19 @@ async function main(): Promise<void> {
   if (baseFile === undefined || headFile === undefined) throw new Error("Give the index.ts of the base and of the head.");
   if (TOGETHER.length > 0) throw new Error("The fresh runner starts one case in each process (D114). Thus TOGETHER must be empty.");
   const dir = mkdtempSync(join(tmpdir(), "coeval-bench-"));
-  const [baseCopy, headCopy] = [await bundle(baseFile, "base", dir), await bundle(headFile, "head", dir)];
+  const prefix = process.env["BENCH_BASE_ESBUILD"];
+  const baseBundler = prefix === undefined || prefix === "" ? esbuild : bundlerIn(prefix);
+  const [baseCopy, headCopy] = [await bundle(baseFile, "base", dir, TSCONFIG, baseBundler), await bundle(headFile, "head", dir)];
   const arms = { base: armHash(readFileSync(baseCopy, "utf8")), head: armHash(readFileSync(headCopy, "utf8")) };
+  const esbuildLine =
+    baseBundler === esbuild
+      ? `Esbuild (K233): both arms build with esbuild ${esbuild.version}.`
+      : await (async () => {
+          const other = armHash(readFileSync(await bundle(baseFile, "base-new", dir), "utf8"));
+          const read = other === arms.base ? "equal: the new version gives the same code" : "different: the table reads the time of the new version";
+          return `Esbuild (K233): the base arm builds with esbuild ${baseBundler.version}, the head arm with ${esbuild.version}. The hash of the base is ${arms.base.slice(0, 12)} with ${baseBundler.version} and ${other.slice(0, 12)} with ${esbuild.version}, ${read}.`;
+        })();
+  console.log(esbuildLine);
   // A first process calibrates the calls of each sample, thus each copy does the same work. Its times do not count.
   const first = measureCopy(baseCopy);
   const counts = first.map((item) => item.calls);
@@ -158,6 +187,7 @@ async function main(): Promise<void> {
   const cases: BenchCase[] = [];
   const lines: string[] = [
     `Run ${run} on ${cpu}.`,
+    esbuildLine,
     `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the fresh runner starts each arm of the pairs (base, head) and (base, base) in a new process.`,
     `Each process gives ${WARMUP} warmup and ${SAMPLES} counted samples of ${TARGET_MS} ms for one case.`,
     "The change compares the head with the base of the same round. The noise (A/A) compares two processes of the base.",
