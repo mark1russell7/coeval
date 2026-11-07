@@ -31,8 +31,12 @@ import {
   run,
 } from "./index.ts";
 
-/** The limit of PLAN.LEAN on `data`, in bytes for each plan (K229, D170). PROVISIONAL: from 5 jobs, set from 20 or more. */
-const DATA_LIMIT = 393.2;
+/**
+ * The limit of PLAN.LEAN on `data`, in bytes for each plan (K229, D171). It is the worst value plus the spread of the
+ * values: 50 jobs `measure` of 10 runs, from 42158439505 to 42381192156, gave 392.0 to 392.7 bytes. 392.7 + 0.7 = 393.4.
+ * The jobs ran on 5 CPU models: AMD EPYC 7763, 9V45 and 9V74, Intel Xeon Platinum 8370C and 8573C.
+ */
+const DATA_LIMIT = 393.4;
 
 const sum = { type: "add", value: [1, 2, { type: "multiply", value: [3, 4] }] };
 
@@ -101,7 +105,7 @@ describe("plans", () => {
     expect(ref.plan.evaluate(makeContext({ x: { y: 5 } }))).toEqual({ ok: true, value: 5 });
   });
 
-  it("[PLAN.LEAN] a plan of one bare reference keeps less than 393.2 bytes of data", () => {
+  it("[PLAN.LEAN] a plan of one bare reference keeps less than 393.4 bytes of data", () => {
     setFlagsFromString("--expose-gc");
     const gc = runInNewContext("gc") as () => void;
     const machine = formulaMachine();
@@ -130,8 +134,7 @@ describe("plans", () => {
     const row = Array.from({ length: COUNT }, (_, index) => index * 2);
     expect(plans[4]?.evaluate(makeContext({ row }))).toEqual({ ok: true, value: 8 });
     // The value is the retained bytes of each plan: gc() runs before both readings, and the plans stay alive.
-    // The limit is the worst value plus the spread of the values (K200, D161). The 99 jobs `measure` of the 20 runs
-    // from 41832320878 to 41977634472 gave 391.1 to 396.1 bytes. 396.1 + 5.0 = 401.1.
+    // The limit is the worst value of `data` plus the spread of the values (K200, D171). See DATA_LIMIT.
     // The limit applies only in the job `measure`, because that job measured it (K211, D104). The full suite of
     // the job `checks` gave 396.0 bytes in run 41442630692 and 418.5 bytes in run 41488821854.
     const measure = process.env["COEVAL_MEASURE"] !== undefined;

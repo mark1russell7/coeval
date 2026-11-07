@@ -4242,6 +4242,31 @@ So the top level is code that the JIT makes in the window of the measure, in som
 
 **SemVer.** Only a test changes. This work needs no version of its own.
 
+**Since D171 (2026-11-07).** The limit reads `data`. 50 jobs gave a range of 0.7 byte, and the limit is 393.4 bytes.
+
+## D171 (2026-11-07): the limit of PLAN.LEAN reads the data spaces, and it is 393.4 bytes
+
+**Context.** K229, from D170. D170 kept the limit on `bytes` until the jobs `measure` gave 20 or more values of `data`.
+
+**The read.**
+
+- 50 jobs `measure` of 10 runs gave `data`, from 2026-11-06 03:45Z to 2026-11-07 14:22Z. The runs are 42158439505, 42174310419, 42180483956, 42185610540, 42185980459, 42186004072, 42205973145, 42210082061, 42218426879 and 42381192156. The flip rows are not in the count.
+- `data` gave 392.0 to 392.7 bytes, a range of 0.7 byte. Thus the condition of D170, a range of at most 1.0 byte, holds.
+- `bytes` of the same jobs gave 391.5 to 396.2 bytes, a range of 4.7 bytes.
+- The 5 jobs with `bytes` over 395 gave `data` 392.5 to 392.7 bytes, and the other 45 jobs gave at most 392.4 bytes. So the code of the JIT also leaves approximately 0.3 byte in the data spaces. This is the top of the range, and the limit includes it.
+- The jobs ran on 5 CPU models: AMD EPYC 7763 (18 jobs), 9V45 (12), 9V74 (12), Intel Xeon Platinum 8370C (6) and 8573C (2).
+
+**Decision.**
+
+- The limit reads `data`. It is the worst value plus the spread: 392.7 + 0.7 = 393.4 bytes. The old limit of `bytes` was 401.1 bytes, so the gate is 7.7 bytes nearer to the values.
+- The line `MEASURE` keeps `bytes` beside `data`. It gates nothing.
+- The flip row `flip` adds 20 bytes to `data`. The lowest value is 392.0 bytes, so each job passes the limit with it.
+- A second flip row `retain` makes each plan keep an array of 1 KB. This is a true retained cost, and the data spaces see it, thus the step turns red. Both rows have `fault: true`, and the next step passes only if the step is red with the text of the PLAN.LEAN assertion.
+
+**Limit of the claim.** The limit holds for these 5 CPU models and Node v26.13.0. A new CPU model or Node version can give other values. Then a red job without a change of the core is a new read, and the limit moves only with its run ids.
+
+**SemVer.** Only a test and a workflow change. This work needs no version of its own.
+
 ## D162 (2026-11-05): the flip test of PLAN.LEAN is a matrix row of the same job
 
 **Context.** K227, first part. D161 gave the step of PLAN.LEAN a working exit code, and no run had shown that the step turns red.
