@@ -26,5 +26,15 @@
     "tsdown": "^0.23.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "conventions": {
+    "rules": {
+      "gate-trigger": {
+        "allow": [
+          "chain-memory.yml"
+        ],
+        "reason": "chain-memory.yml is a study and not a gate (K116, D144). No ruleset asks for its check."
+      }
+    }
   }
 }
