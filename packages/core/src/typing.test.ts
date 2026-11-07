@@ -1170,7 +1170,7 @@ function memberOfType(type: ValueType, rng: Random): Json {
   return out;
 }
 
-/** This function gives a key of a step into a member of a type, mostly a key that the type has, and the type of the step. */
+/** This function gives a key of a step into a member of a type, and the type of the step. The key is mostly a key of the type. */
 function stepOf(type: ValueType, rng: Random): readonly [Key, ValueType] {
   const other = (): readonly [Key, ValueType] => [rng.pick(STEP_KEYS), "unknown"];
   if (rng.chance(0.2)) return other();
