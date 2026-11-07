@@ -21,6 +21,10 @@ concurrency:
   group: measure-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -47,7 +51,7 @@ jobs:
         pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@5b6d568175b98264391a21a9da059df7be51d85e # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -84,7 +88,7 @@ jobs:
         .github/workflows/measure.yml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@5b6d568175b98264391a21a9da059df7be51d85e # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -113,11 +117,16 @@ jobs:
       max-parallel: 3
       matrix:
         run: [1, 2, 3, 4, 5]
-        # The flip test of this gate (K227, D162). This row runs the same step with 20 bytes more on the value of PLAN.LEAN.
-        # The 5 jobs above are the copy with no fault. The lowest value of D161 is 391.1, so 20 bytes pass the limit in each job.
+        # The flip tests of this gate (K227, D162, K229). The 5 jobs above are the copy with no fault.
+        # The row "flip" adds 20 bytes to the value that the limit reads. The row "retain" makes each plan keep an array
+        # of 1 KB, a true retained cost that the reading of the data spaces sees (D170).
         include:
           - run: flip
+            fault: true
             inject: "20"
+          - run: retain
+            fault: true
+            retain: "1024"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pnpm version comes from "packageManager" in package.json
@@ -130,13 +139,14 @@ jobs:
       - name: PLAN.LEAN and WORLD.LAWS
         id: plan
         # Only the flip row continues, and its next step decides. The outcome of this step stays failure.
-        continue-on-error: ${{ matrix.inject != '' }}
+        continue-on-error: ${{ matrix.fault == true }}
         working-directory: packages/core
         # The default shell has no pipefail, and the pipe into tee then hid each failed test of this step (K228).
         shell: bash
         env:
           COEVAL_MEASURE: "1"
           COEVAL_MEASURE_INJECT: ${{ matrix.inject }}
+          COEVAL_MEASURE_RETAIN: ${{ matrix.retain }}
         run: |
           # K229 reads the values of PLAN.LEAN against these facts of the runner, and the logs do not name all of them.
           echo "Runner: cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs) image=$ImageVersion kernel=$(uname -r) node=$(node -v) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled)"
@@ -144,15 +154,15 @@ jobs:
           grep -o 'MEASURE {.*}' out.txt | sed 's/^MEASURE //' > measures.jsonl
           cat measures.jsonl
           { echo "### Run ${{ matrix.run }}"; echo '```'; cat measures.jsonl; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      # A step that stays green with the injected value is a gate that does not hold. Another failure of the step is no flip.
-      - name: The injected value turned the step red, by the limit of PLAN.LEAN
-        if: ${{ matrix.inject != '' }}
+      # A step that stays green with the fault is a gate that does not hold. Another failure of the step is no flip.
+      - name: The fault turned the step red, by the limit of PLAN.LEAN
+        if: ${{ matrix.fault == true }}
         working-directory: packages/core
         env:
           OUTCOME: ${{ steps.plan.outcome }}
         run: |
           test "$OUTCOME" = failure
-          grep -q 'bytes for each plan' out.txt
+          grep -q 'bytes of data for each plan' out.txt
 
   ladder:
     needs: changes
@@ -269,7 +279,7 @@ jobs:
 
   measure-ok:
     name: Measure OK
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [changes, core-changes, measure, ladder, ladder-verdict, mode, mode-verdict]
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -277,7 +287,7 @@ jobs:
     # The action "gate-summary" reads one job of the action "changes". Thus each step gets one filter and its jobs.
     steps:
       - name: The jobs of the filter "changes"
-        uses: mark1russell7/template/.github/actions/gate-summary@5b6d568175b98264391a21a9da059df7be51d85e # main
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           needs: >-
             {"changes": ${{ toJSON(needs.changes) }}, "ladder": ${{ toJSON(needs.ladder) }},
@@ -286,7 +296,7 @@ jobs:
       # This step also runs when the first step failed, thus the summary shows both verdicts.
       - name: The jobs of the filter "core-changes"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@5b6d568175b98264391a21a9da059df7be51d85e # main
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           changes: core-changes
           needs: >-
