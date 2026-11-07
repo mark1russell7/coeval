@@ -259,6 +259,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RUN.CAP | A run refuses an effect without its capability. The host does not see the effect. |
 | RUN.PURE | The kind `pure` refuses an effect, also in a run. |
 | RUN.SAME | A run gives the same result as an evaluation with the same `perform`, when the host answers each effect at once and no evaluator causes an effect. Thus a document without effects runs to the result of its evaluation. |
+| RUN.IF-TRUTH | `ifRunner` gives an `if` with a truth of the host, and a branch of it can wait for the host. A missing test and a test without a truth give `#VALUE!`. A failed test gives its failure. A missing branch gives `null`. |
 | RUN.NESTED-WAIT | A step that waits inside a part that cannot wait gives `#CALC!`. |
 | RUN.HELD | In a run, an effect under a runner whose parent cannot wait does not reach the host. The effect keeps `#CALC!`. |
 | RUN.NEEDS-RUNNER | In a run, an effect of an evaluator gives `#CALC!` before the test of its capability, also when the host does not wait. |
@@ -346,6 +347,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | STATIC.WALK | A walk visits each document with its place and the names that it sees. |
 | STATIC.REFS | `refsOf` finds the references of a document. A reference is free when no kind around it binds its name. |
 | STATIC.MAP | `mapRefs` changes the free references. It shares each part that does not change. |
+| STATIC.MAPDOCS | `mapDocs` changes the documents of a document from the root to the parts. The function reads only the original documents and can stop at a node. A document without a change stays the same object. |
 | STATIC.CHECK | `check` finds the problems of a document before a run. Each problem has its place. |
 | STATIC.SEQ | `check` knows that a step reads only the steps before it. |
 | STATIC.CAP | `check` finds an effect that the capabilities do not permit. |

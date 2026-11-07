@@ -1528,6 +1528,27 @@ function isOp(value: unknown): value is Cap {
 }
 
 /**
+ * This function gives the runner of an `if` with its own truth (RUN.IF-TRUTH). A branch can wait for the host, thus a
+ * language with the function `truthy` of a profile does not need a copy of `if`. A missing test and a test without a
+ * truth give `#VALUE!`, a failed test gives its failure, and a missing branch gives `null`.
+ *
+ * @param truth - The function that gives the truth of a value, or `undefined` for a value without a truth.
+ * @returns The runner.
+ */
+export function ifRunner(truth: (value: unknown) => boolean | undefined): Runner {
+  return function* ({ parts }) {
+    const test = parts.find((part) => part.key === "test");
+    if (test === undefined) return fail("#VALUE!", "if needs a test.");
+    const chosen = yield* test.evaluate();
+    if (!chosen.ok) return chosen;
+    const held = truth(chosen.value);
+    if (held === undefined) return fail("#VALUE!", "The test of if must give a truth value.");
+    const branch = parts.find((part) => part.key === (held ? "then" : "else"));
+    return branch === undefined ? ok(null) : yield* branch.evaluate();
+  };
+}
+
+/**
  * The runners of the standard world, by name: the kinds that can hold effects. Each one evaluates its parts in
  * order. In a run, an effect ends before the next step starts.
  */
@@ -1576,15 +1597,7 @@ export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
     if (!result.ok || after === undefined) return result;
     return yield* after.evaluate({ ...context, names: { ...context.names, result: result.value } });
   },
-  "control.if": function* ({ parts }) {
-    const test = parts.find((part) => part.key === "test");
-    if (test === undefined) return fail("#VALUE!", "if needs a test.");
-    const chosen = yield* test.evaluate();
-    if (!chosen.ok) return chosen;
-    if (typeof chosen.value !== "boolean") return fail("#VALUE!", "The test of if must give a truth value.");
-    const branch = parts.find((part) => part.key === (chosen.value === true ? "then" : "else"));
-    return branch === undefined ? ok(null) : yield* branch.evaluate();
-  },
+  "control.if": /* @__PURE__ */ ifRunner((value) => (typeof value === "boolean" ? value : undefined)),
   "list.all": function* ({ parts }) {
     const all = yield* inOrder(parts);
     return "error" in all ? all.error : ok(all.values);
