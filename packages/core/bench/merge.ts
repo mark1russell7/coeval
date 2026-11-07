@@ -25,7 +25,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { notSlowerVerdict, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { familyRead, notSlowerVerdict, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
 import { acceptHold, readAccepted, type Acceptance } from "./accepted.ts";
 import { FAMILIES, limitsOf, limitsRecord, percentOf, type Family } from "./limits.ts";
 
@@ -297,6 +297,24 @@ export function gateRead(runs: readonly (BenchRun | undefined)[]): NotSlowerVerd
   return notSlowerVerdict(jobs, { margin: (name) => limitsOf(name).options.margin ?? 0 });
 }
 
+/**
+ * This function gives the lines of the family read over the cases of the two runs (K225, D176): Holm over the cases, and
+ * the read of each job. The read is a report, and it changes no verdict. The pooled verdict of each case gets the option
+ * `pValues`, and the p values come from the draws of its interval, so its outcome stays the same. A case with different
+ * results or without each run has no pooled verdict, thus the read leaves it out.
+ */
+export function familyLines(runs: readonly (BenchRun | undefined)[], names: readonly string[]): readonly string[] {
+  const items = names.flatMap((name) => {
+    const found = runs.flatMap((run) => {
+      const item = run?.cases.find((each) => each.name === name);
+      return run === undefined || item === undefined || item.different !== undefined ? [] : [{ run: run.run, item }];
+    });
+    const verdict = found.length < runs.length ? undefined : pooledCase(found, { ...limitsOf(name).options, pValues: true });
+    return verdict === undefined ? [] : [{ case: name, verdict }];
+  });
+  return familyRead(items).lines;
+}
+
 /** This function gives the lines of the gate in the verdict: one line of counts, then the reason of each slower case. */
 export function gateLines(gate: NotSlowerVerdict): string[] {
   const count = (read: NotSlowerVerdict["cases"][number]["read"]): string => String(gate.cases.filter((item) => item.read === read).length);
@@ -351,6 +369,7 @@ function main(): void {
   const hold = held.line;
   const acceptance = held.hold && slower > 0 ? acceptHold(slowerNames, runs.map((run) => run?.arms?.head), records.records) : undefined;
   lines.push("", ...gateLines(gateRead(runs)));
+  lines.push("", ...familyLines(runs, names));
   lines.push("", armLine(runs), hold, ...(acceptance?.lines ?? []));
   const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different, equalArms(runs), acceptance);
   const output = process.env["GITHUB_OUTPUT"];
