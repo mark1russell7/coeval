@@ -83,6 +83,7 @@ const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); /
 - `kind` is the type of the document, with dots between the keys. A call `name(args)` applies `ops.name`, and a call form in `calls.forms` makes a construct.
 - `header.bind` is the symbol of a header name, for example `=` in `total = 2 + 3`. A form name can have dots, for example `math.product`.
 - `args` of a form tells how its arguments make the value. `named` reads `panel(width: 300)` as a record, and `literal` reads `text("big")` as data.
+- A form `literal` of the kind `ext.domain` with the field `domain` is the text of a domain value, for example `date("2026-01-02")`. The codec of the machine reads the data at evaluation.
 - A step in parentheses after a dot is a document, for example `self.parent.(nearest(type: "panel")).width`.
 - `constructs` names the kinds of four text forms: `{a: 1}`, `let {a: 1} in a`, `(x) => x` and `(f)(1)`. `STD_SYNTAX` sets all four. Each text was an issue before, thus no name becomes reserved.
 - `literals.envelopes` names the kinds of the data envelopes, and `wrap` of a form names the arguments that take a document. A literal there gets its envelope, thus `list(1)` is `list(number(1))`.
