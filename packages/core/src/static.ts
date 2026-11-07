@@ -105,6 +105,18 @@ function keysOf(trail: Trail | undefined): readonly Key[] {
 
 /** A visit with its paths as trails. It makes the keys of a path only when a reader asks for them. */
 class Visit implements DocVisit {
+  readonly doc: Envelope;
+  readonly declared: boolean;
+  readonly depth: number;
+  readonly names: ReadonlySet<string>;
+  readonly later: ReadonlySet<string>;
+  readonly slot: readonly Key[];
+  readonly parent: DocVisit | undefined;
+  readonly kind: Kind | undefined;
+  readonly typePath: readonly Key[] | undefined;
+  readonly address: true | undefined;
+  readonly caps: readonly Cap[] | undefined;
+  readonly handled: readonly Cap[] | undefined;
   readonly #place: Trail | undefined;
   readonly #at: Trail | undefined;
   readonly #bound: readonly string[];
@@ -113,21 +125,33 @@ class Visit implements DocVisit {
   constructor(
     place: Trail | undefined,
     at: Trail | undefined,
-    readonly doc: Envelope,
-    readonly declared: boolean,
-    readonly depth: number,
-    readonly names: ReadonlySet<string>,
-    readonly later: ReadonlySet<string>,
-    readonly slot: readonly Key[],
-    readonly parent: DocVisit | undefined,
-    readonly kind: Kind | undefined,
-    readonly typePath: readonly Key[] | undefined,
-    readonly address: true | undefined,
-    readonly caps: readonly Cap[] | undefined,
+    doc: Envelope,
+    declared: boolean,
+    depth: number,
+    names: ReadonlySet<string>,
+    later: ReadonlySet<string>,
+    slot: readonly Key[],
+    parent: DocVisit | undefined,
+    kind: Kind | undefined,
+    typePath: readonly Key[] | undefined,
+    address: true | undefined,
+    caps: readonly Cap[] | undefined,
     bound: readonly string[],
     expect: ValueType | undefined,
-    readonly handled: readonly Cap[] | undefined,
+    handled: readonly Cap[] | undefined,
   ) {
+    this.doc = doc;
+    this.declared = declared;
+    this.depth = depth;
+    this.names = names;
+    this.later = later;
+    this.slot = slot;
+    this.parent = parent;
+    this.kind = kind;
+    this.typePath = typePath;
+    this.address = address;
+    this.caps = caps;
+    this.handled = handled;
     this.#place = place;
     this.#at = at;
     this.#bound = bound;

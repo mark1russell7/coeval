@@ -1,6 +1,6 @@
 import type { PairedTime } from "@mark1russell7/rigor-bench";
 import { describe, expect, it } from "vitest";
-import { outcomeOf, roundsAsCases, verdictOf, type BenchCase } from "./merge.ts";
+import { gateLines, gateRead, outcomeOf, roundsAsCases, verdictOf, type BenchCase, type BenchRun } from "./merge.ts";
 
 /** A small fixed spread of the ratios of the rounds: from -0.4 % to +0.4 %. */
 const jitter = (round: number): number => 1 + 0.002 * ((round % 5) - 2);
@@ -38,5 +38,45 @@ describe("the verdict of the bench core for each case (K212, D114)", () => {
   it("keeps the verdicts of different results and of one run", () => {
     expect(verdictOf({ ...benchCase(1), different: "1 and 2" }, benchCase(1, 12))).toBe("different results");
     expect(verdictOf(benchCase(1), undefined)).toBe("one run only");
+  });
+});
+
+/** This function gives one run of the bench with one case. */
+function benchRun(run: string, item: BenchCase): BenchRun {
+  return { run, cpu: "x", node: "26", rounds: 12, cases: [item] };
+}
+
+describe("the gate of the claim not slower is report only (K225, D163)", () => {
+  it("flips to a block with an injected slowdown of 10 %, and the copy with no fault passes", () => {
+    const copy = gateRead([benchRun("1", benchCase(1)), benchRun("2", benchCase(1))]);
+    const fault = gateRead([benchRun("1", benchCase(1.1)), benchRun("2", benchCase(1.1))]);
+    expect(copy.outcome).toBe("pass");
+    expect(fault.outcome).toBe("block");
+    expect(fault.blocks).toEqual(["x"]);
+  });
+
+  it("does not block on one slow run: the claim needs its bound in each of 2 jobs", () => {
+    const gate = gateRead([benchRun("1", benchCase(1.1)), benchRun("2", benchCase(1))]);
+    expect(gate.outcome).toBe("no read");
+    expect(gate.noRead).toEqual(["x"]);
+  });
+
+  it("does not count an absent run as a read", () => {
+    const gate = gateRead([benchRun("1", benchCase(1)), undefined]);
+    expect(gate.outcome).toBe("no read");
+    expect(gateRead([undefined, undefined]).outcome).toBe("no read");
+  });
+
+  it("does not count a record without paired times as a read", () => {
+    const old: BenchCase = { name: "x", baseNs: 1, headNs: 1, change: 0, noise: 0 };
+    expect(gateRead([benchRun("1", old), benchRun("2", old)]).outcome).toBe("no read");
+  });
+
+  it("prints one line of counts, then the reason of each slower case", () => {
+    const pass = gateLines(gateRead([benchRun("1", benchCase(1)), benchRun("2", benchCase(1))]));
+    expect(pass).toEqual(["Gate (report only, D163): pass. 1 not slower, 0 slower, 0 no read."]);
+    const block = gateLines(gateRead([benchRun("1", benchCase(1.1)), benchRun("2", benchCase(1.1))]));
+    expect(block[0]).toBe("Gate (report only, D163): block. 0 not slower, 1 slower, 0 no read.");
+    expect(block).toHaveLength(2);
   });
 });
