@@ -4330,6 +4330,14 @@ So the top level is code that the JIT makes in the window of the measure, in som
 - The hash reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it. Both real arms use the name `src`. A different name reads as different arms, so it holds a merge and lifts no hold.
 - K233 holds the read of a dependency slowdown.
 
+## D168 (2026-11-05): both arms of Speed build under one resolved tsconfig
+
+**Context.** The base arm has no install, so its `tsconfig.json` cannot find the file that it extends. The tool esbuild only warns, and the head arm finds that file. So on a real kernel change the arms can differ because of the settings, and the reading blames the kernel.
+
+**Decision.** The function `bundle` gives esbuild the `tsconfig.json` of the head for both arms. A warning that a base file is missing stops the bundle. A test reads three things. A `tsconfig.json` beside a copy of the kernel has no effect. A changed setting changes the hash. A file that does not resolve stops the bundle.
+
+**Limits.** A pull request that changes `tsconfig.json` builds both arms under the new file. So Speed does not read the cost of that change. This is the same limit as a dependency in D166.
+
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
 **Context.** S1f, from S1 (D31). A schedule gave each node the one context of the host. One formula at each cell of a grid then needed the data of the cell in its document. Thus each cell had its own document, and each document compiled its own plan. `durable` keeps a plan for each document object and a result for each key, and its `evaluate` takes a context for each key (D30). Only the schedule gave a host no way to use this.
