@@ -97,7 +97,11 @@ const SKIPPED: unique symbol = /* @__PURE__ */ Symbol("skipped");
 
 /** The value of a name whose binding failed. A reference to the name gives the error. */
 export class Held {
-  constructor(readonly error: EvalError) {}
+  readonly error: EvalError;
+
+  constructor(error: EvalError) {
+    this.error = error;
+  }
 }
 
 const CLOSURE: unique symbol = /* @__PURE__ */ Symbol.for("coeval.closure") as never;
@@ -242,6 +246,36 @@ function isSignature(value: unknown): value is Signature {
   return typeof value === "object" && value !== null && Array.isArray((value as { readonly params?: unknown }).params) && Object.hasOwn(value, "to");
 }
 
+/** This function gives the signatures of an operation as the profile holds them, or `undefined` for no entry. */
+function rawSignatures(profile: FormulaProfile, name: string): readonly unknown[] | undefined {
+  const sigs = profile.sigs;
+  if (sigs === undefined) return undefined;
+  let found: unknown;
+  if (typeof sigs === "function") {
+    try {
+      found = sigs(name);
+    } catch {
+      return undefined;
+    }
+  } else {
+    found = Object.hasOwn(sigs, name) ? sigs[name] : undefined;
+  }
+  if (found === undefined) return undefined;
+  return Array.isArray(found) ? found : [found];
+}
+
+/**
+ * This function gives each signature of an operation that has the form of a signature, for `conforms` (D137). The
+ * kernel does not export the function.
+ *
+ * @param profile - The profile.
+ * @param name - The name of the operation.
+ * @returns The signatures.
+ */
+export function signaturesOf(profile: FormulaProfile, name: string): readonly Signature[] {
+  return (rawSignatures(profile, name) ?? []).filter(isSignature);
+}
+
 /** This function tells if two signatures have the same parameters and the same rest parameter. */
 function sameParams(a: Signature, b: Signature): boolean {
   if (!docEquals(a.params, b.params)) return false;
@@ -329,22 +363,7 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
   };
   const logicValue = profile.logic === "value";
   const otherwise = Object.hasOwn(profile, "otherwise") ? valueType(profile.otherwise) : "null";
-  const lookup = (name: string): readonly unknown[] | undefined => {
-    const sigs = profile.sigs;
-    if (sigs === undefined) return undefined;
-    let found: unknown;
-    if (typeof sigs === "function") {
-      try {
-        found = sigs(name);
-      } catch {
-        return undefined;
-      }
-    } else {
-      found = Object.hasOwn(sigs, name) ? sigs[name] : undefined;
-    }
-    if (found === undefined) return undefined;
-    return Array.isArray(found) ? found : [found];
-  };
+  const lookup = (name: string): readonly unknown[] | undefined => rawSignatures(profile, name);
   const nameOf = (input: TypeInput): string => input.typePath.slice(1).join(".");
   /** The signatures of an operation. Each type of a signature is a contract, thus the check examines it one time. */
   const signatures = (input: TypeInput): { readonly sigs: readonly Signature[]; readonly bad: boolean } | undefined => {
@@ -644,6 +663,29 @@ export function declaredTruthOf(code: unknown): DeclaredTruth | undefined {
   return (typeof code === "object" || typeof code === "function") && code !== null ? truthByCode.get(code) : undefined;
 }
 
+/** An evaluator of the kit that reads functions of a profile: its name, and the fields of the profile (D137). */
+export interface ProfileReader {
+  readonly name: string;
+  readonly profile: FormulaProfile;
+}
+
+/** The evaluators of the kit that `conforms` examines the functions of a profile with. */
+const PROFILE_READERS: readonly string[] = ["formula.op", "formula.ext", "formula.record", "formula.ref"];
+
+/** The profile of each evaluator of the kit that reads its functions, for `conforms` (D137). */
+const readerByCode = /* @__PURE__ */ new WeakMap<object, ProfileReader>();
+
+/**
+ * This function gives the profile of an evaluator of the kit, when that evaluator reads functions of the profile
+ * (D137). The kernel does not export the function.
+ *
+ * @param code - The evaluator or the runner.
+ * @returns The name of the evaluator and the profile, or `undefined`.
+ */
+export function profileReaderOf(code: unknown): ProfileReader | undefined {
+  return (typeof code === "object" || typeof code === "function") && code !== null ? readerByCode.get(code) : undefined;
+}
+
 /** This function makes new evaluators of the formula kit for the fields of one profile. */
 function makeEvaluators(profile: FormulaProfile): Readonly<Record<string, Evaluator>> {
   const evaluators = formulaCode(profile);
@@ -656,6 +698,7 @@ function makeEvaluators(profile: FormulaProfile): Readonly<Record<string, Evalua
     const type = Object.hasOwn(types, name) ? types[name] : undefined;
     const made = Object.freeze(type === undefined ? evaluator : { compile: evaluator.compile, type });
     if (truth !== undefined && TRUTH_READERS.includes(name)) truthByCode.set(made, truth);
+    if (PROFILE_READERS.includes(name)) readerByCode.set(made, { name, profile });
     out[name] = made;
   }
   return Object.freeze(out);

@@ -16,10 +16,13 @@
  *
  * Node removes the types of this script. The job installs the packages, because the script imports the bench core.
  * The script fails when a run is absent or when a run found different results. A "slower" case does not fail it.
+ *
+ * The script also prints the gate of the claim "not slower by more than the margin" (K225, D163). This gate is report only.
  */
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { pooledVerdict, timeVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { notSlowerVerdict, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
 import { FAMILIES, limitsOf, limitsRecord, percentOf, type Family } from "./limits.ts";
 
 /** The measurement of one case in one run. The change and the noise are percents. */
@@ -56,7 +59,55 @@ export interface BenchRun {
   readonly rounds: number;
   /** The mode of the run. A record from before K199 has no mode. */
   readonly mode?: BenchMode;
+  /** The hash of the bundle of each arm. A record from before K232 has no hashes. */
+  readonly arms?: ArmHashes;
   readonly cases: readonly BenchCase[];
+}
+
+/** The hash of the bundle of each arm in one job, each with `cases.ts` (K232, D166). */
+export interface ArmHashes {
+  readonly base: string;
+  readonly head: string;
+}
+
+/** The lines where esbuild names a source file. The folder of an arm changes these lines and no code. */
+const PATH_COMMENT = /^\/\/ .*\.(?:[cm]?[jt]sx?|json)$/gm;
+
+/**
+ * This function gives the hash of the code of a bundle, without the lines that name a source file.
+ * The hash also reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it.
+ * A different name reads as different arms, and this holds a merge.
+ */
+export function armHash(code: string): string {
+  return createHash("sha256").update(code.replace(PATH_COMMENT, "")).digest("hex");
+}
+
+/** The answer to the question "does a slower reading hold this merge under D117?". */
+export interface Hold {
+  readonly hold: boolean;
+  readonly line: string;
+}
+
+/**
+ * This function tells if a slower reading holds a merge (K232, D166). It reads the hashes of the bundles that the jobs
+ * ran, and no list of files. A slower reading does not hold a merge only when each run is complete and the two arms of
+ * each job have one hash. A run that is short or absent gives no such reading. It fails the job `verdict`, and `Speed OK`
+ * stays green, because `continue-on-error` makes that job read as a success.
+ */
+export function holdRead(slower: number, runs: readonly (BenchRun | undefined)[], complete: boolean): Hold {
+  if (!complete) return { hold: true, line: "Hold (D117): hold. A run is short or absent, so the arms give no reading." };
+  if (slower === 0) return { hold: false, line: "Hold (D117): no hold. 0 slower." };
+  const arms = runs.map((run) => run?.arms);
+  const hashes = arms.flatMap((item) => (item === undefined ? [] : [item.base, item.head]));
+  if (arms.length === 0 || arms.includes(undefined)) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and a run has no hashes of its arms.` };
+  if (new Set(hashes).size !== 1) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and the arms differ.` };
+  return { hold: false, line: `Hold (D117): no hold. ${String(slower)} slower on equal arms, a row of the A/A table: equal by construction.` };
+}
+
+/** This function gives the line with the hashes of the arms of each run. */
+export function armLine(runs: readonly (BenchRun | undefined)[]): string {
+  const parts = runs.map((run) => (run?.arms === undefined ? "no hashes" : `base ${run.arms.base.slice(0, 12)} head ${run.arms.head.slice(0, 12)}`));
+  return `Arms (K232): ${parts.join(", ")}.`;
 }
 
 /**
@@ -168,6 +219,27 @@ export function verdictRule(): string[] {
   ];
 }
 
+/**
+ * This function gives the gate of the claim "not slower by more than the margin" over the runs (K225, D163).
+ * The margin of each case comes from its family. The gate uses the looks of the bench core, so its level stays the level
+ * of a gate that takes more rounds, also when a run stops at the first look.
+ */
+export function gateRead(runs: readonly (BenchRun | undefined)[]): NotSlowerVerdict {
+  const jobs = runs.flatMap((run) =>
+    run === undefined ? [] : [{ job: run.run, candidate: run.cases.flatMap((item) => item.head ?? []), aa: run.cases.flatMap((item) => item.aa ?? []) }],
+  );
+  return notSlowerVerdict(jobs, { margin: (name) => limitsOf(name).options.margin ?? 0 });
+}
+
+/** This function gives the lines of the gate in the verdict: one line of counts, then the reason of each slower case. */
+export function gateLines(gate: NotSlowerVerdict): string[] {
+  const count = (read: NotSlowerVerdict["cases"][number]["read"]): string => String(gate.cases.filter((item) => item.read === read).length);
+  return [
+    `Gate (report only, D163): ${gate.outcome}. ${count("not slower")} not slower, ${count("slower")} slower, ${count("no read")} no read.`,
+    ...gate.cases.filter((item) => item.read === "slower").map((item) => `- ${item.reason}`),
+  ];
+}
+
 function main(): void {
   const files = process.argv.slice(2);
   const runs = [read(files[0]), read(files[1])];
@@ -190,15 +262,18 @@ function main(): void {
     lines.push(`| ${name} | ${cells(first)} | ${cells(second)} | ${verdict}${fallbackMark(name)} |`);
   }
   lines.push("", `Verdicts: ${[...counts].map(([verdict, count]) => `${String(count)} ${verdict}`).join(", ")}.`);
-  const text = lines.join("\n");
-  console.log(text);
-  const summary = process.env["GITHUB_STEP_SUMMARY"];
-  if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths: the verdict of two runs\n\n${text}\n`);
   const short = runs.flatMap((run, index) =>
     run !== undefined && (run.cases.length === 0 || run.cases.length < names.length)
       ? [`${files[index] ?? `run ${String(index + 1)}`} has ${String(run.cases.length)} of ${String(names.length)} cases.`]
       : [],
   );
+  const complete = !runs.includes(undefined) && short.length === 0 && names.length > 0 && !counts.has("different results");
+  lines.push("", ...gateLines(gateRead(runs)));
+  lines.push("", armLine(runs), holdRead(counts.get("slower") ?? 0, runs, complete).line);
+  const text = lines.join("\n");
+  console.log(text);
+  const summary = process.env["GITHUB_STEP_SUMMARY"];
+  if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths: the verdict of two runs\n\n${text}\n`);
   for (const line of short) console.error(`::error::${line}`);
   if (names.length === 0) console.error("::error::The two run files have no cases.");
   if (runs.includes(undefined) || short.length > 0 || names.length === 0 || counts.has("different results")) process.exitCode = 1;

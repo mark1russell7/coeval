@@ -83,7 +83,11 @@ const SEED = Number(process.env["COEVAL_AGREE_SEED"] ?? 1);
 /* The values of the contexts: hard leaves, an envelope, a reference, a cycle, and host things with and without resolve. */
 
 class Box {
-  constructor(readonly v: unknown) {}
+  readonly v: unknown;
+
+  constructor(v: unknown) {
+    this.v = v;
+  }
 }
 
 function thing(label: string, fields: Readonly<Record<string, unknown>>, withResolve: boolean, type?: string): HostThing {

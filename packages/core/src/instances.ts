@@ -504,7 +504,22 @@ function rungReads(b: Builder, id: string): void {
     collectReads(b, node, key, collect, later);
     return;
   }
-  if (declared?.default !== undefined) termReads(b, termRefs(b, node.kind, `tree.attributes.${key}.default`, declared.default), node, undefined, later);
+  if (declared?.default !== undefined) {
+    termReads(b, termRefs(b, node.kind, `tree.attributes.${key}.default`, declared.default), node, undefined, later);
+    return;
+  }
+  // The document of a higher-order attribute is known only in the run, thus its reads are not known (TREE.HIGHER-CHECK).
+  if (declared?.higher !== undefined) {
+    termReads(b, termRefs(b, node.kind, `tree.attributes.${key}.higher`, declared.higher), node, undefined, later);
+    edge(b, undefined, later);
+    return;
+  }
+  // The last rung reads the attribute `forwards` and an attribute of a node that only the run knows (TREE.FORWARD-CHECK).
+  const forwards = tree?.forwards;
+  if (typeof forwards === "string" && forwards !== key) {
+    edge(b, vertexOf(b, node, forwards), later);
+    edge(b, undefined, later);
+  }
 }
 
 /** This function gives the list children of a node before the run. A node without a rung for it has no children. */
