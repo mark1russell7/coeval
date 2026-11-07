@@ -18,7 +18,19 @@ import {
 import { Failure } from "./errors.ts";
 import { type Cap, type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
-import { type AttributeDeclaration, type CircularRule, type TreeContract, atArgsOf, atRuleOf, circularOf, collectOf, equationType, lookupKind } from "./world.ts";
+import {
+  type AttributeDeclaration,
+  type CircularRule,
+  type TreeContract,
+  GENERATION_LIMIT,
+  atArgsOf,
+  atRuleOf,
+  circularOf,
+  collectOf,
+  documentKey,
+  equationType,
+  lookupKind,
+} from "./world.ts";
 import { STD_DOMAINS } from "./types.ts";
 import type { SyntaxProfile } from "./syntax.ts";
 
@@ -78,6 +90,11 @@ export const STD_WORLD: World = {
           verbs: { step: "walk.tree.at", view: "view.card" },
           pure: true,
           summary: "A step of a path: it reads an attribute with parameters of the node before it, with the arguments of the step (TREE.AT).",
+        },
+        quote: {
+          verbs: { eval: "data.quote", view: "view.value" },
+          pure: true,
+          summary: "A document as data. Its value is the result, and nothing in it evaluates. A higher-order attribute uses it (TREE.HIGHER).",
         },
       },
     },
@@ -183,6 +200,7 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "nearest", kind: "nearest", args: "named", fields: ["type", "follow", "self"] },
       { name: "tree.named", kind: "tree.named", args: "named", fields: ["name", "in"] },
       { name: "tree.at", kind: "tree.at", args: "named", fields: ["attr", "args"] },
+      { name: "tree.quote", kind: "tree.quote", args: "literal" },
       // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
       { name: "add", kind: "add" },
       { name: "multiply", kind: "multiply" },
@@ -224,6 +242,7 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
   "data.number": /* @__PURE__ */ dataOf("number"),
   "data.text": /* @__PURE__ */ dataOf("string"),
   "data.bool": /* @__PURE__ */ dataOf("boolean"),
+  "data.quote": ({ data }) => ok(data ?? null),
   "math.add": ({ parts }) => {
     const all = allValues(parts.map((part) => part.evaluate()));
     if ("error" in all) return all.error;
@@ -271,10 +290,10 @@ interface TreeBuild {
 }
 
 /** The rungs of the ladder of an attribute, in their order (TREE.LADDER, D42). */
-export type AttributeRung = "own" | "kind" | "parent" | "copy" | "default";
+export type AttributeRung = "own" | "kind" | "parent" | "copy" | "default" | "forward";
 
 /** The rungs of the ladder of an attribute, in their order (TREE.LADDER, D42). */
-export const ATTRIBUTE_RUNGS: readonly AttributeRung[] = /* @__PURE__ */ Object.freeze(["own", "kind", "parent", "copy", "default"] as const);
+export const ATTRIBUTE_RUNGS: readonly AttributeRung[] = /* @__PURE__ */ Object.freeze(["own", "kind", "parent", "copy", "default", "forward"] as const);
 
 /** The record of the demand of one attribute of a node (TREE.RUNGS). */
 export interface AttributeTrace {
@@ -1000,6 +1019,106 @@ function atRead(n: NodeState, attr: string, args: unknown): Result | undefined {
   return answer.result;
 }
 
+/** The most documents and the most characters of the keys in the table of generated documents. */
+const INTERNED_DOCUMENTS = 1000;
+const INTERNED_CHARACTERS = 16_000_000;
+
+/** The first document of each structural key (TREE.HIGHER-PLAN, D126). */
+const internedDocuments = /* @__PURE__ */ new Map<string, Json>();
+
+/** The kept document of each document object. An object gets its key one time, as PLAN.CACHE says. */
+const internedObjects = /* @__PURE__ */ new WeakMap<object, Json>();
+
+/** The characters of the keys of `internedDocuments`. */
+let internedCharacters = 0;
+
+/**
+ * This function gives the one object of a document (TREE.HIGHER-PLAN, D126). `equationPlan` caches by object, thus a
+ * new object with a known key compiles nothing. The table has a limit, and a full table starts again. A document that
+ * left the table compiles again, and that costs only time.
+ *
+ * @param doc - The value of an equation.
+ * @returns The document, or `undefined` for a value that is not JSON data.
+ */
+function internedDocument(doc: unknown): Json | undefined {
+  const object = typeof doc === "object" && doc !== null;
+  const known = object ? internedObjects.get(doc) : undefined;
+  if (known !== undefined) return known;
+  const key = documentKey(doc);
+  if (key === undefined) return undefined;
+  if (!object) return doc as Json;
+  let kept = internedDocuments.get(key);
+  if (kept === undefined) {
+    if (internedDocuments.size >= INTERNED_DOCUMENTS || internedCharacters + key.length > INTERNED_CHARACTERS) {
+      internedDocuments.clear();
+      internedCharacters = 0;
+    }
+    kept = doc as Json;
+    internedDocuments.set(key, kept);
+    internedCharacters += key.length;
+  }
+  internedObjects.set(doc, kept);
+  return kept;
+}
+
+/** The depth of each root of a generated document: the generated documents from the root of the tree to it (D126). */
+const generations = /* @__PURE__ */ new WeakMap<NodeState, number>();
+
+/** This function gives the depth of the nearest root of a generated document at or above a node of a tree, or 0. */
+function generationOf(node: HostThing, build: TreeBuild): number {
+  let thing: Thing | undefined = node;
+  for (let at = stateOf(thing); at?.build === build; at = stateOf(thing)) {
+    const depth = generations.get(at);
+    if (depth !== undefined) return depth;
+    thing = (thing as HostThing).deref("parent");
+  }
+  return 0;
+}
+
+/**
+ * This function gives a higher-order attribute of a node (TREE.HIGHER, D126). The equation gives a document as data.
+ * The document evaluates as an equation, with the node as `self`. Thus its root is a node under the node: it finds the
+ * open tree, and it has the node as its parent. The function is outside the code of `read`, as a fold is.
+ */
+function generated(n: NodeState, node: HostThing, key: string, term: Json): Result {
+  const value = n.equation(term, NO_NAMES);
+  if (!value.ok) return value;
+  const doc = internedDocument(value.value);
+  const text = attributeText(key, n.type, n.place);
+  if (doc === undefined) return fail("#VALUE!", `The equation of the higher-order attribute ${text} gives a value that is not JSON data.`);
+  const depth = generationOf(node, n.build) + 1;
+  if (depth > GENERATION_LIMIT) return fail("#DEPTH!", `The higher-order attribute ${text} is under more than ${GENERATION_LIMIT} generated documents.`);
+  const root = n.equation(doc, NO_NAMES);
+  if (!root.ok) return root;
+  const made = stateOf(root.value);
+  if (made === undefined) return fail("#VALUE!", `The document of the higher-order attribute ${text} gives no node of the tree.`);
+  generations.set(made, depth);
+  return root;
+}
+
+/**
+ * This function gives the last rung of the ladder (TREE.FORWARD, D126). The attribute `forwards` gives a node, and that
+ * node answers the attribute through its own ladder. The attribute `forwards` itself gets no such answer.
+ */
+function forwarded(n: NodeState, node: HostThing, key: string, name: unknown): { readonly result: Result; readonly by: AttributeRung } | undefined {
+  if (key === name) return undefined;
+  const text = attributeText(key, n.type, n.place);
+  if (typeof name !== "string") return { result: fail("#VALUE!", `The attribute ${text} has a contract with a bad field forwards. It must be a text.`), by: "forward" };
+  const target = n.read(name);
+  if (target === undefined) return undefined;
+  if (!target.ok) return { result: target, by: "forward" };
+  const to = stateOf(target.value);
+  if (to === undefined) return { result: fail("#VALUE!", `The attribute ${name} that ${text} forwards to gives no node of a tree.`), by: "forward" };
+  // An equation can give a node without a declaration higher, thus the rung counts each node that it reaches.
+  if (!generations.has(to)) {
+    const depth = generationOf(node, n.build) + 1;
+    if (depth > GENERATION_LIMIT) return { result: fail("#DEPTH!", `The attribute ${text} forwards through more than ${GENERATION_LIMIT} generated documents.`), by: "forward" };
+    generations.set(to, depth);
+  }
+  const result = to.read(key);
+  return result === undefined ? undefined : { result, by: "forward" };
+}
+
 /**
  * This function makes a node of the decorated tree. A step `parent` gives the self of the context of the node, and a
  * step `type` gives its type. Another step reads an attribute through its ladder (TREE.LADDER). The rungs are a part of
@@ -1065,7 +1184,8 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
     if (declared?.fold !== undefined) return { result: fold(key, declared.fold), by: "default" };
     if (declared?.collect !== undefined) return { result: collected(node, key, declared.collect), by: "default" };
     if (declared?.default !== undefined) return { result: state.equation(declared.default, NO_NAMES), by: "default" };
-    return undefined;
+    if (declared?.higher !== undefined) return { result: generated(state, node, key, declared.higher), by: "default" };
+    return tree?.forwards === undefined ? undefined : forwarded(state, node, key, tree.forwards);
   };
 
   /**
@@ -1162,7 +1282,9 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
     trace(key) {
       const cell = cells.get(key);
       if (cell === undefined || cell.busy) return undefined;
-      const rungs = cell.by === undefined ? ATTRIBUTE_RUNGS : ATTRIBUTE_RUNGS.slice(0, ATTRIBUTE_RUNGS.indexOf(cell.by) + 1);
+      // The last rung is on the way only for a kind with the field forwards.
+      const end = cell.by === undefined ? ATTRIBUTE_RUNGS.length - (tree?.forwards === undefined ? 1 : 0) : ATTRIBUTE_RUNGS.indexOf(cell.by) + 1;
+      const rungs = ATTRIBUTE_RUNGS.slice(0, end);
       return cell.by === undefined ? { attribute: key, rungs } : { attribute: key, rungs, by: cell.by };
     },
     json(path) {

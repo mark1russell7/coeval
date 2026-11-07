@@ -1,5 +1,5 @@
 import type { Context } from "./deref.ts";
-import type { Result } from "./errors.ts";
+import { type Result, overflowCount } from "./errors.ts";
 import { type Machine, type Plan, type PrepareOptions, type Read, prepare } from "./evaluate.ts";
 import { type DocFacts, type FactsOptions, factsOf } from "./facts.ts";
 import { type PrintOptions, type ReadPrints, type VerifyOptions, printReads, verifyReads } from "./reads.ts";
@@ -126,20 +126,24 @@ const NO_READS: readonly Read[] = /* @__PURE__ */ Object.freeze([]);
 /** The key of the document `-0` in a cache of value documents. A `Map` finds the entry of `0` for `-0`. */
 const NEGATIVE_ZERO = /* @__PURE__ */ Symbol("coeval.negative-zero");
 
-/** This function makes a cache by document. A document object gives its value one time, as PLAN.CACHE says. */
-function byDocument<T>(make: (doc: unknown) => T): (doc: unknown) => T {
+/**
+ * This function makes a cache by document. A document object gives its value one time, as PLAN.CACHE says. A value
+ * that `lasts` refuses stays out of the cache, and the next call makes it again.
+ */
+function byDocument<T>(make: (doc: unknown) => T, lasts?: () => boolean): (doc: unknown) => T {
   const objects = new WeakMap<object, T>();
   const values = new Map<unknown, T>();
   return (doc) => {
     if (typeof doc === "object" && doc !== null) {
       if (objects.has(doc)) return objects.get(doc) as T;
       const made = make(doc);
-      objects.set(doc, made);
+      if (lasts === undefined || lasts()) objects.set(doc, made);
       return made;
     }
     const key = Object.is(doc, -0) ? NEGATIVE_ZERO : doc;
     if (values.has(key)) return values.get(key) as T;
     const made = make(doc);
+    if (lasts !== undefined && !lasts()) return made;
     if (values.size >= MAX_VALUES) values.clear();
     values.set(key, made);
     return made;
@@ -180,11 +184,19 @@ export function durable(machine: Machine, options: DurableOptions = {}): Durable
   const results = new Map<unknown, Entry>();
   let current = machine;
   let epochs: Epochs = { structure: 0, data: 0 };
-  const plansOf = (m: Machine): ((doc: unknown) => Plan) =>
-    byDocument((doc) => {
-      counts.compiles += 1;
-      return prepare(m, doc, prepareOptions);
-    });
+  const plansOf = (m: Machine): ((doc: unknown) => Plan) => {
+    let before = 0;
+    // A compilation near the limit of the stack gives a plan that fails. That failure depends on the depth of the
+    // demand, not on the document, thus such a plan stays out of the cache (SCHED.DEEP-CYCLE-CHANGE).
+    return byDocument(
+      (doc) => {
+        counts.compiles += 1;
+        before = overflowCount();
+        return prepare(m, doc, prepareOptions);
+      },
+      () => overflowCount() === before,
+    );
+  };
   const factsFor = (m: Machine): ((doc: unknown) => DocFacts) =>
     byDocument((doc) => {
       counts.facts += 1;

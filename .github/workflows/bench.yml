@@ -4,6 +4,10 @@
 # The bench core @mark1russell7/rigor-bench starts the processes and gives the verdict of each case (K212, D114).
 # The jobs only print numbers, in their logs and in their summaries. They do not block a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
+# A green "Speed OK" does not say that the code is not slower: no code line fails it on a slower case.
+# The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms build with one
+# install, so such a run does not read a slowdown from a dependency (K232, D166). The root package.json is not on the
+# filter: it holds the pnpm version, and that version changes nothing that the arms run unless the lock file moves.
 name: Speed
 
 on:
@@ -15,6 +19,13 @@ on:
       base:
         description: The commit to compare with
         default: origin/main
+      # A control run gives more rounds and more jobs, to read how the job-to-job spread compares with a margin (K225).
+      rounds:
+        description: The rounds of each job
+        default: "12"
+      jobs:
+        description: The jobs, as a JSON list of numbers
+        default: "[1, 2]"
 
 permissions:
   contents: read
@@ -23,6 +34,10 @@ permissions:
 concurrency:
   group: bench-${{ github.ref }}-${{ inputs.base }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   changes:
@@ -33,14 +48,34 @@ jobs:
       pull-requests: read
     outputs:
       match: ${{ steps.changes.outputs.match }}
+    env:
+      GATE_PATHS: |
+        packages/core/src/**
+        packages/core/bench/**
+        .github/workflows/bench.yml
+        pnpm-lock.yaml
+        packages/core/package.json
+        packages/core/tsconfig.json
+        pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@c8d2f57af6932442af82d2f2223931e47c11beb1 # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
-          paths: |
-            packages/core/src/**
-            packages/core/bench/**
-            .github/workflows/bench.yml
+          paths: ${{ env.GATE_PATHS }}
+      # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
+      # A list with no lock file reads false, so each line of the check can fail (K232, D166).
+      - name: The filter on fixtures (K232, D166)
+        run: |
+          rules=("${RUNNER_WORKSPACE%/*}"/_actions/mark1russell7/template/*/.github/actions/changes/match.jq)
+          if [ "${#rules[@]}" != 1 ] || [ ! -f "${rules[0]}" ]; then echo "::error::No single match.jq of the action changes."; exit 1; fi
+          check() {
+            got=$(printf '%s\n' "$3" | jq -R -s -r --arg paths "$2" --arg ignore "" -f "${rules[0]}")
+            echo "FIXTURE $1: $got"
+            if [ "$got" != "$4" ]; then echo "::error::The filter reads $got for $1, not $4."; exit 1; fi
+          }
+          check "the lock file" "$GATE_PATHS" pnpm-lock.yaml true
+          check "a docs file" "$GATE_PATHS" docs/ROADMAP.md false
+          check "the lock file with no lock line" "$(printf '%s\n' "$GATE_PATHS" | grep -v '^pnpm-lock.yaml$')" pnpm-lock.yaml false
 
   bench:
     needs: changes
@@ -48,13 +83,14 @@ jobs:
     name: bench (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     # The fresh runner starts four processes for each case and round (D114), thus the job gets more time.
-    timeout-minutes: 15
+    # A dispatch with more rounds gets 60 minutes.
+    timeout-minutes: ${{ fromJSON(inputs.rounds || '12') > 12 && 60 || 15 }}
     continue-on-error: true
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        run: [1, 2]
+        run: ${{ fromJSON(inputs.jobs || '[1, 2]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,6 +110,7 @@ jobs:
         run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts
         env:
           BENCH_RUN: ${{ matrix.run }}
+          BENCH_ROUNDS: ${{ inputs.rounds || '12' }}
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
       # A run with different results also gives its table to the verdict.
       # The records stay 90 days, because the limits of the verdict come from them (K214, D117).
@@ -112,13 +149,13 @@ jobs:
 
   speed-ok:
     name: Speed OK
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [changes, bench, verdict]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
     steps:
-      - uses: mark1russell7/template/.github/actions/gate-summary@c8d2f57af6932442af82d2f2223931e47c11beb1 # main
+      - uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           needs: ${{ toJSON(needs) }}
           allow-skip: verdict
