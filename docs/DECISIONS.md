@@ -4391,6 +4391,25 @@ One run of the 379 gave a server error, and the count does not read it.
 
 **Limits.** A pull request that changes `tsconfig.json` builds both arms under the new file. So Speed does not read the cost of that change. This is the same limit as a dependency in D166.
 
+## D165 (2026-11-05): the share gate reads the parts of a split test as one group, first as a report
+
+**Context.** K231. K230 split a test under the rule of D96. The largest share went from 0.602 to 0.078, and the split saved no time. Any slow test can pass the gate in the same way. A real cost can then hide behind a split.
+
+**Decision.**
+
+- The function `groupsOf` of `vitest.share.ts` reads the parts of each split test as one group. A part has a name that ends in the name that `corpus` gives.
+- Each group has its total time, its number of parts and its share of the timeout of one part. It also has its fraction of the time of all tests of the run.
+- In CI, the reporter prints each group in the log. This step is a report, and it does not fail a run.
+- The limit of a group and its flip test come in a second step, by 2026-11-12. That limit comes from 5 or more CI runs, with the run ids and the formula beside it.
+- That step also states the meaning of the limit. A larger corpus is a fair reason for a larger share, so one limit in timeouts for all groups does not fit.
+
+**Rejected.**
+
+- A limit in this step. The log of a past run has no time for a part under 300 ms. It also has no time for all tests. So no past run gives the numbers.
+- A limit of the share of one part, multiplied by the number of parts. Each part already passes that limit, so it adds no check.
+
+**Why.** The share of a test finds a test that grows toward its timeout. It does not tell the cost of a corpus. The group gives that cost, and the fraction removes most of the speed of the runner.
+
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
 **Context.** S1f, from S1 (D31). A schedule gave each node the one context of the host. One formula at each cell of a grid then needed the data of the cell in its document. Thus each cell had its own document, and each document compiled its own plan. `durable` keeps a plan for each document object and a result for each key, and its `evaluate` takes a context for each key (D30). Only the schedule gave a host no way to use this.
