@@ -76,9 +76,11 @@ export function groups(names: readonly string[]): number[][] {
 }
 
 const CASES_FILE = fileURLToPath(new URL("./cases.ts", import.meta.url));
+/** The one tsconfig of both arms. The base arm has no install, so its own file cannot find the file that it extends (K234). */
+const TSCONFIG = fileURLToPath(new URL("../tsconfig.json", import.meta.url));
 
-/** This function bundles the cases with one copy of the kernel. */
-export async function bundle(kernelFile: string, name: string, dir: string): Promise<string> {
+/** This function bundles the cases with one copy of the kernel, under one tsconfig. A tsconfig that does not resolve stops it. */
+export async function bundle(kernelFile: string, name: string, dir: string, tsconfig: string = TSCONFIG): Promise<string> {
   const outfile = join(dir, `${name}.mjs`);
   const kernel = resolveFile(kernelFile);
   const copy: Plugin = {
@@ -87,7 +89,9 @@ export async function bundle(kernelFile: string, name: string, dir: string): Pro
       builder.onResolve({ filter: /^\.\.\/src\/index\.ts$/ }, (args) => (resolveFile(args.importer) === CASES_FILE ? { path: kernel } : undefined));
     },
   };
-  await build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", plugins: [copy] });
+  const { warnings } = await build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, plugins: [copy] });
+  const unresolved = warnings.filter((warning) => warning.text.includes("Cannot find base config file"));
+  if (unresolved.length > 0) throw new Error(`The tsconfig of the arms does not resolve: ${unresolved.map((warning) => warning.text).join(" ")}`);
   return outfile;
 }
 
