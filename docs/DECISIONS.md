@@ -4391,6 +4391,25 @@ One run of the 379 gave a server error, and the count does not read it.
 
 **Limits.** A pull request that changes `tsconfig.json` builds both arms under the new file. So Speed does not read the cost of that change. This is the same limit as a dependency in D166.
 
+## D165 (2026-11-05): the share gate reads the parts of a split test as one group, first as a report
+
+**Context.** K231. K230 split a test under the rule of D96. The largest share went from 0.602 to 0.078, and the split saved no time. Any slow test can pass the gate in the same way. A real cost can then hide behind a split.
+
+**Decision.**
+
+- The function `groupsOf` of `vitest.share.ts` reads the parts of each split test as one group. A part has a name that ends in the name that `corpus` gives.
+- Each group has its total time, its number of parts and its share of the timeout of one part. It also has its fraction of the time of all tests of the run.
+- In CI, the reporter prints each group in the log. This step is a report, and it does not fail a run.
+- The limit of a group and its flip test come in a second step, by 2026-11-12. That limit comes from 5 or more CI runs, with the run ids and the formula beside it.
+- That step also states the meaning of the limit. A larger corpus is a fair reason for a larger share, so one limit in timeouts for all groups does not fit.
+
+**Rejected.**
+
+- A limit in this step. The log of a past run has no time for a part under 300 ms. It also has no time for all tests. So no past run gives the numbers.
+- A limit of the share of one part, multiplied by the number of parts. Each part already passes that limit, so it adds no check.
+
+**Why.** The share of a test finds a test that grows toward its timeout. It does not tell the cost of a corpus. The group gives that cost, and the fraction removes most of the speed of the runner.
+
 ## D169 (2026-11-06): a row of `changed-results.json` accepts a result that changes on purpose, and the fresh runner times the case
 
 **Context.** K237, from D167. Two copies with different results in a case do not do the same work, so `Speed OK` goes red. A pull request that changes a result on purpose then had one path: a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads it. Each bench has this question, so the rule went to `@mark1russell7/rigor-bench` 0.2.23 first (`resultRows`, `resultVerdict`).
