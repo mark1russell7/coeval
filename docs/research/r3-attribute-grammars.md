@@ -346,6 +346,8 @@ Suppose that the equation of `text` for `height` reads `["self", "parent", "heig
 
 ## Open questions
 
+D175 gives the answer to each question.
+
 1. **Structural steps.** D10 makes `parent` and `children` field steps of a node. D12 uses step documents for moves, because a record can have a field with the name of a move. Does the kit reserve `parent`, `children`, `index`, `prev` and `next`, or does it give them as step documents?
 2. **Inherited reads.** Is `["self", "width"]` through the parent rung the one form? Or does `["self", "parent", "width"]` stay as a second form? The two forms agree only when the parent has no `down` equation for `width`.
 3. **Rungs.** Does the ladder of the kernel (`RUNGS` in `ladder.ts`) get the rungs `parent` and `copy`? Or does the kit keep its own trace type? The explorer draws the ladder of `ask` at this time.

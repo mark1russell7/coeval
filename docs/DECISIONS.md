@@ -4342,6 +4342,7 @@ So the top level is code that the JIT makes in the window of the measure, in som
 - A step in each filter job gives the rules of the pinned action a list of files. The lock file reads true, a docs file reads false, and the lock file reads false for a list with no lock line.
 - Each Speed job records the hash of the bundle of each arm, with `cases.ts`. The script `merge.ts` prints the hashes and the line `Hold (D117)`.
 - A slower reading does not hold a merge only when each run is complete and all hashes of the two jobs are equal. A list of files has no part in this reading.
+- Changed by D173 (K239): under a hold, `Speed OK` is red, unless a record in `bench/accepted` accepts each slower case on that head.
 - Each such row goes in the A/A table with the mark "equal by construction". A count keeps those rows apart from the rows with equal code on other pull requests.
 
 **Rejected.**
@@ -4351,7 +4352,7 @@ So the top level is code that the JIT makes in the window of the measure, in som
 
 **Limits.**
 
-- The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
+- Until D173, the hold was a reading, and no code line blocked the merge. A merge of L1a (#297) went in under a hold, and K238 followed. D173 ends this limit.
 - Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). So a short or absent run left `Speed OK` green. D167 ends this.
 - The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
 - A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
@@ -4379,7 +4380,7 @@ One run of the 379 gave a server error, and the count does not read it.
 
 **Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a finding and not an absent read. On equal arms it is a fault of determinism. On different arms, a changed result can explain it, and the reason says which. 
 
-**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints.
+**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints. D169 is this acceptance.
 
 **History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
 
@@ -4410,6 +4411,23 @@ One run of the 379 gave a server error, and the count does not read it.
 - A limit of the share of one part, multiplied by the number of parts. Each part already passes that limit, so it adds no check.
 
 **Why.** The share of a test finds a test that grows toward its timeout. It does not tell the cost of a corpus. The group gives that cost, and the fraction removes most of the speed of the runner.
+
+## D169 (2026-11-06): a row of `changed-results.json` accepts a result that changes on purpose, and the fresh runner times the case
+
+**Context.** K237, from D167. Two copies with different results in a case do not do the same work, so `Speed OK` goes red. A pull request that changes a result on purpose then had one path: a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads it. Each bench has this question, so the rule went to `@mark1russell7/rigor-bench` 0.2.23 first (`resultRows`, `resultVerdict`).
+
+**Decision.**
+
+- A row of `packages/core/bench/changed-results.json` names the case, the result hash of the base, the result hash of the head, and a reason. The function `resultHash` of `merge.ts` gives each hash: the first 16 hexadecimal digits of the SHA-256 of the result text. The run and the rows use this one function.
+- `paths.ts` reads the rows of the base and of the head, each from its own tree, and gives them to `resultVerdict`. A base without the file has no rows.
+- A new row of the exact hashes accepts the change. The fresh runner then times the case as each other case, with head and A/A pairs and its time verdict. The table marks the case "accepted change", and the log prints the line of the row.
+- A change with no row, a spent row or a row of other hashes is refused. The case gets no time, and the run fails with the line of `resultVerdict`. A refused line with no row gives the row to add.
+- A row of the base is spent and accepts nothing. A new row is a fault of the run when it accepts no change, or when the run has no such case. `merge.ts` adds it to the faults, so `Speed OK` goes red.
+- The run record keeps the verdict of the rows (`results`). `merge.ts` prints its lines one time under "Changed results (K237)".
+
+**The flip.** `bench/changed.test.ts` makes a head kernel whose `context` reads the name `x` one higher. So `FORMULA.SPEED formula` gives 5 and not 4. A real run with a new row of the two hashes passes, and the fresh runner times the case with different arm hashes. With no row, a spent row or a row of another head, the run fails and times nothing. A new row on equal results is a fault.
+
+**What does not change.** The rule reads results only, so an accepted change buys no time reading. The mode run `mode.ts` keeps its own read of different results, because it compares two modes of one copy.
 
 ## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
 
@@ -4689,6 +4707,34 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 
 **Why.** A gate holds each gain only when it reads each change that the arms run. A new version of esbuild changes the code of the arms, and Speed reads it as a change from this decision on.
 
+## D173 (2026-11-07): a hold turns `Speed OK` red, unless a record of the pull request accepts each slower case
+
+**Context.** K239, from K238. D166 made a hold a reading: `Speed OK` stayed green, and only a person who read the line `Hold (D117)` kept a merge back. L1a (#297) merged under a hold. Its verdict read `factsOf a tree with an equation` slower in both runs, by 16.4 % and 14.6 %, on different arms. The release of that version followed, and K238 found the cost after the release. A person who reads a line is not a gate.
+
+**Decision.**
+
+- A slower case under a hold gives the state `held`, and `Speed OK` is red.
+- A record in the folder `packages/core/bench/accepted` accepts one slower case. A file is a list of records, and its name is the number of the pull request, for example `301.json`.
+- A record has five fields of text: `case`, `head`, `cost`, `reason` and `owner`. The field `head` holds 12 to 64 characters of the hash of the head arm, as the line `Arms (K232)` prints it.
+- A record accepts a case only when it has the name of the case, and the head arm of each run starts with its hash. When each slower case has such a record, the state is `accepted`. `Speed OK` is green, and its line names each record with its cost, its owner and its reason.
+- A file that is not a list of correct records is a fault, and the state is `no read`. Thus a record with an empty field stops the run.
+- A slower case on equal arms stays report only, as D166 says. Such a reading is noise of the method, and it needs no record.
+
+**Why a hash of the head.** A record on `main` must not accept a later change. The next change of the kernel gives another hash of the head arm, thus the record accepts nothing more. The file stays on `main` as the trail of the cost, and a score can read it. A merge of `main` with a change of the kernel also changes the hash, thus the record names the code that the run measured.
+
+**Alternatives.**
+
+- A label on the pull request. A label leaves no trail in the tree, and a label of an earlier head stays on a later head.
+- A record with the number of the pull request and no hash. A dispatch has no pull request, and a record stays valid after a change of the code.
+
+**Limits.**
+
+- The record reads the hash of the head arm only. A change of the base with the same head gives the same hash, and the record still accepts the case. The cost on the new base is then not read.
+- The folder of the records is in the tree of the head. A pull request can thus accept its own cost. The owner, the cost and the reason are in the diff, and the review of the pull request reads them.
+- The tests start the real script of the verdict with a folder of records from `BENCH_ACCEPTED`. They cover no hold, a hold with a record, and a hold with no record. A CI run of a real hold with a record is still to come.
+
+**Why.** A gate holds each gain only when it is code. A record is the cheap path for a hold from noise on different arms, and it leaves a trail for a score.
+
 ## D174 (2026-11-07): a group of parts above 0.0359 of the test time fails a run of all tests
 
 **Context.** K231, the second step of D165. The reporter printed each group of split parts, as a report only. A split lowers the share of each part and saves no time, thus a slow test passed the gate of D96 after a split.
@@ -4716,3 +4762,23 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - The limit does not find the test of K230 as it is today, because that group is the top group of the five runs. It finds each growth above that level.
 
 **Why.** A gate holds each gain only when it is code. The fraction is a share of a time in its own run, thus a slow runner does not move it much.
+
+## D175 (2026-11-07): the tree kit is complete, and each open question of R3 has an answer
+
+**Context.** L2, from R3. L2a to L2i gave the nine proposals of R3 (D16, D42, D106, D107, D108, D113, D122, D124, D126). The seven open questions of R3 had no record of their answers, thus L2 stayed open.
+
+**Decision.** L2 is done. This record gives the answer to each open question of R3.
+
+1. **Structural steps.** A node reserves only the steps `parent` and `type` (D16). `index` and `prev` are names of an equation of `down`, not steps (D42). `next` follows the same rule. Thus a record keeps each other field name.
+2. **Inherited reads.** The two forms stay, and they read two attributes. `["self", "width"]` reads the attribute of the node through the ladder of D42. `["self", "parent", "width"]` reads the attribute of the parent. A declaration `copy` makes the first form fall back to the second when no nearer rung answers (TREE.COPY).
+3. **Rungs.** The kernel keeps its trace. `attributeTrace` of the tree kit gives the rungs (TREE.RUNGS, D42).
+4. **Declarations.** Each declaration is in the contract `tree` of its kind, not in the spec of a kit (D42, D14).
+5. **Circularity.** A declared circular attribute evaluates to a fixed point, and each other cycle gives `#CYCLE!` (D113).
+6. **A store of named nodes.** The schedule of D31 keeps named nodes without the rungs of a tree. It uses the same analysis `graph.ts` as the graph of attribute instances (D107). Thus the two layers share one cycle finder.
+7. **A tree space.** Coeval gives no space. A space is a host: its things and its walkers (DEREF.HOST, D10). The test `positions.test.ts` gives a space of rows in this form. A tree space with a zipper is the work of the language that uses it, on the same interface.
+
+**Alternatives.** Keep L2 open until a language asks for a tree space. That gives no work to coeval, thus the item only blocks the view of the roadmap.
+
+**Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
+
+**Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
