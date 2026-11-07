@@ -4352,11 +4352,36 @@ So the top level is code that the JIT makes in the window of the measure, in som
 **Limits.**
 
 - The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
-- A short or absent run fails the job `verdict`, and `Speed OK` stays green. Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). A flip of `Speed OK` cannot read this value while that setting stays.
+- Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). So a short or absent run left `Speed OK` green. D167 ends this.
 - The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
 - A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
 - The hash reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it. Both real arms use the name `src`. A different name reads as different arms, so it holds a merge and lifts no hold.
 - K233 holds the read of a dependency slowdown.
+
+## D167 (2026-11-05): a crash, a short run or a missing arm turns Speed OK red
+
+**Context.** The jobs `bench` and `verdict` had `continue-on-error` at the level of the job. Run 42034457935 reads `needs.<job>.result` as `success` for a failed job under this setting, and `gate-summary` ends `success` over it. So a crashed bench gave a green check on each merge.
+
+**Decision.**
+
+- A fault says nothing about noise, so it needs no limit study. A crash, a short run, a missing arm, no cases or different results turns `Speed OK` red at once, with the reason in its log.
+- The jobs `bench` and `verdict` lose the setting.
+- The job `verdict` writes the outputs `state` and `reason`. The state is `same`, `slower`, `no read` or `different results`. The script `speed-read.ts` gives the answer of the check, and an empty or unknown state is red.
+- A slower case and a `cannot decide` case stay report only until the flip of `Speed OK`.
+
+**Count of false blocks.** The count covers the 317 runs that started a bench in the 11.4 days of the list. Of these, 30 stopped because a new push cancelled them. Of the other 287, 5 had a fault, and this is 1.7 %.
+
+- Three are the time limit of the job, on 3 heads of one branch.
+- Two are different results, on 2 heads of one branch. The branch changed the result of the case on purpose, and its next head changed the case (K236). So these two are true reds, and no fault of determinism.
+- None is a fault of a runner, so this decision adds no retry.
+
+One run of the 379 gave a server error, and the count does not read it.
+
+**Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a finding and not an absent read. On equal arms it is a fault of determinism. On different arms, a changed result can explain it, and the reason says which. 
+
+**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints.
+
+**History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
 
 ## D168 (2026-11-05): both arms of Speed build under one resolved tsconfig
 
@@ -4584,6 +4609,42 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 - The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
 
 **Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
+
+## D146 (2026-11-04): a handler is a frame in the context, and a clause is a capability that the kernel gives
+
+**Context.** R2 P5 proposes a kind `handle` with clauses that run in place, and L1a takes it up. D27 left room for a rule `grant`. R2 names two risks: D10 lists five roots, and CAP.NARROW changes its wording.
+
+**Decision.**
+
+- The standard kind `handle` has the fields `with`, `body` and an optional `return`. Each item of `with` has `op` and one of `do` and `abort`.
+- A frame is a field of a context under a private symbol, as the grant is. It is not a root, thus D10 stays true.
+- A clause is a capability. The new rule `grant` of `Kind.caps` gives the body each kind of the clauses, and the kernel writes that grant (`RunPart.handled`).
+- The kernel asks the capabilities first and the frames second. Thus `mask`, `only` and the narrowing of an evaluator stop a handled effect with no new code (HANDLE.NARROW).
+- A frame ends with its body. An effect from a context that left the body gives `#CAP!`, and a frame of another evaluation counts as ended (HANDLE.ENDED).
+- A handled effect is not an effect of the host. It is not in the list of effects, in a log or in a replay. The effects of a clause are, at the place of the clause.
+- An abort sets the result in the frame, and the effect gives a failure that stops the body. `handle` then gives that result.
+
+**Alternatives.**
+
+- Frames before capabilities. A handled effect then needs no grant. But an effect in `pure` under `handle` gets a clause, and each narrowing needs a second filter for the frames.
+- A frame in `caps`. That changes the type `Cap`, and R2 rejects it.
+- A clause that keeps working after the capability check of its frame ends, as a deep handler in a language with closures does. The capability of that clause then reaches the host through a closure that left the body. The refusal is the safe side.
+- An abort as an error value with a token. A runner that treats an error as data then changes the result of `handle`. A field of the frame does not.
+
+**Why.** A frame that is also a capability needs one rule for the run and one for the check. `check` reads `grant` from the contract, thus it accepts a handled effect with no knowledge of `handle`. `effectsOf` keeps the list of handled kinds on each visit, and CAP.EFFECTS-SOUND stays true, because a handled effect does not reach the host.
+
+The second tier has its own frames, as D15 asks. `agreeRun` compares the results and the addresses.
+
+**Limits.**
+
+- Clauses run in place. A clause cannot resume and then work on the rest of the body. R2 P5 calls that general resumption, and it changes `Steps`.
+- A clause sees the payload but not the kind. A clause for a namespace cannot forward the exact effect.
+- After an abort, a runner that treats an error as data can go on with its next step. Each effect of that step happens, and `handle` still gives the result of the abort. Under `all`, the other items go on unless the host sets `failFast`.
+- `check` does not report a clause with both `do` and `abort`. A run gives `#VALUE!` (HANDLE.VALUE).
+- `factsOf` still lists a handled effect, because its facts read each declaration. That list is an upper bound.
+- A kind that declares `grant` and gives no clauses passes `check`, and its run gives `#CAP!`.
+- A `handle` in a context of an earlier evaluation has no capability, thus its clauses answer nothing, and an effect gives `#CAP!`.
+- `WORLD_SYNTAX` has no text for `handle`. Each clause is a record of data, and the profile has no text for a list of records. SYNTAX.WORLD pins this reason, and L1c gives the text.
 
 ## D172 (2026-11-07): each arm of Speed builds with the esbuild of its own lock file
 
