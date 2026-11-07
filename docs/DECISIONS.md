@@ -4584,3 +4584,26 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 - The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
 
 **Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
+
+## D172 (2026-11-07): each arm of Speed builds with the esbuild of its own lock file
+
+**Context.** Speed bundles each arm with esbuild (K101). Before this decision, both arms built with the esbuild of the head. A pull request with a new version of esbuild then gave two arms of one bundler. Speed did not read what that version does to the kernel (K232, D166). The first read of K233 found that the patch releases of esbuild 0.28 give equal bytes for the kernel, and that 0.27.7 gives other bytes.
+
+**Decision.**
+
+- The bench job reads the version of esbuild that each lock file gives to `packages/core` (`bench/esbuild.ts`). Only a plain version of SemVer goes to a command.
+- When the two versions differ, the job installs the version of the base in a temporary folder. `paths.ts` builds the base arm with it, and the head arm with the esbuild of the head.
+- In that case, `paths.ts` also builds the base with the esbuild of the head, and prints the two hashes of the base. Equal hashes show that the new version gives the same code. Different hashes make the table a time read of the new version, with the old bundle as the base arm.
+- When the versions are equal, `paths.ts` prints one line with the version, and builds as before.
+
+**Alternatives.**
+
+- A job that builds the kernel with the last 3 versions of esbuild. That job reads versions that no pull request changes, and it gives no paired time read of the change.
+- A time read of each version of each dependency. Only the bundler changes the code that an arm runs. The other dependencies of the bench measure, and the A/A pair reads their noise.
+
+**Limits.**
+
+- The A/A pair has two processes of the old bundle. It gives no noise of the new bundle.
+- An arm hash of the base that differs between the two versions holds a slower reading (D166). The hold is correct, because the arms then run different code.
+
+**Why.** A gate holds each gain only when it reads each change that the arms run. A new version of esbuild changes the code of the arms, and Speed reads it as a change from this decision on.

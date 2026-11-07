@@ -5,8 +5,9 @@
 # The jobs only print numbers, in their logs and in their summaries. They do not block a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
 # A green "Speed OK" does not say that the code is not slower: no code line fails it on a slower case.
-# The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms build with one
-# install, so such a run does not read a slowdown from a dependency (K232, D166). The root package.json is not on the
+# The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms run with one
+# install, so such a run does not read a slowdown from a dependency (K232, D166). Each arm builds with the esbuild of
+# its own lock file, so a new version of esbuild gives a time read (K233, D172). The root package.json is not on the
 # filter: it holds the pnpm version, and that version changes nothing that the arms run unless the lock file moves.
 name: Speed
 
@@ -106,9 +107,19 @@ jobs:
         run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
         env:
           BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
+      # The script prints base, head and differ for the outputs. A lock file with no esbuild gives differ=false.
+      - name: The esbuild of each arm (K233, D172)
+        id: esbuild
+        run: node packages/core/bench/esbuild.ts "$RUNNER_TEMP/base/pnpm-lock.yaml" pnpm-lock.yaml | tee -a "$GITHUB_OUTPUT"
+      - name: Install the esbuild of the base (K233, D172)
+        if: steps.esbuild.outputs.differ == 'true'
+        run: npm install --prefix "$RUNNER_TEMP/esbuild-base" --no-audit --no-fund "esbuild@$VERSION"
+        env:
+          VERSION: ${{ steps.esbuild.outputs.base }}
       - name: Compare the base with this commit
         run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts
         env:
+          BENCH_BASE_ESBUILD: ${{ steps.esbuild.outputs.differ == 'true' && format('{0}/esbuild-base', runner.temp) || '' }}
           BENCH_RUN: ${{ matrix.run }}
           BENCH_ROUNDS: ${{ inputs.rounds || '12' }}
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
