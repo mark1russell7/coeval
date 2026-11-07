@@ -4648,6 +4648,47 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 
 **Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
 
+## D144 (2026-11-04): the demands of a long chain get no change for memory
+
+**Context.** K116, from K105. SCHED.LONG-CHAIN needed approximately 550 MB in its worker, and its schedule kept approximately 120 MB of it. Since K207, that test has 2000 nodes, thus that peak is gone. The study still measures the demands of a chain of 100000 nodes.
+
+**Measure.** The script `bench/chain-memory.ts` measures a chain of 100000 nodes. The workflow `chain-memory.yml` started it on 3 runners of CI with Node.js 26.13.0, on three models of CPU (run 42409463169). The three runs give the same allocation, garbage and kept memory to 0.1 %. Only the peak of the heap differs between the runs.
+
+| Step | Allocated | Garbage | Peak of the heap | Heap after a full collection |
+| --- | ---: | ---: | ---: | ---: |
+| `set` of each node | 43 MB | 23 MB | 36 to 43 MB | 20 MB |
+| The first `read` | 895 MB | 779 MB | 209 to 224 MB | 135 MB |
+| `changeData` and a `read` | 223 MB | 223 MB | 230 MB | 135 MB |
+
+The schedule keeps 1418 bytes for each node. The steps make 10757 bytes of garbage for each node, 7.6 times the kept memory. The peak of the heap is 230 MB.
+
+The sampling heap profiler counts 1143 to 1150 MB, with the objects that a collection frees. The largest sources are these, as a share of the samples in the three runs:
+
+- 12.7 to 12.8 %: a function without a name in `durable.ts`.
+- 10.6 to 10.8 %: `resolveFully` in `deref.ts`.
+- 9.5 to 9.7 %: `resolve` in `deref.ts`.
+- 9.4 to 9.6 %: `partsOf` in `parts.ts`.
+- 9.0 to 9.2 %: `Map.prototype.delete`.
+
+The loader of tsx gives no line numbers, thus the study names a function and its file only.
+
+The first study of 2026-11-04 was one local run with Node.js 24.21.0 on Windows. It gave a peak of 283 MB and approximately 829 MB allocated. The CI runs use another version of V8 and a later kernel, thus this record does not compare the two sets of numbers.
+
+**Decision.** No code changes. No source is more than 13 % of the samples. A schedule keeps approximately 1.4 KB for each node after a collection.
+
+**Alternatives.**
+
+- Arrays in place of the small maps of `visit`. `Map.prototype.delete` is 9 % of the samples, thus this change removes at most that share. The study does not show that the peak goes down with it. The code of Tarjan then gets a second form of each mark.
+- A smaller plan of a reference. K105 did that work, and the live size stays near its result.
+
+**Limits.**
+
+- The study is not a gate. A later change of the kernel can change each number. `chain-memory.yml` starts the study again on a change of its script, or by a dispatch.
+- The profiler gives the self size of each function, not its callers. Thus the study does not tell which function calls `Map.prototype.delete`.
+- The numbers are of one version of Node.js. Another version of V8 gives other sizes.
+
+**Why.** The claim of K116 was about the peak of a test, and that peak is gone. A change to `visit` adds risk to the code of the cycle check for each host. It needs a need that a host measures.
+
 ## D146 (2026-11-04): a handler is a frame in the context, and a clause is a capability that the kernel gives
 
 **Context.** R2 P5 proposes a kind `handle` with clauses that run in place, and L1a takes it up. D27 left room for a rule `grant`. R2 names two risks: D10 lists five roots, and CAP.NARROW changes its wording.

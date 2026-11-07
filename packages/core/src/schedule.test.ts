@@ -303,7 +303,7 @@ describe("the interface of a schedule", () => {
     expect(s.remove("a")).toBe(true);
     expect(s.remove("a")).toBe(false);
     expect(s.read("b")).toEqual(fail("#N/A", "The step a reaches nothing.", { place: [0] }));
-    // A chain of 100 nodes evaluates on demand. SCHED.LONG-CHAIN has a chain of 100000 nodes.
+    // A chain of 100 nodes evaluates on demand. SCHED.LONG-CHAIN has a chain of 2000 nodes.
     const chain = schedule(strictMachine, LIT);
     for (let index = 0; index < 100; index += 1) chain.set(`n${index}`, index === 99 ? 0 : op("add", ref("world", `n${index + 1}`), 1));
     expect(chain.read("n0")).toEqual(ok(99));
