@@ -47,12 +47,15 @@ function track(source: Source): void {
 }
 
 class Signal<T> implements Source {
+  private value: T;
   version = 0;
   reads = 0;
   readonly running = false;
   readonly observers = new Set<Computed<unknown>>();
 
-  constructor(private value: T) {}
+  constructor(value: T) {
+    this.value = value;
+  }
 
   get(): T {
     this.reads += 1;
@@ -71,6 +74,8 @@ class Signal<T> implements Source {
 }
 
 class Computed<T> implements Source {
+  private readonly code: () => T;
+  private readonly equals: (a: T, b: T) => boolean;
   version = 0;
   running = false;
   /** `true` for a node of a cycle. Each mark then computes it again: a cycle has no order to verify (SCHED.CYCLE). */
@@ -80,10 +85,10 @@ class Computed<T> implements Source {
   private state = DIRTY;
   private value: T | undefined;
 
-  constructor(
-    private readonly code: () => T,
-    private readonly equals: (a: T, b: T) => boolean = Object.is,
-  ) {}
+  constructor(code: () => T, equals: (a: T, b: T) => boolean = Object.is) {
+    this.code = code;
+    this.equals = equals;
+  }
 
   get(): T {
     this.refresh();
