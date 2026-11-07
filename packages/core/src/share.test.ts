@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { groupsOf, type Share } from "../vitest.share.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TestCase, TestSpecification, Vitest } from "vitest/node";
+import { GROUP_LIMIT, groupsOf, groupVerdict, ShareReporter, type Group, type Share } from "../vitest.share.ts";
 import { corpus } from "./corpus.test-support.ts";
 
 /** This function gives the share of a test with the default timeout. */
@@ -30,5 +31,80 @@ describe("the groups of parts of the share reporter", () => {
 
   it("gives no group for a run with no parts", () => {
     expect(groupsOf([share("a.test.ts > the last test", 100)])).toEqual([]);
+  });
+});
+
+/** This function gives a group with a fraction of the test time. */
+function group(fraction: number): Group {
+  return { name: "a.test.ts > one test", parts: 4, ms: 1000, share: 0.2, fraction };
+}
+
+describe("the limit of a group of parts (K231, D174)", () => {
+  it("passes the worst group of the 5 CI runs, and fails a group above the limit", () => {
+    expect(groupVerdict([group(0.0289)], true).over).toEqual([]);
+    const verdict = groupVerdict([group(0.0289), group(GROUP_LIMIT + 0.0001)], true);
+    expect(verdict.over).toEqual([group(GROUP_LIMIT + 0.0001)]);
+    expect(verdict.lines).toEqual([expect.stringMatching(/^::error::The parts of a\.test\.ts > one test used 0\.0360 of the test time, above 0\.0359\./)]);
+  });
+
+  it("gives no verdict for a run with a filter, because its total is not the time of all tests", () => {
+    expect(groupVerdict([group(1)], false)).toEqual({ over: [], lines: [expect.stringContaining("The run has a filter")] });
+  });
+
+  // The flip test: the real reporter, with a fake run of Vitest, fails the run on a group above the limit.
+  describe("the reporter", () => {
+    const saved = { ci: process.env["CI"], summary: process.env["GITHUB_STEP_SUMMARY"], exitCode: process.exitCode };
+    let output = "";
+    beforeEach(() => {
+      output = "";
+      process.env["CI"] = "true";
+      process.env["GITHUB_STEP_SUMMARY"] = "";
+      process.exitCode = undefined;
+      vi.spyOn(process.stdout, "write").mockImplementation((text) => ((output += String(text)), true));
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      process.exitCode = saved.exitCode;
+      for (const [key, value] of [["CI", saved.ci], ["GITHUB_STEP_SUMMARY", saved.summary]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+
+    /** This function runs the reporter over tests with these times, and gives the exit code that it sets. */
+    async function run(times: readonly [string, number][], filter: { files?: boolean; names?: boolean } = {}): Promise<number | string | null | undefined> {
+      const reporter = new ShareReporter();
+      const specifications = [{}, {}] as unknown as TestSpecification[];
+      const vitest = {
+        config: { testTimeout: 5000, testNamePattern: filter.names === true ? /x/ : undefined },
+        globTestSpecifications: () => Promise.resolve(filter.files === true ? [...specifications, {}] : specifications),
+      };
+      reporter.onInit(vitest as unknown as Vitest);
+      await reporter.onTestRunStart(specifications);
+      for (const [name, ms] of times) {
+        reporter.onTestCaseResult({ diagnostic: () => ({ duration: ms }), options: { timeout: 100_000 }, module: { relativeModuleId: "a.test.ts" }, fullName: name } as unknown as TestCase);
+      }
+      reporter.onTestRunEnd();
+      return process.exitCode;
+    }
+
+    // 10 000 ms of all tests: the two parts take 400 ms, a fraction of 0.04, above the limit. The timeout of 100 000 ms keeps each share far under FAIL.
+    const over: [string, number][] = [["one test, part 1 of 2", 200], ["one test, part 2 of 2", 200], ["the rest", 9600]];
+
+    it("fails a run of all tests with a group above the limit", async () => {
+      expect(await run(over)).toBe(1);
+      expect(output).toContain("::error::The parts of a.test.ts > one test used 0.0400 of the test time");
+    });
+
+    it("passes a run of all tests with each group under the limit", async () => {
+      expect(await run([["one test, part 1 of 2", 100], ["one test, part 2 of 2", 100], ["the rest", 9800]])).toBeUndefined();
+      expect(output).toContain("No group used more than 0.0359 of the test time");
+    });
+
+    it("passes a run with a filter of files or of names, with the same times", async () => {
+      expect(await run(over, { files: true })).toBeUndefined();
+      expect(await run(over, { names: true })).toBeUndefined();
+      expect(output).toContain("The run has a filter");
+    });
   });
 });
