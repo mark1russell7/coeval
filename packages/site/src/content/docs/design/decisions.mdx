@@ -155,11 +155,14 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D142 | Without field steps, `print` gives an error for a dotted call, because `parse` refuses that text (K219). |
 | D143 | A kept read that meets a node in evaluation below it closes no cycle (K218). The nodes of that read evaluate again at a real demand. |
 | D144 | The demands of a long chain get no change for memory (K116). A CI study of 100000 nodes finds no single source above 13 % of the samples. A schedule keeps 1418 bytes for each node. |
+| D145 | A kept read that reaches a true cycle joins no component (K220). Its nodes evaluate again at a real demand. |
 | D146 | A kind `handle` answers the effects of its body in place, so a mock, a log or a retry is a document (L1a). A clause is a capability that the kernel gives, thus `pure` still stops a handled effect, and a clause has no more authority than its parent. |
 | D173 | A hold turns `Speed OK` red, unless a record in `bench/accepted` accepts each slower case on that head, with its cost, reason and owner. A slower case on equal arms stays report only. |
 | D174 | A group of split parts above 0.0359 of the test time fails a CI run of all tests. The limit comes from 5 CI runs, with their ids beside it. |
 | D175 | The tree kit is complete (L2). Each of the seven open questions of R3 has an answer in an earlier decision or in this record. |
 | D150 | A function evaluator can hold a type rule in its field `type`, so the site shows real types without a change to the standard kit (C14). |
+| D152 | The export `mapDocs` changes the documents of a document from the root to the parts, and its function can stop at a node (K222). |
+| D153 | The export `ifRunner` gives an `if` with the truth of a host, and `control.if` is one such runner (K221). |
 
 ## Open
 
