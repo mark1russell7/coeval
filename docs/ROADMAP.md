@@ -57,7 +57,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | C8 | The playground: build a document from the kinds, and open each picture of the guide in it | done (2026-10-20) | C6 |
 | C9 | Reference arrows on each picture, and an arrow for each move of a path on each picture: both kinds are done. The hops of `resolve` give the moves. | done (2026-10-26) | C6 |
 | C10 | The schedule diagram (C3) computes its dependencies with the kernel (`refsOf`), as the site rule says (R4) | done (2026-10-24) | C3 |
-| C11 | A structured editor in the playground from the kind contracts. An empty position holds a document of a kind `hole`, thus each state of an edit evaluates (R6 P6). | done (2026-11-04, D151) | C8 |
+| C11 | A structured editor in the playground from the kind contracts. An empty position holds a document of a kind `hole`, thus each state of an edit evaluates (R6 P6). | done (2026-11-07, D151) | C8 |
 | C12 | A live diagram of record and replay: a run records its effects, and a replay steps through the journal. A changed answer shows `#REPLAY!` at its address. From K11. | later | C1 |
 | C13 | The site shows the work of the research: a page and a live diagram for the merge of languages (D17, D18), a live diagram of the decorated tree (D16), a page for the studies, and the guide as a route on the home page | done (2026-10-24) | C7 |
 | C14 | The explorer and the playground show the type of each place from `typeCheck`, and each `#TYPE!` issue at its place (R5 P3). From K24. | later | C8, K24 |
