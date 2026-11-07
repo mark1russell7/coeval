@@ -12,6 +12,7 @@ import {
   WORLD_SYNTAX,
   type WorldEntry,
   MAX_SYNTAX_ISSUES,
+  checkSyntax,
   docEquals,
   context,
   evaluate,
@@ -1096,3 +1097,17 @@ function stepRef(gen: Generator, rng: Random, depth: number): Json {
   const step = typeof made === "object" && made !== null && !Array.isArray(made) ? made : { type: "nearest", value: { type: "panel" } };
   return ref("self", "parent", step, ...(rng.int(2) === 0 ? ["width"] : []));
 }
+
+describe("the check of the standard profiles", () => {
+  it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the default, the standard and the world profile", () => {
+    expect(checkSyntax({})).toEqual([]);
+    expect(checkSyntax(STD_SYNTAX)).toEqual([]);
+    expect(checkSyntax(WORLD_SYNTAX)).toEqual([]);
+  });
+
+  for (const [name, gen] of Object.entries(GENERATORS)) {
+    it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the profile of a generator: " + name, () => {
+      expect(checkSyntax(gen.profile)).toEqual([]);
+    });
+  }
+});
