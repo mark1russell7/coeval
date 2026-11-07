@@ -10,7 +10,6 @@ import {
   type Runner,
   type Runtime,
   type Steps,
-  NODE_WORK,
   RUNTIME,
   evaluateWithin,
   fail,
@@ -1384,9 +1383,6 @@ const NO_HOPS = /* @__PURE__ */ Object.freeze({ hops: false });
  * The argument `host` gives the memo cells of the host (TREE.CELL), or `undefined` for the plain memo of each node.
  */
 function treeNode(input: EvalInput, host: AttributeCell | undefined): Result {
-  const runtime = (input as InputWithRuntime)[RUNTIME];
-  // WORK.NODE: a node that an equation makes counts. A node of the text of the document does not.
-  if (runtime?.nested === true) runtime.spend?.(NODE_WORK);
   const found = input.resolve(SELF_PATH, NO_HOPS);
   const outer = found.ok ? found.thing : undefined;
   const above = stateOf(outer);
