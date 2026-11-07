@@ -16,6 +16,7 @@
  *
  * Node removes the types of this script. The job installs the packages, because the script imports the bench core.
  * The script fails when a run is absent or when a run found different results. A "slower" case does not fail it.
+ * The script writes the state of the runs and its reason as outputs of the job, and `Speed OK` reads them (K235, D167).
  *
  * The script also prints the gate of the claim "not slower by more than the margin" (K225, D163). This gate is report only.
  */
@@ -88,20 +89,42 @@ export interface Hold {
   readonly line: string;
 }
 
+/** This function tells if each run has the hashes of its arms, and all these hashes are one hash. */
+export function equalArms(runs: readonly (BenchRun | undefined)[]): boolean {
+  const arms = runs.map((run) => run?.arms);
+  if (arms.length === 0 || arms.includes(undefined)) return false;
+  return new Set(arms.flatMap((item) => (item === undefined ? [] : [item.base, item.head]))).size === 1;
+}
+
 /**
  * This function tells if a slower reading holds a merge (K232, D166). It reads the hashes of the bundles that the jobs
  * ran, and no list of files. A slower reading does not hold a merge only when each run is complete and the two arms of
- * each job have one hash. A run that is short or absent gives no such reading. It fails the job `verdict`, and `Speed OK`
- * stays green, because `continue-on-error` makes that job read as a success.
+ * each job have one hash. A run that is short or absent gives no such reading, and `Speed OK` goes red on it (K235, D167).
  */
 export function holdRead(slower: number, runs: readonly (BenchRun | undefined)[], complete: boolean): Hold {
   if (!complete) return { hold: true, line: "Hold (D117): hold. A run is short or absent, so the arms give no reading." };
   if (slower === 0) return { hold: false, line: "Hold (D117): no hold. 0 slower." };
   const arms = runs.map((run) => run?.arms);
-  const hashes = arms.flatMap((item) => (item === undefined ? [] : [item.base, item.head]));
   if (arms.length === 0 || arms.includes(undefined)) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and a run has no hashes of its arms.` };
-  if (new Set(hashes).size !== 1) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and the arms differ.` };
+  if (!equalArms(runs)) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and the arms differ.` };
   return { hold: false, line: `Hold (D117): no hold. ${String(slower)} slower on equal arms, a row of the A/A table: equal by construction.` };
+}
+
+/**
+ * The states of a Speed run that `Speed OK` reads (K235, D167). The state "no read" comes from a fault, and it says nothing about noise.
+ * The state "different results" is a finding: the copies gave different results. On equal arms this is a fault of determinism.
+ * On different arms, a changed result can explain it, as K236 read.
+ */
+export type SpeedState = "same" | "slower" | "no read" | "different results";
+
+/** This function gives the state of a Speed run and its reason, on one line. Different results come first, then a fault, because each leaves no reading. */
+export function speedState(slower: number, undecided: number, hold: string, faults: readonly string[], different = 0, equal = false): { readonly state: SpeedState; readonly reason: string } {
+  const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
+  const cause = equal ? "The arms are equal, so this is a fault of determinism." : "The arms differ or have no hashes, so a changed result can explain this.";
+  if (different > 0) return { state: "different results", reason: oneLine(`${String(different)} cases read different results. ${cause} ${faults.join(" ")}`) };
+  if (faults.length > 0) return { state: "no read", reason: oneLine(faults.join(" ")) };
+  if (slower > 0) return { state: "slower", reason: oneLine(`${String(slower)} slower, ${String(undecided)} cannot decide. ${hold}`) };
+  return { state: "same", reason: oneLine(`0 slower, ${String(undecided)} cannot decide.`) };
 }
 
 /** This function gives the line with the hashes of the arms of each run. */
@@ -267,16 +290,26 @@ function main(): void {
       ? [`${files[index] ?? `run ${String(index + 1)}`} has ${String(run.cases.length)} of ${String(names.length)} cases.`]
       : [],
   );
-  const complete = !runs.includes(undefined) && short.length === 0 && names.length > 0 && !counts.has("different results");
+  const faults = [
+    ...runs.flatMap((run, index) => (run === undefined ? [`The run file ${files[index] ?? "(none)"} is missing.`] : [])),
+    ...short,
+    ...(names.length === 0 ? ["The two run files have no cases."] : []),
+  ];
+  const different = counts.get("different results") ?? 0;
+  const slower = counts.get("slower") ?? 0;
+  const hold = holdRead(slower, runs, faults.length === 0 && different === 0).line;
   lines.push("", ...gateLines(gateRead(runs)));
-  lines.push("", armLine(runs), holdRead(counts.get("slower") ?? 0, runs, complete).line);
+  lines.push("", armLine(runs), hold);
+  const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different, equalArms(runs));
+  const output = process.env["GITHUB_OUTPUT"];
+  if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\n`);
   const text = lines.join("\n");
   console.log(text);
   const summary = process.env["GITHUB_STEP_SUMMARY"];
   if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths: the verdict of two runs\n\n${text}\n`);
   for (const line of short) console.error(`::error::${line}`);
   if (names.length === 0) console.error("::error::The two run files have no cases.");
-  if (runs.includes(undefined) || short.length > 0 || names.length === 0 || counts.has("different results")) process.exitCode = 1;
+  if (faults.length > 0 || different > 0) process.exitCode = 1;
 }
 
 // A test imports `describeRun`, and only a start of this file gives the verdict.
