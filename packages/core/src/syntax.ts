@@ -1272,6 +1272,8 @@ function refShape(syn: Compiled, value: unknown): Shape {
 
 function callName(syn: Compiled, keys: readonly Key[]): string | undefined {
   if (keys.length === 0 || !keys.every((key) => typeof key === "string" && NAME.test(key))) return undefined;
+  // `parse` reads the dots of a call name as field steps, thus a profile without them has no such text (D142).
+  if (keys.length > 1 && !syn.fields) return undefined;
   const name = keys.join(".");
   if (syn.forms.has(name) || syn.opWords.has(keys[0] as string)) return undefined;
   return syn.ops === true || syn.ops.has(name) ? name : undefined;
