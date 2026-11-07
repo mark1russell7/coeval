@@ -60,6 +60,7 @@ type CycleIssue: build/index.d.ts#CycleIssue
 type Declared: build/index.d.ts#Declared
 type Definitions: build/index.d.ts#Definitions
 type DerefCode: build/index.d.ts#DerefCode
+type DocChange: build/index.d.ts#DocChange
 type DocFacts: build/index.d.ts#DocFacts
 type DocParts: build/index.d.ts#DocParts
 type DocVisit: build/index.d.ts#DocVisit
@@ -329,6 +330,7 @@ formulaMachine: build/index.d.ts#formulaMachine
 fromJson: build/index.d.ts#fromJson
 generate: build/index.d.ts#generate
 heights: build/index.d.ts#heights
+ifRunner: build/index.d.ts#ifRunner
 intersectCaps: build/index.d.ts#intersectCaps
 isAlias: build/index.d.ts#isAlias
 isAllowedOrder: build/index.d.ts#isAllowedOrder
@@ -352,6 +354,7 @@ layers: build/index.d.ts#layers
 looksLikeKind: build/index.d.ts#looksLikeKind
 lookupKind: build/index.d.ts#lookupKind
 makeContext: build/index.d.ts#makeContext
+mapDocs: build/index.d.ts#mapDocs
 mapRefs: build/index.d.ts#mapRefs
 member: build/index.d.ts#member
 mergeMachines: build/index.d.ts#mergeMachines
@@ -831,6 +834,12 @@ interface DerefCode {
   (doc: Envelope, key: Key): Thing | undefined;
   readonly has?: (doc: Envelope, key: Key) => boolean;
 }
+
+### build/index.d.ts#DocChange
+type DocChange = undefined | "skip" | {
+  readonly to: unknown;
+  readonly into?: boolean;
+};
 
 ### build/index.d.ts#DocFacts
 interface DocFacts {
@@ -2553,6 +2562,9 @@ export declare function generate(world: World, options: GenerateOptions): unknow
 ### build/index.d.ts#heights
 export declare function heights<Id>(graph: NodeGraph<Id>, options?: GraphOptions): ReadonlyMap<Id, number>;
 
+### build/index.d.ts#ifRunner
+export declare function ifRunner(truth: (value: unknown) => boolean | undefined): Runner;
+
 ### build/index.d.ts#intersectCaps
 export declare function intersectCaps(a: readonly Cap[], b: readonly Cap[]): readonly Cap[];
 
@@ -2623,6 +2635,9 @@ export declare function lookupKind(world: World, type: TypeRef): Lookup;
 
 ### build/index.d.ts#makeContext
 export declare function makeContext(names?: Readonly<Record<string, unknown>>, caps?: readonly Cap[], self?: Thing): Context;
+
+### build/index.d.ts#mapDocs
+export declare function mapDocs(world: World, doc: unknown, change: (visit: DocVisit) => DocChange, options?: WalkOptions): unknown;
 
 ### build/index.d.ts#mapRefs
 export declare function mapRefs(world: World, doc: unknown, change: (use: RefUse) => unknown, options?: WalkOptions): unknown;
