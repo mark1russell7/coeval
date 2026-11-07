@@ -153,6 +153,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D140 | `checkSyntax(profile)` gives the clashes of a syntax profile as named findings with a place (K146). Each finding is a small document that breaks `parse(print(doc))`, and only a host calls the check. |
 | D143 | A kept read that meets a node in evaluation below it closes no cycle (K218). The nodes of that read evaluate again at a real demand. |
 | D146 | A kind `handle` answers the effects of its body in place, so a mock, a log or a retry is a document (L1a). A clause is a capability that the kernel gives, thus `pure` still stops a handled effect, and a clause has no more authority than its parent. |
+| D173 | A hold turns `Speed OK` red, unless a record in `bench/accepted` accepts each slower case on that head, with its cost, reason and owner. A slower case on equal arms stays report only. |
 | D174 | A group of split parts above 0.0359 of the test time fails a CI run of all tests. The limit comes from 5 CI runs, with their ids beside it. |
 | D175 | The tree kit is complete (L2). Each of the seven open questions of R3 has an answer in an earlier decision or in this record. |
 

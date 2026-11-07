@@ -4342,6 +4342,7 @@ So the top level is code that the JIT makes in the window of the measure, in som
 - A step in each filter job gives the rules of the pinned action a list of files. The lock file reads true, a docs file reads false, and the lock file reads false for a list with no lock line.
 - Each Speed job records the hash of the bundle of each arm, with `cases.ts`. The script `merge.ts` prints the hashes and the line `Hold (D117)`.
 - A slower reading does not hold a merge only when each run is complete and all hashes of the two jobs are equal. A list of files has no part in this reading.
+- Changed by D173 (K239): under a hold, `Speed OK` is red, unless a record in `bench/accepted` accepts each slower case on that head.
 - Each such row goes in the A/A table with the mark "equal by construction". A count keeps those rows apart from the rows with equal code on other pull requests.
 
 **Rejected.**
@@ -4351,7 +4352,7 @@ So the top level is code that the JIT makes in the window of the measure, in som
 
 **Limits.**
 
-- The hold is a reading, and no code line blocks the merge. The flip test of `Speed OK` (K225) changes this.
+- Until D173, the hold was a reading, and no code line blocked the merge. A merge of L1a (#297) went in under a hold, and K238 followed. D173 ends this limit.
 - Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). So a short or absent run left `Speed OK` green. D167 ends this.
 - The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
 - A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
@@ -4705,6 +4706,34 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - An arm hash of the base that differs between the two versions holds a slower reading (D166). The hold is correct, because the arms then run different code.
 
 **Why.** A gate holds each gain only when it reads each change that the arms run. A new version of esbuild changes the code of the arms, and Speed reads it as a change from this decision on.
+
+## D173 (2026-11-07): a hold turns `Speed OK` red, unless a record of the pull request accepts each slower case
+
+**Context.** K239, from K238. D166 made a hold a reading: `Speed OK` stayed green, and only a person who read the line `Hold (D117)` kept a merge back. L1a (#297) merged under a hold. Its verdict read `factsOf a tree with an equation` slower in both runs, by 16.4 % and 14.6 %, on different arms. The release of that version followed, and K238 found the cost after the release. A person who reads a line is not a gate.
+
+**Decision.**
+
+- A slower case under a hold gives the state `held`, and `Speed OK` is red.
+- A record in the folder `packages/core/bench/accepted` accepts one slower case. A file is a list of records, and its name is the number of the pull request, for example `301.json`.
+- A record has five fields of text: `case`, `head`, `cost`, `reason` and `owner`. The field `head` holds 12 to 64 characters of the hash of the head arm, as the line `Arms (K232)` prints it.
+- A record accepts a case only when it has the name of the case, and the head arm of each run starts with its hash. When each slower case has such a record, the state is `accepted`. `Speed OK` is green, and its line names each record with its cost, its owner and its reason.
+- A file that is not a list of correct records is a fault, and the state is `no read`. Thus a record with an empty field stops the run.
+- A slower case on equal arms stays report only, as D166 says. Such a reading is noise of the method, and it needs no record.
+
+**Why a hash of the head.** A record on `main` must not accept a later change. The next change of the kernel gives another hash of the head arm, thus the record accepts nothing more. The file stays on `main` as the trail of the cost, and a score can read it. A merge of `main` with a change of the kernel also changes the hash, thus the record names the code that the run measured.
+
+**Alternatives.**
+
+- A label on the pull request. A label leaves no trail in the tree, and a label of an earlier head stays on a later head.
+- A record with the number of the pull request and no hash. A dispatch has no pull request, and a record stays valid after a change of the code.
+
+**Limits.**
+
+- The record reads the hash of the head arm only. A change of the base with the same head gives the same hash, and the record still accepts the case. The cost on the new base is then not read.
+- The folder of the records is in the tree of the head. A pull request can thus accept its own cost. The owner, the cost and the reason are in the diff, and the review of the pull request reads them.
+- The tests start the real script of the verdict with a folder of records from `BENCH_ACCEPTED`. They cover no hold, a hold with a record, and a hold with no record. A CI run of a real hold with a record is still to come.
+
+**Why.** A gate holds each gain only when it is code. A record is the cheap path for a hold from noise on different arms, and it leaves a trail for a score.
 
 ## D174 (2026-11-07): a group of parts above 0.0359 of the test time fails a run of all tests
 

@@ -2,9 +2,10 @@
 # Each copy runs in its own processes, and a second copy of the base gives the noise floor (A/A) of each case.
 # Two jobs make the same comparison on two runners (K167, D71). The job "verdict" merges their two tables.
 # The bench core @mark1russell7/rigor-bench starts the processes and gives the verdict of each case (K212, D114).
-# The jobs only print numbers, in their logs and in their summaries. They do not block a merge.
+# The bench jobs print numbers, in their logs and in their summaries. Only the job "Speed OK" blocks a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
-# A green "Speed OK" does not say that the code is not slower: no code line fails it on a slower case.
+# A slower case under a hold (D117) turns "Speed OK" red, unless a record in bench/accepted accepts it (K239, D173).
+# A slower case on equal arms stays report only, thus a green "Speed OK" does not say that the code is not slower.
 # A crash, a short run or a missing arm turns it red (K235, D167).
 # The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms run with one
 # install, so such a run does not read a slowdown from a dependency (K232, D166). Each arm builds with the esbuild of
@@ -183,7 +184,7 @@ jobs:
         if: needs.changes.outputs.match == 'true'
         with:
           node-version: 26
-      # An empty state is red, so a crash cannot pass by writing nothing. A slower case stays report only until its flip.
+      # An empty state is red, so a crash cannot pass by writing nothing. A held slower case with no record is red (K239).
       - name: Read the state of the verdict (K235, D167)
         if: needs.changes.outputs.match == 'true'
         run: node packages/core/bench/speed-read.ts
