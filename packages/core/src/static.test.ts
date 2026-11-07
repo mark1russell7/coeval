@@ -19,6 +19,7 @@ import {
   isKind,
   lookupKind,
   makeContext,
+  mapDocs,
   mapRefs,
   nearestWalker,
   partsOf,
@@ -305,6 +306,85 @@ describe("the static kit", () => {
     expect(next.value.body.value[1]).toEqual({ type: "ref", value: ["names", "n1"] });
     expect(next.value.bind).toBe(doc.value.bind);
     expect(doc.value.body.value[1]).toEqual({ type: "ref", value: ["world", "n1"] });
+  });
+
+  describe("mapDocs", () => {
+    const steps = { ...STD_WORLD, kinds: { ...STD_WORLD.kinds, each: { verbs: {}, parts: { shape: "list" as const } } } };
+    const number = (value: number): Json => ({ type: "number", value });
+    const write = (value: Json): Json => ({ type: "write", value: { key: "k", value } });
+
+    it("[STATIC.MAPDOCS] mapDocs gives the same object when no document changes", () => {
+      const source = { type: "seq", value: [number(1), number(2)] };
+      expect(mapDocs(STD_WORLD, source, () => undefined)).toBe(source);
+      expect(mapDocs(STD_WORLD, source, () => "skip")).toBe(source);
+    });
+
+    it("[STATIC.MAPDOCS] mapDocs goes from the root to the parts and reads only the original documents", () => {
+      const source = { type: "seq", value: [{ type: "seq", value: [number(1)] }, number(2)] };
+      const seen: string[] = [];
+      const next = mapDocs(STD_WORLD, source, (visit) => {
+        seen.push(visit.place.join("/"));
+        return visit.doc.type === "number" ? { to: number(9) } : undefined;
+      });
+      expect(seen).toEqual(["", "0", "0/0", "1"]);
+      expect(next).toEqual({ type: "seq", value: [{ type: "seq", value: [number(9)] }, number(9)] });
+      expect(source.value[1]).toEqual(number(2));
+    });
+
+    it("[STATIC.MAPDOCS] mapDocs stops at a node, and shares each part that does not change", () => {
+      const kept = { type: "seq", value: [number(1)] };
+      const source = { type: "list", value: [kept, number(2)] };
+      const next = mapDocs(STD_WORLD, source, (visit) => {
+        if (visit.doc.type === "seq") return "skip";
+        return visit.doc.type === "number" ? { to: number(3) } : undefined;
+      }) as { readonly value: readonly unknown[] };
+      expect(next.value[0]).toBe(kept);
+      expect(next.value[1]).toEqual(number(3));
+    });
+
+    it("[STATIC.MAPDOCS] mapDocs replaces a node and stops, or goes into the parts of the old node", () => {
+      const source = { type: "seq", value: [number(1)] };
+      const stopped = mapDocs(STD_WORLD, source, (visit) => (visit.doc.type === "seq" ? { to: { ...source, own: { eval: "x" } } } : { to: number(9) }));
+      expect(stopped).toEqual({ ...source, own: { eval: "x" } });
+      const into = mapDocs(STD_WORLD, source, (visit) => (visit.doc.type === "seq" ? { to: { ...source, own: { eval: "x" } }, into: true } : { to: number(9) }));
+      expect(into).toEqual({ type: "seq", value: [number(9)], own: { eval: "x" } });
+    });
+
+    it("[STATIC.MAPDOCS] mapDocs rewrites the steps of a host and leaves a formula as it is", () => {
+      const formula = { type: "if", value: { test: { type: "bool", value: true }, then: number(1) } };
+      const source = {
+        type: "seq",
+        value: [
+          { type: "each", value: [{ type: "if", value: { test: number(1), then: write(formula) } }] },
+          write(formula),
+        ],
+      };
+      const atStep = new Set(["seq", "each"]);
+      const next = mapDocs(steps, source, (visit) => {
+        const kind = String(visit.doc.type);
+        if (kind === "if") return { to: { ...visit.doc, own: { eval: "host.if" } }, into: true };
+        return atStep.has(kind) ? undefined : "skip";
+      }) as { readonly value: readonly [{ readonly value: readonly [Json] }, Json] };
+      const step = next.value[0].value[0] as { readonly own: unknown; readonly value: { readonly then: unknown } };
+      expect(step.own).toEqual({ eval: "host.if" });
+      expect(step.value.then).toEqual(write(formula));
+      expect(next.value[1]).toBe(source.value[1]);
+    });
+
+    it("[STATIC.MAPDOCS] mapDocs gives a bare value of a term to the function, with its declared type", () => {
+      const source = { type: "if", value: { test: "on", then: number(1) } };
+      const next = mapDocs(world, source, (visit) => (visit.declared ? { to: { type: "value", value: visit.doc.value as Json } } : undefined));
+      expect(next).toEqual({ type: "if", value: { test: { type: "value", value: "on" }, then: number(1) } });
+    });
+
+    it("[STATIC.MAPDOCS] mapDocs reaches a document deeper than the limit of the kernel, thus the kernel keeps its error", () => {
+      let deep: Json = number(1);
+      for (let index = 0; index < 1500; index += 1) deep = { type: "seq", value: [deep] };
+      const next = mapDocs(STD_WORLD, deep, (visit) => (visit.doc.type === "number" ? { to: number(2) } : undefined));
+      let bottom = next as { readonly type: string; readonly value: unknown };
+      while (bottom.type === "seq") bottom = (bottom.value as readonly (typeof bottom)[])[0] as typeof bottom;
+      expect(bottom).toEqual(number(2));
+    });
   });
 
   it("[STATIC.CHECK] check finds the problems before a run, each with its place", () => {
