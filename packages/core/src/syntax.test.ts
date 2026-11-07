@@ -12,6 +12,7 @@ import {
   WORLD_SYNTAX,
   type WorldEntry,
   MAX_SYNTAX_ISSUES,
+  checkSyntax,
   docEquals,
   context,
   evaluate,
@@ -381,9 +382,9 @@ describe("the syntax kit", () => {
       expect(kinds, kind).toContain(kind);
       expect(written.has(kind), kind).toBe(false);
     }
-    expect(Object.keys(NO_TEXT)).toEqual([]);
+    expect(Object.keys(NO_TEXT)).toEqual(["handle"]);
     // The text of each kind reads to a document of that kind, and print writes the same text.
-    expect(Object.keys(WORLD_TEXTS).sort()).toEqual([...kinds].sort());
+    expect(Object.keys(WORLD_TEXTS).sort()).toEqual(kinds.filter((kind) => !Object.hasOwn(NO_TEXT, kind)).sort());
     for (const [kind, source] of Object.entries(WORLD_TEXTS)) {
       const read = doc(WORLD_SYNTAX, source);
       const type = (read as { type?: unknown }).type;
@@ -740,6 +741,9 @@ describe("the syntax kit", () => {
     const many = `f(${Array.from({ length: 30 }, () => "1 2").join(", ")})`;
     expect(issues(STD_SYNTAX, many)).toHaveLength(MAX_SYNTAX_ISSUES);
     expect(issues(STD_SYNTAX, `"${"\\q".repeat(30)}" + (1 2)`)).toHaveLength(MAX_SYNTAX_ISSUES);
+    // An empty separator adds no step to a list, thus the guard of recovery ends the read.
+    const empty: SyntaxProfile = { calls: { separator: "" } };
+    for (const text of ["f(1)", "f(g(1), 2)", "f(", "(f(1))"]) expect(issues(empty, text).length).toBeGreaterThan(0);
     // A fault inside a nesting keeps the count of the levels for the next item.
     expect(issues({ ...STD_SYNTAX, maxDepth: 3 }, "f(g($), g($), g($), g($))")).toHaveLength(4);
     // A nesting under the limit of the depth keeps each issue of the depth.
@@ -825,8 +829,10 @@ const OTHER_TEXT: Readonly<Record<string, string>> = {
   ref: "The reference syntax of the kit writes a path, for example self.parent.width.",
 };
 
-/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. The list is empty. */
-const NO_TEXT: Readonly<Record<string, string>> = {};
+/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. L1c removes the entry. */
+const NO_TEXT: Readonly<Record<string, string>> = {
+  handle: "Each clause is a record of data, and the profile has no text for a list of records (D146).",
+};
 
 /** One text for each kind of `STD_WORLD`, in the profile `WORLD_SYNTAX`. */
 const WORLD_TEXTS: Readonly<Record<string, string>> = {
@@ -1093,3 +1099,17 @@ function stepRef(gen: Generator, rng: Random, depth: number): Json {
   const step = typeof made === "object" && made !== null && !Array.isArray(made) ? made : { type: "nearest", value: { type: "panel" } };
   return ref("self", "parent", step, ...(rng.int(2) === 0 ? ["width"] : []));
 }
+
+describe("the check of the standard profiles", () => {
+  it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the default, the standard and the world profile", () => {
+    expect(checkSyntax({})).toEqual([]);
+    expect(checkSyntax(STD_SYNTAX)).toEqual([]);
+    expect(checkSyntax(WORLD_SYNTAX)).toEqual([]);
+  });
+
+  for (const [name, gen] of Object.entries(GENERATORS)) {
+    it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the profile of a generator: " + name, () => {
+      expect(checkSyntax(gen.profile)).toEqual([]);
+    });
+  }
+});

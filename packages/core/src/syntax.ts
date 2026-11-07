@@ -1,4 +1,4 @@
-import { type Json, type JsonRecord, type Key, isEnvelope, isRecord, typePath } from "./doc.ts";
+import { type Json, type JsonRecord, type Key, docEquals, isEnvelope, isRecord, typePath } from "./doc.ts";
 import { type Result, describe, fail, isStackOverflow, ok } from "./errors.ts";
 import type { EvalFn, Part } from "./evaluate.ts";
 import type { MachinePart } from "./merge.ts";
@@ -1042,8 +1042,14 @@ class Recovery extends Parser {
     return this.issues;
   }
 
+  /** An item at the offset of the item before tells that no step moved forward, thus the read ends (SYNTAX.ISSUES-BOUND). */
   protected override argumentsOf<T>(item: () => T, close = ")"): T[] {
-    return super.argumentsOf(() => this.attempt(item, close, true), close);
+    let last = -1;
+    return super.argumentsOf(() => {
+      if (this.pos === last) throw new End();
+      last = this.pos;
+      return this.attempt(item, close, true);
+    }, close);
   }
 
   protected override group(): Json {
@@ -1524,4 +1530,211 @@ export function syntaxFormat(profile: SyntaxProfile): MachinePart {
     });
   };
   return { world: { defaults: { format: "syntax.format" } }, evaluators: { "syntax.format": code } };
+}
+
+// === The check of a profile ===
+
+/**
+ * The name of a finding of `checkSyntax` (D140). Each name holds a rule of the parser or the printer.
+ *
+ * - `invalid`: `parse` throws a `TypeError` for the profile. The reason is its message.
+ * - `operator`: the document of one operator does not come back. A negative precedence stops an infix operator,
+ *   because an expression starts at the precedence `0`. The kinds `ref`, `lit` and `ext.number` have their own text.
+ * - `grouping`: an operator with a second operator in a term does not come back. The parser reads a term from the
+ *   precedence plus `1`, and the printer compares precedences, thus a gap under `1` loses the tree. A postfix operator
+ *   at the precedence of a `right` infix operator loses it too.
+ * - `longest-match`: the printer writes two postfix operators without a space, and a longer symbol reads their text.
+ * - `word`: a word of `literals.words` does not read as its value. A word operator reads first, and a word that is
+ *   not a plain name has no token.
+ * - `root`: a root does not come back. A word operator reads first, and a literal word reads a root without steps.
+ * - `pattern`: a pattern of references reads a text that has another meaning, because the parser tries patterns first.
+ * - `form`: the document of a call form does not come back. A word operator reads first, the last form of a name
+ *   hides the others, and a `min` above the fields permits no text.
+ * - `call`: a name of `calls.ops` does not come back. A form of the name wins, a word operator reads first, and a name
+ *   with dots needs the field steps.
+ * - `separator`: the separator does not end an argument, and a neutral separator keeps the same document. An operator
+ *   reads first, the parser skips a space before it, or a name or a bracket at its start changes the term.
+ * - `construct`: the document of a construct form does not come back, for example two forms have one kind.
+ */
+export type SyntaxFindingCode = "invalid" | "operator" | "grouping" | "longest-match" | "word" | "root" | "pattern" | "form" | "call" | "separator" | "construct";
+
+/** One fault of a syntax profile: its name, its place in the profile and the reason (D140). */
+export interface SyntaxFinding {
+  /** The name of the fault. */
+  readonly code: SyntaxFindingCode;
+  /** The keys from the root of the profile to the entry, for example `["operators", 3]`. A default list has keys too. */
+  readonly place: readonly Key[];
+  /** The rule that the entry breaks, and the text that shows it. */
+  readonly reason: string;
+}
+
+/** The state of one check: the profile, its compiled form, a leaf document and the two functions that record a fault. */
+interface ProfileCheck {
+  readonly profile: SyntaxProfile;
+  readonly syn: Compiled;
+  readonly leaf: Json;
+  /** This function adds a finding. A pattern that reads the start of `text` takes the code and the place. */
+  readonly report: (code: SyntaxFindingCode, place: readonly Key[], text: string, reason: string) => void;
+  /** This function reports a document that breaks the law, and it tells if the law holds. `start` stands for a refused text. */
+  readonly keeps: (code: SyntaxFindingCode, place: readonly Key[], rule: string, doc: Json, start?: string) => boolean;
+}
+
+/** This function tells how a document breaks `parse(print(doc))`. It gives `undefined` when the document comes back. */
+function lawBreak(profile: SyntaxProfile, doc: Json): { readonly text: string | undefined; readonly why: string } | undefined {
+  const printed = print(profile, doc);
+  if (!printed.ok) return { text: undefined, why: printed.error.reason };
+  const text = printed.value;
+  const back = parse(profile, text);
+  if (back.ok) return docEquals(back.doc, doc) ? undefined : { text, why: `The text ${text} reads as ${JSON.stringify(back.doc)}.` };
+  return { text, why: `The text ${text} gives the issue: ${back.issues[0]?.message ?? ""}` };
+}
+
+/** This function gives the index of the first pattern that `parse` uses at the start of a text, or `-1`. */
+function patternAt(syn: Compiled, text: string): number {
+  return syn.patterns.findIndex(({ sticky }) => {
+    sticky.lastIndex = 0;
+    const match = sticky.exec(text)?.[0];
+    return match !== undefined && match !== "" && !/[A-Za-z0-9_$(]/.test(text[match.length] ?? "");
+  });
+}
+
+/** This function gives each small document of an operator with `term` in one term. A `flat` operator also has three terms. */
+function operatorDocs(op: Op, term: Json, leaf: Json): readonly Json[] {
+  if (op.fixity !== "infix") return [opDoc(op, [term])];
+  const pairs = [[term, leaf], [leaf, term]];
+  return (op.assoc === "flat" ? [...pairs, [term, leaf, leaf], [leaf, term, leaf]] : pairs).map((terms) => opDoc(op, terms));
+}
+
+/** This function gives the longer symbol that reads two postfix operators without a space, or `undefined`. */
+function gluedSymbol(syn: Compiled, outer: Op, inner: Op): string | undefined {
+  if (outer.word || inner.word || outer.fixity !== "postfix" || inner.fixity !== "postfix") return undefined;
+  const glued = inner.symbol + outer.symbol;
+  const read = syn.binarySymbols.find((symbol) => glued.startsWith(symbol));
+  return read === inner.symbol ? undefined : read;
+}
+
+function checkOperators({ profile, syn, leaf, keeps }: ProfileCheck): void {
+  const ops = (profile.operators ?? []).map((given) => (given.fixity === "prefix" ? syn.prefix : syn.binary).get(given.symbol) as Op);
+  const sound = ops.filter((op, index) => operatorDocs(op, leaf, leaf).every((doc) => keeps("operator", ["operators", index], `The operator ${op.symbol} does not come back.`, doc)));
+  for (const outer of sound) {
+    const place = ["operators", ops.indexOf(outer)];
+    for (const inner of sound) {
+      const glued = gluedSymbol(syn, outer, inner);
+      const code = glued === undefined ? "grouping" : "longest-match";
+      const rule = glued === undefined ? `The operator ${outer.symbol} with ${inner.symbol} in a term loses the tree.` : `The symbol ${glued} reads the postfix operators ${inner.symbol} and ${outer.symbol}.`;
+      for (const term of operatorDocs(inner, leaf, leaf)) for (const doc of operatorDocs(outer, term, leaf)) keeps(code, place, rule, doc);
+    }
+  }
+}
+
+function checkLiterals({ profile, syn, report }: ProfileCheck): void {
+  for (const [word, value] of syn.words) {
+    const back = parse(profile, word);
+    if (!back.ok || !docEquals(back.doc, envelop(syn, literalDoc(value)))) report("word", ["literals", "words", word], word, `The word ${word} does not read as its value.`);
+  }
+  for (const value of [0, -1, "a"]) {
+    const shape = literalShape(syn, value);
+    if (shape.tag === "text" && patternAt(syn, shape.text) >= 0) report("pattern", [], shape.text, `The literal ${shape.text} reads as a reference.`);
+  }
+}
+
+function checkRoots({ profile, syn, keeps }: ProfileCheck): void {
+  (profile.refs?.roots ?? DEFAULT_ROOTS).forEach((root, index) => {
+    for (const path of syn.fields ? [[root], [root, "x"]] : [[root]]) {
+      keeps("root", ["refs", "roots", index], `The root ${root} does not come back.`, { type: "ref", value: path }, path.join("."));
+    }
+  });
+}
+
+/** This function gives a value that a call form writes: the fewest arguments, and at least one. */
+function formValue(given: SyntaxForm, leaf: Json): Json {
+  const args = given.args ?? (given.fields === undefined ? "list" : "fields");
+  const least = Math.max(given.min ?? given.fields?.length ?? 0, 1);
+  if (args === "literal") return 1;
+  if (args === "list") return Array.from({ length: least }, () => leaf);
+  const keys = (given.fields ?? ["x"]).slice(0, args === "named" ? 1 : least);
+  return Object.fromEntries(keys.map((key) => [key, leaf]));
+}
+
+function checkCalls({ profile, syn, leaf, keeps }: ProfileCheck): void {
+  const calls = profile.calls ?? {};
+  (calls.forms ?? []).forEach((form, index) => {
+    keeps("form", ["calls", "forms", index], `The form ${form.name} does not come back.`, { type: typeOfKind(form.kind).type, value: formValue(form, leaf) });
+  });
+  // The dotted text of a call name needs the field steps. A profile with `ops: true` and no field steps has no dotted call.
+  if (syn.ops === true && syn.fields) keeps("call", ["calls", "ops"], "A call name with a dot does not come back.", { type: ["ops", "m", "p"], value: [leaf] });
+  if (typeof calls.ops === "boolean" || calls.ops === undefined) return;
+  calls.ops.forEach((name, index) => {
+    keeps("call", ["calls", "ops", index], `The call ${name} does not come back.`, { type: ["ops", ...name.split(".")], value: [leaf] });
+  });
+}
+
+/** This function writes two terms with the separator. It blames the separator only when a neutral separator keeps the document. */
+function checkSeparator({ profile, syn, leaf, report }: ProfileCheck): void {
+  if (syn.ops !== true && syn.ops.size === 0 && syn.forms.size === 0 && syn.constructKinds.size === 0) return;
+  const open: SyntaxProfile = { ...profile, calls: { ...profile.calls, ops: true } };
+  const neutral: SyntaxProfile = { ...profile, calls: { ...open.calls, separator: "\u0001" } };
+  const postfix = [...syn.binary.values()].filter((op) => op.fixity === "postfix").map((op) => opDoc(op, [leaf]));
+  const terms: Json[] = [leaf, { type: "ref", value: [syn.bare, "b c"] }, "a", 1, ...postfix];
+  const docs = terms.map((term): Json => ({ type: ["ops", "probe__"], value: [term, leaf] }));
+  const entries = { x: leaf, y: leaf };
+  const { record, let: bind } = syn.constructs;
+  if (record !== undefined) docs.push({ type: record, value: entries });
+  if (bind !== undefined) docs.push({ type: bind, value: { bind: entries, body: leaf } });
+  for (const doc of docs) {
+    const broken = lawBreak(neutral, doc) === undefined ? lawBreak(open, doc) : undefined;
+    if (broken !== undefined) report("separator", ["calls", "separator"], "", `The separator "${syn.separator}" does not end an argument. ${broken.why}`);
+  }
+}
+
+function checkConstructs({ syn, leaf, keeps }: ProfileCheck): void {
+  const entries = { x: leaf };
+  const values: Readonly<Record<keyof SyntaxConstructs, Json>> = { record: entries, let: { bind: entries, body: leaf }, fn: { params: ["x"], body: leaf }, call: { fn: leaf, args: [leaf] } };
+  for (const name of CONSTRUCTS) {
+    const type = syn.constructs[name];
+    if (type !== undefined) keeps("construct", ["constructs", name], `The form ${name} does not come back.`, { type, value: values[name] });
+  }
+}
+
+/**
+ * This function finds the faults of a syntax profile before a host uses it (SYNTAX.PROFILE-CHECK, D140). A fault is a
+ * document of an entry that breaks `parse(print(doc))`, or a text of an entry that reads another way. The function
+ * writes and reads one small document for each entry, for each pair of operators and for each root. Thus an empty list
+ * tells that these small documents come back. It does not prove the law for each document. `parse` and `print` do not
+ * call this function, thus it adds no cost to them.
+ *
+ * @param profile - The syntax profile.
+ * @returns At most one finding for each code and place, in the order of the operators, the literals, the references, the calls and the constructs.
+ * @throws An error of a `read` or a `write` function of a pattern.
+ */
+export function checkSyntax(profile: SyntaxProfile): readonly SyntaxFinding[] {
+  // A small `maxDepth` is a limit that the host chose, not a fault, thus each probe has the default limit.
+  const open: SyntaxProfile = { ...profile, maxDepth: 256 };
+  let syn: Compiled;
+  try {
+    syn = compileProfile(open);
+  } catch (error) {
+    if (error instanceof TypeError) return [{ code: "invalid", place: [], reason: error.message }];
+    throw error;
+  }
+  const found = new Map<string, SyntaxFinding>();
+  const report: ProfileCheck["report"] = (code, place, text, reason) => {
+    const index = patternAt(syn, text);
+    const finding: SyntaxFinding = index < 0 ? { code, place, reason } : { code: "pattern", place: ["refs", "patterns", index], reason: `The pattern reads the start of the text ${text}. ${reason}` };
+    const key = JSON.stringify([finding.code, finding.place]);
+    if (!found.has(key)) found.set(key, finding);
+  };
+  const keeps: ProfileCheck["keeps"] = (code, place, rule, doc, start = "") => {
+    const broken = lawBreak(open, doc);
+    if (broken !== undefined) report(code, place, broken.text ?? start, `${rule} ${broken.why}`);
+    return broken === undefined;
+  };
+  const check: ProfileCheck = { profile: open, syn, leaf: { type: "ref", value: [syn.bare, "a"] }, report, keeps };
+  checkOperators(check);
+  checkLiterals(check);
+  checkRoots(check);
+  checkCalls(check);
+  checkSeparator(check);
+  checkConstructs(check);
+  return [...found.values()];
 }

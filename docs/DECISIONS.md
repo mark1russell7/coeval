@@ -1639,7 +1639,7 @@ The risk of R1 is a stale plan: an old value without an error. The design calls 
 
 - The own entries have no text in each profile.
 - The reason for a name without a bind symbol is new: "This syntax has no text for the name of a document." Before, a name and an own entry gave the same reason.
-- A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check.
+- A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check (D140).
 - A choice has no text, because K158 has no text for a data envelope. A tree has no text, because K160 has no form for a record kind.
 
 ## D63 (2026-10-28): a call form names the way its arguments make the value, and a step of a path in parentheses is a document
@@ -4153,11 +4153,11 @@ The same read occurs at the root `event`, in the verification of a kept read, an
 - No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
 - A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
 - An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
-- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This also removes the false cycle of the Limits. But it needs a record of the nodes of each kept demand, and it drops final results. The node then also needs a read that changes in each data epoch, and only some lists have one. That is a behaviour change, and it waits for a need.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This removes the false cycle of the Limits. D143 does it.
 
 **Limits.**
 
-- A kept read that reaches its node through another node that reads it still closes a false cycle. An example is a closure at `f`, a `self` that refers to `g`, and a document of `g` that reads `f`. Each order of demands gives `#CYCLE!` for the two nodes, as before this decision.
+- D143 removes the false cycle of a kept read that reaches its node through another node.
 - Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
 - A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
 
@@ -4211,6 +4211,62 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 
 **SemVer.** No export changes. This work needs no version of its own.
 
+**Correction (2026-11-06).** The cause of the two levels is code of the JIT in the window of the measure. The CPU model, the region and the image are not the cause. See D170.
+
+## D170 (2026-11-06): the second level of PLAN.LEAN is code of the JIT, and the measure also reads the data spaces of the heap
+
+**Context.** K229, from D161. 91 of 99 jobs read 391.1 to 394.6 bytes, and 8 jobs read 395.6 to 396.1 bytes. A measure with two levels hides a small cost. Since K227, each job prints its CPU model, runner image, kernel, Node version and setting of transparent huge pages.
+
+**The read.**
+
+- The logs of the 58 jobs `measure` of 12 runs, from 2026-11-05 11:14Z to 2026-11-06 03:00Z, give two levels again. 50 jobs read 391.2 to 394.6 bytes, and 8 jobs read 395.8 to 395.9 bytes.
+- No column explains the levels. The kernel, the Node version and the setting of huge pages have one value in all jobs. The top level occurs on 4 CPU models and on both runner images.
+- 6 of the 12 runs give both levels with one head. The matrix index of the 8 jobs has no pattern.
+- A local read splits the heap by space with `getHeapSpaceStatistics`. In 48 new processes, `heapUsed` gave 373.6 to 376.1 bytes for each plan.
+- Each high value of `heapUsed` came with 12 KB more in the code space and 7 to 10 KB more in the trusted space. These spaces hold the code of the JIT and its metadata, not plans.
+- The other spaces, the data spaces, gave 374.9 to 375.3 bytes in all 48 processes.
+
+So the top level is code that the JIT makes in the window of the measure, in some processes only.
+
+**Decision.**
+
+- The test also reads the data spaces: each space of the heap except the code space and the trusted space. The line `MEASURE` gives `bytes` and `data`.
+- The limit stays on `bytes` (401.1) until the jobs `measure` give 20 or more values of `data`. Then the limit moves to `data`, as the worst value plus the spread, with the run ids and the CPU models. K229 ends with that change.
+- A flip fixture of that change keeps one more array of 1 KB for each document. The data limit fails with it.
+- The line keeps `bytes` after the change, so a growth of the code stays visible. It gates nothing.
+- If the range of `data` in CI is more than 1.0 byte, the limit does not move until a new read.
+
+**What this gives.** A measure with one level can have a limit near its values. Then a small cost of a plan turns the gate red.
+
+**Limit of the claim.** The local read used Node 24, and CI uses Node 26. The values of `data` in CI decide the limit.
+
+**SemVer.** Only a test changes. This work needs no version of its own.
+
+**Since D171 (2026-11-07).** The limit reads `data`. 50 jobs gave a range of 0.7 byte, and the limit is 393.4 bytes.
+
+## D171 (2026-11-07): the limit of PLAN.LEAN reads the data spaces, and it is 393.4 bytes
+
+**Context.** K229, from D170. D170 kept the limit on `bytes` until the jobs `measure` gave 20 or more values of `data`.
+
+**The read.**
+
+- 50 jobs `measure` of 10 runs gave `data`, from 2026-11-06 03:45Z to 2026-11-07 14:22Z. The runs are 42158439505, 42174310419, 42180483956, 42185610540, 42185980459, 42186004072, 42205973145, 42210082061, 42218426879 and 42381192156. The flip rows are not in the count.
+- `data` gave 392.0 to 392.7 bytes, a range of 0.7 byte. Thus the condition of D170, a range of at most 1.0 byte, holds.
+- `bytes` of the same jobs gave 391.5 to 396.2 bytes, a range of 4.7 bytes.
+- The 5 jobs with `bytes` over 395 gave `data` 392.5 to 392.7 bytes, and the other 45 jobs gave at most 392.4 bytes. So the code of the JIT also leaves approximately 0.3 byte in the data spaces. This is the top of the range, and the limit includes it.
+- The jobs ran on 5 CPU models: AMD EPYC 7763 (18 jobs), 9V45 (12), 9V74 (12), Intel Xeon Platinum 8370C (6) and 8573C (2).
+
+**Decision.**
+
+- The limit reads `data`. It is the worst value plus the spread: 392.7 + 0.7 = 393.4 bytes. The old limit of `bytes` was 401.1 bytes, so the gate is 7.7 bytes nearer to the values.
+- The line `MEASURE` keeps `bytes` beside `data`. It gates nothing.
+- The flip row `flip` adds 20 bytes to `data`. The lowest value is 392.0 bytes, so each job passes the limit with it.
+- A second flip row `retain` makes each plan keep an array of 1 KB. This is a true retained cost, and the data spaces see it, thus the step turns red. Both rows have `fault: true`, and the next step passes only if the step is red with the text of the PLAN.LEAN assertion.
+
+**Limit of the claim.** The limit holds for these 5 CPU models and Node v26.13.0. A new CPU model or Node version can give other values. Then a red job without a change of the core is a new read, and the limit moves only with its run ids.
+
+**SemVer.** Only a test and a workflow change. This work needs no version of its own.
+
 ## D162 (2026-11-05): the flip test of PLAN.LEAN is a matrix row of the same job
 
 **Context.** K227, first part. D161 gave the step of PLAN.LEAN a working exit code, and no run had shown that the step turns red.
@@ -4246,6 +4302,34 @@ A `declare` field is not the same. It emits no field, so the object gets its pro
 **What this version does not see.** The names of the cases come from the records of the candidate. So a case that is absent from the candidate does not appear in the gate. `rigor-bench` 0.2.16 adds the option `expected` for this.
 
 **SemVer.** No export of the package changes. The dependencies are for the bench, and they are development dependencies.
+
+## D164 (2026-11-05): the ladder starts on a change of the kernel, and a flip job shows that its gate can block
+
+**Context.** K227. The ladder prints a verdict for STATIC.LINEAR, and nothing reads it. The jobs started only when the workflow, `ladder.ts` or `mode.ts` changed. So a pull request that made a walk quadratic did not start the ladder. Of the last 100 Measure runs, 9 pooled a verdict, and no run in that set changed the kernel.
+
+**Decision.**
+
+- A third filter starts the jobs of the ladder: the kernel, `ladder.ts`, the lock file and the workflow. The jobs of `mode` keep their filter. One job takes approximately 1 minute.
+- The mode `merge` prints one line of the gate. A time verdict other than `linear`, a memory verdict other than `at most linear` or no counted run is a block. With `LADDER_BLOCK=1`, a block gives the exit code 3.
+- The job `ladder-verdict` accepts the exit code 3, so the gate is report only. Another failure of that step turns the job red. To make the gate block, a later pull request removes `|| test $? -eq 3`.
+- `LADDER_INJECT=s` makes a walk with a true slope of `s`. Each call walks more levels, so the levels of one call grow as `n^s`, on the time and on the memory. The count of calls does not change. No document is deeper than its rung.
+- **The job `ladder-flip` holds the code of the verdict and its exit code.** It runs on each change of the kernel, on one runner, at 10 rounds. It reads the slopes 2, 1.3 and 1, and the gate must read block, block and pass. Each block names each walk and each verdict. This job does not hold the size, because one runner at 10 rounds is not the setting of the plain gate.
+- **The workflow `ladder-plain` holds the printed size.** It runs each week on its own minute, and on each change of the code of the gate. It has the setting of the plain gate: 5 runners, 30 rounds, the plain repeats. It reads a slope of 1.25 and a linear walk. A slope of 1.25 is over the sizes stated below. If that slope does not give a block, the printed size is wrong, and the owner of the gate reads that result.
+- The check `Measure OK` reads this workflow, and it skips the workflow when the code of the gate does not change. A change of the gate that breaks this flip does not merge, because a weekly read comes after the merge. The weekly run covers a change of the lock file.
+- A dispatch of this workflow can name another slope in the input `fault`. The weekly run and the call from `measure` use 1.25.
+- The job checks the reasons of a block. A slope over the memory limit of 1.2 must give the reasons of time and of memory. At a smaller slope, the job must find the reasons of time and no reason of memory. So a block on the wrong reason turns it red.
+- The filter of this flip is a second step of the job `ladder-changes`, because each further job waits in the queue again. Each pull request gets no further job.
+- The line of the gate gives the smallest slope that gives a block, from the spread of its own runs. The time verdict blocks at the lower of `1 + half` and `1.2 - half`, where `half` is half of the 90 % interval. The memory verdict blocks at `1.2 - half`. Under that size, the gate has no read.
+- **The size, stated before the first read.** The past 9 runs read `half` from 0.075 to 0.116 on time, so the plain gate sees a time slope of at most 1.12. The memory interval is narrow, so the plain gate sees a memory slope of at most 1.20. A slope of 1.05 is under this size, and a pass does not exclude it.
+- The five plain runs are also a copy with no fault. Their line of the gate reads `pass`.
+
+**First read.** In the CI run 42003078738, the linear walk read `pass`. The gate printed 1.07 on time and 1.19 on memory, and these sizes are in the stated sizes. The slope of 1.25 read a block on each walk and each verdict. Its time slope read 1.277 and its memory slope read 1.238, so the fault is near its stated slope, and not equal to it. The read of the fault printed 1.06 on time for `walk`, so the printed size moves between reads.
+
+**Limit of the claim.** The flips test the slopes 2, 1.3, 1.25 and 1. They do not test a slope between the printed size and 1.25. So the result is a block at a slope of 1.25 at the plain setting, and the printed size stays a figure of the formula. One dispatch reads a slope of 1.12, and that read tests only the time, because the memory limit is 1.2. If that read does not give a block, the stated size moves up to the size that a read showed. The size shown on memory is 1.25, and the stated 1.20 is not shown. Before this gate can block, a read near a memory slope of 1.20 must show that size. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. With so few rows, the rule of three gives a rate of up to 33 % false blocks. This count is too small for a ruling. The new filter gives more rows with each change of the kernel.
+
+**Since D166 (2026-11-07).** The kernel filter of the ladder also reads `packages/core/package.json`, `packages/core/tsconfig.json` and `pnpm-workspace.yaml`. The two filters of the ladder use the same pin of the action as the other filters.
+
+**SemVer.** No export of the package changes.
 
 ## D166 (2026-11-05): the filters of the gates read the lock file, and a slower reading holds a merge only when the arm hashes differ
 
@@ -4298,6 +4382,14 @@ One run of the 379 gave a server error, and the count does not read it.
 **A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints. D169 is this acceptance.
 
 **History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
+
+## D168 (2026-11-05): both arms of Speed build under one resolved tsconfig
+
+**Context.** The base arm has no install, so its `tsconfig.json` cannot find the file that it extends. The tool esbuild only warns, and the head arm finds that file. So on a real kernel change the arms can differ because of the settings, and the reading blames the kernel.
+
+**Decision.** The function `bundle` gives esbuild the `tsconfig.json` of the head for both arms. A warning that a base file is missing stops the bundle. A test reads three things. A `tsconfig.json` beside a copy of the kernel has no effect. A changed setting changes the hash. A file that does not resolve stops the bundle.
+
+**Limits.** A pull request that changes `tsconfig.json` builds both arms under the new file. So Speed does not read the cost of that change. This is the same limit as a dependency in D166.
 
 ## D169 (2026-11-06): a row of `changed-results.json` accepts a result that changes on purpose, and the fresh runner times the case
 
@@ -4471,3 +4563,102 @@ Recovery inside the first read. A stack of open brackets or a `try` around each 
 Recovery prefers a missed issue to a false issue. The first token after a synchronising token gets no issue, thus `{a 1, b 2, c 3}` gives one issue. A fault outside brackets ends the read, thus `1 2 + (3 4)` gives one issue.
 
 A fault in a quote mark can pair with a mark inside another text. Then the gate passes, and later issues can be false. This occurred in 9 of the 10501 texts, and each of the 9 holds a text with all three marks. A pattern of a profile that holds a closer can give a false issue at the end of the text.
+
+## D140 (2026-11-03): `checkSyntax` reports the faults of a syntax profile, and each finding is a small document that breaks the law
+
+**Context.** K146, from C15. `compileProfile` refuses many clashes with a `TypeError`, and it stops at the first one. Other faults pass it. With `+` at the precedence `1` and `*` at `1.5`, the document `add(a, mul(b, c))` prints `a + b * c`, and that text reads `mul(add(a, b), c)`. A host finds such a fault only when a document fails. The law of the kit is that `parse(print(doc))` gives `doc` (SYNTAX.ROUNDTRIP).
+
+**Decision.** The new export `checkSyntax(profile)` gives a list of `SyntaxFinding` with `code`, `place` and `reason` (SYNTAX.PROFILE-CHECK). The list has at most one finding for each code and place. The function uses the law as its oracle.
+
+- The function writes and reads small documents. It has one for each operator and one for each ordered pair of operators. It also has one for each root, form, name of `calls.ops` and construct. A `flat` operator also has documents with three terms.
+- A finding is a document that does not come back, thus it is not a style opinion. Each test plants a fault and shows the failure of the law without `checkSyntax`.
+- A literal word is the one exception. The function compares the text of the word with the literal, because `print` writes that text.
+- The separator has a control. The function writes a document with the separator of the profile and with a neutral separator. A document that only the neutral separator keeps blames the separator. These documents use `ops: true`, thus the probe does not depend on the operations of the profile.
+- A pattern that reads the start of a failing text takes the finding, with the code `pattern`, because `parse` tries patterns first.
+- A small `maxDepth` is a limit of the host, thus each probe uses the default limit.
+- A `TypeError` of `compileProfile` becomes one finding `invalid` with an empty place.
+
+The codes are `invalid`, `operator`, `grouping`, `longest-match`, `word`, `root`, `pattern`, `form`, `call`, `separator` and `construct`.
+
+The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE-CHECK-SETTLED):
+
+- `-` as prefix and infix, and `!` as prefix and postfix, because the place of the token settles them.
+- `<` with `<=` and `<-`, because longest match reads them and the printer writes spaces around an infix operator.
+- An infix word `in` with `let`, because `in` has its meaning only after the closing brace.
+- A form name that a pattern matches, for example `LOG10(x)`, because a pattern does not read a name before `(`.
+- An infix `:` in a record, and a bind `=` with `==`, because a key reads first and a longer symbol wins.
+- Two spellings of one kind, a separator `, ` with a trailing space, and a prefix `;` with the separator `;;`.
+- A word literal `let`, because `let` starts a form only before a brace.
+
+**Alternatives.** A part of `check` has the wrong input. `check` takes a machine and a document, and a profile is a separate value that a site reads without code (D41). `checkWorld` is the model: a separate function with its own finding form. A static list of rules is a second copy of the grammar, and it drifts from the parser. An early separator rule was static, and a generated run showed gaps at the backtick, the quote and the closing brace. The control replaced that rule. A check in `compileProfile` adds a cost to the first `parse`, and it changes which profiles throw.
+
+**Why.** The oracle is the law, thus the check and the grammar agree on each document that the check writes. The standard profiles give no finding, and that test guards against a false report (SYNTAX.PROFILE-CHECK-CLEAN). A generated test guards the other direction: a generated profile with no finding keeps the law over generated documents (SYNTAX.PROFILE-CHECK-LAW). A local run of 60000 profiles gave 11083 profiles with no finding. These profiles gave no miss in 60 documents for each one. `parse` and `print` do not change, and only a host calls the check, thus the Speed gate stays 0 slower by design.
+
+**Limits.**
+
+- An empty list tells that the small documents come back. It does not prove the law for each document.
+- The function examines pairs of operators. Three postfix operators and one longer symbol, for example `!`, `!!` and `!!!`, can pass.
+- A profile with `ops: true` permits each name, thus the function probes only one dotted name, and only when the profile has field steps. With `fields: false`, `print` writes a dotted call as a text that `parse` refuses. The check does not report it, because this profile shape is good for each other name.
+- The probes use the names `probe__` and `m.p`, and the keys `x` and `y`. A word operator with one of these names gives a finding, and the host does not use that text.
+- A separator counts as used when the profile has any call or construct, also when each form takes one argument.
+- A `read` or a `write` function of a pattern is code of the host. An error of such a function leaves `checkSyntax` with no change.
+
+## D143 (2026-11-04): a kept read that meets a node in evaluation below it closes no cycle
+
+**Context.** K218, from the Limits of D136. A closure at `f` has a `self` that refers to `g`, and a document of `g` reads `f`. The kept read of `f` demands `g`, and `g` meets `f` in evaluation. Thus both nodes gave `#CYCLE!`. The evaluation of `f` did not ask for that read, and a run has no such cycle.
+
+**Decision.**
+
+- In a kept read, a demand of a node in evaluation below that read gives the same error as before. It adds no mark for the cycle check (SCHED.KEPT-BELOW).
+- At the end of such a kept read, the schedule drops the nodes that finished in it. It removes their values of the epoch and their entries of the store. A real demand then evaluates them again.
+- A node of a component that is still open stays. It is on a true cycle, and its value is final (D31).
+- A read of an evaluation goes outside `keeping`, thus a true cycle gives `#CYCLE!`. A cycle between nodes that a kept read evaluates also stays, because these nodes are above the read.
+
+**Alternatives.**
+
+- A store that keeps no entry of the reader. D136 expected this need. A test of each part found no case for it. `verifyReads` asks `known` for a kept read, and `known` has no value for a node that is not finished. Thus the list fails, and the node evaluates again.
+- A kept read that does not demand. D136 has the reason against it.
+
+**Limits.**
+
+- The nodes of such a kept read evaluate two times in an epoch.
+- A kept read that reaches a true cycle still joins that cycle. The nodes of the read then give a false `#CYCLE!` (K220). The check of the open component in the drop has no test that tells it from no check.
+- The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
+
+**Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
+
+## D146 (2026-11-04): a handler is a frame in the context, and a clause is a capability that the kernel gives
+
+**Context.** R2 P5 proposes a kind `handle` with clauses that run in place, and L1a takes it up. D27 left room for a rule `grant`. R2 names two risks: D10 lists five roots, and CAP.NARROW changes its wording.
+
+**Decision.**
+
+- The standard kind `handle` has the fields `with`, `body` and an optional `return`. Each item of `with` has `op` and one of `do` and `abort`.
+- A frame is a field of a context under a private symbol, as the grant is. It is not a root, thus D10 stays true.
+- A clause is a capability. The new rule `grant` of `Kind.caps` gives the body each kind of the clauses, and the kernel writes that grant (`RunPart.handled`).
+- The kernel asks the capabilities first and the frames second. Thus `mask`, `only` and the narrowing of an evaluator stop a handled effect with no new code (HANDLE.NARROW).
+- A frame ends with its body. An effect from a context that left the body gives `#CAP!`, and a frame of another evaluation counts as ended (HANDLE.ENDED).
+- A handled effect is not an effect of the host. It is not in the list of effects, in a log or in a replay. The effects of a clause are, at the place of the clause.
+- An abort sets the result in the frame, and the effect gives a failure that stops the body. `handle` then gives that result.
+
+**Alternatives.**
+
+- Frames before capabilities. A handled effect then needs no grant. But an effect in `pure` under `handle` gets a clause, and each narrowing needs a second filter for the frames.
+- A frame in `caps`. That changes the type `Cap`, and R2 rejects it.
+- A clause that keeps working after the capability check of its frame ends, as a deep handler in a language with closures does. The capability of that clause then reaches the host through a closure that left the body. The refusal is the safe side.
+- An abort as an error value with a token. A runner that treats an error as data then changes the result of `handle`. A field of the frame does not.
+
+**Why.** A frame that is also a capability needs one rule for the run and one for the check. `check` reads `grant` from the contract, thus it accepts a handled effect with no knowledge of `handle`. `effectsOf` keeps the list of handled kinds on each visit, and CAP.EFFECTS-SOUND stays true, because a handled effect does not reach the host.
+
+The second tier has its own frames, as D15 asks. `agreeRun` compares the results and the addresses.
+
+**Limits.**
+
+- Clauses run in place. A clause cannot resume and then work on the rest of the body. R2 P5 calls that general resumption, and it changes `Steps`.
+- A clause sees the payload but not the kind. A clause for a namespace cannot forward the exact effect.
+- After an abort, a runner that treats an error as data can go on with its next step. Each effect of that step happens, and `handle` still gives the result of the abort. Under `all`, the other items go on unless the host sets `failFast`.
+- `check` does not report a clause with both `do` and `abort`. A run gives `#VALUE!` (HANDLE.VALUE).
+- `factsOf` still lists a handled effect, because its facts read each declaration. That list is an upper bound.
+- A kind that declares `grant` and gives no clauses passes `check`, and its run gives `#CAP!`.
+- A `handle` in a context of an earlier evaluation has no capability, thus its clauses answer nothing, and an effect gives `#CAP!`.
+- `WORLD_SYNTAX` has no text for `handle`. Each clause is a record of data, and the profile has no text for a list of records. SYNTAX.WORLD pins this reason, and L1c gives the text.
