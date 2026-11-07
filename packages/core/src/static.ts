@@ -258,11 +258,14 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       continue;
     }
     const { sees, later } = scopesOf(kind.scope, doc.value, split.parts);
+    // The rules of a grant are read one time for each kind, not for each part. A kind without such a rule gives no list (K238).
+    const grantRules = kind.caps !== undefined && kind.caps.some((rule) => rule.rule === "grant") ? kind.caps : undefined;
     for (let index = split.parts.length - 1; index >= 0; index -= 1) {
       const slot = split.parts[index] as PartSlot;
       const extra = sees[index] ?? [];
       const hidden = later[index] ?? [];
-      const grants = partGrants(kind.caps, slot.path, doc.value);
+      const grants = grantRules === undefined ? undefined : partGrants(grantRules, slot.path, doc.value);
+      const granted = grants !== undefined && grants.length > 0 ? grants : undefined;
       stack.push({
         value: slot.item,
         place: slot.path.length === 0 ? item.place : { up: item.place, keys: slot.path },
@@ -274,8 +277,14 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         address: slot.address === true,
         slot: slot.path,
         parent: here,
-        caps: item.caps === undefined || kind.caps === undefined ? item.caps : [...partCaps(kind.caps, slot.path, item.caps), ...grants],
-        handled: grants.length === 0 ? item.handled : [...(item.handled ?? []), ...grants],
+        // A part with no grant keeps the list of partCaps, with no copy (K238).
+        caps:
+          item.caps === undefined || kind.caps === undefined
+            ? item.caps
+            : granted === undefined
+              ? partCaps(kind.caps, slot.path, item.caps)
+              : [...partCaps(kind.caps, slot.path, item.caps), ...granted],
+        handled: granted === undefined ? item.handled : [...(item.handled ?? []), ...granted],
         bound: extra,
         expect: slot.expect,
       });
