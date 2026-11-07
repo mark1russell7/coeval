@@ -2,6 +2,15 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.24.1
+
+PATCH: a fix of memory with no change of the public API. `CompiledPart.run` keeps its type, its keys and its results.
+
+### Fixes
+
+- **A part keeps steps only for a reader of its steps (D132).** A plan with no runner saves 112 bytes for each part. A part under a plain evaluator has no field `run`. A part of a compiled evaluator of a host gets `run` at the first read.
+- **Four facts of reflection differ for a part of a host before the first read of `run` (D132).** `Object.getOwnPropertyDescriptor` gives an accessor. A write to the `readonly` field throws. A frozen part gives new steps at each read. An object with the part as its prototype runs its own `code`.
+
 ## 0.24.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The union `CapsRule` gets a member, and a document of the kind `handle` gives a result where it gave an error. No export goes.
