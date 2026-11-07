@@ -16,6 +16,7 @@ import {
   type Machine,
   type TraceNode,
 } from "@mark1russell7/coeval";
+import { HOLE_KIND, evalHole } from "../lib/contract.ts";
 import { Port } from "./Card.tsx";
 import { valueText } from "./Value.tsx";
 import { ContextStrip, EffectsLog, LadderGlyph, SealedPart } from "./Panels.tsx";
@@ -41,7 +42,7 @@ export function playgroundHref(doc: Json): string {
 const NO_NAMES: Readonly<Record<string, Json>> = {};
 
 /** The machine of the site: the world of the site, and the standard evaluators. */
-export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: STD_EVALUATORS, runners: STD_RUNNERS, walkers: STD_WALKERS };
+export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: { ...STD_EVALUATORS, [HOLE_KIND]: evalHole }, runners: STD_RUNNERS, walkers: STD_WALKERS };
 
 /** The props of the explorer. */
 export interface ExplorerProps {
