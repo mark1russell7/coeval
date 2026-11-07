@@ -4673,7 +4673,6 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 
 - In a kept read, a demand of a node in evaluation below that read gives the same error as before. It adds no mark for the cycle check (SCHED.KEPT-BELOW).
 - At the end of such a kept read, the schedule drops the nodes that finished in it. It removes their values of the epoch and their entries of the store. A real demand then evaluates them again.
-- A node of a component that is still open stays. It is on a true cycle, and its value is final (D31).
 - A read of an evaluation goes outside `keeping`, thus a true cycle gives `#CYCLE!`. A cycle between nodes that a kept read evaluates also stays, because these nodes are above the read.
 
 **Alternatives.**
@@ -4684,7 +4683,7 @@ The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE
 **Limits.**
 
 - The nodes of such a kept read evaluate two times in an epoch.
-- A kept read that reaches a true cycle still joins that cycle. The nodes of the read then give a false `#CYCLE!` (K220). The check of the open component in the drop has no test that tells it from no check.
+- D145 removes the false cycle of a kept read that reaches a true cycle.
 - The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
 
 **Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
@@ -4729,6 +4728,26 @@ The first study of 2026-11-04 was one local run with Node.js 24.21.0 on Windows.
 - The numbers are of one version of Node.js. Another version of V8 gives other sizes.
 
 **Why.** The claim of K116 was about the peak of a test, and that peak is gone. A change to `visit` adds risk to the code of the cycle check for each host. It needs a need that a host measures.
+
+## D145 (2026-11-04): a kept read that reaches a true cycle joins no component
+
+**Context.** K220, from the Limits of D143. The nodes `a` and `b` read each other. The fallback of `a` reads `c`, a closure with a `self` that refers to `x`. The node `x` reads `b`. The kept read of `c` demands `x`, and `b` is a finished node of an open component. Thus the marks of the cycle check reached `x` and `c`, and both gave a false `#CYCLE!`.
+
+**Decision.**
+
+- In a kept read, a read of a finished node of an open component adds no mark when that node started below the read (SCHED.KEPT-OPEN).
+- Such a read counts as a meeting of D143. The schedule drops the nodes of the kept read, and a real demand evaluates them again.
+- Thus a node with a real read from the cycle stays on the cycle in each order. A node without one stays outside it.
+- The drop no longer tests for an open component. No node of a kept read can stay in an open component, because no mark goes below the read.
+
+**Alternatives.**
+
+- No mark and no drop. A test shows that the value of a node then depends on the order of demands, and that breaks D31.
+- A mark only at the reader of the kept read. The node `x` then still gives a false `#CYCLE!`.
+
+**Limits.** The nodes of such a kept read evaluate two times in an epoch. The restore of the start of an outer kept read has no test. Without it, a nested read gives the same values, with one more evaluation.
+
+**Why.** A path of a real cycle has only reads that an evaluation asks for. A kept read is not such a read, thus no mark goes through it. The drop keeps D31, because no value of a kept read reaches a node outside it.
 
 ## D146 (2026-11-04): a handler is a frame in the context, and a clause is a capability that the kernel gives
 
