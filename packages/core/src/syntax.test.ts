@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { corpus } from "./corpus.test-support.ts";
 import {
   type Json,
   type Random,
@@ -11,6 +12,7 @@ import {
   WORLD_SYNTAX,
   type WorldEntry,
   MAX_SYNTAX_ISSUES,
+  checkSyntax,
   docEquals,
   context,
   evaluate,
@@ -739,6 +741,9 @@ describe("the syntax kit", () => {
     const many = `f(${Array.from({ length: 30 }, () => "1 2").join(", ")})`;
     expect(issues(STD_SYNTAX, many)).toHaveLength(MAX_SYNTAX_ISSUES);
     expect(issues(STD_SYNTAX, `"${"\\q".repeat(30)}" + (1 2)`)).toHaveLength(MAX_SYNTAX_ISSUES);
+    // An empty separator adds no step to a list, thus the guard of recovery ends the read.
+    const empty: SyntaxProfile = { calls: { separator: "" } };
+    for (const text of ["f(1)", "f(g(1), 2)", "f(", "(f(1))"]) expect(issues(empty, text).length).toBeGreaterThan(0);
     // A fault inside a nesting keeps the count of the levels for the next item.
     expect(issues({ ...STD_SYNTAX, maxDepth: 3 }, "f(g($), g($), g($), g($))")).toHaveLength(4);
     // A nesting under the limit of the depth keeps each issue of the depth.
@@ -764,33 +769,41 @@ describe("the syntax kit", () => {
     expect(issues(closing, "f(1 2, @9 3)").map(([offset]) => offset)).toEqual([4]);
   });
 
-  // One test for each generator, because all of them together passed the budget of a test (D96).
+  // One test for each part of each generator, because one generator took 3.0 s on a slow runner (K230, D96). The parts
+  // give the same seeds in the same order as one loop, thus the last test reads the same pins.
   describe.each(Object.entries(GENERATORS))("with the generator %s", (name, gen) => {
-    it("[SYNTAX.ISSUES-GENERATED] a damaged text gives a first issue as before, rising offsets and no cascade", () => {
-      const summary = { texts: 0, most: 0, single: 0 };
-      const cascades: string[] = [];
-      const quoteCascades: string[] = [];
-      let digest = 2166136261;
-      for (let seed = 1; seed <= 2000; seed += 1) {
-        const made = generateDoc(gen, random(seed), 0);
-        const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
-        if (!printed.ok) continue;
-        for (let faults = 1; faults <= 3; faults += 1) {
-          const bad = damaged(random(seed * 7 + faults), printed.value, faults);
-          const result = parse(gen.profile, bad);
-          if (result.ok) continue;
-          const first = result.issues[0] as SyntaxIssue;
-          digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
-          const offsets = result.issues.map((each) => each.offset);
-          expect(offsets).toEqual([...new Set(offsets)].sort((x, y) => x - y));
-          summary.texts += 1;
-          summary.most = Math.max(summary.most, result.issues.length);
-          if (faults > 1) continue;
-          summary.single += 1;
-          if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
+    const seeds = corpus(2000, 500);
+    const summary = { texts: 0, most: 0, single: 0 };
+    const cascades: string[] = [];
+    const quoteCascades: string[] = [];
+    let digest = 2166136261;
+    for (const part of seeds.parts) {
+      it("[SYNTAX.ISSUES-GENERATED] a damaged text gives a first issue as before, rising offsets and no cascade, " + part.name, () => {
+        for (const index of part) {
+          const seed = index + 1;
+          const made = generateDoc(gen, random(seed), 0);
+          const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
+          if (!printed.ok) continue;
+          for (let faults = 1; faults <= 3; faults += 1) {
+            const bad = damaged(random(seed * 7 + faults), printed.value, faults);
+            const result = parse(gen.profile, bad);
+            if (result.ok) continue;
+            const first = result.issues[0] as SyntaxIssue;
+            digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
+            const offsets = result.issues.map((each) => each.offset);
+            expect(offsets).toEqual([...new Set(offsets)].sort((x, y) => x - y));
+            summary.texts += 1;
+            summary.most = Math.max(summary.most, result.issues.length);
+            if (faults > 1) continue;
+            summary.single += 1;
+            if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
+          }
         }
-      }
-      expect(cascades.slice(0, 3)).toEqual([]);
+        expect(cascades.slice(0, 3)).toEqual([]);
+      });
+    }
+    it("[SYNTAX.ISSUES-GENERATED] the parts of a generator give the pinned summary and digest", () => {
+      expect(seeds.unfinished(), "parts that did not finish").toEqual([]);
       // A fault in a quote mark can pair with a mark inside a text that holds each mark (D138, Limits). A digest comes
       // from the parser before D138. A change to a generator or to `print` changes it.
       expect({ ...summary, quoteCascades: quoteCascades.length, digest }).toEqual(GENERATED_PINS[name]);
@@ -1084,3 +1097,17 @@ function stepRef(gen: Generator, rng: Random, depth: number): Json {
   const step = typeof made === "object" && made !== null && !Array.isArray(made) ? made : { type: "nearest", value: { type: "panel" } };
   return ref("self", "parent", step, ...(rng.int(2) === 0 ? ["width"] : []));
 }
+
+describe("the check of the standard profiles", () => {
+  it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the default, the standard and the world profile", () => {
+    expect(checkSyntax({})).toEqual([]);
+    expect(checkSyntax(STD_SYNTAX)).toEqual([]);
+    expect(checkSyntax(WORLD_SYNTAX)).toEqual([]);
+  });
+
+  for (const [name, gen] of Object.entries(GENERATORS)) {
+    it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the profile of a generator: " + name, () => {
+      expect(checkSyntax(gen.profile)).toEqual([]);
+    });
+  }
+});

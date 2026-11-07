@@ -138,10 +138,15 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D162 | The flip test of PLAN.LEAN is a matrix row of the same job. It adds 20 bytes to the value, the step turns red, and the 5 plain jobs stay green. |
 | D163 | The gate `notSlowerVerdict` runs as report only beside the pooled verdict. It blocks nothing until a control run, a count of false blocks and a flip test. |
 | D164 | The ladder starts on a change of the kernel, and a flip job shows that its report-only gate can block. |
+| D166 | The filters of the gates read the lock file. A slower reading holds a merge only when the bundle hashes of the arms differ. |
+| D170 | The second level of PLAN.LEAN is code of the JIT. The test also reads the data spaces of the heap, and the limit moves there after 20 jobs. |
+| D171 | The limit of PLAN.LEAN reads the data spaces. 50 jobs gave 392.0 to 392.7 bytes, so the limit is 393.4 bytes. A flip row that keeps 1 KB for each plan turns the step red. |
 | D135 | The option `selfOf` of `schedule` gives each node its own `self` (S1f). Nodes with one document share one plan, and a new `self` is a change of data. |
 | D137 | `conforms` also examines walkers, the code of a `deref` and the functions of a formula profile (K121). Each check tests a stated law. A plain throw of a walker is a finding, and a `Failure` is not. |
 | D139 | After an overflow of the stack, a walk with its own stack follows the real reads (S2c). Each cycle gives `#CYCLE!` at each length, and a chain with no cycle keeps its `#DEPTH!`. |
 | D138 | The field `issues` of a failed `parse` holds each issue of a text, at most `MAX_SYNTAX_ISSUES` (K144). The first issue stays as before, a second read finds the others at separators and closers, and a valid text runs no recovery code. |
+| D140 | `checkSyntax(profile)` gives the clashes of a syntax profile as named findings with a place (K146). Each finding is a small document that breaks `parse(print(doc))`, and only a host calls the check. |
+| D143 | A kept read that meets a node in evaluation below it closes no cycle (K218). The nodes of that read evaluate again at a real demand. |
 
 ## Open
 
