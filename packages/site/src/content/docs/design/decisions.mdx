@@ -143,6 +143,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D168 | Both arms of Speed build under one resolved `tsconfig.json`, and a file that does not resolve stops the bundle. |
 | D170 | The second level of PLAN.LEAN is code of the JIT. The test also reads the data spaces of the heap, and the limit moves there after 20 jobs. |
 | D171 | The limit of PLAN.LEAN reads the data spaces. 50 jobs gave 392.0 to 392.7 bytes, so the limit is 393.4 bytes. A flip row that keeps 1 KB for each plan turns the step red. |
+| D165 | The share gate reads the parts of a split test as one group, first as a report. The limit of a group and its flip test come from 5 or more CI runs. |
 | D135 | The option `selfOf` of `schedule` gives each node its own `self` (S1f). Nodes with one document share one plan, and a new `self` is a change of data. |
 | D137 | `conforms` also examines walkers, the code of a `deref` and the functions of a formula profile (K121). Each check tests a stated law. A plain throw of a walker is a finding, and a `Failure` is not. |
 | D139 | After an overflow of the stack, a walk with its own stack follows the real reads (S2c). Each cycle gives `#CYCLE!` at each length, and a chain with no cycle keeps its `#DEPTH!`. |
