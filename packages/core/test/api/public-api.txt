@@ -37,6 +37,7 @@ type CheckOptions: build/index.d.ts#CheckOptions
 type CircularDeclaration: build/index.d.ts#CircularDeclaration
 type CircularRule: build/index.d.ts#CircularRule
 type Classification: build/index.d.ts#Classification
+type Clause: build/index.d.ts#Clause
 type Closure: build/index.d.ts#Closure
 type Code: build/index.d.ts#Code
 type CodecFinding: build/index.d.ts#CodecFinding
@@ -361,6 +362,7 @@ nodeLayers: build/index.d.ts#nodeLayers
 ok: build/index.d.ts#ok
 parse: build/index.d.ts#parse
 partCaps: build/index.d.ts#partCaps
+partGrants: build/index.d.ts#partGrants
 partsOf: build/index.d.ts#partsOf
 pathMatches: build/index.d.ts#pathMatches
 permits: build/index.d.ts#permits
@@ -612,6 +614,10 @@ type CapsRule = {
   readonly rule: "only";
   readonly caps: readonly Cap[];
   readonly in?: readonly (readonly Key[])[];
+} | {
+  readonly rule: "grant";
+  readonly from: readonly Key[];
+  readonly in?: readonly (readonly Key[])[];
 };
 
 ### build/index.d.ts#CheckOptions
@@ -647,6 +653,12 @@ interface Classification {
   readonly kind?: string;
   readonly candidates: readonly string[];
   readonly error?: "no-match" | "ambiguous";
+}
+
+### build/index.d.ts#Clause
+interface Clause {
+  readonly op: Cap;
+  answer(payload: unknown): Steps;
 }
 
 ### build/index.d.ts#Closure
@@ -857,6 +869,7 @@ interface DocVisit {
   readonly later: ReadonlySet<string>;
   readonly address?: true | undefined;
   readonly caps?: readonly Cap[] | undefined;
+  readonly handled?: readonly Cap[] | undefined;
 }
 
 ### build/index.d.ts#Domain
@@ -1685,6 +1698,7 @@ interface RunPart {
   readonly path: readonly Key[];
   readonly name?: string;
   evaluate(context?: Context): Steps;
+  handled?(clauses: readonly Clause[]): Steps;
 }
 
 ### build/index.d.ts#Rung
@@ -2627,6 +2641,9 @@ export declare function parse(profile: SyntaxProfile, text: string): ParseResult
 
 ### build/index.d.ts#partCaps
 export declare function partCaps(rules: readonly CapsRule[] | undefined, path: readonly Key[], caps: readonly Cap[]): readonly Cap[];
+
+### build/index.d.ts#partGrants
+export declare function partGrants(rules: readonly CapsRule[] | undefined, path: readonly Key[], value: unknown): readonly Cap[];
 
 ### build/index.d.ts#partsOf
 export declare function partsOf(world: World, value: unknown, declaredType?: string): DocParts;

@@ -89,7 +89,13 @@ export interface ScopeRule {
 export type CapsRule =
   | { readonly rule: "same"; readonly in?: readonly (readonly Key[])[] }
   | { readonly rule: "mask"; readonly in?: readonly (readonly Key[])[] }
-  | { readonly rule: "only"; readonly caps: readonly Cap[]; readonly in?: readonly (readonly Key[])[] };
+  | { readonly rule: "only"; readonly caps: readonly Cap[]; readonly in?: readonly (readonly Key[])[] }
+  /**
+   * The parts that the rule covers get each capability that the value of the document holds at the path `from`. The
+   * code of the kind answers these effects with its own clauses (`RunPart.handled`), thus they do not reach the host.
+   * The key `"*"` in `from` steps into each item (CAP.GRANT, D146).
+   */
+  | { readonly rule: "grant"; readonly from: readonly Key[]; readonly in?: readonly (readonly Key[])[] };
 
 /**
  * A lazy rule of a kind names the parts that an evaluation can skip and still give a value. An example is the

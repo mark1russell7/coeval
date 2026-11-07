@@ -46,7 +46,7 @@ function reaching(machine: Machine, doc: unknown, options: EffectsOptions): read
     doc,
     (v) => {
       const caps = v.caps ?? EACH;
-      for (const kind of declaredEffects(v, "eval", machine)) if (rule(caps, kind)) out.push({ kind, visit: v });
+      for (const kind of declaredEffects(v, "eval", machine)) if (rule(caps, kind) && (v.handled === undefined || !permits(v.handled, kind))) out.push({ kind, visit: v });
       return undefined;
     },
     { caps: options.caps ?? EACH, ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }) },
