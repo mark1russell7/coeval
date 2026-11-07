@@ -17,6 +17,8 @@
  * Node removes the types of this script. The job installs the packages, because the script imports the bench core.
  * The script fails when a run is absent or when a run found different results. A "slower" case does not fail it.
  * The script writes the state of the runs and its reason as outputs of the job, and `Speed OK` reads them (K235, D167).
+ * A slower case under a hold gives the state "held", unless a record of `bench/accepted` accepts it (K239, D173).
+ * The variable `BENCH_ACCEPTED` names another folder of records, for a test.
  *
  * The script also prints the gate of the claim "not slower by more than the margin" (K225, D163). This gate is report only.
  */
@@ -24,6 +26,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { notSlowerVerdict, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { acceptHold, readAccepted, type Acceptance } from "./accepted.ts";
 import { FAMILIES, limitsOf, limitsRecord, percentOf, type Family } from "./limits.ts";
 
 /** The measurement of one case in one run. The change and the noise are percents. */
@@ -138,15 +141,32 @@ export function holdRead(slower: number, runs: readonly (BenchRun | undefined)[]
  * The state "different results" is a finding: the copies gave different results. On equal arms this is a fault of determinism.
  * On different arms, a changed result can explain it, as K236 read.
  */
-export type SpeedState = "same" | "slower" | "no read" | "different results";
+export type SpeedState = "same" | "slower" | "held" | "accepted" | "no read" | "different results";
 
-/** This function gives the state of a Speed run and its reason, on one line. Different results come first, then a fault, because each leaves no reading. */
-export function speedState(slower: number, undecided: number, hold: string, faults: readonly string[], different = 0, equal = false): { readonly state: SpeedState; readonly reason: string } {
+/**
+ * This function gives the state of a Speed run and its reason, on one line. Different results come first, then a fault,
+ * because each leaves no reading. A slower case under a hold gives "held" or "accepted" from the records (K239, D173).
+ * Without `acceptance`, there is no hold, and a slower case gives "slower", which stays report only (D166).
+ */
+export function speedState(
+  slower: number,
+  undecided: number,
+  hold: string,
+  faults: readonly string[],
+  different = 0,
+  equal = false,
+  acceptance?: Acceptance,
+): { readonly state: SpeedState; readonly reason: string } {
   const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
   const cause = equal ? "The arms are equal, so this is a fault of determinism." : "The arms differ or have no hashes, so a changed result can explain this.";
   if (different > 0) return { state: "different results", reason: oneLine(`${String(different)} cases read different results. ${cause} ${faults.join(" ")}`) };
   if (faults.length > 0) return { state: "no read", reason: oneLine(faults.join(" ")) };
-  if (slower > 0) return { state: "slower", reason: oneLine(`${String(slower)} slower, ${String(undecided)} cannot decide. ${hold}`) };
+  const counted = `${String(slower)} slower, ${String(undecided)} cannot decide. ${hold}`;
+  if (slower > 0 && acceptance !== undefined) {
+    const state: SpeedState = acceptance.missing.length > 0 ? "held" : "accepted";
+    return { state, reason: oneLine(`${counted} ${acceptance.lines.join(" ")}`) };
+  }
+  if (slower > 0) return { state: "slower", reason: oneLine(counted) };
   return { state: "same", reason: oneLine(`0 slower, ${String(undecided)} cannot decide.`) };
 }
 
@@ -301,10 +321,12 @@ function main(): void {
     "| --- | ---: | ---: | --- | ---: | ---: | --- | --- |",
   ];
   const counts = new Map<Verdict, number>();
+  const slowerNames: string[] = [];
   for (const name of names) {
     const [first, second] = runs.map((run) => run?.cases.find((item) => item.name === name));
     const verdict = verdictOf(first, second, [runs[0]?.run ?? "1", runs[1]?.run ?? "2"]);
     counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
+    if (verdict === "slower") slowerNames.push(name);
     lines.push(`| ${name} | ${cells(first)} | ${cells(second)} | ${verdict}${fallbackMark(name)} |`);
   }
   lines.push("", `Verdicts: ${[...counts].map(([verdict, count]) => `${String(count)} ${verdict}`).join(", ")}.`);
@@ -319,14 +341,18 @@ function main(): void {
     ...(names.length === 0 ? ["The two run files have no cases."] : []),
     ...runs.flatMap((run) => (run?.results?.faults ?? []).map((line) => `Run ${run?.run ?? "?"}: ${line}`)),
   ];
+  const records = readAccepted(process.env["BENCH_ACCEPTED"] || undefined);
+  faults.push(...records.faults);
   const changed = [...new Set(runs.flatMap((run) => run?.results?.lines ?? []))];
   if (changed.length > 0) lines.push("", "Changed results (K237):", ...changed);
   const different = counts.get("different results") ?? 0;
   const slower = counts.get("slower") ?? 0;
-  const hold = holdRead(slower, runs, faults.length === 0 && different === 0).line;
+  const held = holdRead(slower, runs, faults.length === 0 && different === 0);
+  const hold = held.line;
+  const acceptance = held.hold && slower > 0 ? acceptHold(slowerNames, runs.map((run) => run?.arms?.head), records.records) : undefined;
   lines.push("", ...gateLines(gateRead(runs)));
-  lines.push("", armLine(runs), hold);
-  const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different, equalArms(runs));
+  lines.push("", armLine(runs), hold, ...(acceptance?.lines ?? []));
+  const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different, equalArms(runs), acceptance);
   const output = process.env["GITHUB_OUTPUT"];
   if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\n`);
   const text = lines.join("\n");
