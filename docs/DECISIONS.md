@@ -4716,3 +4716,23 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - The limit does not find the test of K230 as it is today, because that group is the top group of the five runs. It finds each growth above that level.
 
 **Why.** A gate holds each gain only when it is code. The fraction is a share of a time in its own run, thus a slow runner does not move it much.
+
+## D175 (2026-11-07): the tree kit is complete, and each open question of R3 has an answer
+
+**Context.** L2, from R3. L2a to L2i gave the nine proposals of R3 (D16, D42, D106, D107, D108, D113, D122, D124, D126). The seven open questions of R3 had no record of their answers, thus L2 stayed open.
+
+**Decision.** L2 is done. This record gives the answer to each open question of R3.
+
+1. **Structural steps.** A node reserves only the steps `parent` and `type` (D16). `index` and `prev` are names of an equation of `down`, not steps (D42). `next` follows the same rule. Thus a record keeps each other field name.
+2. **Inherited reads.** The two forms stay, and they read two attributes. `["self", "width"]` reads the attribute of the node through the ladder of D42. `["self", "parent", "width"]` reads the attribute of the parent. A declaration `copy` makes the first form fall back to the second when no nearer rung answers (TREE.COPY).
+3. **Rungs.** The kernel keeps its trace. `attributeTrace` of the tree kit gives the rungs (TREE.RUNGS, D42).
+4. **Declarations.** Each declaration is in the contract `tree` of its kind, not in the spec of a kit (D42, D14).
+5. **Circularity.** A declared circular attribute evaluates to a fixed point, and each other cycle gives `#CYCLE!` (D113).
+6. **A store of named nodes.** The schedule of D31 keeps named nodes without the rungs of a tree. It uses the same analysis `graph.ts` as the graph of attribute instances (D107). Thus the two layers share one cycle finder.
+7. **A tree space.** Coeval gives no space. A space is a host: its things and its walkers (DEREF.HOST, D10). The test `positions.test.ts` gives a space of rows in this form. A tree space with a zipper is the work of the language that uses it, on the same interface.
+
+**Alternatives.** Keep L2 open until a language asks for a tree space. That gives no work to coeval, thus the item only blocks the view of the roadmap.
+
+**Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
+
+**Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
