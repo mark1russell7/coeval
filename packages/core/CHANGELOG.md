@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.26.1
+
+PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes, and each seed gives the same numbers.
+
+### Changes
+
+- **The random numbers come from their home (D191).** `random` takes its numbers from `mulberry32` of `@mark1russell7/rigor-generators`, the first runtime dependency of the core. The draws `int`, `chance` and `pick` keep their rules.
+
 ## 0.26.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The type `Tier` gets the member `"stepper"`, and a disagreement of `agree` gives a `Tier`. A host with an exhaustive `switch` over `Tier` must add the case. No export goes.
