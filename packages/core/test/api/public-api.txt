@@ -4,12 +4,13 @@
 # and private members. The command `api-report check` compares this file with the built .d.ts files.
 # To accept a change of the API, start the build, then `api-report update`, and review the diff.
 
-## . (build/index.d.ts): 400 names
+## . (build/index.d.ts): names
 
 ATTRIBUTE_RUNGS: build/index.d.ts#ATTRIBUTE_RUNGS
 type AgreeOptions: build/index.d.ts#AgreeOptions
 type AgreeRunOptions: build/index.d.ts#AgreeRunOptions
 type AgreeScheduleOptions: build/index.d.ts#AgreeScheduleOptions
+type AgreeTypesOptions: build/index.d.ts#AgreeTypesOptions
 type Agreement: build/index.d.ts#Agreement
 type Alias: build/index.d.ts#Alias
 type AllOptions: build/index.d.ts#AllOptions
@@ -28,6 +29,7 @@ type AttributeGraphOptions: build/index.d.ts#AttributeGraphOptions
 type AttributeRung: build/index.d.ts#AttributeRung
 type AttributeTrace: build/index.d.ts#AttributeTrace
 type AttributeVertex: build/index.d.ts#AttributeVertex
+type Boundary: build/index.d.ts#Boundary
 CAPS_TYPE: build/index.d.ts#CAPS_TYPE
 CIRCULAR_LIMIT: build/index.d.ts#CIRCULAR_LIMIT
 CONSTRUCTS: build/index.d.ts#CONSTRUCTS
@@ -37,6 +39,7 @@ type CheckOptions: build/index.d.ts#CheckOptions
 type CircularDeclaration: build/index.d.ts#CircularDeclaration
 type CircularRule: build/index.d.ts#CircularRule
 type Classification: build/index.d.ts#Classification
+type Clause: build/index.d.ts#Clause
 type Closure: build/index.d.ts#Closure
 type Code: build/index.d.ts#Code
 type CodecFinding: build/index.d.ts#CodecFinding
@@ -59,6 +62,7 @@ type CycleIssue: build/index.d.ts#CycleIssue
 type Declared: build/index.d.ts#Declared
 type Definitions: build/index.d.ts#Definitions
 type DerefCode: build/index.d.ts#DerefCode
+type DocChange: build/index.d.ts#DocChange
 type DocFacts: build/index.d.ts#DocFacts
 type DocParts: build/index.d.ts#DocParts
 type DocVisit: build/index.d.ts#DocVisit
@@ -144,6 +148,8 @@ type Plan: build/index.d.ts#Plan
 type PlanRunOptions: build/index.d.ts#PlanRunOptions
 type PrepareOptions: build/index.d.ts#PrepareOptions
 type PrintOptions: build/index.d.ts#PrintOptions
+type Proof: build/index.d.ts#Proof
+type Proven: build/index.d.ts#Proven
 ROOTS: build/index.d.ts#ROOTS
 RUNGS: build/index.d.ts#RUNGS
 type Random: build/index.d.ts#Random
@@ -221,6 +227,8 @@ type SyntaxAssoc: build/index.d.ts#SyntaxAssoc
 type SyntaxCalls: build/index.d.ts#SyntaxCalls
 type SyntaxConstructs: build/index.d.ts#SyntaxConstructs
 type SyntaxEnvelopes: build/index.d.ts#SyntaxEnvelopes
+type SyntaxFinding: build/index.d.ts#SyntaxFinding
+type SyntaxFindingCode: build/index.d.ts#SyntaxFindingCode
 type SyntaxFixity: build/index.d.ts#SyntaxFixity
 type SyntaxForm: build/index.d.ts#SyntaxForm
 type SyntaxFormArgs: build/index.d.ts#SyntaxFormArgs
@@ -239,6 +247,7 @@ type TierResult: build/index.d.ts#TierResult
 type TraceNode: build/index.d.ts#TraceNode
 type TreeContract: build/index.d.ts#TreeContract
 type TreeOptions: build/index.d.ts#TreeOptions
+type TypeAgreement: build/index.d.ts#TypeAgreement
 type TypeInput: build/index.d.ts#TypeInput
 type TypeIssue: build/index.d.ts#TypeIssue
 type TypeProblem: build/index.d.ts#TypeProblem
@@ -250,6 +259,7 @@ type Typing: build/index.d.ts#Typing
 type Use: build/index.d.ts#Use
 type ValueType: build/index.d.ts#ValueType
 type VerbEffects: build/index.d.ts#VerbEffects
+type VerbEntries: build/index.d.ts#VerbEntries
 type VerifyOptions: build/index.d.ts#VerifyOptions
 WORK_LIMIT: build/index.d.ts#WORK_LIMIT
 WORLD_SYNTAX: build/index.d.ts#WORLD_SYNTAX
@@ -267,6 +277,7 @@ type WorldPart: build/index.d.ts#WorldPart
 agree: build/index.d.ts#agree
 agreeRun: build/index.d.ts#agreeRun
 agreeSchedule: build/index.d.ts#agreeSchedule
+agreeTypes: build/index.d.ts#agreeTypes
 argsKey: build/index.d.ts#argsKey
 ask: build/index.d.ts#ask
 atArgsOf: build/index.d.ts#atArgsOf
@@ -274,12 +285,14 @@ atRuleOf: build/index.d.ts#atRuleOf
 attributeGraph: build/index.d.ts#attributeGraph
 attributeTrace: build/index.d.ts#attributeTrace
 attributeVertexId: build/index.d.ts#attributeVertexId
+boundariesOf: build/index.d.ts#boundariesOf
 capKeys: build/index.d.ts#capKeys
 check: build/index.d.ts#check
 checkCycles: build/index.d.ts#checkCycles
 checkLatent: build/index.d.ts#checkLatent
 checkStep: build/index.d.ts#checkStep
 checkSteps: build/index.d.ts#checkSteps
+checkSyntax: build/index.d.ts#checkSyntax
 checkWorld: build/index.d.ts#checkWorld
 circularOf: build/index.d.ts#circularOf
 classify: build/index.d.ts#classify
@@ -324,6 +337,7 @@ formulaMachine: build/index.d.ts#formulaMachine
 fromJson: build/index.d.ts#fromJson
 generate: build/index.d.ts#generate
 heights: build/index.d.ts#heights
+ifRunner: build/index.d.ts#ifRunner
 intersectCaps: build/index.d.ts#intersectCaps
 isAlias: build/index.d.ts#isAlias
 isAllowedOrder: build/index.d.ts#isAllowedOrder
@@ -347,6 +361,7 @@ layers: build/index.d.ts#layers
 looksLikeKind: build/index.d.ts#looksLikeKind
 lookupKind: build/index.d.ts#lookupKind
 makeContext: build/index.d.ts#makeContext
+mapDocs: build/index.d.ts#mapDocs
 mapRefs: build/index.d.ts#mapRefs
 member: build/index.d.ts#member
 mergeMachines: build/index.d.ts#mergeMachines
@@ -359,6 +374,7 @@ nodeLayers: build/index.d.ts#nodeLayers
 ok: build/index.d.ts#ok
 parse: build/index.d.ts#parse
 partCaps: build/index.d.ts#partCaps
+partGrants: build/index.d.ts#partGrants
 partsOf: build/index.d.ts#partsOf
 pathMatches: build/index.d.ts#pathMatches
 permits: build/index.d.ts#permits
@@ -448,6 +464,11 @@ interface AgreeScheduleOptions {
   readonly steps?: number;
   readonly seed?: number;
   readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
+}
+
+### build/index.d.ts#AgreeTypesOptions
+interface AgreeTypesOptions extends CheckOptions {
+  readonly guards?: boolean;
 }
 
 ### build/index.d.ts#Agreement
@@ -587,6 +608,12 @@ interface AttributeVertex {
   readonly args?: Readonly<Record<string, Json>>;
 }
 
+### build/index.d.ts#Boundary
+interface Boundary {
+  readonly place: readonly Key[];
+  readonly type: ValueType;
+}
+
 ### build/index.d.ts#CAPS_TYPE
 export declare const CAPS_TYPE: ValueType;
 
@@ -609,6 +636,10 @@ type CapsRule = {
 } | {
   readonly rule: "only";
   readonly caps: readonly Cap[];
+  readonly in?: readonly (readonly Key[])[];
+} | {
+  readonly rule: "grant";
+  readonly from: readonly Key[];
   readonly in?: readonly (readonly Key[])[];
 };
 
@@ -645,6 +676,12 @@ interface Classification {
   readonly kind?: string;
   readonly candidates: readonly string[];
   readonly error?: "no-match" | "ambiguous";
+}
+
+### build/index.d.ts#Clause
+interface Clause {
+  readonly op: Cap;
+  answer(payload: unknown): Steps;
 }
 
 ### build/index.d.ts#Closure
@@ -817,6 +854,12 @@ interface DerefCode {
   readonly has?: (doc: Envelope, key: Key) => boolean;
 }
 
+### build/index.d.ts#DocChange
+type DocChange = undefined | "skip" | {
+  readonly to: unknown;
+  readonly into?: boolean;
+};
+
 ### build/index.d.ts#DocFacts
 interface DocFacts {
   readonly reads: readonly StaticRead[];
@@ -856,6 +899,7 @@ interface DocVisit {
   readonly later: ReadonlySet<string>;
   readonly address?: true | undefined;
   readonly caps?: readonly Cap[] | undefined;
+  readonly handled?: readonly Cap[] | undefined;
 }
 
 ### build/index.d.ts#Domain
@@ -998,6 +1042,7 @@ interface EvaluateOptions {
   readonly verb?: string;
   readonly perform?: Perform;
   readonly reads?: Read[];
+  readonly guards?: readonly Boundary[];
 }
 
 ### build/index.d.ts#Evaluator
@@ -1386,6 +1431,8 @@ interface PartType {
   readonly what?: string;
   readonly names?: Readonly<Record<string, ValueType>>;
   readonly roots?: Omit<RootTypes, "names">;
+  readonly narrow?: readonly Proof[];
+  readonly keep?: boolean;
 }
 
 ### build/index.d.ts#PartsSpec
@@ -1419,12 +1466,29 @@ interface PrepareOptions {
   readonly fixed?: {
     readonly names?: Readonly<Record<string, unknown>>;
   };
+  readonly guards?: readonly Boundary[];
 }
 
 ### build/index.d.ts#PrintOptions
 interface PrintOptions {
   readonly limit?: number;
   readonly stamp?: (value: object) => unknown;
+}
+
+### build/index.d.ts#Proof
+type Proof = {
+  readonly path: readonly string[];
+  readonly fact: "is" | "not";
+  readonly type: ValueType;
+} | {
+  readonly path: readonly string[];
+  readonly fact: "present" | "absent";
+};
+
+### build/index.d.ts#Proven
+interface Proven {
+  readonly yes: readonly Proof[];
+  readonly no: readonly Proof[];
 }
 
 ### build/index.d.ts#ROOTS
@@ -1676,6 +1740,7 @@ interface RunInput {
 ### build/index.d.ts#RunOptions
 interface RunOptions extends PlanRunOptions {
   readonly declaredType?: string;
+  readonly guards?: readonly Boundary[];
   readonly verb?: string;
 }
 
@@ -1685,6 +1750,7 @@ interface RunPart {
   readonly path: readonly Key[];
   readonly name?: string;
   evaluate(context?: Context): Steps;
+  handled?(clauses: readonly Clause[]): Steps;
 }
 
 ### build/index.d.ts#Rung
@@ -1888,6 +1954,8 @@ interface Signature {
   readonly params: readonly ValueType[];
   readonly rest?: ValueType;
   readonly to: ValueType;
+  readonly proves?: ValueType;
+  readonly present?: boolean;
 }
 
 ### build/index.d.ts#Split
@@ -2010,6 +2078,16 @@ interface SyntaxEnvelopes {
   readonly bool?: string;
 }
 
+### build/index.d.ts#SyntaxFinding
+interface SyntaxFinding {
+  readonly code: SyntaxFindingCode;
+  readonly place: readonly Key[];
+  readonly reason: string;
+}
+
+### build/index.d.ts#SyntaxFindingCode
+type SyntaxFindingCode = "invalid" | "operator" | "grouping" | "longest-match" | "word" | "root" | "pattern" | "form" | "call" | "separator" | "construct";
+
 ### build/index.d.ts#SyntaxFixity
 type SyntaxFixity = "prefix" | "infix" | "postfix";
 
@@ -2021,6 +2099,8 @@ interface SyntaxForm {
   readonly min?: number;
   readonly args?: SyntaxFormArgs;
   readonly wrap?: boolean | readonly string[];
+  readonly data?: readonly string[];
+  readonly domain?: string;
 }
 
 ### build/index.d.ts#SyntaxFormArgs
@@ -2140,6 +2220,18 @@ interface TreeOptions {
   readonly cell?: AttributeCell;
 }
 
+### build/index.d.ts#TypeAgreement
+type TypeAgreement = {
+  readonly ok: true;
+  readonly checked: boolean;
+  readonly values: number;
+} | {
+  readonly ok: false;
+  readonly clause: "value" | "argument" | "error";
+  readonly place: readonly string[];
+  readonly reason: string;
+};
+
 ### build/index.d.ts#TypeInput
 interface TypeInput {
   readonly typePath: readonly Key[];
@@ -2152,6 +2244,8 @@ interface TypeInput {
   nameType(name: string): ValueType | undefined;
   rootType(root: string): ValueType;
   contract(type: unknown, what: string): ValueType;
+  readOf(path: readonly Key[]): readonly string[] | undefined;
+  provenBy(path: readonly Key[]): Proven;
 }
 
 ### build/index.d.ts#TypeIssue
@@ -2182,9 +2276,14 @@ type TypeRef = string | readonly Key[] | {
 
 ### build/index.d.ts#TypeRule
 interface TypeRule {
+  readonly read?: true;
   readonly part?: (input: TypeInput, path: readonly Key[]) => PartType;
   readonly synth: (input: TypeInput, report: (problem: TypeProblem) => void) => ValueType;
   readonly declared?: () => readonly Declared[];
+  readonly first?: string;
+  readonly usesProofs?: boolean;
+  readonly reads?: (input: TypeInput) => readonly string[] | undefined;
+  readonly proves?: (input: TypeInput) => Proven;
 }
 
 ### build/index.d.ts#Typed
@@ -2193,6 +2292,7 @@ interface Typed {
   readonly at: readonly Key[];
   readonly type: ValueType;
   readonly expected?: ValueType;
+  readonly read?: true;
 }
 
 ### build/index.d.ts#Typing
@@ -2229,6 +2329,12 @@ type ValueType = string | {
 type VerbEffects = Readonly<Record<string, "type" | readonly string[]>> & {
   readonly eval?: never;
 };
+
+### build/index.d.ts#VerbEntries
+interface VerbEntries {
+  readonly kind: MergePath;
+  readonly verbs: Readonly<Record<string, string>>;
+}
 
 ### build/index.d.ts#VerifyOptions
 interface VerifyOptions {
@@ -2322,6 +2428,8 @@ interface WorldPart {
   readonly kinds?: Readonly<Record<string, WorldEntry>>;
   readonly defaults?: Readonly<Record<string, string>>;
   readonly fallback?: Kind;
+  readonly verbs?: readonly string[];
+  readonly extends?: readonly VerbEntries[];
   readonly replaces?: readonly MergePath[];
 }
 
@@ -2333,6 +2441,9 @@ export declare function agreeRun(machine: Machine, doc: unknown, context?: Conte
 
 ### build/index.d.ts#agreeSchedule
 export declare function agreeSchedule(engine: ScheduleEngineFactory, options?: AgreeScheduleOptions): ScheduleAgreement;
+
+### build/index.d.ts#agreeTypes
+export declare function agreeTypes(machine: Machine, doc: unknown, context?: Context, options?: AgreeTypesOptions): TypeAgreement;
 
 ### build/index.d.ts#argsKey
 export declare function argsKey(value: unknown): string | undefined;
@@ -2355,6 +2466,11 @@ export declare function attributeTrace(node: Thing, attribute: string): Attribut
 ### build/index.d.ts#attributeVertexId
 export declare function attributeVertexId(place: readonly Key[], attribute: string): string;
 
+### build/index.d.ts#boundariesOf
+export declare function boundariesOf(typing: {
+  readonly places: readonly Typed[];
+}, domains?: Readonly<Record<string, Domain>>): readonly Boundary[];
+
 ### build/index.d.ts#capKeys
 export declare function capKeys(kind: Cap): readonly string[];
 
@@ -2374,6 +2490,9 @@ export declare function checkStep<N, S extends string>(ladder: StepLadder<S>, ne
 
 ### build/index.d.ts#checkSteps
 export declare function checkSteps(steps: readonly StepSpec[]): readonly OrderProblem[];
+
+### build/index.d.ts#checkSyntax
+export declare function checkSyntax(profile: SyntaxProfile): readonly SyntaxFinding[];
 
 ### build/index.d.ts#checkWorld
 export declare function checkWorld(machine: Machine, verbs: readonly string[], options?: WorldOptions): readonly WorldIssue[];
@@ -2513,6 +2632,9 @@ export declare function generate(world: World, options: GenerateOptions): unknow
 ### build/index.d.ts#heights
 export declare function heights<Id>(graph: NodeGraph<Id>, options?: GraphOptions): ReadonlyMap<Id, number>;
 
+### build/index.d.ts#ifRunner
+export declare function ifRunner(truth: (value: unknown) => boolean | undefined): Runner;
+
 ### build/index.d.ts#intersectCaps
 export declare function intersectCaps(a: readonly Cap[], b: readonly Cap[]): readonly Cap[];
 
@@ -2584,6 +2706,9 @@ export declare function lookupKind(world: World, type: TypeRef): Lookup;
 ### build/index.d.ts#makeContext
 export declare function makeContext(names?: Readonly<Record<string, unknown>>, caps?: readonly Cap[], self?: Thing): Context;
 
+### build/index.d.ts#mapDocs
+export declare function mapDocs(world: World, doc: unknown, change: (visit: DocVisit) => DocChange, options?: WalkOptions): unknown;
+
 ### build/index.d.ts#mapRefs
 export declare function mapRefs(world: World, doc: unknown, change: (use: RefUse) => unknown, options?: WalkOptions): unknown;
 
@@ -2619,6 +2744,9 @@ export declare function parse(profile: SyntaxProfile, text: string): ParseResult
 
 ### build/index.d.ts#partCaps
 export declare function partCaps(rules: readonly CapsRule[] | undefined, path: readonly Key[], caps: readonly Cap[]): readonly Cap[];
+
+### build/index.d.ts#partGrants
+export declare function partGrants(rules: readonly CapsRule[] | undefined, path: readonly Key[], value: unknown): readonly Cap[];
 
 ### build/index.d.ts#partsOf
 export declare function partsOf(world: World, value: unknown, declaredType?: string): DocParts;

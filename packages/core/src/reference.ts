@@ -21,6 +21,7 @@ import { type AttributeRung, AT_READERS, STD_EVALUATORS } from "./stdlib.ts";
 import { type EvalError, type Failed, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
+  type Clause,
   type Effect,
   type EvalFn,
   type EvalInput,
@@ -311,6 +312,44 @@ function freeIn(root: Context, ctx: Context, path: readonly unknown[]): boolean 
   return bound === Object.hasOwn(root.names, key) && (!bound || Object.is(ctx.names[key], root.names[key]));
 }
 
+/** The clauses of one active `handle`, as SPEC tells: the frame around it, and if its body has ended. */
+interface RefFrame {
+  readonly clauses: readonly Clause[];
+  readonly outer: RefFrame | undefined;
+  /** The list of the effects of the evaluation: a frame of another evaluation has ended. */
+  readonly owner: unknown;
+  ended: boolean;
+}
+
+/** The key of the frame of a context. */
+const REF_FRAME = /* @__PURE__ */ Symbol("coeval.reference.frame");
+
+/** This function gives the frame of a context. */
+function refFrame(ctx: Context): RefFrame | undefined {
+  return (ctx as Context & { readonly [REF_FRAME]?: RefFrame })[REF_FRAME];
+}
+
+/**
+ * This function finds the clause for an effect (HANDLE.DO, HANDLE.FORWARD). An effect without a capability gets no clause
+ * (HANDLE.NARROW). A clause of a frame that has ended gives `#CAP!` (HANDLE.ENDED).
+ */
+function clauseAt(env: Env, ctx: Context, kind: Cap, place: readonly Key[]): Clause | Failed | undefined {
+  let frame = refFrame(ctx);
+  if (frame === undefined) return undefined;
+  const keys = typeof kind === "string" ? kind.split(".") : kind;
+  const machine = env.machine;
+  const allowed = machine.permits === undefined ? permits(ctx.caps, keys) : machine.permits(ctx.caps, keys, ctx);
+  if (!allowed) return undefined;
+  for (; frame !== undefined; frame = frame.outer) {
+    for (const clause of frame.clauses) {
+      if (!permits([clause.op], keys)) continue;
+      if (frame.ended || frame.owner !== env.effects) return fail("#CAP!", `The handler of the effect ${keys.join(".")} has ended.`, { place });
+      return clause;
+    }
+  }
+  return undefined;
+}
+
 /**
  * This function causes an effect when the capabilities permit it (RUN.CAP, CAP.HOOK). It records the effect with its
  * address (RUN.ADDRESS) and its outcome (RUN.OUTCOME). The mock answers the effect at once (RUN.MOCK). Without a
@@ -330,6 +369,8 @@ function cause(env: Env, ctx: Context, kind: Cap, payload: unknown, place: reado
 function causeFromEvaluator(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
   const text = typeof kind === "string" ? kind : kind.join(".");
   if (env.running) return fail("#CALC!", `The effect ${text} needs a runner: in a run, the host does each effect.`, { place });
+  const clause = clauseAt(env, ctx, kind, place);
+  if (clause !== undefined) return "ok" in clause ? clause : drive(clause.answer(payload), place, text);
   return cause(env, ctx, kind, payload, place);
 }
 
@@ -339,6 +380,8 @@ function causeFromEvaluator(env: Env, ctx: Context, kind: Cap, payload: unknown,
  * (RUN.OUTCOME).
  */
 function* causeAndWait(env: Env, ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps {
+  const clause = clauseAt(env, ctx, kind, place);
+  if (clause !== undefined) return "ok" in clause ? clause : yield* clause.answer(payload);
   if (!env.running) return cause(env, ctx, kind, payload, place);
   const effect = recordEffect(env, ctx, kind, payload, place);
   if ("ok" in effect) return effect;
@@ -496,6 +539,17 @@ function evalInput(env: Env, seen: Seen, at: At): EvalInput {
   };
 }
 
+/** This function evaluates a part under a frame: the part also gets the kinds of the clauses (CAP.GRANT). */
+function* handledAt(env: Env, part: At, clauses: readonly Clause[]): Steps {
+  const frame: RefFrame = { clauses, outer: refFrame(part.ctx), owner: env.effects, ended: false };
+  const ctx = { ...part.ctx, caps: [...part.ctx.caps, ...clauses.map((clause) => clause.op)], [REF_FRAME]: frame };
+  try {
+    return yield* stepsAt(env, { ...part, ctx });
+  } finally {
+    frame.ended = true;
+  }
+}
+
 function runInput(env: Env, seen: Seen, at: At): RunInput {
   const { split, doc } = seen;
   const parts: RunPart[] = split.parts.map((slot) => {
@@ -505,6 +559,7 @@ function runInput(env: Env, seen: Seen, at: At): RunInput {
       path: slot.path,
       ...(name === undefined ? {} : { name }),
       evaluate: (given?: Context) => stepsAt(env, partAt(seen, at, slot, given)),
+      handled: (clauses: readonly Clause[]) => handledAt(env, partAt(seen, at, slot, undefined), clauses),
     };
   });
   const fill = (items: readonly unknown[]): unknown => (split.parts.length === 0 ? doc.value : split.fill(items));
@@ -1335,10 +1390,21 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath
 };
 
 /**
- * The definitions of the reference for the evaluators of the standard machine that need their own reading. The
- * reference uses them for the standard evaluators, also without the option `definitions`. It holds `tree.node`.
+ * The definition of the standard evaluator `ref.resolve` (REF.RESOLVE, D133). It resolves the steps of the path at each
+ * evaluation. The plan compiles the same path one time.
  */
-export const STD_DEFINITIONS: Definitions = { evaluators: { "tree.node": treeDefinition } };
+const refDefinition: EvalFn = ({ data, resolve: walk }) => {
+  if (!Array.isArray(data) || data.length === 0) return fail("#VALUE!", 'The value of ref is a path: a list that starts with a root, for example ["names", "a"].');
+  const found = walk(data as readonly Json[]);
+  return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
+};
+
+/**
+ * The definitions of the reference for the evaluators of the standard machine that need their own reading. The
+ * reference uses them for the standard evaluators, also without the option `definitions`. It holds `tree.node` and
+ * `ref.resolve`. A host that wraps `ref.resolve` wraps this function, because the standard evaluator is compiled.
+ */
+export const STD_DEFINITIONS: Definitions = { evaluators: { "tree.node": treeDefinition, "ref.resolve": refDefinition } };
 
 /* The definitions of the formula kit: one function evaluator for each construct, written from docs/SPEC.md. */
 

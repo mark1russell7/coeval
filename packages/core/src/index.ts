@@ -79,6 +79,7 @@ export {
 } from "./world.ts";
 export {
   type DomainExtension,
+  type VerbEntries,
   type MachinePart,
   type MergeConflict,
   type MergePath,
@@ -161,6 +162,7 @@ export {
   type RunFn,
   type RunInput,
   type RunOptions,
+  type Clause,
   type RunPart,
   type Runner,
   type Runtime,
@@ -177,6 +179,7 @@ export {
   narrow,
   nodeAt,
   partCaps,
+  partGrants,
   permits,
   planner,
   prepare,
@@ -196,6 +199,7 @@ export {
   STD_EVALUATORS,
   STD_MACHINE,
   STD_RUNNERS,
+  ifRunner,
   STD_WALKERS,
   STD_WORLD,
   WORLD_SYNTAX,
@@ -226,6 +230,7 @@ export {
 } from "./context.ts";
 export {
   type CheckOptions,
+  type DocChange,
   type DocVisit,
   type Issue,
   type RefUse,
@@ -236,6 +241,7 @@ export {
   type WorldOptions,
   check,
   checkWorld,
+  mapDocs,
   mapRefs,
   refsOf,
   typeCheck,
@@ -268,6 +274,8 @@ export {
   type SyntaxCalls,
   type SyntaxConstructs,
   type SyntaxEnvelopes,
+  type SyntaxFinding,
+  type SyntaxFindingCode,
   type SyntaxFixity,
   type SyntaxForm,
   type SyntaxFormArgs,
@@ -280,12 +288,13 @@ export {
   type SyntaxRefs,
   MAX_SYNTAX_ISSUES,
   STD_SYNTAX,
+  checkSyntax,
   parse,
   print,
   syntaxFormat,
 } from "./syntax.ts";
 export { type Definitions, type ReferenceOptions, type ReferenceRunOptions, STD_DEFINITIONS, formulaDefinitions, reference, referenceRun } from "./reference.ts";
-export { type AgreeOptions, type AgreeRunOptions, type Agreement, type Tier, type TierInput, type TierResult, agree, agreeRun, sameValue } from "./agree.ts";
+export { type AgreeOptions, type AgreeRunOptions, type Agreement, type AgreeTypesOptions, type TypeAgreement, agreeTypes, type Tier, type TierInput, type TierResult, agree, agreeRun, sameValue } from "./agree.ts";
 export { type ConformOptions, type ConformProbe, type Finding, type Obligation, conforms } from "./conform.ts";
 export { sameResult } from "./same.ts";
 export { type PrintOptions, type ReadPrints, type ReadsCheck, type VerifyOptions, printReads, verifyReads } from "./reads.ts";
@@ -341,6 +350,6 @@ export {
   replayer,
 } from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";
-export { type Domain, type DomainCodec, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";
-export { type Declared, type PartType, type RootTypes, type TypeInput, type TypeProblem, type TypeRule, type Typed, CAPS_TYPE } from "./typing.ts";
+export { type Domain, type DomainCodec, type Proof, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";
+export { type Boundary, type Declared, type PartType, type Proven, type RootTypes, type TypeInput, type TypeProblem, type TypeRule, type Typed, CAPS_TYPE, boundariesOf } from "./typing.ts";
 export { type SampleOptions, type TypeReading, typeFromSamples, typeFromSchema } from "./providers.ts";

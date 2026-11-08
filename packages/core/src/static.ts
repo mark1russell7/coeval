@@ -4,7 +4,7 @@ import { answerOf, ask } from "./ladder.ts";
 import { type PartSlot, partsOf, rulesCover, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
-import { type Machine, partCaps, permits, waitedReason } from "./evaluate.ts";
+import { type Machine, partCaps, partGrants, permits, waitedReason } from "./evaluate.ts";
 import type { ValueType } from "./types.ts";
 import { type RootTypes, type TypeNode, type Typed, machineTypeIssues, typePass } from "./typing.ts";
 import { cycleIssues } from "./instances.ts";
@@ -41,6 +41,8 @@ export interface DocVisit {
    * around it (`Kind.caps`). A walk without capabilities gives none here.
    */
   readonly caps?: readonly Cap[] | undefined;
+  /** The kinds of effects that a handler around the document answers (CAP.GRANT, D146). Such an effect does not reach the host. */
+  readonly handled?: readonly Cap[] | undefined;
 }
 
 /** A position that a walk cannot read as a document. */
@@ -114,6 +116,7 @@ class Visit implements DocVisit {
   readonly typePath: readonly Key[] | undefined;
   readonly address: true | undefined;
   readonly caps: readonly Cap[] | undefined;
+  readonly handled: readonly Cap[] | undefined;
   readonly #place: Trail | undefined;
   readonly #at: Trail | undefined;
   readonly #bound: readonly string[];
@@ -135,6 +138,7 @@ class Visit implements DocVisit {
     caps: readonly Cap[] | undefined,
     bound: readonly string[],
     expect: ValueType | undefined,
+    handled: readonly Cap[] | undefined,
   ) {
     this.doc = doc;
     this.declared = declared;
@@ -147,6 +151,7 @@ class Visit implements DocVisit {
     this.typePath = typePath;
     this.address = address;
     this.caps = caps;
+    this.handled = handled;
     this.#place = place;
     this.#at = at;
     this.#bound = bound;
@@ -199,6 +204,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     readonly caps: readonly Cap[] | undefined;
     readonly bound: readonly string[];
     readonly expect: ValueType | undefined;
+    readonly handled: readonly Cap[] | undefined;
   }
   const stack: Item[] = [
     {
@@ -213,6 +219,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       slot: [],
       parent: undefined,
       caps: options.caps,
+      handled: undefined,
       bound: [],
       expect: undefined,
     },
@@ -241,6 +248,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       item.caps,
       item.bound,
       item.expect,
+      item.handled,
     );
     const answer = visit(here);
     if (answer === "skip" || kind === undefined) continue;
@@ -250,10 +258,14 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       continue;
     }
     const { sees, later } = scopesOf(kind.scope, doc.value, split.parts);
+    // The rules of a grant are read one time for each kind, not for each part. A kind without such a rule gives no list (K238).
+    const grantRules = kind.caps !== undefined && kind.caps.some((rule) => rule.rule === "grant") ? kind.caps : undefined;
     for (let index = split.parts.length - 1; index >= 0; index -= 1) {
       const slot = split.parts[index] as PartSlot;
       const extra = sees[index] ?? [];
       const hidden = later[index] ?? [];
+      const grants = grantRules === undefined ? undefined : partGrants(grantRules, slot.path, doc.value);
+      const granted = grants !== undefined && grants.length > 0 ? grants : undefined;
       stack.push({
         value: slot.item,
         place: slot.path.length === 0 ? item.place : { up: item.place, keys: slot.path },
@@ -265,7 +277,14 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         address: slot.address === true,
         slot: slot.path,
         parent: here,
-        caps: item.caps === undefined || kind.caps === undefined ? item.caps : partCaps(kind.caps, slot.path, item.caps),
+        // A part with no grant keeps the list of partCaps, with no copy (K238).
+        caps:
+          item.caps === undefined || kind.caps === undefined
+            ? item.caps
+            : granted === undefined
+              ? partCaps(kind.caps, slot.path, item.caps)
+              : [...partCaps(kind.caps, slot.path, item.caps), ...granted],
+        handled: granted === undefined ? item.handled : [...(item.handled ?? []), ...granted],
         bound: extra,
         expect: slot.expect,
       });
@@ -358,6 +377,45 @@ export function mapRefs(world: World, doc: unknown, change: (use: RefUse) => unk
     const next = change(use);
     if (next !== undefined) out = setAt(out, use.at, next);
   }
+  return out;
+}
+
+/**
+ * The answer of the function of `mapDocs` for one document.
+ *
+ * - `undefined`: keep the document and go into its parts.
+ * - `"skip"`: keep the document and stop there.
+ * - `{ to }`: put `to` in the place of the document and stop there.
+ * - `{ to, into: true }`: put `to` in the place of the document, then go into the parts of the old document. Thus
+ *   `to` must keep the path of each such part.
+ */
+export type DocChange = undefined | "skip" | { readonly to: unknown; readonly into?: boolean };
+
+/**
+ * This function changes the documents of a document, from the root to the parts (STATIC.MAPDOCS). The function
+ * `change` reads only the original documents. It decides at each node, and it can stop at a node. The kinds of a
+ * position come from the world, thus this function names no kind. The document is not changed: the function gives a
+ * new document that shares each part without a change.
+ *
+ * @param world - The world of the kinds.
+ * @param doc - The document, as JSON.
+ * @param change - The function that gives the answer for each visit. See `DocChange`.
+ * @param options - The type of a bare root value, and the names that the host binds at the root.
+ * @returns The new document, or `doc` itself when no document changes.
+ */
+export function mapDocs(world: World, doc: unknown, change: (visit: DocVisit) => DocChange, options: WalkOptions = {}): unknown {
+  let out = doc;
+  walk(
+    world,
+    doc,
+    (visit) => {
+      const next = change(visit);
+      if (next === undefined || next === "skip") return next;
+      out = setAt(out, visit.at, next.to);
+      return next.into === true ? undefined : "skip";
+    },
+    options,
+  );
   return out;
 }
 
@@ -583,7 +641,8 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
 export function typeCheck(machine: Machine, doc: unknown, options: CheckOptions = {}): Typing {
   const nodes: TypeNode[] = [];
   const issues = checkAll(machine, doc, options, nodes);
-  const pass = typePass(machine, nodes, options.verb ?? "eval", options.expect, options.rootTypes);
+  const verb = options.verb ?? "eval";
+  const pass = typePass(machine, nodes, verb, options.expect, options.rootTypes, (node) => declaredEffects(node.visit, verb, machine, node.evaluator).length > 0);
   return { type: pass.type, issues: pass.issues.length === 0 ? issues : [...issues, ...pass.issues], places: pass.places };
 }
 
@@ -770,6 +829,7 @@ const KEEPS_SELF: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "control.seq",
   "control.pure",
   "control.if",
+  "control.handle",
   "list.all",
   "effect.log",
   "effect.write",

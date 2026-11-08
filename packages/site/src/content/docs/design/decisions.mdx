@@ -132,18 +132,55 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D129 | The package exports `compilePath`, `resolveCompiled` and the type `CompiledPath` (K75). A language compiles a static path one time, and a read through the route gives the value, the place and the reads of its interpreter. |
 | D130 | `codecLaws` examines the codec of one domain (K141). It tests sample and edge members for a throw, JSON, one document, a read through `decodeDomain` and the round trip. A finding has the form of `conforms`. |
 | D131 | The export `checkCycles` gives each certain cycle of a schedule as one issue with the code `#CYCLE!` (S2d). A possible cycle gives no issue. |
+| D133 | The standard evaluator `ref.resolve` compiles its path one time in `prepare`, and `STD_DEFINITIONS` gives the reference its definition (K77). The entry of `STD_EVALUATORS` is an object, thus a host wraps the definition. |
 | D134 | One evaluation has one count of work (K216). An application of a closure, a node from an equation and a second visit in the JSON of a tree add points. The point past `maxWork` gives `#WORK!` in each tier, and the default is 200000 points. |
 | D136 | A kept read that a reference leads to the node in evaluation closes no cycle (K217). Thus a closure at a node whose `self` refers to that node gives its value. Each list of reads stays the same. |
 | D160 | Each parameter property becomes a plain field first in its class, and the constructor assigns it first (K224). The emitted code stays the same, and the option `erasableSyntaxOnly` stays on. |
 | D161 | A failed test of the measure step turns it red. The limit of PLAN.LEAN was not enforced from K211 to this decision, and it failed in 8 of 99 jobs. The limit is 401.1 bytes, the worst of these jobs plus their spread. |
 | D162 | The flip test of PLAN.LEAN is a matrix row of the same job. It adds 20 bytes to the value, the step turns red, and the 5 plain jobs stay green. |
 | D163 | The gate `notSlowerVerdict` runs as report only beside the pooled verdict. It blocks nothing until a control run, a count of false blocks and a flip test. |
+| D164 | The ladder starts on a change of the kernel, and a flip job shows that its report-only gate can block. |
 | D166 | The filters of the gates read the lock file. A slower reading holds a merge only when the bundle hashes of the arms differ. |
+| D167 | A crash, a short run or a missing arm turns `Speed OK` red, and an empty state from the verdict is red. A slower case stays report only until the flip. |
+| D168 | Both arms of Speed build under one resolved `tsconfig.json`, and a file that does not resolve stops the bundle. |
+| D169 | A new row of `changed-results.json` accepts a result that changes on purpose. The fresh runner times the case, and a spent or unused row is a fault. |
+| D170 | The second level of PLAN.LEAN is code of the JIT. The test also reads the data spaces of the heap, and the limit moves there after 20 jobs. |
+| D171 | The limit of PLAN.LEAN reads the data spaces. 50 jobs gave 392.0 to 392.7 bytes, so the limit is 393.4 bytes. A flip row that keeps 1 KB for each plan turns the step red. |
+| D165 | The share gate reads the parts of a split test as one group, first as a report. The limit of a group and its flip test come from 5 or more CI runs. |
+| D172 | Each arm of Speed builds with the esbuild of its own lock file. A new version gives two hashes of the base: equal hashes show the same code, different hashes give a time read. |
 | D135 | The option `selfOf` of `schedule` gives each node its own `self` (S1f). Nodes with one document share one plan, and a new `self` is a change of data. |
 | D137 | `conforms` also examines walkers, the code of a `deref` and the functions of a formula profile (K121). Each check tests a stated law. A plain throw of a walker is a finding, and a `Failure` is not. |
 | D139 | After an overflow of the stack, a walk with its own stack follows the real reads (S2c). Each cycle gives `#CYCLE!` at each length, and a chain with no cycle keeps its `#DEPTH!`. |
 | D138 | The field `issues` of a failed `parse` holds each issue of a text, at most `MAX_SYNTAX_ISSUES` (K144). The first issue stays as before, a second read finds the others at separators and closers, and a valid text runs no recovery code. |
+| D140 | `checkSyntax(profile)` gives the clashes of a syntax profile as named findings with a place (K146). Each finding is a small document that breaks `parse(print(doc))`, and only a host calls the check. |
+| D141 | A call form of the kind `ext.domain` with the field `domain` is the text of a domain value, for example `date("2026-01-02")` (K143). The codec of the machine reads the data at evaluation, thus `parse` runs no code of a host. |
+| D142 | Without field steps, `print` gives an error for a dotted call, because `parse` refuses that text (K219). |
 | D143 | A kept read that meets a node in evaluation below it closes no cycle (K218). The nodes of that read evaluate again at a real demand. |
+| D144 | The demands of a long chain get no change for memory (K116). A CI study of 100000 nodes finds no single source above 13 % of the samples. A schedule keeps 1418 bytes for each node. |
+| D145 | A kept read that reaches a true cycle joins no component (K220). Its nodes evaluate again at a real demand. |
+| D146 | A kind `handle` answers the effects of its body in place, so a mock, a log or a retry is a document (L1a). A clause is a capability that the kernel gives, thus `pure` still stops a handled effect, and a clause has no more authority than its parent. |
+| D173 | A hold turns `Speed OK` red, unless a record in `bench/accepted` accepts each slower case on that head, with its cost, reason and owner. A slower case on equal arms stays report only. |
+| D174 | A group of split parts above 0.0359 of the test time fails a CI run of all tests. The limit comes from 5 CI runs, with their ids beside it. |
+| D175 | The tree kit is complete (L2). Each of the seven open questions of R3 has an answer in an earlier decision or in this record. |
+| D147 | A test with `proves` narrows a path in a branch of `if`, and in the later terms of `and` and `or` (K27). A narrowing changes the type of a name or a root, thus a binding ends it. A document with an effect narrows only its names. |
+| D148 | `agreeTypes` examines the agreement rule for types over a trace (K26), so a language tests its own signatures and rules. It reads precise types only, thus a part with no types gives no false finding. |
+| D149 | `boundariesOf` gives the boundaries of a check as data, and the option `guards` of `prepare` tests them (K28). A value that breaks a boundary gives `#VALUE!` there. A plan without the option has no test. |
+| D150 | A function evaluator can hold a type rule in its field `type`, so the site shows real types without a change to the standard kit (C14). |
+| D151 | The playground reads each editor from a contract, and an empty position holds a site kind `hole` that evaluates to an error value with its place (C11). The kernel does not change. |
+| D152 | The export `mapDocs` changes the documents of a document from the root to the parts, and its function can stop at a node (K222). |
+| D153 | The export `ifRunner` gives an `if` with the truth of a host, and `control.if` is one such runner (K221). |
+| D176 | The Speed verdict prints the Holm read and the read of each job over its cases, as a report (K225). It changes no verdict and no hold. |
+| D156 | A part owns verbs in `verbs`, and it adds their entries to the kinds of other parts in `extends`. A foreign verb on a foreign kind is a conflict (K35). |
+| D177 | The field `data` of a call form reads lists and records of data with documents in them, so `WORLD_SYNTAX` reads and prints `handle` (L1c). |
+| D178 | Each new document of the structured editor has a text in the site profile, thus the text pane follows each edit (C17b). |
+| D179 | A dispatch of Speed reads one gate unit for each pair of jobs, as report only, with the CPU models of the pair (K225). |
+| D180 | The flip test of Speed seeds a real slowdown in the head arm only, at a multiple of the margin of each family (K225). |
+| D181 | `Speed OK` shows the line of the report-only gate, and a warning when the gate has no read or a slower case (K225). |
+| D182 | A block of the report-only ladder gate gives a warning on the pull request, and the check stays green (K225). |
+| D183 | On a mixed CPU pair, the hold of Speed takes a verdict only when the two jobs agree, else the case has no read (K225). |
+| D184 | The conformance page shows a duty that another break hides as hidden, with its reason, not as a pass (K123). |
+| D185 | The site shows the `#VALUE!` issues of the check beside the `#TYPE!` issues. A bare value at a place of a declared kind is a value of that kind (K243). |
+| D186 | The syntax page reads one text with three profiles. Each example reads differently under at least two profiles, and the round trip gives the same document (C16). |
 
 ## Open
 

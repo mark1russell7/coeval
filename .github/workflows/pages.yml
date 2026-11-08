@@ -8,6 +8,11 @@ name: Pages
 on:
   push:
     branches: [main]
+  # After a release, so that the Releases page has the new version
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
   pull_request:
   # Every 3 hours, so that the Status page shows the open pull requests and issues of now
   schedule:
@@ -24,7 +29,7 @@ concurrency:
 
 jobs:
   pages:
-    uses: mark1russell7/template/.github/workflows/reusable-pages.yml@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+    uses: mark1russell7/template/.github/workflows/reusable-pages.yml@3ef4ae39143b074a58f013abe2c2c3bccea63643 # main
     # The build job of the shared workflow gets only the read permissions. Only its deploy job,
     # which runs no code of the repository, writes to Pages.
     permissions:
@@ -48,5 +53,5 @@ jobs:
       deploy: ${{ github.event_name != 'pull_request' }}
       # The site check opens these pages in a browser before the deploy. Its probe drives the first page.
       site-check: true
-      site-check-pages: /playground/,/,/start/model/,/releases/,/status/
+      site-check-pages: /playground/,/,/start/model/,/releases/,/status/,/learn/replay/,/learn/conformance/,/learn/syntax/
       site-check-probe: packages/site/src/check-probe.ts

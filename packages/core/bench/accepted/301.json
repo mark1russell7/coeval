@@ -1,0 +1,9 @@
+[
+  {
+    "case": "a reference with a step document",
+    "head": "dc46b12b5349",
+    "cost": "+1.1 % in run 1 (noise -0.5 %), cannot decide in run 2 (+1.2 %, noise -0.9 %): Speed run 42407443009.",
+    "reason": "The same head arm dc46b12b5349 read this case same (-0.2 % and -0.0 %) in Speed run 42403892788. One head with two verdicts is noise of the method. The change only removes work from walk (K238), and factsOf is 15.1 % and 16.1 % faster in that run.",
+    "owner": "coeval session (K238)"
+  }
+]

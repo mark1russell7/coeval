@@ -12,17 +12,22 @@
  * compares the head with the A/A pair: two processes of the base. The outcome is "same", "faster", "slower" or "cannot
  * decide". The verdict of a case is the `pooledVerdict` of the rounds of the two runs. A run that gives the opposite
  * direction makes the verdict "cannot decide". The same case can take 107 ns on one runner and 206 ns on another
- * (D70), thus one run is not sufficient.
+ * (D70), thus one run is not sufficient. On a mixed CPU pair, each job gives its own verdict, and a case takes it only
+ * when the two jobs agree (D183). Else the case has no read.
  *
  * Node removes the types of this script. The job installs the packages, because the script imports the bench core.
  * The script fails when a run is absent or when a run found different results. A "slower" case does not fail it.
+ * The script writes the state of the runs and its reason as outputs of the job, and `Speed OK` reads them (K235, D167).
+ * A slower case under a hold gives the state "held", unless a record of `bench/accepted` accepts it (K239, D173).
+ * The variable `BENCH_ACCEPTED` names another folder of records, for a test.
  *
  * The script also prints the gate of the claim "not slower by more than the margin" (K225, D163). This gate is report only.
  */
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { notSlowerVerdict, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { familyRead, gateLine, jobModels, notSlowerVerdict, writeGateLine, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { acceptHold, readAccepted, type Acceptance } from "./accepted.ts";
 import { FAMILIES, limitsOf, limitsRecord, percentOf, type Family } from "./limits.ts";
 
 /** The measurement of one case in one run. The change and the noise are percents. */
@@ -32,8 +37,10 @@ export interface BenchCase {
   readonly headNs: number;
   readonly change: number;
   readonly noise: number;
-  /** The different results of the copies, when the copies do not agree. */
+  /** The different results of the copies, when the copies do not agree and no row accepts the change. */
   readonly different?: string;
+  /** The line of a row that accepts a changed result (K237, D169). The case has its times as each other case. */
+  readonly accepted?: string;
   /** The pair of the base (arm `a`) and the head (arm `b`) in each round (D114). A record from before K212 has no pairs. */
   readonly head?: readonly PairedTime[];
   /** The A/A pair of the base (arm `a`) and the second copy of the base (arm `b`) in each round (D114). */
@@ -62,6 +69,27 @@ export interface BenchRun {
   /** The hash of the bundle of each arm. A record from before K232 has no hashes. */
   readonly arms?: ArmHashes;
   readonly cases: readonly BenchCase[];
+  /** The verdict of the rows of changed results (K237, D169). A record from before K237 has none. */
+  readonly results?: ResultsRead;
+}
+
+/** The verdict of `resultVerdict` over the results of one run, as the record keeps it. */
+export interface ResultsRead {
+  readonly outcome: "pass" | "fail";
+  readonly lines: readonly string[];
+  /** The lines of the new rows that accept nothing: a row of a case with one result, or of a case that the run does not have. */
+  readonly faults: readonly string[];
+}
+
+/** The mark of a case whose changed result a row accepts. */
+export const ACCEPTED = " (accepted change)";
+
+/**
+ * This function gives the hash of the result of one case: the first 16 hexadecimal digits of its SHA-256.
+ * A row of `changed-results.json` names the hash of each arm. The run and the rows use this one function.
+ */
+export function resultHash(result: string): string {
+  return createHash("sha256").update(result).digest("hex").slice(0, 16);
 }
 
 /** The hash of the bundle of each arm in one job, each with `cases.ts` (K232, D166). */
@@ -88,20 +116,61 @@ export interface Hold {
   readonly line: string;
 }
 
+/** This function tells if each run has the hashes of its arms, and all these hashes are one hash. */
+export function equalArms(runs: readonly (BenchRun | undefined)[]): boolean {
+  const arms = runs.map((run) => run?.arms);
+  if (arms.length === 0 || arms.includes(undefined)) return false;
+  return new Set(arms.flatMap((item) => (item === undefined ? [] : [item.base, item.head]))).size === 1;
+}
+
 /**
  * This function tells if a slower reading holds a merge (K232, D166). It reads the hashes of the bundles that the jobs
  * ran, and no list of files. A slower reading does not hold a merge only when each run is complete and the two arms of
- * each job have one hash. A run that is short or absent gives no such reading. It fails the job `verdict`, and `Speed OK`
- * stays green, because `continue-on-error` makes that job read as a success.
+ * each job have one hash. A run that is short or absent gives no such reading, and `Speed OK` goes red on it (K235, D167).
  */
 export function holdRead(slower: number, runs: readonly (BenchRun | undefined)[], complete: boolean): Hold {
   if (!complete) return { hold: true, line: "Hold (D117): hold. A run is short or absent, so the arms give no reading." };
   if (slower === 0) return { hold: false, line: "Hold (D117): no hold. 0 slower." };
   const arms = runs.map((run) => run?.arms);
-  const hashes = arms.flatMap((item) => (item === undefined ? [] : [item.base, item.head]));
   if (arms.length === 0 || arms.includes(undefined)) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and a run has no hashes of its arms.` };
-  if (new Set(hashes).size !== 1) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and the arms differ.` };
+  if (!equalArms(runs)) return { hold: true, line: `Hold (D117): hold. ${String(slower)} slower, and the arms differ.` };
   return { hold: false, line: `Hold (D117): no hold. ${String(slower)} slower on equal arms, a row of the A/A table: equal by construction.` };
+}
+
+/**
+ * The states of a Speed run that `Speed OK` reads (K235, D167). The state "no read" comes from a fault, and it says nothing about noise.
+ * The state "different results" is a finding: the copies gave different results. On equal arms this is a fault of determinism.
+ * On different arms, a changed result can explain it, as K236 read.
+ */
+export type SpeedState = "same" | "slower" | "held" | "accepted" | "no read" | "different results";
+
+/**
+ * This function gives the state of a Speed run and its reason, on one line. Different results come first, then a fault,
+ * because each leaves no reading. A slower case under a hold gives "held" or "accepted" from the records (K239, D173).
+ * Without `acceptance`, there is no hold, and a slower case gives "slower", which stays report only (D166).
+ * The line `mixed` of a mixed CPU pair goes at the end of each reason that has counts (D183).
+ */
+export function speedState(
+  slower: number,
+  undecided: number,
+  hold: string,
+  faults: readonly string[],
+  different = 0,
+  equal = false,
+  acceptance?: Acceptance,
+  mixed = "",
+): { readonly state: SpeedState; readonly reason: string } {
+  const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
+  const cause = equal ? "The arms are equal, so this is a fault of determinism." : "The arms differ or have no hashes, so a changed result can explain this.";
+  if (different > 0) return { state: "different results", reason: oneLine(`${String(different)} cases read different results. ${cause} ${faults.join(" ")}`) };
+  if (faults.length > 0) return { state: "no read", reason: oneLine(faults.join(" ")) };
+  const counted = `${String(slower)} slower, ${String(undecided)} cannot decide. ${hold}`;
+  if (slower > 0 && acceptance !== undefined) {
+    const state: SpeedState = acceptance.missing.length > 0 ? "held" : "accepted";
+    return { state, reason: oneLine(`${counted} ${acceptance.lines.join(" ")} ${mixed}`) };
+  }
+  if (slower > 0) return { state: "slower", reason: oneLine(`${counted} ${mixed}`) };
+  return { state: "same", reason: oneLine(`0 slower, ${String(undecided)} cannot decide. ${mixed}`) };
 }
 
 /** This function gives the line with the hashes of the arms of each run. */
@@ -136,7 +205,8 @@ export function caseVerdict(head: readonly PairedTime[], aa: readonly PairedTime
 }
 
 /** The verdict of one case over the two runs. */
-export type Verdict = TimeOutcome | "different results" | "one run only";
+/** The verdict of one case over two runs. The verdict "no read" comes from a mixed CPU pair whose jobs do not agree (D183). */
+export type Verdict = TimeOutcome | "different results" | "one run only" | "no read";
 
 /** This function tells if a run has the paired times of a case. A record from before K212 has none. */
 function hasPairs(item: BenchCase | undefined): item is BenchCase & { readonly head: readonly PairedTime[]; readonly aa: readonly PairedTime[] } {
@@ -159,11 +229,33 @@ export function pooledCase(runs: readonly { readonly run: string; readonly item:
   return jobs.length === 0 || name === undefined ? undefined : pooledVerdict(jobs, options ?? limitsOf(name).options);
 }
 
-/** This function gives the verdict of one case over two runs: the outcome of `pooledCase`. */
-export function verdictOf(first: BenchCase | undefined, second: BenchCase | undefined, names: readonly [string, string] = ["1", "2"]): Verdict {
+/**
+ * This function gives the verdict of one case over two runs: the outcome of `pooledCase`. On a mixed CPU pair, a pool
+ * puts the rounds of two CPU models in one bootstrap (D183). Thus each job gives its own verdict, and the case takes it
+ * only when the two jobs agree. Else the case has no read.
+ */
+export function verdictOf(first: BenchCase | undefined, second: BenchCase | undefined, names: readonly [string, string] = ["1", "2"], mixed = false): Verdict {
   if (first?.different !== undefined || second?.different !== undefined) return "different results";
   if (first === undefined || second === undefined) return "one run only";
+  if (mixed) {
+    const one = outcomeOf(first);
+    const two = outcomeOf(second);
+    return one === two && one !== "cannot decide" ? one : "no read";
+  }
   return pooledCase([{ run: names[0], item: first }, { run: names[1], item: second }])?.outcome ?? "cannot decide";
+}
+
+/** This function gives the CPU pair of two runs as "A + B" when their CPU models differ (D183). Else it gives undefined. */
+export function mixedPair(runs: readonly (BenchRun | undefined)[]): string | undefined {
+  const cpus = runs.map((run) => run?.cpu);
+  if (cpus.length !== 2 || cpus.includes(undefined) || cpus[0] === cpus[1]) return undefined;
+  return cpus.join(" + ");
+}
+
+/** This function gives the line of a mixed CPU pair: the pair, and the cases with no read (D183). */
+export function mixedLine(pair: string, noRead: readonly string[]): string {
+  const cases = noRead.length === 0 ? "0 no read." : `${String(noRead.length)} no read: ${noRead.join(", ")}.`;
+  return `Mixed CPU pair (D183): ${pair}. A case takes the verdict of the two jobs only when they agree. ${cases}`;
 }
 
 function percent(change: number): string {
@@ -178,7 +270,7 @@ export function fallbackMark(name: string): string {
 function cells(item: BenchCase | undefined): string {
   if (item === undefined) return " | | ";
   if (item.different !== undefined) return `different results | ${item.different} | `;
-  return `${percent(item.change)} | ${percent(item.noise)} | ${outcomeOf(item)}${fallbackMark(item.name)}`;
+  return `${percent(item.change)} | ${percent(item.noise)} | ${outcomeOf(item)}${fallbackMark(item.name)}${item.accepted === undefined ? "" : ACCEPTED}`;
 }
 
 function read(file: string | undefined): BenchRun | undefined {
@@ -231,6 +323,47 @@ export function gateRead(runs: readonly (BenchRun | undefined)[]): NotSlowerVerd
   return notSlowerVerdict(jobs, { margin: (name) => limitsOf(name).options.margin ?? 0 });
 }
 
+/**
+ * This function gives the lines of the family read over the cases of the two runs (K225, D176): Holm over the cases, and
+ * the read of each job. The read is a report, and it changes no verdict. The pooled verdict of each case gets the option
+ * `pValues`, and the p values come from the draws of its interval, so its outcome stays the same. A case with different
+ * results or without each run has no pooled verdict, thus the read leaves it out.
+ */
+export function familyLines(runs: readonly (BenchRun | undefined)[], names: readonly string[]): readonly string[] {
+  const items = names.flatMap((name) => {
+    const found = runs.flatMap((run) => {
+      const item = run?.cases.find((each) => each.name === name);
+      return run === undefined || item === undefined || item.different !== undefined ? [] : [{ run: run.run, item }];
+    });
+    const verdict = found.length < runs.length ? undefined : pooledCase(found, { ...limitsOf(name).options, pValues: true });
+    return verdict === undefined ? [] : [{ case: name, verdict }];
+  });
+  return familyRead(items).lines;
+}
+
+/** The line of the gate that `Speed OK` shows, and the annotation of GitHub for a block or a no read (K242). */
+export interface GateCheck {
+  readonly text: string;
+  /** The annotation of `writeGateLine`, or an empty text for a pass. */
+  readonly annotation: string;
+}
+
+/**
+ * This function gives the line of the gate that `Speed OK` shows on the pull request (K225, D181, K242). The line comes
+ * from `gateLine` of `rigor-bench`. It names each block and each no read, and the CPU models of the jobs.
+ * Thus a gate with no read does not look like a pass, also while the gate is report only.
+ */
+export function gateCheck(gate: NotSlowerVerdict, runs: readonly (BenchRun | undefined)[]): GateCheck {
+  const models = jobModels(runs.flatMap((run) => (run === undefined ? [] : [{ cpu: run.cpu }])));
+  const line = gateLine(gate.cases, { title: GATE_TITLE, ...(models.length === 0 ? { reason: "the two runs are missing" } : { models }) });
+  if (line !== undefined) return { text: line.text, annotation: writeGateLine(line, { log: () => undefined, summary: undefined })?.annotation ?? "" };
+  const each = models.map((item) => `${item.model} (${String(item.jobs)} ${item.jobs === 1 ? "job" : "jobs"})`).join(", ");
+  return { text: `${GATE_TITLE}: pass for ${String(gate.cases.length)} of ${String(gate.cases.length)} cases. Jobs on ${String(models.length)} CPU ${models.length === 1 ? "model" : "models"}: ${each}.`, annotation: "" };
+}
+
+/** The name of the report-only gate in its line and in its annotation. */
+export const GATE_TITLE = "Speed gate (D163)";
+
 /** This function gives the lines of the gate in the verdict: one line of counts, then the reason of each slower case. */
 export function gateLines(gate: NotSlowerVerdict): string[] {
   const count = (read: NotSlowerVerdict["cases"][number]["read"]): string => String(gate.cases.filter((item) => item.read === read).length);
@@ -250,15 +383,21 @@ function main(): void {
     "",
     ...verdictRule(),
     "The verdict of a case uses the rounds of both runs. A run with the opposite direction makes it \"cannot decide\".",
+    "On a mixed CPU pair, each job gives its own verdict, and a case takes it only when the two jobs agree. Else the case has no read (D183).",
     "",
     "| Case | Change 1 | Noise 1 | Verdict 1 | Change 2 | Noise 2 | Verdict 2 | Verdict |",
     "| --- | ---: | ---: | --- | ---: | ---: | --- | --- |",
   ];
   const counts = new Map<Verdict, number>();
+  const slowerNames: string[] = [];
+  const noReadNames: string[] = [];
+  const pair = mixedPair(runs);
   for (const name of names) {
     const [first, second] = runs.map((run) => run?.cases.find((item) => item.name === name));
-    const verdict = verdictOf(first, second, [runs[0]?.run ?? "1", runs[1]?.run ?? "2"]);
+    const verdict = verdictOf(first, second, [runs[0]?.run ?? "1", runs[1]?.run ?? "2"], pair !== undefined);
     counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
+    if (verdict === "slower") slowerNames.push(name);
+    if (verdict === "no read") noReadNames.push(name);
     lines.push(`| ${name} | ${cells(first)} | ${cells(second)} | ${verdict}${fallbackMark(name)} |`);
   }
   lines.push("", `Verdicts: ${[...counts].map(([verdict, count]) => `${String(count)} ${verdict}`).join(", ")}.`);
@@ -267,16 +406,39 @@ function main(): void {
       ? [`${files[index] ?? `run ${String(index + 1)}`} has ${String(run.cases.length)} of ${String(names.length)} cases.`]
       : [],
   );
-  const complete = !runs.includes(undefined) && short.length === 0 && names.length > 0 && !counts.has("different results");
-  lines.push("", ...gateLines(gateRead(runs)));
-  lines.push("", armLine(runs), holdRead(counts.get("slower") ?? 0, runs, complete).line);
+  const faults = [
+    ...runs.flatMap((run, index) => (run === undefined ? [`The run file ${files[index] ?? "(none)"} is missing.`] : [])),
+    ...short,
+    ...(names.length === 0 ? ["The two run files have no cases."] : []),
+    ...runs.flatMap((run) => (run?.results?.faults ?? []).map((line) => `Run ${run?.run ?? "?"}: ${line}`)),
+  ];
+  const records = readAccepted(process.env["BENCH_ACCEPTED"] || undefined);
+  faults.push(...records.faults);
+  const changed = [...new Set(runs.flatMap((run) => run?.results?.lines ?? []))];
+  if (changed.length > 0) lines.push("", "Changed results (K237):", ...changed);
+  const different = counts.get("different results") ?? 0;
+  const slower = counts.get("slower") ?? 0;
+  const held = holdRead(slower, runs, faults.length === 0 && different === 0);
+  const hold = held.line;
+  const acceptance = held.hold && slower > 0 ? acceptHold(slowerNames, runs.map((run) => run?.arms?.head), records.records) : undefined;
+  const gate = gateRead(runs);
+  lines.push("", ...gateLines(gate));
+  lines.push("", ...familyLines(runs, names));
+  const mixed = pair === undefined ? "" : mixedLine(pair, noReadNames);
+  lines.push("", armLine(runs), hold, ...(acceptance?.lines ?? []), ...(mixed === "" ? [] : [mixed]));
+  const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different, equalArms(runs), acceptance, mixed);
+  const check = gateCheck(gate, runs);
+  const output = process.env["GITHUB_OUTPUT"];
+  if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\ngate=${check.text}\ngate_annotation=${check.annotation}\ngate_outcome=${gate.outcome}\n`);
   const text = lines.join("\n");
   console.log(text);
+  // A case with no read on a mixed CPU pair gives a warning on the pull request, and the check stays green (D183).
+  if (noReadNames.length > 0) console.log(`::warning title=Speed (D117) no read::${mixed.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
   const summary = process.env["GITHUB_STEP_SUMMARY"];
   if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths: the verdict of two runs\n\n${text}\n`);
   for (const line of short) console.error(`::error::${line}`);
   if (names.length === 0) console.error("::error::The two run files have no cases.");
-  if (runs.includes(undefined) || short.length > 0 || names.length === 0 || counts.has("different results")) process.exitCode = 1;
+  if (faults.length > 0 || different > 0) process.exitCode = 1;
 }
 
 // A test imports `describeRun`, and only a start of this file gives the verdict.

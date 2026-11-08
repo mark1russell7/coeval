@@ -2,11 +2,14 @@
 # Each copy runs in its own processes, and a second copy of the base gives the noise floor (A/A) of each case.
 # Two jobs make the same comparison on two runners (K167, D71). The job "verdict" merges their two tables.
 # The bench core @mark1russell7/rigor-bench starts the processes and gives the verdict of each case (K212, D114).
-# The jobs only print numbers, in their logs and in their summaries. They do not block a merge.
+# The bench jobs print numbers, in their logs and in their summaries. Only the job "Speed OK" blocks a merge.
 # A shared local machine gives unreliable numbers, thus the measurements run here.
-# A green "Speed OK" does not say that the code is not slower: no code line fails it on a slower case.
-# The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms build with one
-# install, so such a run does not read a slowdown from a dependency (K232, D166). The root package.json is not on the
+# A slower case under a hold (D117) turns "Speed OK" red, unless a record in bench/accepted accepts it (K239, D173).
+# A slower case on equal arms stays report only, thus a green "Speed OK" does not say that the code is not slower.
+# A crash, a short run or a missing arm turns it red (K235, D167).
+# The lock file is on the filter, so a dependency update shows that the bench still runs. Both arms run with one
+# install, so such a run does not read a slowdown from a dependency (K232, D166). Each arm builds with the esbuild of
+# its own lock file, so a new version of esbuild gives a time read (K233, D172). The root package.json is not on the
 # filter: it holds the pnpm version, and that version changes nothing that the arms run unless the lock file moves.
 name: Speed
 
@@ -26,14 +29,26 @@ on:
       jobs:
         description: The jobs, as a JSON list of numbers
         default: "[1, 2]"
+      # This input stops each bench job at its start, to read that Speed OK goes red (K235, D167).
+      fault:
+        description: Write crash to stop each bench job at its start
+        default: ""
+      # The flip test seeds a real slowdown in the head arm only: a multiple of the margin of each family (K225, D180).
+      slow:
+        description: The seeded slowdown of the head, as a multiple of the margin of each family
+        default: ""
 
 permissions:
   contents: read
 
-# Two dispatches on one branch with different bases do not cancel each other.
+# Two dispatches on one branch with different bases or different seeded slowdowns do not cancel each other (K225).
 concurrency:
-  group: bench-${{ github.ref }}-${{ inputs.base }}
+  group: bench-${{ github.ref }}-${{ inputs.base }}-${{ inputs.slow }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   changes:
@@ -55,7 +70,7 @@ jobs:
         pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -81,13 +96,15 @@ jobs:
     # The fresh runner starts four processes for each case and round (D114), thus the job gets more time.
     # A dispatch with more rounds gets 60 minutes.
     timeout-minutes: ${{ fromJSON(inputs.rounds || '12') > 12 && 60 || 15 }}
-    continue-on-error: true
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
         run: ${{ fromJSON(inputs.jobs || '[1, 2]') }}
     steps:
+      - name: The injected crash (K235, D167)
+        if: inputs.fault == 'crash'
+        run: exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -102,12 +119,23 @@ jobs:
         run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
         env:
           BASE: ${{ github.event.pull_request.base.sha || inputs.base }}
+      # The script prints base, head and differ for the outputs. A lock file with no esbuild gives differ=false.
+      - name: The esbuild of each arm (K233, D172)
+        id: esbuild
+        run: node packages/core/bench/esbuild.ts "$RUNNER_TEMP/base/pnpm-lock.yaml" pnpm-lock.yaml | tee -a "$GITHUB_OUTPUT"
+      - name: Install the esbuild of the base (K233, D172)
+        if: steps.esbuild.outputs.differ == 'true'
+        run: npm install --prefix "$RUNNER_TEMP/esbuild-base" --no-audit --no-fund "esbuild@$VERSION"
+        env:
+          VERSION: ${{ steps.esbuild.outputs.base }}
       - name: Compare the base with this commit
         run: pnpm exec tsx packages/core/bench/paths.ts "$RUNNER_TEMP/base/packages/core/src/index.ts" packages/core/src/index.ts
         env:
+          BENCH_BASE_ESBUILD: ${{ steps.esbuild.outputs.differ == 'true' && format('{0}/esbuild-base', runner.temp) || '' }}
           BENCH_RUN: ${{ matrix.run }}
           BENCH_ROUNDS: ${{ inputs.rounds || '12' }}
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
+          BENCH_SLOW: ${{ inputs.slow || '' }}
       # A run with different results also gives its table to the verdict.
       # The records stay 90 days, because the limits of the verdict come from them (K214, D117).
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -123,7 +151,12 @@ jobs:
     if: ${{ needs.changes.outputs.match == 'true' && (!cancelled()) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
+    outputs:
+      state: ${{ steps.merge.outputs.state }}
+      reason: ${{ steps.merge.outputs.reason }}
+      gate: ${{ steps.merge.outputs.gate }}
+      gate_annotation: ${{ steps.merge.outputs.gate_annotation }}
+      gate_outcome: ${{ steps.merge.outputs.gate_outcome }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The script imports the bench core @mark1russell7/rigor-bench (D114), thus the job installs the packages.
@@ -140,18 +173,55 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/bench
       - name: Merge the two runs
+        id: merge
         if: ${{ !cancelled() }}
         run: node packages/core/bench/merge.ts "$RUNNER_TEMP/bench/bench-1.json" "$RUNNER_TEMP/bench/bench-2.json"
+      # A dispatch with more than two jobs gives one gate unit for each further pair of jobs: 3 and 4, 5 and 6 (K225, D179).
+      # The read of a further pair is report only. It writes no output of the job, thus Speed OK reads only jobs 1 and 2.
+      # The line "Run N" of each job names its CPU model, thus each unit records its pair of CPU models.
+      - name: The further pairs of jobs (K225, D179)
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
+        continue-on-error: true
+        run: |
+          for ((first = 3; ; first += 2)); do
+            a="$RUNNER_TEMP/bench/bench-$first.json"
+            b="$RUNNER_TEMP/bench/bench-$((first + 1)).json"
+            [ -f "$a" ] || [ -f "$b" ] || break
+            unit=$(((first + 1) / 2))
+            echo "Unit $unit: jobs $first and $((first + 1))."
+            GITHUB_OUTPUT='' GITHUB_STEP_SUMMARY='' node packages/core/bench/merge.ts "$a" "$b" \
+              | grep -E '^(Run [0-9]+:|Verdicts:|Gate \(report only|Family read|Hold \(D117\))' \
+              || echo "Unit $unit: the read gave no lines."
+          done
 
   speed-ok:
     name: Speed OK
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [changes, bench, verdict]
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    permissions: {}
+    permissions:
+      contents: read
     steps:
-      - uses: mark1russell7/template/.github/actions/gate-summary@b74f7b05b1c6583b52a924742f923fae3dbc60c5 # main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.match == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: needs.changes.outputs.match == 'true'
+        with:
+          node-version: 26
+      # An empty state is red, so a crash cannot pass by writing nothing. A held slower case with no record is red (K239).
+      # The line of the report-only gate shows here, and a gate outcome other than pass gives a warning (K225, D181).
+      - name: Read the state of the verdict (K235, D167)
+        if: needs.changes.outputs.match == 'true'
+        run: node packages/core/bench/speed-read.ts
+        env:
+          STATE: ${{ needs.verdict.outputs.state }}
+          REASON: ${{ needs.verdict.outputs.reason }}
+          GATE: ${{ needs.verdict.outputs.gate }}
+          GATE_ANNOTATION: ${{ needs.verdict.outputs.gate_annotation }}
+          GATE_OUTCOME: ${{ needs.verdict.outputs.gate_outcome }}
+      - uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
+        if: always()
         with:
           needs: ${{ toJSON(needs) }}
           allow-skip: verdict

@@ -44,10 +44,30 @@ A capability also permits the kinds of its namespace. The capability `store` per
 
 The pictures on this page are evaluations. An evaluation records each effect, and it does none. A run is the same evaluation, but the host does each effect and gives back its result. Thus a step can read the result of the step before as `last`.
 
-A test can give an evaluation a mock `perform`. Its answer becomes the result of the effect, without a promise. Each effect keeps a fixed address and its outcome, thus a host can record a run and replay it (decision D19).
+A test can give an evaluation a mock `perform`. Its answer becomes the result of the effect, without a promise. Each effect keeps a fixed address and its outcome, thus a host can [record a run and replay it](/coeval/learn/replay/) (decision D19).
 
 A kind that holds effects has a runner. The same runner serves the evaluation and the run, thus the picture of an evaluation shows exactly what a run does. A run waits only when the host waits. Before that, it goes on at once.
 
 A runner can wait for the host only when its parent can wait. In a run, an effect under a parent that cannot wait does not go to the host (decision D91). The effect keeps the outcome `#CALC!`, and the runner gives `#CALC!`. Pick a program and a host. The kernel does a run of the program, and the diagram shows each call of `perform`.
 
 <EffectsDiagram client:visible />
+
+## Handlers
+
+The kind `handle` answers the effects of its body with its own clauses. The host does not get these effects. Thus a mock, a log or a retry is a document, and the body stays the same.
+
+```json
+{
+  "type": "handle",
+  "value": {
+    "with": [{ "op": ["log"], "do": { "type": "ref", "value": ["names", "payload"] } }],
+    "body": { "type": "log", "value": [1] }
+  }
+}
+```
+
+- A clause `do` gives the result of the effect, and it reads `names.payload`.
+- A clause `abort` stops the body, and its result is the result of `handle`.
+- The field `return` changes the result of the body, and it reads `names.result`.
+
+A clause has the capabilities of the `handle` document. An effect of a clause goes to the next `handle` out, and then to the host. A `pure` part under `handle` still causes no effect.

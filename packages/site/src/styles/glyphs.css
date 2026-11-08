@@ -84,6 +84,28 @@
   color: var(--ce-stop);
 }
 
+/* A dashed outline and the code of the issue (#TYPE! or #VALUE!) mark a card with an issue of the check, thus the mark does not depend on the color. */
+.cv-card[data-type-issue="true"] {
+  min-width: 7.6rem;
+  outline: 2px dashed var(--ce-stop);
+  outline-offset: 2px;
+}
+
+.cv-type-mark {
+  color: var(--ce-stop);
+  font-weight: 600;
+}
+
+.cv-type-issues {
+  padding: var(--space-3) 0 0;
+}
+
+.cv-type-issues ul {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
 .cv-run-mark {
   color: var(--ce-run);
 }
@@ -973,6 +995,33 @@
   height: 1.1em;
   vertical-align: text-bottom;
   border-left: 2px solid var(--ce-stop);
+}
+
+.cv-hole {
+  padding: 0 var(--space-2);
+  border: 1px dashed var(--ce-stop);
+  border-radius: var(--radius-small);
+  color: var(--color-ink-secondary);
+  font-style: italic;
+}
+
+.cv-fields {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cv-fields li {
+  margin: 0;
+}
+
+.cv-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
 }
 
 .cv-stepping {

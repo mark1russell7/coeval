@@ -2,8 +2,8 @@ import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, isKey, ty
 import { type PartSlot, type Split, partsOf, pathMatches, scopesOf } from "./parts.ts";
 import { answerOf, ask, type Answer } from "./ladder.ts";
 import type { CapsRule, Kind, KindFacts, Side } from "./world.ts";
-import type { Domain } from "./types.ts";
-import type { TypeRule } from "./typing.ts";
+import { type Domain, type ValueType, member, typeText } from "./types.ts";
+import type { Boundary, TypeRule } from "./typing.ts";
 import type { StaticRead } from "./facts.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
@@ -109,7 +109,7 @@ export function intersectCaps(a: readonly Cap[], b: readonly Cap[]): readonly Ca
 /** This function gives the capability rules of a kind that cover a part and change its capabilities. */
 function rulesFor(rules: readonly CapsRule[] | undefined, path: readonly Key[]): readonly CapsRule[] {
   if (rules === undefined || rules.length === 0) return NO_RULES;
-  const out = rules.filter((rule) => rule.rule !== "same" && (rule.in === undefined || rule.in.some((pattern) => pathMatches(path, pattern))));
+  const out = rules.filter((rule) => rule.rule !== "same" && rule.rule !== "grant" && (rule.in === undefined || rule.in.some((pattern) => pathMatches(path, pattern))));
   return out.length === 0 ? NO_RULES : out;
 }
 
@@ -134,6 +134,87 @@ function capsUnder(rules: readonly CapsRule[], caps: readonly Cap[]): readonly C
  */
 export function partCaps(rules: readonly CapsRule[] | undefined, path: readonly Key[], caps: readonly Cap[]): readonly Cap[] {
   return capsUnder(rulesFor(rules, path), caps);
+}
+
+/** This function collects the values at a path in a value. The key `"*"` steps into each item of a list. */
+function collectAt(value: unknown, path: readonly Key[], index: number, out: Cap[]): void {
+  if (index === path.length) {
+    if (typeof value === "string" || (Array.isArray(value) && value.every((key) => typeof key === "string" || typeof key === "number"))) out.push(value as Cap);
+    return;
+  }
+  const key = path[index] as Key;
+  if (key === "*") {
+    if (Array.isArray(value)) for (const item of value) collectAt(item, path, index + 1, out);
+    return;
+  }
+  if (typeof value === "object" && value !== null) collectAt((value as Record<Key, unknown>)[key], path, index + 1, out);
+}
+
+/**
+ * This function gives the capabilities that the rules `grant` of a kind give one part (CAP.GRANT). The check and the
+ * walk read them from the document. The kernel gets the same list from the clauses of the runner.
+ *
+ * @param rules - The capability rules of the kind (`Kind.caps`).
+ * @param path - The path of the part in the value of the document.
+ * @param value - The value of the document.
+ * @returns The capabilities that the rules add, or an empty list.
+ */
+export function partGrants(rules: readonly CapsRule[] | undefined, path: readonly Key[], value: unknown): readonly Cap[] {
+  if (rules === undefined) return NO_CAPS;
+  let out: Cap[] | undefined;
+  for (const rule of rules) {
+    if (rule.rule !== "grant" || (rule.in !== undefined && !rule.in.some((pattern) => pathMatches(path, pattern)))) continue;
+    collectAt(value, rule.from, 0, (out ??= []));
+  }
+  return out ?? NO_CAPS;
+}
+
+/**
+ * One clause of a handler (D146): the effects under `op` go to `answer` and not to the host. The clause runs in place,
+ * as a part of the effect that it answers. Its result is the result of that effect.
+ */
+export interface Clause {
+  /** The kind of the effects: the clause answers this kind and each kind under it (CAP.KEYS). */
+  readonly op: Cap;
+  /**
+   * This function answers one effect. It sees only the payload (HANDLE.SEALED).
+   *
+   * @param payload - The data of the effect.
+   * @returns The steps that give the result of the effect.
+   */
+  answer(payload: unknown): Steps;
+}
+
+/** The clauses of one active `handle`, and the frame around it. */
+interface Frame {
+  readonly clauses: readonly Clause[];
+  readonly outer: Frame | undefined;
+  /** The runtime of the evaluation that started the frame. A frame of another evaluation has ended. */
+  readonly owner: Runtime;
+  /** `true` after the body ends. A closure can leave the body with the context of the frame (HANDLE.ENDED). */
+  ended: boolean;
+}
+
+/**
+ * The key of the frame of a context. Like the grant, it stays through a spread of a context, and only the kernel writes
+ * it. It is not a root (D10): a document cannot read it (HANDLE.SEALED).
+ */
+const FRAME = /* @__PURE__ */ Symbol("coeval.frame");
+
+/** A context that can have a frame. */
+type Framed = Context & { readonly [FRAME]?: Frame };
+
+/** This function gives the frame of a context, when it has one. */
+function frameOf(ctx: Context): Frame | undefined {
+  return (ctx as Framed)[FRAME];
+}
+
+/** This function finds the frame and the clause that answer an effect. The innermost frame wins, then the first clause. */
+function clauseFor(start: Frame, keys: readonly Key[]): { readonly frame: Frame; readonly clause: Clause } | undefined {
+  for (let frame: Frame | undefined = start; frame !== undefined; frame = frame.outer) {
+    for (const clause of frame.clauses) if (permits([clause.op], keys)) return { frame, clause };
+  }
+  return undefined;
 }
 
 /**
@@ -697,6 +778,14 @@ export interface RunPart {
    * @returns The steps of the evaluation of the part.
    */
   evaluate(context?: Context): Steps;
+  /**
+   * This function evaluates the part under clauses that answer its effects (D146). The kernel sets it on each part of
+   * a kind with a rule `grant`. A part that a runner makes itself has none, and a compiled runner gets no such part.
+   *
+   * @param clauses - The clauses, in order. An effect goes to the first clause that names its kind.
+   * @returns The steps of the evaluation of the part.
+   */
+  handled?(clauses: readonly Clause[]): Steps;
 }
 
 /** The input of a runner: the input of an evaluator, with parts and effects that can wait. */
@@ -939,6 +1028,8 @@ export interface PlanRunOptions {
 export interface RunOptions extends PlanRunOptions {
   /** The type of a bare root value. */
   readonly declaredType?: string;
+  /** The boundaries that test their values (PLAN.GUARD). The default is none. */
+  readonly guards?: readonly Boundary[];
   /** The verb of `run`, for example `format`. The default is `eval` (VERB.PREPARE). */
   readonly verb?: string;
 }
@@ -969,6 +1060,8 @@ export interface EvaluateOptions {
   readonly perform?: Perform;
   /** A list that gets each read, in the order of the resolutions (READS.RECORD). */
   readonly reads?: Read[];
+  /** The boundaries that test their values (PLAN.GUARD). The default is none. */
+  readonly guards?: readonly Boundary[];
 }
 
 /** The options of a resolution without a record of hops, and with one. One object of each serves each call. */
@@ -1358,14 +1451,35 @@ class Session implements Runtime {
     return (effect.outcome = fail("#CALC!", `The mock gave a promise for the effect ${effect.kind}, and an evaluation does not wait.`, { place }));
   }
 
+  /**
+   * This function finds the clause that answers an effect (D146). Without it, the effect goes on to the host. An effect
+   * without a capability gets no clause, thus `record` gives its `#CAP!` (HANDLE.NARROW). A clause of a frame that has
+   * ended gives `#CAP!`, because the capability came from that frame (HANDLE.ENDED).
+   */
+  private clauseOf(given: Context, start: Frame, kind: Cap, place: readonly Key[]): Clause | Result | undefined {
+    const ctx = inEpoch(given, this.epoch) ? granted(given) : ungranted(given, this.epoch);
+    const keys = typeof kind === "string" ? kind.split(".") : kind;
+    if (!this.permitted(ctx, keys)) return undefined;
+    const found = clauseFor(start, keys);
+    if (found === undefined) return undefined;
+    if (found.frame.ended || found.frame.owner !== this) return fail("#CAP!", `The handler of the effect ${keys.join(".")} has ended.`, { place });
+    return found.clause;
+  }
+
   effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
     const text = typeof kind === "string" ? kind : kind.join(".");
     if (this.running) return fail("#CALC!", `The effect ${text} needs a runner: in a run, the host does each effect.`, { place });
+    const frame = frameOf(ctx);
+    const clause = frame === undefined ? undefined : this.clauseOf(ctx, frame, kind, place);
+    if (clause !== undefined) return "ok" in clause ? clause : drive(clause.answer(payload), text);
     const made = this.record(ctx, kind, payload, place);
     return "ok" in made ? made : this.answer(made, place);
   }
 
   *runEffect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps {
+    const frame = frameOf(ctx);
+    const clause = frame === undefined ? undefined : this.clauseOf(ctx, frame, kind, place);
+    if (clause !== undefined) return "ok" in clause ? clause : yield* clause.answer(payload);
     const made = this.record(ctx, kind, payload, place);
     if ("ok" in made) return made;
     const perform = this.perform;
@@ -1660,6 +1774,11 @@ export interface PrepareOptions {
    * the code without the fold. A plan without folds ignores this option.
    */
   readonly fixed?: { readonly names?: Readonly<Record<string, unknown>> };
+  /**
+   * The boundaries of the document, from `boundariesOf` (PLAN.GUARD, D149). A value that is not a member of the type of
+   * its boundary gives `#VALUE!` at that place. The default is none, and a plan then has no test.
+   */
+  readonly guards?: readonly Boundary[];
 }
 
 /** A compiled document. It evaluates many times, and it does the work of the ladder one time. */
@@ -1700,6 +1819,8 @@ interface Compiler {
   readonly fold: boolean;
   /** The fixed names and their values, or `undefined` when the plan has none (PLAN.FIXED). */
   readonly fixed: Readonly<Record<string, unknown>> | undefined;
+  /** The types of the boundaries by their place, or `undefined` when the plan has no guard (PLAN.GUARD). */
+  readonly guards: ReadonlyMap<string, ValueType> | undefined;
   /** The runtime of the folds of this compilation. The first fold makes it. */
   probe?: Probe;
   /** `true` when a document of this compilation can use its runtime after the end of the evaluation (WORK.KEEPS). */
@@ -1844,11 +1965,12 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     c.keeps = true;
     let inner: RunCode;
     try {
-      inner = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
+      inner = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill, kind?.caps?.some((rule) => rule.rule === "grant") === true);
     } catch (error) {
       return failingWith(c, meta, placed(thrown(error, `the runner ${name}`), place));
     }
-    const run = placedRun(inner, place, name);
+    const guard = guardOf(c, place);
+    const run = placedRun(guard === undefined ? inner : guardRun(inner, guard, c.machine.domains), place, name);
     return finish(c, meta, runnerCode(run, place, kindText), run);
   }
 
@@ -1859,8 +1981,9 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   } catch (error) {
     return failingWith(c, meta, placed(thrown(error, `the evaluator ${name}`), place));
   }
+  const guard = guardOf(c, place);
   // Code that cannot fail needs no place and no catch, and it does not read the context of its grant (PLAN.TOTAL).
-  const done = finish(c, meta, TOTAL.has(inner) ? inner : placedCode(inner, place, name), undefined);
+  const done = finish(c, meta, guard !== undefined ? placedCode(guardCode(inner, guard, c.machine.domains), place, name) : TOTAL.has(inner) ? inner : placedCode(inner, place, name), undefined);
   if (frees === undefined || kind === undefined || !pureCode(c, envelope, kind, typePath, name, quick)) return done;
   const free = freeOf(doc, kind, split.parts, frees);
   if (free === undefined) return done;
@@ -2280,6 +2403,34 @@ function gated(rules: readonly CapsRule[], part: Compiled): Compiled {
  * This function gives the steps of a runner, with the place of each error and of each exception. The steps get the
  * context that its grant permits (CAP.NARROW-CODE).
  */
+/** This function gives the key of a place in the guards of a plan. */
+function guardKey(place: readonly Key[]): string {
+  return JSON.stringify(place.map(String));
+}
+
+/** This function gives the type of the boundary at a place, when the plan has one (PLAN.GUARD). */
+function guardOf(c: Compiler, place: readonly Key[]): ValueType | undefined {
+  return c.guards?.get(guardKey(place));
+}
+
+/** This function gives the result of a part of a boundary: a value that is not a member gives `#VALUE!` (PLAN.GUARD). */
+function guarded(result: Result, type: ValueType, domains: Readonly<Record<string, Domain>> | undefined): Result {
+  if (!result.ok || member(result.value, type, domains)) return result;
+  return fail("#VALUE!", `The value is not a member of ${typeText(type)}, the type of its boundary.`);
+}
+
+/** This function adds the test of a boundary to the code of a part. */
+function guardCode(inner: Code, type: ValueType, domains: Readonly<Record<string, Domain>> | undefined): Code {
+  return (ctx, rt) => guarded(inner(ctx, rt), type, domains);
+}
+
+/** This function adds the test of a boundary to the steps of a part. */
+function guardRun(inner: RunCode, type: ValueType, domains: Readonly<Record<string, Domain>> | undefined): RunCode {
+  return function* (ctx, rt) {
+    return guarded(yield* inner(ctx, rt), type, domains);
+  };
+}
+
 function placedRun(inner: RunCode, place: readonly Key[], name: string): RunCode {
   return function* (ctx, rt) {
     try {
@@ -2397,7 +2548,25 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
   };
 }
 
-function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): RunCode {
+/**
+ * This function runs a part under a new frame (D146). The part gets the capabilities of the document and the kinds of
+ * the clauses (CAP.GRANT), with the grant of the kernel. A rule around an effect narrows them as it narrows any other
+ * capability (HANDLE.NARROW). The frame ends with the steps.
+ */
+function* handling(given: Context, clauses: readonly Clause[], rt: Runtime, run: (ctx: Context) => Steps): Steps {
+  const ctx = granted(given);
+  const frame: Frame = { clauses, outer: frameOf(ctx), owner: rt, ended: false };
+  const caps = [...ctx.caps];
+  for (const clause of clauses) if (!permits(caps, clause.op)) caps.push(clause.op);
+  const inner: Granted & Framed = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [FRAME]: frame };
+  try {
+    return yield* run(inner);
+  } finally {
+    frame.ended = true;
+  }
+}
+
+function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown, grants: boolean): RunCode {
   const { kind, typePath, doc, data, place, machine } = input;
   const refill = input.fill;
   const compiled = input.parts;
@@ -2408,6 +2577,8 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
       path: part.path,
       ...(part.name === undefined ? {} : { name: part.name }),
       evaluate: (override?: Context) => part.run(override === undefined ? ctx : handed(ctx, override), rt),
+      // Only a kind with a rule grant pays for this function: most runners stay as fast as before.
+      ...(grants ? { handled: (clauses: readonly Clause[]) => handling(ctx, clauses, rt, (inner) => part.run(inner, rt)) } : {}),
     }));
     return fn({
       kind,
@@ -2471,7 +2642,8 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
   const traced = options.trace === true;
   const fold = !traced && options.fold !== false;
   const fixed = fold ? fixedNamesOf(options.fixed?.names) : undefined;
-  const c: Compiler = { machine, traced, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer, fold, fixed };
+  const guards = options.guards === undefined || options.guards.length === 0 ? undefined : new Map(options.guards.map((each) => [guardKey(each.place), each.type]));
+  const c: Compiler = { machine, traced, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer, fold, fixed, guards };
   let root: Compiled;
   try {
     root = compileNode(c, doc, [], options.declaredType, 0);
@@ -2612,6 +2784,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
     trace: true,
     ...(declaredType === undefined ? {} : { declaredType }),
     ...(given.verb === undefined ? {} : { verb: given.verb }),
+    ...(given.guards === undefined ? {} : { guards: given.guards }),
   });
   const ctx = rootContext(machine, context);
   const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
@@ -2633,6 +2806,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
   const plan = prepare(machine, doc, {
     trace: true,
     ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
+    ...(options.guards === undefined ? {} : { guards: options.guards }),
     ...(options.verb === undefined ? {} : { verb: options.verb }),
   });
   const ctx = rootContext(machine, context);

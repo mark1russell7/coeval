@@ -51,6 +51,18 @@ describe("the hold of a slower reading comes from the hashes of the arms (K232, 
     expect(holdRead(1, [run(a, c), run(a, c)], true).hold).toBe(true);
   }, 30000);
 
+  it("reads one tsconfig for both arms, and stops on a tsconfig that does not resolve (K234)", async () => {
+    const [plain, own] = [copyOfKernel("plain"), copyOfKernel("own")];
+    const setting = join(dir, "own", "tsconfig.json");
+    writeFileSync(setting, JSON.stringify({ compilerOptions: { useDefineForClassFields: false } }));
+    const missing = join(dir, "missing.json");
+    writeFileSync(missing, JSON.stringify({ extends: "./no-such-file.json" }));
+    const plainHash = await hashOf(plain, "plain");
+    expect(await hashOf(own, "own")).toBe(plainHash);
+    expect(armHash(readFileSync(await bundle(plain, "set", dir, setting), "utf8"))).not.toBe(plainHash);
+    await expect(bundle(plain, "missing", dir, missing)).rejects.toThrow("does not resolve");
+  }, 30000);
+
   it("takes out only the lines that name a source file", () => {
     expect(armHash("// ../a/b.ts\nlet x;\n")).toBe(armHash("// c/d/e.ts\nlet x;\n"));
     expect(armHash("// a note\nlet x;\n")).not.toBe(armHash("// b note\nlet x;\n"));
