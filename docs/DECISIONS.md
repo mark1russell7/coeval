@@ -4039,6 +4039,40 @@ One value changes for a host. `STD_EVALUATORS["ref.resolve"]` is an object, not 
 **Alternatives.** A function with a field `compile`. It keeps each wrapper, but `isCompiledEvaluator` then reads a new form, and the two forms of `Evaluator` stop being separate. A side table from the function to its compiled form. Then each function evaluator costs a lookup in `prepare`, and the reference still has no definition of its own. The kernel can test the name `ref.resolve` in `compileNode`, but the kernel has no standard kinds. A compiled form only for paths without step documents leaves the costliest paths in the function form. A compiled form that also tests `Held` and `address`, as the formula kit does, changes behaviour. These rules are not rules of the standard kit.
 
 **Why.** The path, the machine and the ladder of `step` are static, thus the work belongs in `prepare`, as D29 tells. `resolveCompiled` already gives the same reads and the same host calls, thus the compiled form adds no new route. No read or step function changes, thus each other case of the bench keeps its code. The compilation of a reference adds `keysFrom`, `startOf` and one object, and it removes the closures of `interpret` from the plan. No bench case times a `prepare` of a standard reference. The case `PLAN.COMPILE-SPEED prepare` uses the formula kit, and the two tree cases call `prepare` in their setup. These tree cases evaluate standard references, thus they get the gain.
+## D132 (2026-11-03): a part keeps steps only for a reader of its steps, and an own accessor keeps the steps of a copy
+
+**Context.** K115, from D35. A plan keeps its parts, because the code of a parent reads them. Each part kept `runOf` of its code, also in a plan that does not run. D35 kept these steps, because a compiler can copy a part with a spread, and a spread does not read a getter of a prototype. A test of PLAN.PART-RUN shows that failure: the copy has no field `run`, and a call of the field throws a TypeError. `CompiledPart.run` is a public field of the type `RunCode`, thus a compiler can also read the field and keep it without the part.
+
+The code of the repository reads `run` in two places. `interpretRun` reads it for a runner, and a compiled runner can read it. A plain evaluator gets handles from `interpret`, and these handles use `code`. The compilers of the formula kit read only `code`.
+
+**Decision.** The reader of the parts decides the form of their steps (PLAN.PART-RUN).
+
+- The parts of a runner keep a data field, as before. A runner reads the field in each evaluation and in each run, thus lazy steps save nothing there.
+- A compiled evaluator of a host gets parts with an own enumerable accessor for `run`, when the part has no steps of its own. All such parts share one getter, thus they share one hidden class. The getter makes `runOf(this.code)` at the first read, and a data field takes the place of the accessor.
+- A part under a plain evaluator, or under a compiler that the kernel marks with `codeReader`, has no field `run`. No code of a host can see such a part, and the run of its parent uses `code`. The mark is on the function `compile`. Thus a wrapper of a compiler of the kernel has no mark, and its parts have steps.
+
+A spread reads an own accessor, thus a copy gets a data field with the steps of the original. A read of the field gives a real function, thus steps without the part run. `CompiledPart.run` stays a public field with the same type, and `Object.keys` gives the same keys in the same order. Each result, error, place and read stays the same.
+
+The accessor replaces itself, so that the speed of `run` does not depend on a test at each call. The first read writes the data field. Each later read is a load of that field. The parts of a runner keep their old hidden classes, thus the call of `part.run` in `interpretRun` sees the same classes as before. The parts of the kernel have one hidden class without `run`, and one with a name, as before.
+
+Four facts of a part of a host differ from a data field. The type of the field excludes or does not state each one. `Object.getOwnPropertyDescriptor` gives an accessor before the first read. A write to the `readonly` field before the first read throws, because the accessor has no setter. A frozen part gives new steps of the same code at each read. An object with the part as its prototype and its own `code` runs that `code`.
+
+**Alternatives.** A getter on a class for each part: a spread drops it, as the test shows. One shared generator that reads `this.code`: a part costs 8 bytes more than the part without `run`. Its creation takes approximately 28 ns. But `const { run } = part` then fails at the first step, and a copy with other code runs the other code. That is a change of public behaviour. `bind` of one shared generator to the code: this is a data field and it stays correct. But the part still costs 56 bytes more, and creation takes approximately 113 ns. An own accessor for each part of each evaluator: creation takes approximately 97 ns, not 39 ns, because `defineProperty` is a call into the runtime. The case PLAN.COMPILE-SPEED has five parts in each `prepare`, thus the compilers of the kernel keep no accessor. No steps for each part of an evaluator: this changes the public field. A compiler can then see `undefined`.
+
+**Why.** The parts of most plans have no reader of their steps. These numbers come from one local run on Node.js 24.21.0 on Windows, with the source and `--experimental-transform-types`. The script measures `heapUsed` after two full collections, over 10000 plans that stay alive, and it gives the median of three rounds. The bare reference gives 393.4 bytes, the value of PLAN.LEAN.
+
+| Plan | Parts | Before (bytes) | After (bytes) | Saved for each part |
+| --- | ---: | ---: | ---: | ---: |
+| Formula kit, `add` of two references | 2 | 1985.4 | 1761.4 | 112.0 |
+| Formula kit, list of ten references | 10 | 7321.7 | 6201.5 | 112.0 |
+| Standard machine, `add` of two references | 2 | 3986.3 | 3762.3 | 112.0 |
+| Compiled evaluator of a host | 2 | 2680.6 | 2456.7 | 112.0 |
+| Runner | 2 | 4041.7 | 4041.8 | 0 |
+| Bare reference | 0 | 393.4 | 393.4 | none |
+
+D35 gave approximately 96 bytes for the steps, and this measure gives 112. The steps are a function of a generator and its scope. The same script ran eight pairs of processes that alternate the two copies. The median ratio is 0.978 for the time of `prepare` in the case PLAN.COMPILE-SPEED. This machine has other load, thus this ratio only shows the size of the change. The Speed verdict of CI decides. No memory limit changes, because a bare reference has no parts.
+
+**Limits.** A part under a runner still keeps its steps. A plan that does not evaluate such a document pays 112 bytes for each of these parts.
 
 ## D126 (2026-11-03): a higher-order attribute gives a document as data, and the last rung `forward` reads a node that an attribute gives
 
