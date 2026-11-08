@@ -110,10 +110,14 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
     expect(read.reason).toContain("0 slower");
   });
 
-  it("writes the line of the gate with the CPU pair, and the names of the cases with no read (K225, D181)", () => {
+  // Each test starts the script one time, because a start takes approximately 1.5 s and the test time has a budget (CI 42460573497).
+  it("writes the line of a gate pass with the CPU pair (K225, D181)", () => {
     const pass = verdict("gate-pass", runFile("gate-pass-1", whole), runFile("gate-pass-2", second));
     expect(pass.gateOutcome).toBe("pass");
     expect(pass.gate).toBe("Gate (report only, D163): pass. 2 not slower, 0 slower, 0 no read, of 2 cases, on the CPU pair a CPU + a CPU.");
+  });
+
+  it("writes the line of a gate no read with the names of the cases with no read (K225, D181)", () => {
     const split = verdict("gate-split", runFile("gate-split-1", [benchCase("x", 1.1, 0), benchCase("y", 1, 0)]), runFile("gate-split-2", second));
     expect(split.gateOutcome).toBe("no read");
     expect(split.gate).toBe("Gate (report only, D163): no read. 1 not slower, 0 slower, 1 no read, of 2 cases, on the CPU pair a CPU + a CPU. No read: x.");
