@@ -5290,3 +5290,17 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** A record in `bench/accepted` for each slower case. Each run of #343 gave a different set, thus each push needed new records, and a record tells nothing about the cause. A placebo of the same size outside the timed paths. It costs a run, and it does not stop the next hold of this kind.
 
+## D189 (2026-11-08): a row of the ladder flip replaces a run that does not count
+
+**Context.** K247. The job `ladder-flip` measures one run for each row (D164). A run counts only when the A/A band of each walk contains 1. A row whose run does not count has no read. The gate then gives a block with the text "No run counts", and the check of the reasons failed the job. This occurred in run 42489026541, with the band 0.942 to 0.997 of `refsOf` on an EPYC 9V74, and in run 42482539243.
+
+**Decision.**
+
+- A row whose runs do not count measures a new run, up to 3 runs. The row pools all of its runs, as the gate pools its five runs.
+- The line of each replaced run tells the row and the number of the run.
+- After 3 runs with no counted run, the row has no read. The job fails with the line "no read. No run of 3 counts.", and the row gets no check of its reasons.
+
+**Why.** The table of the gate says "no: replace it" for a run that does not count. The flip did not do that. A no read is not a pass, thus the job still fails when no run counts.
+
+**Alternatives.** A pass for a row with no read. A no read then shows as a pass. A wider A/A band for the flip. The flip then examines a gate that is not the gate of the job `ladder`.
+
