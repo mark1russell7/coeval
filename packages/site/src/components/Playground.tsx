@@ -9,13 +9,13 @@ import { Port } from "../glyphs/Card.tsx";
 import { EffectsLog, TypeIssues } from "../glyphs/Panels.tsx";
 import { View, SITE_WORLD, WorldContext } from "../glyphs/View.tsx";
 import { OverlayContext, pathKey, type Overlay } from "../glyphs/overlay.ts";
-import { appendAt, declaredAt, getAt, newDoc, newPart, removeAt, setAt } from "../lib/edit.ts";
+import ContractEditor from "./ContractEditor.tsx";
+import { editorOf, emptyDoc, isHole, kindsAt, namesAt, newHole } from "../lib/contract.ts";
+import { appendAt, declaredAt, getAt, removeAt, setAt } from "../lib/edit.ts";
 import { prettyJson } from "../lib/motion.ts";
 import { placeTypes } from "../lib/types.ts";
 import { PROGRAMS } from "../lib/programs.ts";
 import { docText, markIssue, readText } from "../lib/syntax.ts";
-
-const KINDS = Object.keys(SITE_WORLD.kinds).filter((name) => name !== "kind");
 
 /** The wait after the last key, in milliseconds, before the text pane reads its text. */
 const TEXT_WAIT = 300;
@@ -39,7 +39,7 @@ function fromHash(): Json | undefined {
 export default function Playground() {
   const [programId, setProgramId] = useState("names");
   const program = PROGRAMS.find((item) => item.id === programId) ?? PROGRAMS[0];
-  const [doc, setDoc] = useState<Json>(program?.doc ?? newDoc("add"));
+  const [doc, setDoc] = useState<Json>(program?.doc ?? newHole());
   const [names, setNames] = useState<Readonly<Record<string, Json>>>(program?.names ?? {});
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [jsonText, setJsonText] = useState(prettyJson(doc));
@@ -139,6 +139,12 @@ export default function Playground() {
   const parentValue = selected.length === 0 ? undefined : getAt(doc, selected.slice(0, -1));
   const inList = parentValue !== undefined && Array.isArray(fromJson(parentValue)?.value ?? parentValue);
 
+  const hole = isHole(node);
+  const editor = editorOf(SITE_WORLD, type);
+  const kinds = useMemo(() => kindsAt(SITE_WORLD, doc, selected), [doc, selected]);
+  const inScope = useMemo(() => [...new Set([...Object.keys(names), ...namesAt(SITE_WORLD, doc, selected)])], [doc, names, selected]);
+  const fieldOf = (key: string): readonly string[] => [...selected, key];
+
   const setValue = (next: Json): void => {
     change(setAt(doc, selected, envelope === undefined ? next : { ...envelope, value: next }));
   };
@@ -158,7 +164,7 @@ export default function Playground() {
 
       <div className="cv-stage" data-panel="true">
         <div className="cv-picture" ref={picture}>
-          <p className="cv-small cv-muted">Select a card to edit it. The picture evaluates after each change.</p>
+          <p className="cv-small cv-muted">Select a card to edit it. The picture evaluates after each change. An empty place evaluates to an error value.</p>
           <WorldContext.Provider value={SITE_WORLD}>
             <OverlayContext.Provider value={overlay}>
               <View doc={doc} />
@@ -180,16 +186,16 @@ export default function Playground() {
           <label className="cv-field-edit">
             <span>Kind</span>
             <select
-              value={kind === undefined ? "" : type}
+              value={hole || !kinds.includes(type) ? "" : type}
               onChange={(event) => {
-                const next = newDoc(event.target.value);
+                const next = emptyDoc(SITE_WORLD, event.target.value);
                 const keep = envelope?.name;
                 const withName = keep === undefined ? next : { ...(fromJson(next) ?? typed(event.target.value, null)), name: keep };
                 change(setAt(doc, selected, withName));
               }}
             >
-              {kind === undefined && <option value="">{type}</option>}
-              {KINDS.map((name) => (
+              {hole ? <option value="">Select a kind</option> : !kinds.includes(type) && <option value="">{type}</option>}
+              {kinds.map((name) => (
                 <option key={name} value={name}>
                   {name}
                 </option>
@@ -197,44 +203,18 @@ export default function Playground() {
             </select>
           </label>
 
-          {(type === "number" || type === "text") && (
-            <label className="cv-field-edit">
-              <span>Value</span>
-              <input
-                type={type === "number" ? "number" : "text"}
-                value={typeof value === "number" || typeof value === "string" ? String(value) : ""}
-                onChange={(event) => setValue(type === "number" ? Number(event.target.value) : event.target.value)}
-              />
-            </label>
-          )}
-          {type === "ref" && (
-            <label className="cv-field-edit">
-              <span>Path</span>
-              <input
-                type="text"
-                aria-describedby="cv-path-help"
-                value={Array.isArray(value) ? (value as readonly Json[]).map((step) => (typeof step === "object" ? "…" : String(step))).join(", ") : ""}
-                onChange={(event) =>
-                  setValue(
-                    event.target.value
-                      .split(",")
-                      .map((step) => step.trim())
-                      .filter((step) => step !== "")
-                      .map((step) => (/^\d+$/.test(step) ? Number(step) : step)),
-                  )
-                }
-              />
-              <span id="cv-path-help" className="cv-small cv-muted" style={{ gridColumn: "2" }}>
-                A root (self, names, world, event or caps), then the keys, with a comma between them.
-              </span>
-            </label>
-          )}
-          {type === "bool" && (
-            <label className="ce-check">
-              <input type="checkbox" checked={value === true} onChange={(event) => setValue(event.target.checked)} />
-              The value is true
-            </label>
-          )}
+          <ContractEditor
+            editor={editor}
+            value={value as Json | undefined}
+            names={inScope}
+            onValue={setValue}
+            onSelectField={(key) => setSelected(fieldOf(key))}
+            onFillField={(key) => change(setAt(doc, fieldOf(key), newHole()))}
+            onClearField={(key) => {
+              const { [key]: _gone, ...rest } = value as Readonly<Record<string, Json>>;
+              setValue(rest);
+            }}
+          />
 
           <label className="cv-field-edit">
             <span>Name</span>
@@ -253,7 +233,7 @@ export default function Playground() {
 
           <div className="ce-bar-group">
             {kind?.parts?.shape === "list" && (
-              <button type="button" className="ce-btn" onClick={() => change(appendAt(doc, selected, newPart(SITE_WORLD, type)))}>
+              <button type="button" className="ce-btn" onClick={() => change(appendAt(doc, selected, newHole()))}>
                 Add a part
               </button>
             )}
@@ -267,6 +247,11 @@ export default function Playground() {
                 }}
               >
                 Remove this card
+              </button>
+            )}
+            {!hole && (
+              <button type="button" className="ce-btn" onClick={() => change(setAt(doc, selected, newHole()))}>
+                Empty this place
               </button>
             )}
             {selected.length > 0 && (

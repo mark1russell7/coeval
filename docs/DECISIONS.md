@@ -4907,6 +4907,18 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - A rule on a run side kind has no effect, thus the cards of `seq`, `log` and the run form of `if` show `unknown`.
 - A later roadmap item can move the rules from the site to the standard kit.
 
+## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
+
+**Context.** C11, from R6 P6. The panel of the playground named its kinds in code. It had an input for `number`, a menu of each world entry and a table of new documents. A new document needed a value, thus a reader could not leave a position empty.
+
+**Decision.** The function `editorOf` gives the editor of a kind from `Kind.parts` alone. A data shape gives an input. A record shape gives one row for each field, with a mark for each necessary field. A position lists only the kinds of its `term` shape (SHAPE.KINDS). The function `emptyDoc` gives a new document from the contract, and each necessary position holds a hole. The evaluator of `hole` gives the error value `#HOLE`, and the kernel adds its place. The function `namesAt` reads the names of a reference editor from `walk`.
+
+**Alternatives.** A kind `hole` in `STD_WORLD`. A hole is a state of an editor, and a host without an editor has no use for it. Thus the kernel does not change.
+
+**Why.** Each fact of the editor was already in a contract, except the shapes of the data kinds. The standard world gives `number`, `text` and `bool` no `parts`, so `SITE_WORLD` adds them. It also adds the fields of `write` and the necessary fields of `if`. A check reads these shapes in the same way as other contracts. An error value keeps each state of an edit evaluable, as in Hazelnut.
+
+**Limits.** A kind with no contract has no input, and "Edit the JSON" stays its editor. A reference keeps a small rule of its own, because its value is a path and no shape tells that. An edit does not check the type of a position against the kind that it lists. The field `of` declares the type of a bare value, and only `kinds` limits a term.
+
 ## D152 (2026-11-04): `mapDocs` changes the documents of a document from the root to the parts
 
 **Context.** K222. The static kit has `walk`, which only reads, and `mapRefs`, which changes only free references. A host that changes each step of a document kept its own recursion. That recursion named its step kinds and kept its own limit of depth.

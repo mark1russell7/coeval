@@ -997,6 +997,33 @@
   border-left: 2px solid var(--ce-stop);
 }
 
+.cv-hole {
+  padding: 0 var(--space-2);
+  border: 1px dashed var(--ce-stop);
+  border-radius: var(--radius-small);
+  color: var(--color-ink-secondary);
+  font-style: italic;
+}
+
+.cv-fields {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cv-fields li {
+  margin: 0;
+}
+
+.cv-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
 .cv-stepping {
   padding: 0 var(--space-4);
 }
