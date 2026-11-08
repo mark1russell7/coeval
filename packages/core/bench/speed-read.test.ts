@@ -110,10 +110,14 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
     expect(read.reason).toContain("0 slower");
   });
 
-  it("writes the line of the gate from gateLine of rigor-bench, with the CPU models and the cases with no read (K225, D181, K242)", () => {
+  // Each test starts the script one time, because a start takes approximately 1.5 s and the test time has a budget (CI 42460573497).
+  it("writes the line of a gate pass with the CPU models (K225, D181, K242)", () => {
     const pass = verdict("gate-pass", runFile("gate-pass-1", whole), runFile("gate-pass-2", second));
     expect(pass).toMatchObject({ gateOutcome: "pass", gateAnnotation: "" });
     expect(pass.gate).toBe("Speed gate (D163): pass for 2 of 2 cases. Jobs on 1 CPU model: a CPU (2 jobs).");
+  });
+
+  it("writes the line and the warning of gateLine of rigor-bench for a gate no read (K225, D181, K242)", () => {
     const split = verdict("gate-split", runFile("gate-split-1", [benchCase("x", 1.1, 0), benchCase("y", 1, 0)]), runFile("gate-split-2", second));
     const line = "Speed gate (D163): no read for 1 of 2 cases: x. jobs on 1 CPU model: a CPU (2 jobs). A no read is not a pass.";
     expect(split).toMatchObject({ gateOutcome: "no read", gate: line, gateAnnotation: `::warning title=Speed gate (D163)%3A no read (report only)%2C 1 no read::${line}` });
