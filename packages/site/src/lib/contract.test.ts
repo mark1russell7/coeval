@@ -3,7 +3,7 @@ import { STD_CAPS, evaluate, makeContext, typed, walk, type Json, type World } f
 import { SITE_MACHINE } from "../glyphs/Explorer.tsx";
 import { SITE_WORLD } from "../glyphs/View.tsx";
 import { HOLE_CODE, editorOf, emptyDoc, isHole, kindsAt, namesAt, newHole } from "./contract.ts";
-import { docText, readText } from "./syntax.ts";
+import { SITE_SYNTAX, docText, readText } from "./syntax.ts";
 
 const evaluated = (doc: Json) => evaluate(SITE_MACHINE, doc, makeContext({}, STD_CAPS));
 
@@ -36,7 +36,9 @@ describe("the editors from the contracts", () => {
     const names = kindsAt(SITE_WORLD, newHole(), []);
     expect(names).toContain("if");
     expect(names).toContain("math.product");
-    expect(names).toContain("tree.named");
+    expect(names).toContain("tree.quote");
+    expect(names).not.toContain("tree.named");
+    expect(names).not.toContain("nearest");
     expect(names).not.toContain("hole");
     expect(names).not.toContain("kind");
     for (const name of names) {
@@ -44,6 +46,17 @@ describe("the editors from the contracts", () => {
       expect(() => evaluated(doc)).not.toThrow();
       expect(typeof editorOf(SITE_WORLD, name).form).toBe("string");
     }
+  });
+
+  it("gives each document of an editor a text that reads back to it, thus the text pane follows each edit (C17b)", () => {
+    const bad: string[] = [];
+    for (const name of kindsAt(SITE_WORLD, newHole(), [])) {
+      const doc = emptyDoc(SITE_WORLD, name, SITE_SYNTAX);
+      const printed = docText(doc);
+      if (!printed.ok) bad.push(`${name}: ${printed.reason}`);
+      else if (JSON.stringify(readText(printed.text)) !== JSON.stringify({ ok: true, doc })) bad.push(`${name}: ${printed.text}`);
+    }
+    expect(bad).toEqual([]);
   });
 
   it("gives an input for a data shape", () => {
@@ -78,6 +91,16 @@ describe("the editors from the contracts", () => {
     expect(emptyDoc(SITE_WORLD, "number")).toEqual(typed("number", 0));
     expect(emptyDoc(SITE_WORLD, "bool")).toEqual(typed("bool", true));
     expect(emptyDoc(SITE_WORLD, "math.product")).toEqual(typed(["math", "product"], []));
+  });
+
+  it("gives a field of a list an empty list, a form with a least count its holes, and a path the root self (D178)", () => {
+    expect(editorOf(SITE_WORLD, "handle")).toMatchObject({ form: "record", fields: [{ key: "with", required: true, parts: "list" }, { key: "return" }, { key: "body" }] });
+    expect(emptyDoc(SITE_WORLD, "handle")).toEqual(typed("handle", { with: [], body: newHole() }));
+    expect(emptyDoc(SITE_WORLD, "log")).toEqual(typed("log", []));
+    expect(emptyDoc(SITE_WORLD, "log", SITE_SYNTAX)).toEqual(typed("log", [newHole()]));
+    expect(emptyDoc(SITE_WORLD, "add", SITE_SYNTAX)).toEqual(typed("add", []));
+    expect(emptyDoc(SITE_WORLD, "ref")).toEqual(typed("ref", ["self"]));
+    expect(docText(emptyDoc(SITE_WORLD, "log", SITE_SYNTAX))).toEqual({ ok: true, text: "log(hole())" });
   });
 
   it("respects the limits of a number and the first value of a menu", () => {
