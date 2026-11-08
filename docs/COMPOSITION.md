@@ -142,6 +142,19 @@ mergeMachines(BASE, FORMAT); // the same machine as mergeMachines(FORMAT, BASE)
 
 This is `extend-protocol` of Clojure. The orphan rule of Haskell and the rule of Julia against type piracy give its limit. An entry for a foreign verb on a foreign kind is a conflict. The mark `replaces` of the path `["kinds", "ref", "verbs", "format"]` resolves it, thus the language says that it takes the entry on purpose. The ladder does not change.
 
+## Languages as values
+
+`defineLanguage` gives one frozen value with a name, a version, a data half and a code half (D157). `compose` checks the languages that each language needs, and it merges them through `mergeMachines`.
+
+```ts
+const formula = defineLanguage({ name: "formula", version: "1.4.2", world, code });
+const format = defineLanguage({ name: "format", version: "0.2.1", requires: { formula: "1.2.0" }, world: FORMAT.world, code: FORMAT_CODE });
+compose(formula, format, formula); // one machine, and formula counts once
+compose(format); // MergeError: a language requires formula, and the composition does not have it
+```
+
+The text `data` is the canonical JSON of the data half. Dhall pins an import by its normal form in the same way. A host compares the text, or it stores a hash of the text.
+
 ## Conflict
 
 Two extensions can each compose with the base, and still conflict together. The merge throws one `MergeError` when the host builds the machine, before a document evaluates.
@@ -152,4 +165,4 @@ mergeMachines(base, STATS, RIVAL);
 mergeMachines(base, STATS, { ...RIVAL, replaces: paths }); // RIVAL wins at each path
 ```
 
-The path of each conflict is the mark `replaces` that resolves it. No modular check finds the conflict before the merge. [Schwerdfeger and Van Wyk (2009)](https://doi.org/10.1145/1542476.1542499) give such a check for grammars. The language format of K37 declares the names that each language owns, and a check can use them.
+The path of each conflict is the mark `replaces` that resolves it. No modular check finds the conflict before the merge. [Schwerdfeger and Van Wyk (2009)](https://doi.org/10.1145/1542476.1542499) give such a check for grammars. The language format (D157) holds the kinds and the verbs of each language as data, and a check can use them.

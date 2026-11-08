@@ -5074,6 +5074,18 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** A function in the style of `extendDomain`. It reads `prev`, thus it needs its kind first, and it cannot report a conflict. An external table of methods. The ladder then gets a new rung, and D2 keeps the ladder small. An object as in R6 with a path as its key. A key is one text, and a world has a path of keys.
 
 **Limits.** A world keeps no owner and no entries, thus a part of a later merge does not see them. The merge of an extension with no base is a conflict, thus associativity (WORLD.LAWS) holds only when the first group holds the kind. Merge the parts flat, as K37 `compose` will do. An entry gives only an evaluator: a verb with effects does not declare them in `verbEffects` of a foreign kind (VERB.EFFECTS). An alias is not a kind, thus an entry names the kind itself.
+## D157 (2026-11-04): a language is one value, and its identity is the canonical text of its data half
+
+**Context.** K37, R6 P7. A language was a set of exports, and a host merged the parts by hand. R6 asks for `defineLanguage` and `compose`, with an identity from a hash of the data half. Its question 7 asks for the home of the format.
+
+**Decision.** The module `language.ts` of the kernel holds the format. `defineLanguage` takes a name, a version, `world`, `requires` and `code`, and it gives one frozen value with a frozen copy of the data half. The text `data` is the canonical JSON of `requires` and `world`. `compose` checks the languages, and it calls `mergeMachines`. A language that another language needs comes first, at a version in the caret range of SemVer. Its conflicts are entries of one `MergeError`, with the path `["languages", name]`.
+
+**Why.** The module needs only the merge, it has no dependency, and an unused export goes from a bundle. The canonical text gives each property of a hash with no collision, and it needs no hash function. The kernel has no such function, and a synchronous SHA-256 does not exist in each host. A host that wants a short pin hashes the text. This order keeps the meaning of `replaces` and of a function part, because both read the merge before them.
+
+**Alternatives.** A hash of 32 or 64 bits. A pin then has collisions, and the function needs a home. A separate package. The owner then makes a new package, and the kernel format cannot use it. A topological sort in `compose`. It hides the order that `replaces` reads, and the home of a sort is outside the kernel. The fields `owns` and `profile` of R6. The world already gives the kinds and `verbs` gives the verbs. A profile gives a machine, and its fields are in the code half.
+
+**Limits.** The data half is JSON, thus a domain and a hook go in the code half and they are not in the identity. A version has only three numbers, with no pre-release. Two languages with one data half and two objects of code merge by the rules of a merge. The text grows with the world.
+
 ## D177 (2026-11-07): a field of data gives `handle` a text in `WORLD_SYNTAX`
 
 **Context.** L1c. The kind `handle` (D146) keeps its clauses in `with`, a list of records of data. Each record has the data `op` and the document `do` or `abort`. A profile had text only for documents, thus SYNTAX.WORLD pinned a reason for `handle`.
@@ -5261,4 +5273,46 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Why.** A reader sees that the profile, not the parser, decides the tree. The text `-x ^ 2` gives `-(x ^ 2)` in one profile and `(-x) ^ 2` in another.
 
 **Alternatives.** A form to edit a profile. A profile has functions for its references, thus a form cannot show each field. The three profiles show the fields that change the tree.
+
+## D187 (2026-11-08): K115 is dropped
+
+**Context.** K115 (D132). Each part of a plan keeps `runOf` of its code, approximately 96 bytes. The change made the steps of a part at its first run. D132 left the decision to the Speed verdict of CI.
+
+**Decision.** K115 is dropped, and #258 is closed without a merge. The branch `k115` stays as the record.
+
+- Two heads read two reference cases slower by 3.4 to 4.6 %, and `prepare` slower by 1.5 to 2.5 % (Speed runs 42485335912 and 42489026596).
+- A placebo in `compileNode` (#344) changed code that does not run. In 4 jobs of 2 runs, no reference case moved by more than 1.5 %.
+
+**Why.** `prepare` runs the changed lines, and its cost is in each run. A gain of 112 bytes for each part does not pay for a cost in `prepare` and in two cases of evaluation.
+
+**Alternatives.** A record in `bench/accepted` (K239). The cost has one sign on two heads, and the placebo did not give it. Thus the cost is not a move of the code of `compileNode` alone, and a record accepts a cost that the change gives.
+
+## D188 (2026-11-08): the bench imports only the parts of the kernel that its cases use
+
+**Context.** K246. The cases imported the namespace of the kernel and gave it to each case. Thus the bundle of each arm kept each export, also code that no timed call runs. K37 (#343) adds only `defineLanguage` and `compose`, and no case calls them. Three Speed runs of #343 read 5, 5 and 2 cases slower, by 0.6 to 11.7 %, with a different set in each run. The case "a reference of five steps" was slower in each of its 6 jobs.
+
+**Decision.**
+
+- `bench/cases.ts` imports the 7 parts that the cases use by name, and gives each case an object of those parts.
+- esbuild removes each export that the cases do not reach, as the bundler of a host does. The core sets `sideEffects` to false.
+- A case that reaches changed code still measures it, because the bundle keeps each part that a case reaches.
+- A change outside each timed path gives the same bundle on the two arms. With main and the head of #343, the two bundles have the hash `08a86c17bca3`. The hold of D117 starts only when the arms differ.
+
+**Why.** The timed code of the two arms of #343 is the same. A host does not see a difference of the bundle outside the timed code. The bundle of a host keeps only what the host imports. The cause of the slower reads of #343 is unread. With equal bundles, the code of such a change cannot give a hold.
+
+**Alternatives.** A record in `bench/accepted` for each slower case. Each run of #343 gave a different set, thus each push needed new records, and a record tells nothing about the cause. A placebo of the same size outside the timed paths. It costs a run, and it does not stop the next hold of this kind.
+
+## D189 (2026-11-08): a row of the ladder flip replaces a run that does not count
+
+**Context.** K247. The job `ladder-flip` measures one run for each row (D164). A run counts only when the A/A band of each walk contains 1. A row whose run does not count has no read. The gate then gives a block with the text "No run counts", and the check of the reasons failed the job. This occurred in run 42489026541, with the band 0.942 to 0.997 of `refsOf` on an EPYC 9V74, and in run 42482539243.
+
+**Decision.**
+
+- A row whose runs do not count measures a new run, up to 3 runs. The row pools all of its runs, as the gate pools its five runs.
+- The line of each replaced run tells the row and the number of the run.
+- After 3 runs with no counted run, the row has no read. The job fails with the line "no read. No run of 3 counts.", and the row gets no check of its reasons.
+
+**Why.** The table of the gate says "no: replace it" for a run that does not count. The flip did not do that. A no read is not a pass, thus the job still fails when no run counts.
+
+**Alternatives.** A pass for a row with no read. A no read then shows as a pass. A wider A/A band for the flip. The flip then examines a gate that is not the gate of the job `ladder`.
 
