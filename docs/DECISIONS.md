@@ -5075,3 +5075,21 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The wait does not change the code of the calls. Thus the flip reads the power of the gate for a slower time, not for a change of the compiled code. The flip uses the multiples 1, 1.5 and 2.
 
+## D181 (2026-11-08): Speed OK shows the line of the report-only gate on each pull request
+
+**Context.** K225. The gate of the claim "not slower" (D163) is report only. Its line was only in the log of the job `verdict`. A CPU pair of two models read 9 of 16 cases, and `Speed OK` stayed green with no word of the 7 unread cases. A green check with a hidden "no read" is a silent pass.
+
+**Decision.**
+
+- The function `gateNote` of `merge.ts` gives one line. It has the outcome, the counts of all cases, the CPU pair and the names of the slower and unread cases.
+- The job `verdict` writes the line to the output `gate`, and the outcome to the output `gate_outcome`.
+- The script `speed-read.ts` prints the line in the log and the summary of `Speed OK`.
+- An outcome other than "pass", or a missing line, gives a warning annotation on the pull request.
+- `Speed OK` stays green on a gate "no read" while the gate is report only. The state of the check does not change.
+
+**Why.** A check does not show a "no read" as a pass at any time. The warning tells the reader of the pull request which cases have no read, and on which CPU pair.
+
+**Alternatives.** A red check on a gate "no read". The gate is report only until the four bars of K225 pass. Thus a red check at this time blocks merges on a gate that is not ready.
+
+**Limits.** The further pairs of a dispatch (D179) stay in the log of the job `verdict`. They are for the A/A series, not for a pull request.
+
