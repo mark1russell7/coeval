@@ -39,6 +39,7 @@ export default defineConfig({
             "learn/names",
             "learn/choices",
             "learn/effects",
+            "learn/replay",
             "learn/context",
             "learn/paths",
             "learn/direction",
