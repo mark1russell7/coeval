@@ -5064,6 +5064,25 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 
 **Limits.** A field with a record shape still starts as a hole. A step of a path stays inside the path of a reference, and the path input edits it.
 
+## D179 (2026-11-08): a dispatch of Speed reads one gate unit for each pair of jobs
+
+**Context.** K225. The owner of the gate gives four bars before `continue-on-error` goes. The first bar is a false-block rate over at least 73 A/A units. Its Wilson 95 % upper end must be at most 5 %.
+
+The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the control run 42438379740 gave records and no read.
+
+**Decision.**
+
+- The unit of the A/A series is one gate read of two jobs, as a pull request gets it.
+- A dispatch with the jobs 1 to 2k gives k units. The step "The further pairs of jobs" reads each pair after the jobs 1 and 2 with `merge.ts`.
+- The step writes no output of the job and no summary. Thus `Speed OK` reads only the jobs 1 and 2.
+- The line "Run N" of each job names its CPU model. Thus each unit records its pair of CPU models, and the series gives a rate for each pair too.
+
+**Why.** Each job has its own runner, its own install and its own build. Thus two pairs of one dispatch share only the commit and the time of the dispatch. The script `merge.ts` of the control commit reads the jobs 1 and 2 again with the same lines as CI.
+
+**Alternatives.** Each case as the unit. The 16 cases of a job share one runner, and the shift of a job (RMS 0.0094) moves all of them. Also the merge rule blocks on any case. Thus a rate for each case is a different claim.
+
+**Limits.** The jobs 3 and 4 of the control used two CPU models, and the gate read only 9 of its 16 cases. The rounds that give a read on each pair of CPU models are not known yet.
+
 ## D180 (2026-11-08): the flip test of Speed seeds a real slowdown in the head arm
 
 **Context.** K225. The second bar of the owner of the gate is power. The gate must find a real slowdown of a stated size in at least 90 % of the seeded runs. The bench had no way to make the head arm slower by a known factor.
@@ -5081,3 +5100,4 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** A slower copy of the kernel. Its slowdown is not known before a measurement, thus it gives no stated size.
 
 **Limits.** The wait does not change the code of the calls. Thus the flip reads the power of the gate for a slower time, not for a change of the compiled code. The flip uses the multiples 1, 1.5 and 2.
+
