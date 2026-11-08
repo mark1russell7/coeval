@@ -1098,6 +1098,7 @@ interface FormulaProfile {
   readonly combine?: (errors: readonly EvalError[]) => EvalError;
   readonly pure?: true | readonly string[];
   readonly pureExt?: readonly string[];
+  readonly extReads?: Readonly<Record<string, readonly Root[]>>;
   readonly volatile?: readonly string[];
   readonly sigs?: Readonly<Record<string, Signature | readonly Signature[]>> | ((name: string) => Signature | readonly Signature[] | undefined);
 }

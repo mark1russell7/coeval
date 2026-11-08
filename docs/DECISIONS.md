@@ -5065,6 +5065,18 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 
 **Limits.** A kind with no contract has no input, and "Edit the JSON" stays its editor. A reference keeps a small rule of its own, because its value is a path and no shape tells that. An edit does not check the type of a position against the kind that it lists. The field `of` declares the type of a bare value, and only `kinds` limits a term.
 
+## D154 (2026-11-04): a walker and an extension declare the roots that they read
+
+**Context.** K54, from S1a. A kind declares `reads`, and the hook `facts` answers with `reads` for an evaluator (FACTS.KIND-READS). The facts dropped this answer for the walker of a step document. An extension gets its context, and a profile had no place for the roots that it reads. Thus `factsOf` gave a document as pure with fewer reads than its evaluation. A closure and a schedule read these facts, so they missed a dependency.
+
+**Decision.** The facts add a read of each declared root of a walker, at the place of the reference (FACTS.STEP-READS). The answer of the hook wins over `reads` of the kind, as for an evaluator. The new field `extReads` of a formula profile gives the roots of an extension (FACTS.EXT-READS). The hook of the kit gives them in its answer.
+
+**Why.** One rule of `reads` covers an evaluator, a walker and an extension. A root is the unit of the existing declaration, and it stays an upper bound of what the code reads. A fold needs no new test: the context of a fold traps each root, so an extension that reads a root refuses the fold.
+
+**Alternatives.** A declaration of full paths. It is tighter, but a walker chooses its keys from the data, thus a path is often not known. A second field for walkers. The hook already has the field `reads`.
+
+**Limits.** A reference from `self` inside an equation stops before its steps, thus the facts do not see the walkers of such a reference, as before. A declaration is a claim of the host: the facts do not test it.
+
 ## D152 (2026-11-04): `mapDocs` changes the documents of a document from the root to the parts
 
 **Context.** K222. The static kit has `walk`, which only reads, and `mapRefs`, which changes only free references. A host that changes each step of a document kept its own recursion. That recursion named its step kinds and kept its own limit of depth.
@@ -5358,6 +5370,18 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Why.** The table of the gate says "no: replace it" for a run that does not count. The flip did not do that. A no read is not a pass, thus the job still fails when no run counts.
 
 **Alternatives.** A pass for a row with no read. A no read then shows as a pass. A wider A/A band for the flip. The flip then examines a gate that is not the gate of the job `ladder`.
+
+## D159 (2026-11-04): the formula kit has a Lean model, and CI compares it with the plan
+
+**Context.** K96, R7 P7. Three readings of the semantics are in TypeScript. A model in a language of proofs is a reading that shares no host with them. The main risk of such a model is drift from the code.
+
+**Decision.** The folder `proofs/` holds a Lean 4 package. The file `Coeval/Formula.lean` defines the formula kit over JSON as a total function with a clock. The executable `coeval-model` reads one document on each line and prints one result. The test AGREE.LEAN gives the same generated documents to the model and to the plan. It compares the value, or the code of the error. The workflow `lean.yml` runs each night, by hand, and on a pull request that changes the model. It downloads one release of Lean with a pinned hash.
+
+**Why.** A comparison in CI controls the drift, as JSRef does for JSCert. The clock makes `eval` total, thus later proofs need no assumption about termination. A nested list keeps the keys of a record in order. This is necessary because `Lean.Json` sorts its keys, and the order of the fields selects the first error. The comparison uses the code of an error and not its reason. A reason is text for a reader, not a part of the semantics.
+
+**Alternatives.** A tier of `agree`. A tier runs in the process of the test, and the model is another process. One process for each batch keeps the run fast. Elan to install Lean. The workflow then runs a script from the network, and a pinned hash is simpler. Theorems in this slice. Determinism and the monotonicity of the clock need the model first, and K223 holds them.
+
+**Limits.** This slice proves one small theorem only: a clock of zero stops an evaluation. The model has no `ext`, no field `own` and no `maxDepth` for documents. A generated document stays far under that limit. The test skips a document with `ext` or `own`. A number that is not a safe integer becomes 7 before the comparison, because `V` holds integers. The model has one operation, `add`. A walk into a held error gives another result, because the model does not hold the fields of that error. The clock counts the nesting of an evaluation, not its steps.
 
 ## D190 (2026-11-08): `allValues` tests the errors before the values
 

@@ -1,0 +1,10 @@
+name = "coeval-model"
+version = "0.1.0"
+defaultTargets = ["coeval-model"]
+
+[[lean_lib]]
+name = "Coeval"
+
+[[lean_exe]]
+name = "coeval-model"
+root = "Main"
