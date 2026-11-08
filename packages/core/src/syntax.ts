@@ -110,6 +110,12 @@ export interface SyntaxForm {
    */
   readonly wrap?: boolean | readonly string[];
   /**
+   * The fields that take data with documents in it (L1c, D177), for example the clauses of `handle`. Such an
+   * argument is a list between brackets, a record between braces, or a document. A literal in it stays its data. A
+   * record of data has no key `type`. A name of `data` is a field of the form, and it is not in `wrap`.
+   */
+  readonly data?: readonly string[];
+  /**
    * The name of a domain with a codec (K143, D141). A form `literal` of the kind `ext.domain` needs it. The text
    * `date("2026-01-02")` then gives the value `{ domain: "date", data: "2026-01-02" }`. The syntax does not read the
    * data: the codec of the machine reads it at evaluation. Each other form takes no `domain`.
@@ -256,6 +262,8 @@ interface Form {
   readonly wrap: boolean | ReadonlySet<string>;
   /** The domain of a form literal of `ext.domain` (D141). */
   readonly domain: string | undefined;
+  /** The fields that take data with documents in it (D177). */
+  readonly data: ReadonlySet<string>;
 }
 
 /** The type of a data envelope, and its key for a comparison with the path of a type. */
@@ -299,6 +307,8 @@ interface Compiled {
   readonly reserved: ReadonlySet<string>;
   readonly opWords: ReadonlySet<string>;
   readonly maxDepth: number;
+  /** `true` when a form has a field of data (D177). Such a field reads brackets and braces. */
+  readonly brackets: boolean;
 }
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -406,6 +416,17 @@ function compileWrap(given: SyntaxForm, args: SyntaxFormArgs): boolean | Readonl
 }
 
 /** This function gives the types of the data envelopes of a profile (K159), or `undefined` without them. */
+/** This function examines the field `data` of a call form (D177). Each name is a field of the form, and no name is in `wrap`. */
+function compileData(given: SyntaxForm, wrap: boolean | ReadonlySet<string>): ReadonlySet<string> {
+  const data = given.data ?? [];
+  if (data.length > 0 && given.fields === undefined) throw new TypeError(`The call form "${given.name}" takes data only with fields.`);
+  for (const name of data) {
+    if (given.fields?.includes(name) !== true) throw new TypeError(`The call form "${given.name}" has no field ${name} for its data.`);
+    if (wrap === true || (wrap !== false && wrap.has(name))) throw new TypeError(`The call form "${given.name}" has the field ${name} in wrap and in data.`);
+  }
+  return new Set(data);
+}
+
 function compileEnvelopes(given: SyntaxEnvelopes | undefined): Compiled["envelopes"] {
   if (given === undefined) return undefined;
   const out: { number?: EnvelopeKind; text?: EnvelopeKind; bool?: EnvelopeKind } = {};
@@ -439,9 +460,15 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     if (!FORM_ARGS.includes(args)) throw new TypeError(`The call form "${given.name}" has the unknown arguments ${String(args)}.`);
     if ((args === "fields") !== (given.fields !== undefined) && args !== "named") throw new TypeError(`The call form "${given.name}" with the arguments ${args} ${args === "fields" ? "needs" : "takes no"} fields.`);
     if (given.min !== undefined && (args === "named" || args === "literal")) throw new TypeError(`The call form "${given.name}" with the arguments ${args} takes no min.`);
-    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0, wrap: compileWrap(given, args), domain: compileDomain(given, args) };
+    const wrap = compileWrap(given, args);
+    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0, wrap, domain: compileDomain(given, args), data: compileData(given, wrap) };
     forms.set(form.name, form);
     addTo(formsByKind, key, form);
+  }
+  // A field of data reads brackets and braces, thus no operator starts with one of them (D177).
+  const brackets = [...forms.values()].some((form) => form.data.size > 0);
+  for (const symbol of brackets ? [...ops.prefixSymbols, ...ops.binarySymbols] : []) {
+    if (/^[[\]{}]/.test(symbol)) throw new TypeError(`The operator "${symbol}" reads the text of a field of data.`);
   }
   const compiled: Compiled = {
     ...ops,
@@ -466,6 +493,7 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     ...compileConstructs(profile.constructs, ops),
     reserved: new Set([...words.keys(), ...ops.opWords, ...roots]),
     maxDepth: profile.maxDepth ?? 256,
+    brackets,
   };
   compiledProfiles.set(profile, compiled);
   return compiled;
@@ -904,7 +932,7 @@ class Parser {
 
   /** This method stops at a token where a group or a list must end. A list can also continue with its separator. */
   protected noEnd(close: string, list: boolean): never {
-    const closer = close === ")" ? "parenthesis" : "brace";
+    const closer = closerName(close);
     const before = list ? `"${this.syn.separator}" or a ` : "";
     return this.stop(`A ${before}closing ${closer} is missing.`, this.pos, this.tokenLength());
   }
@@ -930,17 +958,33 @@ class Parser {
         this.pos += 1;
         return args;
       }
-      if (this.pos >= this.text.length) this.stop(`A closing ${close === ")" ? "parenthesis" : "brace"} is missing.`, open, 1);
+      if (this.pos >= this.text.length) this.stop(`A closing ${closerName(close)} is missing.`, open, 1);
       this.noEnd(close, true);
     }
   }
 
   /**
-   * This method reads the entries `key: expr` into a record: the arguments of a form `named` (SYNTAX.RECORD), or the
-   * entries between braces without a form (SYNTAX.RECORD-TEXT).
+   * This method reads the argument of a field of data (D177): a list between brackets, a record between braces, or a
+   * document. A literal in it stays its data.
    */
-  private entries(form: Form | undefined): Record<string, Json> {
-    const owner = form === undefined ? "record" : `form ${form.name}`;
+  private data(): Json {
+    this.skip();
+    const start = this.pos;
+    const c = this.text[start];
+    if (c !== "[" && c !== "{") return this.bound();
+    this.depth += 1;
+    if (this.depth > this.syn.maxDepth) this.stop(`The text is deeper than ${String(this.syn.maxDepth)} levels.`, start, 0);
+    const value = c === "[" ? this.argumentsOf(() => this.data(), "]") : this.entries(undefined, true);
+    this.depth -= 1;
+    return value;
+  }
+
+  /**
+   * This method reads the entries `key: expr` into a record. The record is the arguments of a form `named`
+   * (SYNTAX.RECORD), or the entries between braces (SYNTAX.RECORD-TEXT). It is also a record of data (D177).
+   */
+  private entries(form: Form | undefined, data = false): Record<string, Json> {
+    const owner = data ? "record of data" : form === undefined ? "record" : `form ${form.name}`;
     const value: Record<string, Json> = {};
     const entry = (): void => {
       this.skip();
@@ -952,9 +996,10 @@ class Parser {
         this.stop(`Each ${form === undefined ? "entry" : "argument"} of the ${owner} is a key, a ":" and a document.`, at, Math.max(end - at, this.tokenLength()));
       }
       if (form?.fields !== undefined && !form.fields.includes(key)) this.stop(`The form ${form.name} has no field ${key}.`, at, end - at);
+      if (data && key === "type") this.stop("A record of data has no key type, because the key type makes a document.", at, end - at);
       if (Object.hasOwn(value, key)) this.stop(`The ${owner} has the field ${key} two times.`, at, end - at);
       this.pos += 1;
-      const arg = this.bound();
+      const arg = data || form?.data.has(key) === true ? this.data() : this.bound();
       setOwn(value, key, form !== undefined && wraps(form, key) ? envelop(this.syn, arg) : arg);
     };
     this.argumentsOf(entry, form === undefined ? "}" : ")");
@@ -964,7 +1009,12 @@ class Parser {
   private call(name: string, start: number, nameLength: number): Json {
     const form = this.syn.forms.get(name);
     if (form?.args === "named") return opDoc(form, this.entries(form));
-    const args = this.argumentsOf(() => this.bound());
+    let index = 0;
+    const args = this.argumentsOf(() => {
+      const key = form?.fields?.[index];
+      index += 1;
+      return key !== undefined && form?.data.has(key) === true ? this.data() : this.bound();
+    });
     if (form?.args === "literal") {
       const [only] = args;
       if (args.length !== 1 || !isScalar(only)) this.stop(`The form ${name} takes one literal that JSON writes.`, start, this.pos - start);
@@ -995,17 +1045,23 @@ class Parser {
 class End {}
 
 function hasBraces(syn: Compiled): boolean {
-  return syn.constructs.record !== undefined || syn.constructs.let !== undefined;
+  return syn.constructs.record !== undefined || syn.constructs.let !== undefined || syn.brackets;
+}
+
+/** This function gives the name of a closer in a message. */
+function closerName(close: string): string {
+  return close === ")" ? "parenthesis" : close === "]" ? "bracket" : "brace";
 }
 
 /** This function gives the closer of an opening bracket of a profile, or `undefined` for each other character. */
 function closerOf(syn: Compiled, c: string | undefined): string | undefined {
   if (c === "(") return ")";
+  if (c === "[" && syn.brackets) return "]";
   return c === "{" && hasBraces(syn) ? "}" : undefined;
 }
 
 function isCloser(syn: Compiled, c: string | undefined): boolean {
-  return c === ")" || (c === "}" && hasBraces(syn));
+  return c === ")" || (c === "]" && syn.brackets) || (c === "}" && hasBraces(syn));
 }
 
 /** This function gives the position after a quoted text at `at`, or after one other character. An open quote gives `Infinity`. */
@@ -1189,7 +1245,7 @@ type SubText = (child: unknown, path: readonly Key[], wrapped?: boolean) => Resu
 type Shape =
   | { readonly tag: "text"; readonly text: string }
   | { readonly tag: "op"; readonly op: Op; readonly terms: readonly unknown[] }
-  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown, boolean?])[]; readonly named?: boolean }
+  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown, boolean?, boolean?])[]; readonly named?: boolean }
   | { readonly tag: "path"; readonly segments: readonly (string | readonly [Key, unknown])[] }
   | { readonly tag: "bind"; readonly name: string; readonly doc: unknown }
   | ConstructShape
@@ -1316,7 +1372,7 @@ function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined
     if (!isRecord(value)) return undefined;
     const keys = Object.keys(value);
     if (form.fields !== undefined && !keys.every((key) => form.fields?.includes(key) === true)) return undefined;
-    return { tag: "call", name: form.name, args: keys.map((key) => [key, value[key], wraps(form, key)] as const), named: true };
+    return { tag: "call", name: form.name, args: keys.map((key) => [key, value[key], wraps(form, key), form.data.has(key)] as const), named: true };
   }
   if (form.fields === undefined) {
     if (!Array.isArray(value) || value.length < form.min) return undefined;
@@ -1327,7 +1383,7 @@ function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined
   const count = Object.keys(value).length;
   const present = form.fields.slice(0, count);
   if (count < form.min || present.length < count || !present.every((key) => Object.hasOwn(value, key))) return undefined;
-  return { tag: "call", name: form.name, args: present.map((key) => [key, value[key], wraps(form, key)] as const) };
+  return { tag: "call", name: form.name, args: present.map((key) => [key, value[key], wraps(form, key), form.data.has(key)] as const) };
 }
 
 /** This function tells if a record has exactly these two keys. */
@@ -1447,6 +1503,19 @@ function bracesText(syn: Compiled, record: JsonRecord, path: readonly Key[], sub
   return ok(`{${texts.value.map((text, index) => `${keyText(keys[index] as string)}: ${text}`).join(`${syn.separator} `)}}`);
 }
 
+/**
+ * This function writes the argument of a field of data (D177): a list between brackets, or a record between braces.
+ * The function `sub` writes a literal and a document. A record that is an envelope is a document.
+ */
+function dataText(syn: Compiled, value: unknown, path: readonly Key[], sub: SubText): Result<string> {
+  const each: SubText = (child, at) => dataText(syn, child, at, sub);
+  if (Array.isArray(value)) {
+    const texts = partTexts(value.map((item, index) => [index, item] as const), path, each);
+    return texts.ok ? ok(`[${texts.value.join(`${syn.separator} `)}]`) : texts;
+  }
+  return isRecord(value) && !isEnvelope(value) ? bracesText(syn, value, path, each) : sub(value, path);
+}
+
 /** This function writes a construct form (K145). */
 function constructText(syn: Compiled, shape: ConstructShape, sub: SubText): Result<string> {
   if (shape.tag === "record") return bracesText(syn, shape.entries, [], sub);
@@ -1493,8 +1562,8 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
     return ok(texts.join("."));
   }
   const texts: string[] = [];
-  for (const [key, arg, wrapped] of shape.args) {
-    const result = sub(arg, [key], wrapped);
+  for (const [key, arg, wrapped, data] of shape.args) {
+    const result = data === true ? dataText(syn, arg, [key], sub) : sub(arg, [key], wrapped);
     if (!result.ok) return result;
     texts.push(shape.named === true ? `${keyText(String(key))}: ${result.value}` : result.value);
   }

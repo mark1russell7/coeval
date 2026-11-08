@@ -2052,6 +2052,7 @@ interface SyntaxForm {
   readonly min?: number;
   readonly args?: SyntaxFormArgs;
   readonly wrap?: boolean | readonly string[];
+  readonly data?: readonly string[];
   readonly domain?: string;
 }
 
