@@ -310,13 +310,27 @@ function store(fields: Readonly<Record<string, Signal<unknown>>>): HostThing {
 }
 
 describe("a reference adapter for signals", () => {
-  it("[SCHED.SIGNALS] agreeSchedule finds no stale answer in a push-pull engine of signals", () => {
-    const outcome = agreeSchedule(signalEngine, { count: 1000, steps: 30 });
-    expect(outcome).toMatchObject({ ok: true });
-    if (!outcome.ok) return;
-    expect(outcome.counts.compared).toBeGreaterThan(1000);
-    expect(outcome.counts.cycles).toBeGreaterThan(50);
-    expect(outcome.counts.runs).toBeGreaterThan(50);
+  // The 1000 runs used 0.930 of the timeout in CI, thus each test examines one part of 250 runs (D96). Each part starts
+  // at its own seed, thus the parts examine the same runs as one test. The last test checks the totals.
+  const signalParts = 4;
+  const signalTotals = { compared: 0, cycles: 0, runs: 0, parts: 0 };
+  for (let part = 0; part < signalParts; part += 1) {
+    it(`[SCHED.SIGNALS] agreeSchedule finds no stale answer in a push-pull engine of signals: part ${part + 1} of ${signalParts}`, () => {
+      const outcome = agreeSchedule(signalEngine, { count: 250, steps: 30, seed: 9_000_011 + part * 250 });
+      expect(outcome).toMatchObject({ ok: true });
+      if (!outcome.ok) return;
+      signalTotals.compared += outcome.counts.compared;
+      signalTotals.cycles += outcome.counts.cycles;
+      signalTotals.runs += outcome.counts.runs;
+      signalTotals.parts += 1;
+    });
+  }
+
+  it("[SCHED.SIGNALS] the parts of the agreement compare more than 1000 answers, with more than 50 cycles and 50 runs", () => {
+    expect(signalTotals.parts).toBe(signalParts);
+    expect(signalTotals.compared).toBeGreaterThan(1000);
+    expect(signalTotals.cycles).toBeGreaterThan(50);
+    expect(signalTotals.runs).toBeGreaterThan(50);
   });
 
   it("[SCHED.SIGNALS] a change evaluates only its readers, and an equal result stops at the cutoff", () => {
