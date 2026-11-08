@@ -281,18 +281,35 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Each row: a name, the true slope of the walk, the exit code, and the text of the gate. The slope 1 is the copy with no fault.
+      # A run whose A/A band does not contain 1 does not count. The row then measures a new run and pools its runs, as the
+      # gate pools its five runs (K247, D189). After 3 runs with no counted run, the row has no read, and the job fails.
       - name: Three walks at one setting
         shell: bash
         # The rows check the warning of a block (D182). The stop-commands window keeps the seeded blocks from the annotations.
         run: |
           fail=0
+          noread=""
           token="flip-$RANDOM-$RANDOM"
           echo "::stop-commands::$token"
           for row in 'slope-2 2 3 block' 'slope-1.3 1.3 3 block' 'linear 1 0 pass'; do
             read -r name slope want gate <<< "$row"
-            LADDER_INJECT="$slope" LADDER_JSON="$RUNNER_TEMP/$name.json" pnpm exec tsx packages/core/bench/ladder.ts 250 10
-            code=0
-            LADDER_BLOCK=1 LADDER_ANNOTATE=1 node packages/core/bench/ladder.ts merge "$RUNNER_TEMP/$name.json" 2>&1 | tee "$name.txt" || code=$?
+            files=()
+            for attempt in 1 2 3; do
+              LADDER_INJECT="$slope" LADDER_RUN="$attempt" LADDER_JSON="$RUNNER_TEMP/$name-$attempt.json" pnpm exec tsx packages/core/bench/ladder.ts 250 10
+              files+=("$RUNNER_TEMP/$name-$attempt.json")
+              code=0
+              LADDER_BLOCK=1 LADDER_ANNOTATE=1 node packages/core/bench/ladder.ts merge "${files[@]}" > "$name.txt" 2>&1 || code=$?
+              grep -q 'No run counts\.' "$name.txt" || break
+              if [ "$attempt" -lt 3 ]; then echo "Flip row $name: run $attempt does not count, thus the row measures a new run."; fi
+            done
+            cat "$name.txt"
+            if grep -q 'No run counts\.' "$name.txt"; then
+              echo "Flip row $name: no read. No run of 3 counts."
+              fail=1
+              noread="$noread $name"
+              continue
+            fi
+            echo "Flip row $name: ${#files[@]} runs measured."
             echo "Flip row $name: exit code $code, expected $want."
             test "$code" = "$want" || fail=1
             grep -q "Gate (report only, D164): $gate" "$name.txt" || fail=1
@@ -305,6 +322,7 @@ jobs:
           done
           echo "::$token::"
           for name in slope-2 slope-1.3; do
+            case " $noread " in *" $name "*) continue ;; esac
             for reason in 'refsOf is not linear' 'walk is not linear' 'memory of refsOf is over the bound' 'memory of walk is over the bound'; do
               grep -q "$reason" "$name.txt" || { echo "Flip row $name has no reason: $reason."; fail=1; }
             done
