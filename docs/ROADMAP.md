@@ -121,7 +121,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | K46 | The reference interpreter covers runs, so `agree` also checks the order of the waits of a replay. Today only the plan has a test for it. From K11. | done (2026-10-28, D55, released in the next batch) | K11 |
 | K47 | The address of an effect stays the same after an edit of the document, as the open question 5 of R2 asks. From K11. | later | K11 |
 | K53 | The kind `pure` refuses a list with more than one part (CAP.PURE-ONE). Before, it ignored each part after the first. Found by S1a. | done (2026-10-24, released in the next batch) | none |
-| K54 | Declared reads for walkers and extensions: a walker or an extension declares what it reads, so it can count as pure in the facts. From S1a. | in progress (PR #310) | S1a |
+| K54 | Declared reads for walkers and extensions: a walker or an extension declares what it reads, so it can count as pure in the facts. From S1a. | done (2026-11-08, D154) | S1a |
 | K55 | Facts for each verb: the side and the effects of a verb other than eval come from its own contract, not from the eval contract. From S1a. | done (2026-11-03, D111) | S1a, K56 |
 | K56 | Effects declared for each verb: a contract declares the effects of each verb, so check also tests the verbs other than eval. From K33. | done (2026-10-28, D49, released in the next batch) | K33 |
 | K57 | The document generator also picks step kinds from defaults.step, so the agreement runs test that case. From K33. | done (2026-10-28, released in the next batch) | K33 |
