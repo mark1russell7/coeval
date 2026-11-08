@@ -84,7 +84,7 @@
   color: var(--ce-stop);
 }
 
-/* A dashed outline and the label #TYPE! mark a card with a type issue, thus the mark does not depend on the color. */
+/* A dashed outline and the code of the issue (#TYPE! or #VALUE!) mark a card with an issue of the check, thus the mark does not depend on the color. */
 .cv-card[data-type-issue="true"] {
   min-width: 7.6rem;
   outline: 2px dashed var(--ce-stop);
