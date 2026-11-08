@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.25.1
+
+PATCH: before `1.0.0`, a new feature or a fix increases PATCH. The version adds five exports. No export goes, and no type changes.
+
+### New features
+
+- **One value for a whole language (D157).** `defineLanguage(definition)` gives a frozen `Language` with its world, its code and its requirements. `compose(...languages)` merges languages into one machine. The canonical text of the data half is the identity of a language. The new exports are `defineLanguage`, `compose`, `Language`, `LanguageCode` and `LanguageDefinition`.
+
 ## 0.25.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The entry `ref.resolve` of `STD_EVALUATORS` is an object, not a function, and `TypeInput` gets two methods. No export goes.
