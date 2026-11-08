@@ -217,6 +217,7 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
   it("gives a fault before a slower case, and a reason on one line", () => {
     expect(speedState(3, 0, "a hold", ["The first\nfault.", "The second."])).toEqual({ state: "no read", reason: "The first fault. The second." });
     expect(speedState(1, 2, "a hold", []).reason).toBe("1 slower, 2 cannot decide. a hold");
+    expect(speedState(0, 1, "a hold", [], 0, false, undefined, "Mixed CPU pair (D183): a + b. 1 no read: x.")).toEqual({ state: "same", reason: "0 slower, 1 cannot decide. Mixed CPU pair (D183): a + b. 1 no read: x." });
     expect(speedState(3, 0, "a hold", ["A short run."], 2)).toEqual({ state: "different results", reason: "2 cases read different results. The arms differ or have no hashes, so a changed result can explain this. A short run." });
   });
 });
