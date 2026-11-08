@@ -5397,6 +5397,18 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** This slice proves one small theorem only: a clock of zero stops an evaluation. The model has no `ext`, no field `own` and no `maxDepth` for documents. A generated document stays far under that limit. The test skips a document with `ext` or `own`. A number that is not a safe integer becomes 7 before the comparison, because `V` holds integers. The model has one operation, `add`. A walk into a held error gives another result, because the model does not hold the fields of that error. The clock counts the nesting of an evaluation, not its steps.
 
+## D158 (2026-11-04): the stepper is a third tier, and its stack is data
+
+**Context.** K95, R7 P6. The plan and the reference share the code of the lookup, the split and the steps of a path (D15). Thus `agree` cannot find a bug in that code. A document that nests deeply overflows the stack of the host in both tiers. An evaluation cannot stop and go on from data.
+
+**Decision.** The module `stepper.ts` is a CPS transformation and a defunctionalization of the reference, for the kernel and the formula kit. The stack is a flat list of frames, and each frame is data. `stepperStart` gives the first configuration, `stepperNext` does one pure step, and `stepper` runs to the end. The module reads the lookup, the ladder, the split and the path itself. The tier `stepper` of `agree` compares it with the plan. It is not a default tier, because it needs the profile of the formula kit. A closure is a record with the key `coeval.closure`, and a held error is a record with the key `coeval.held`. Host code gets a function and a `Held`.
+
+**Why.** A third reading has no shared code to hide a bug. A flat list does not break `JSON.stringify` at depth. The place is not in each frame, because a copy at each level costs O(n²) at depth 100000. The stepper joins the steps of the stack only for an error, a host evaluator and a function. Data closures keep a configuration as JSON. The answer to question 7 of R7 is no. The stepper does not replace K46 for runs, because a run needs promises and a stepper has no runner.
+
+**Alternatives.** Generators over the reference. These keep the stack in the host, and a generator is not data. A cons list as the stack. `JSON.stringify` then overflows at depth. Host closures in a configuration. These are not JSON, thus a host cannot store a configuration. The tier in the defaults. Each caller of `agree` then needs a profile.
+
+**Limits.** A host evaluator is opaque: one step starts it, and each of its handles starts a nested stepper on the stack of the host. A runner gives `#NOEVAL`, and the stepper records no reads. An effect of `stepperNext` goes in a list that lives for that one step, thus a configuration of a document with effects is not data. A compiled evaluator outside the formula kit needs its definition, with `tree.node` too. A value that JSON does not hold, for example `undefined`, changes in a round trip. A record with the key `coeval.closure` or `coeval.held` reads as a closure or a held error. A deep value still overflows a host walk over it, for example `expect` or `JSON.stringify`.
+
 ## D190 (2026-11-08): `allValues` tests the errors before the values
 
 **Context.** K216. The Speed gate held #263, because the case "the same tree, with a list of reads" took 1.6 times the time of the base on CI. Four probes looked for the cause:

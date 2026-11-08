@@ -62,7 +62,7 @@ Some words of the rules:
 
 In the judgments 4 and 5, `β` is the verb and `ρ` is the place. `h` is the depth, and `ε` is the list of the effects. The root document has the place `[]` and the depth `0`.
 
-The plan and the reference share the code of the judgments 1 to 3 (D15). Thus `agree` cannot find a bug in that code. A third reading of these rules can find it (K95).
+The plan and the reference share the code of the judgments 1 to 3 (D15). Thus `agree` cannot find a bug in that code. The module `stepper.ts` is a third reading of these rules (D158). The tier `stepper` of `agree` compares it with the plan (AGREE.STEPPER).
 
 ## 1. The parts of a document
 
