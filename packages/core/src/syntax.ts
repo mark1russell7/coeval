@@ -980,8 +980,8 @@ class Parser {
   }
 
   /**
-   * This method reads the entries `key: expr` into a record: the arguments of a form `named` (SYNTAX.RECORD), the
-   * entries between braces without a form (SYNTAX.RECORD-TEXT), or a record of data (D177).
+   * This method reads the entries `key: expr` into a record. The record is the arguments of a form `named`
+   * (SYNTAX.RECORD), or the entries between braces (SYNTAX.RECORD-TEXT). It is also a record of data (D177).
    */
   private entries(form: Form | undefined, data = false): Record<string, Json> {
     const owner = data ? "record of data" : form === undefined ? "record" : `form ${form.name}`;
@@ -1504,8 +1504,8 @@ function bracesText(syn: Compiled, record: JsonRecord, path: readonly Key[], sub
 }
 
 /**
- * This function writes the argument of a field of data (D177): a list between brackets, a record between braces, or
- * a literal or a document by `sub`. A record that is an envelope is a document.
+ * This function writes the argument of a field of data (D177): a list between brackets, or a record between braces.
+ * The function `sub` writes a literal and a document. A record that is an envelope is a document.
  */
 function dataText(syn: Compiled, value: unknown, path: readonly Key[], sub: SubText): Result<string> {
   const each: SubText = (child, at) => dataText(syn, child, at, sub);

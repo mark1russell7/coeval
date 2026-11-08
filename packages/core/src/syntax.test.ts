@@ -949,14 +949,23 @@ interface Generator {
 /** The names of the forms of `WORLD_SYNTAX` for an operator document with fewer or more terms (K163, D65). */
 const OPERATOR_FORMS: readonly string[] = ["add", "multiply", "greater"];
 
+/** The names of the forms of `WORLD_SYNTAX` after D64 that are not operator forms: `handle` has a text since D177. */
+const LATER_FORMS: readonly string[] = ["handle"];
+
 /**
- * `WORLD_SYNTAX` as D64 gave it: without the data envelopes of K159 and the forms of K163. The generator `world` keeps
+ * `WORLD_SYNTAX` as D64 gave it: without the data envelopes of K159 and the forms of K163 and D177. The generator `world` keeps
  * the documents that it gave before D65 with this profile.
  */
 const WORLD_D64: SyntaxProfile = {
   ...WORLD_SYNTAX,
   literals: {},
-  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name)) },
+  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name) && !LATER_FORMS.includes(form.name)) },
+};
+
+/** `WORLD_SYNTAX` with the one form `handle`, thus many texts of the generator `handlers` have a field of data (D177). */
+const HANDLERS: SyntaxProfile = {
+  ...WORLD_SYNTAX,
+  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => form.name === "handle") },
 };
 
 /** The expected summary of [SYNTAX.ISSUES-GENERATED] for each generator. */
@@ -968,7 +977,8 @@ const GENERATED_PINS: Readonly<Record<string, unknown>> = {
   algebra: { texts: 5114, most: 3, single: 1473, quoteCascades: 0, digest: 4265921408 },
   records: { texts: 4823, most: 3, single: 1291, quoteCascades: 0, digest: 21554679 },
   world: { texts: 5018, most: 3, single: 1388, quoteCascades: 0, digest: 215319946 },
-  envelopes: { texts: 4993, most: 3, single: 1361, quoteCascades: 0, digest: 1780189153 },
+  envelopes: { texts: 5008, most: 3, single: 1372, quoteCascades: 0, digest: 1774173964 },
+  handlers: { texts: 5047, most: 3, single: 1433, quoteCascades: 1, digest: 3993650308 },
 };
 
 const GENERATORS: Readonly<Record<string, Generator>> = {
@@ -1027,6 +1037,14 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     steps: true,
     envelopes: true,
   },
+  handlers: {
+    profile: HANDLERS,
+    leaves: [0, -3, 2.5, true, null, "", 'a"b', x, ref("self", "parent", "width"), ref("names", "payload")],
+    calls: [],
+    names: ["a", "a b"],
+    data: ["", 'a"b', 0, -3, true, null],
+    envelopes: true,
+  },
 };
 
 function kindType(kind: string): Json {
@@ -1051,9 +1069,12 @@ function damaged(rng: Random, source: string, faults: number): string {
   return out;
 }
 
-/** This function gives the quote marks of a text. A fault that changes them can pair a quote with a quote of another text. */
+/**
+ * This function gives the quote marks of a text that are not in an escape. A fault that changes them can pair two
+ * quotes of different texts. An example is a fault between a backslash and its quote mark.
+ */
 function quoteMarks(source: string): string {
-  return source.replace(/[^"`\\]/g, "");
+  return source.replace(/\\[\s\S]/g, "").replace(/[^"`]/g, "");
 }
 
 /** This function adds a text to an FNV-1a hash. */
@@ -1086,7 +1107,7 @@ function generateBare(gen: Generator, rng: Random, depth: number): Json {
   if (forms.length > 0 && (gen.calls.length === 0 || rng.int(2) === 0)) {
     const form = pick(rng, forms);
     if (form.args === "literal") return { type: kindType(form.kind), value: pick(rng, gen.data ?? [0]) };
-    if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? []) };
+    if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? [], form.data) };
     const fields = form.fields;
     const least = form.min ?? 0;
     if (fields === undefined) return { type: kindType(form.kind), value: terms(least + rng.int(4 - least)) };
@@ -1111,14 +1132,32 @@ function constructDoc(gen: Generator, rng: Random, depth: number): Json {
 }
 
 /** This function builds the record of a form `named`: some of the keys, in a random order, each with a document. */
-function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly string[]): Json {
+function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly string[], data: readonly string[] = []): Json {
   const value: Record<string, Json> = {};
   const left = [...keys];
   for (let count = rng.int(left.length + 1); count > 0; count -= 1) {
     const [key] = left.splice(rng.int(left.length), 1) as [string];
-    Object.defineProperty(value, key, { value: generateDoc(gen, rng, depth + 1), enumerable: true, writable: true, configurable: true });
+    const item = data.includes(key) ? dataValue(gen, rng, depth + 1) : generateDoc(gen, rng, depth + 1);
+    Object.defineProperty(value, key, { value: item, enumerable: true, writable: true, configurable: true });
   }
   return value;
+}
+
+/** This function builds the argument of a field of data (D177): a list, a record without the key `type`, or a document. */
+function dataValue(gen: Generator, rng: Random, depth: number): Json {
+  const choice = depth > 3 ? 0 : rng.int(3);
+  if (choice === 0) return generateDoc(gen, rng, depth);
+  const count = rng.int(3);
+  if (choice === 1) return Array.from({ length: count }, () => dataValue(gen, rng, depth + 1));
+  return Object.fromEntries(["op", "a b", "do"].slice(0, count).map((key) => [key, dataValue(gen, rng, depth + 1)]));
+}
+
+/** This function gives the documents in an argument of a field of data their envelopes. A literal in it stays its data (D177). */
+function dataEnvelopes(profile: SyntaxProfile, value: Json): Json {
+  if (Array.isArray(value)) return value.map((item) => dataEnvelopes(profile, item));
+  if (typeof value !== "object" || value === null) return value;
+  if (!Object.hasOwn(value, "type")) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, dataEnvelopes(profile, item)]));
+  return withEnvelopes(profile, value, false);
 }
 
 /**
@@ -1145,7 +1184,9 @@ function withEnvelopes(profile: SyntaxProfile, made: Json, place: boolean): Json
   let next: Json | undefined = value;
   if (Array.isArray(value)) next = value.map((item, index) => withEnvelopes(profile, item, wraps(String(index))));
   else if (typeof value === "object" && value !== null) {
-    next = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withEnvelopes(profile, item, wraps(key))]));
+    next = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, form?.data?.includes(key) === true ? dataEnvelopes(profile, item) : withEnvelopes(profile, item, wraps(key))]),
+    );
   }
   return next === value ? made : { ...made, value: next as Json };
 }
