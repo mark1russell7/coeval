@@ -168,6 +168,23 @@ jobs:
         id: merge
         if: ${{ !cancelled() }}
         run: node packages/core/bench/merge.ts "$RUNNER_TEMP/bench/bench-1.json" "$RUNNER_TEMP/bench/bench-2.json"
+      # A dispatch with more than two jobs gives one gate unit for each further pair of jobs: 3 and 4, 5 and 6 (K225, D179).
+      # The read of a further pair is report only. It writes no output of the job, thus Speed OK reads only jobs 1 and 2.
+      # The line "Run N" of each job names its CPU model, thus each unit records its pair of CPU models.
+      - name: The further pairs of jobs (K225, D179)
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
+        continue-on-error: true
+        run: |
+          for ((first = 3; ; first += 2)); do
+            a="$RUNNER_TEMP/bench/bench-$first.json"
+            b="$RUNNER_TEMP/bench/bench-$((first + 1)).json"
+            [ -f "$a" ] || [ -f "$b" ] || break
+            unit=$(((first + 1) / 2))
+            echo "Unit $unit: jobs $first and $((first + 1))."
+            GITHUB_OUTPUT='' GITHUB_STEP_SUMMARY='' node packages/core/bench/merge.ts "$a" "$b" \
+              | grep -E '^(Run [0-9]+:|Verdicts:|Gate \(report only|Family read|Hold \(D117\))' \
+              || echo "Unit $unit: the read gave no lines."
+          done
 
   speed-ok:
     name: Speed OK
