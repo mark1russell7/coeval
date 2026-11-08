@@ -1,6 +1,6 @@
 import type { PairedTime } from "@mark1russell7/rigor-bench";
 import { describe, expect, it } from "vitest";
-import { familyLines, gateLines, gateRead, outcomeOf, roundsAsCases, verdictOf, type BenchCase, type BenchRun } from "./merge.ts";
+import { familyLines, gateLines, gateRead, mixedLine, mixedPair, outcomeOf, roundsAsCases, verdictOf, type BenchCase, type BenchRun } from "./merge.ts";
 
 /** A small fixed spread of the ratios of the rounds: from -0.4 % to +0.4 %. */
 const jitter = (round: number): number => 1 + 0.002 * ((round % 5) - 2);
@@ -38,6 +38,29 @@ describe("the verdict of the bench core for each case (K212, D114)", () => {
   it("keeps the verdicts of different results and of one run", () => {
     expect(verdictOf({ ...benchCase(1), different: "1 and 2" }, benchCase(1, 12))).toBe("different results");
     expect(verdictOf(benchCase(1), undefined)).toBe("one run only");
+  });
+});
+
+describe("a mixed CPU pair gives the verdict of each job, and no read when the jobs do not agree (K225, D183)", () => {
+  it("keeps a verdict that both jobs give", () => {
+    expect(verdictOf(benchCase(1.1), benchCase(1.1, 12), ["1", "2"], true)).toBe("slower");
+    expect(verdictOf(benchCase(1.003), benchCase(1.002, 12), ["1", "2"], true)).toBe("same");
+    expect(verdictOf(benchCase(0.9), benchCase(0.9, 12), ["1", "2"], true)).toBe("faster");
+  });
+
+  it("gives no read when the jobs do not agree, or when a job cannot decide", () => {
+    expect(verdictOf(benchCase(1.1), benchCase(1.003, 12), ["1", "2"], true)).toBe("no read");
+    expect(verdictOf(benchCase(1.1), benchCase(0.9, 12), ["1", "2"], true)).toBe("no read");
+    expect(verdictOf(benchCase(1.1), { name: "x", baseNs: 1, headNs: 1, change: 0, noise: 0 }, ["1", "2"], true)).toBe("no read");
+  });
+
+  it("names the pair only when the CPU models differ", () => {
+    const run = (cpu: string): BenchRun => ({ run: "1", cpu, node: "26", rounds: 12, cases: [] });
+    expect(mixedPair([run("a"), run("b")])).toBe("a + b");
+    expect(mixedPair([run("a"), run("a")])).toBeUndefined();
+    expect(mixedPair([run("a"), undefined])).toBeUndefined();
+    expect(mixedLine("a + b", ["x", "y"])).toBe("Mixed CPU pair (D183): a + b. A case takes the verdict of the two jobs only when they agree. 2 no read: x, y.");
+    expect(mixedLine("a + b", [])).toBe("Mixed CPU pair (D183): a + b. A case takes the verdict of the two jobs only when they agree. 0 no read.");
   });
 });
 

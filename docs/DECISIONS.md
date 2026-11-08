@@ -5134,6 +5134,24 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The line "Under that size: no read" gives the smallest slope that the gate can find. It is a size, not a case with no read, thus it gives no warning.
 
+## D183 (2026-11-08): on a mixed CPU pair, the hold of Speed takes a verdict only when the two jobs agree
+
+**Context.** K225. The first head of #312 got a hold on one case on a mixed CPU pair, an AMD EPYC 7763 and an Intel Xeon Platinum 8370C. Each job alone said "cannot decide", at +0.5 % and +0.8 %. The pool of the 24 rounds said "slower". The change of the head has no path into the timed code, and the later heads read "same" on one CPU model. Thus the hold was false.
+
+**Decision.**
+
+- The script `merge.ts` reads the CPU models of the two runs. When they differ, each case gets the verdict of each job alone.
+- A case is "same", "slower" or "faster" only when the two jobs give that verdict. Else the case has "no read".
+- The reason of `Speed OK` names the CPU pair and the cases with no read. A case with no read gives a warning on the pull request.
+- A case with no read is not slower, thus it does not hold a merge. The check stays green.
+- A pair of one CPU model keeps the pooled verdict of the rounds of both runs.
+
+**Why.** Each job runs both arms on one runner, thus the ratio of a job compares code, not computers. But the ratio of a change can differ between two CPU models. The pool then puts two populations in one bootstrap, and its interval does not hold the difference between the two models. The verdict of each job keeps the information of each model.
+
+**Alternatives.** A stratified bootstrap draws the rounds inside each job and then joins the estimates of the jobs, with a test that they agree. It is the general form, and it goes to the shared bench core. A second alternative gives no read for each case on each mixed pair. It removes the verdicts that both jobs agree on.
+
+**Limits.** A slowdown that only one CPU model reads gives no read, not a hold. The warning shows it on the pull request.
+
 ## D184 (2026-11-08): the conformance page shows a hidden duty, not a pass
 
 **Context.** K123. The page `learn/conformance` lets the reader turn on seven breaks of one evaluator. Each break breaks one duty. In a mix of breaks, `conforms` does not give a finding of each broken duty. A finding of `local` stops the checks C4 and C5. An effect without its capability gives an error, and C3 applies only to a value.
@@ -5150,6 +5168,7 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** Run each break alone. Then the page cannot show how the contract and the other breaks change the findings.
 
 **Limits.** The rules of `dutiesOf` copy two rules of `conform.ts`. The test of all sets finds a change of those rules as a missed duty.
+
 
 ## D185 (2026-11-08): the site shows the `#VALUE!` issues of the check beside the `#TYPE!` issues
 
