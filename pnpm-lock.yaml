@@ -235,6 +235,9 @@ importers:
       '@mark1russell7/coeval':
         specifier: workspace:*
         version: link:../core
+      '@mark1russell7/site-pages':
+        specifier: ^0.4.0
+        version: 0.4.0
       astro:
         specifier: ^7.3.8
         version: 7.4.4(@types/node@26.6.6)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
@@ -877,6 +880,11 @@ packages:
   '@mark1russell7/rigor-statistics@0.1.16':
     resolution: {integrity: sha512-9MQpKdW3hluyP4zV1oerpApWcKsiKR2s4PpQ8LcGzep0oJSpE2lYAUWzyo2MaLdkSAnNsh6pxnSbr5KaR7OYIQ==}
     engines: {node: '>=22'}
+
+  '@mark1russell7/site-pages@0.4.0':
+    resolution: {integrity: sha512-irsHYxs7Jbf68mMa7qTZgkZwURo33V286jPwwCBP4hzkw0n8UPMzgDPRPgvc3CEdfhPHHEuFf2WDVt/O6UKtGQ==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   '@mark1russell7/ste-lint@0.1.2':
     resolution: {integrity: sha512-Gq7XrLLBbuaGp+a6HbmikoPR2KmU06w/XZh8TFVmG9qbMsknMjOhh50lcZ1kEpYStI++uhlxrNv+sOkOqgnN5w==}
@@ -3121,6 +3129,10 @@ snapshots:
   '@mark1russell7/rigor-statistics@0.1.16':
     dependencies:
       '@mark1russell7/rigor-generators': 0.1.6
+
+  '@mark1russell7/site-pages@0.4.0':
+    dependencies:
+      '@mark1russell7/rigor-statistics': 0.1.16
 
   '@mark1russell7/ste-lint@0.1.2':
     dependencies:

@@ -209,7 +209,7 @@ export default function EffectsDiagram() {
         <p className="ce-bar-label" style={{ margin: "0 0 var(--space-3)" }}>
           {program.note} {EFFECT_HOSTS.find((item) => item.id === host)?.note}
         </p>
-        <div className="ce-scroll">
+        <div className="ce-scroll scroll-cue">
           <Picture program={program} host={host} out={current} />
         </div>
 
