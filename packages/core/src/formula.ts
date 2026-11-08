@@ -420,6 +420,7 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     "formula.lit": { synth: (input) => valueType(input.doc.value) },
 
     "formula.ref": {
+      read: true,
       synth: (input, report) => {
         const path = input.doc.value;
         // An address gives a thing, not a value. The check gives #VALUE! for a path that is not a list.
