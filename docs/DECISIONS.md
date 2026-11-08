@@ -4912,6 +4912,24 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
 - A `#N/A` of a closed record stays with TYPE.NO-STEP.
 
+## D176 (2026-11-07): the Speed verdict prints the family read of its cases, as a report
+
+**Context.** K225. On equal arms, 4 of 352 case reads were slower (1.1 %), and this fits the level of 2.5 % for each case. But a run reads 16 cases with no correction, thus up to a third of the runs can read one false slower case. Also, one slower job beside a flat job can make a pooled case slower. The function `familyRead` of rigor-bench 0.2.26 (rigor #101) gives two reads. The Holm read corrects over the cases. The read of each job keeps a case only when each job reads it alone.
+
+**Decision.**
+
+- `merge.ts` takes rigor-bench 0.2.26 and rigor-statistics 0.1.16. The function `familyLines` gives the pooled verdict of each case again, with the option `pValues`. It gives the lines of `familyRead` at the level 0.025 for each side.
+- The verdict prints these lines after the line of the gate. The first line counts the slower and faster cases with no correction, with Holm, with each job, and with both.
+- The read is a report. It changes no verdict, no hold and no state of `Speed OK`.
+- A case with different results, or without each run, has no pooled verdict, thus the read leaves it out.
+
+**Why.** The p values come from the draws of the interval of the verdict, thus the outcome of each case stays the same. The records of 77 runs give the logged outcome in each of 1232 cases with this code. The counts of each read on real runs are the data for the ruling on the gate.
+
+**Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
+
+**Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
+
+
 ## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
 
 **Context.** C11, from R6 P6. The panel of the playground named its kinds in code. It had an input for `number`, a menu of each world entry and a table of new documents. A new document needed a value, thus a reader could not leave a position empty.
