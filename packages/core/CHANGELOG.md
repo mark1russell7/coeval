@@ -18,12 +18,12 @@ PATCH: before `1.0.0`, a new feature or a fix increases PATCH. Each change adds 
 
 ### Fixes
 
-- **`print` writes no dotted call without field steps (D142).** No `parse` read that text, thus `parse(print(doc))` broke for such a document.
-- **A kept read that reaches a true cycle joins no component (D145).**
+- **`print` gives an error for a dotted call without field steps (D142).** With `ops: true` and `fields: false`, it wrote `m.p(1)`, and `parse` refused that text.
+- **A kept read that reaches a true cycle gives no false `#CYCLE!` (D145).** A node with a real read from the cycle stays on the cycle in each order. A node without one stays outside it.
 - **A plain attribute of a node with a circular attribute takes the cell of the host (K244).**
 - **`agreeTypes` gives its finding for a bigint or a record with a cycle (K245).** It threw a `TypeError` before.
 - **`print` writes a record with the key `type` that is not an envelope as `sub` (K245).** `parse` refused the text that `print` gave before.
-- **`walk` keeps the capabilities of a part with no copy when the part has no grant (K238).** This corrects the slower `factsOf` of 0.24.0.
+- **`factsOf` is 15 to 16 % faster on a tree with an equation (K238).** The walk reads the grant rules one time for each kind. A part with no grant keeps its capabilities with no copy. 0.24.0 read them again for each part.
 
 ### Tests and CI
 
