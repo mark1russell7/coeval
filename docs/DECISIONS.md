@@ -5152,5 +5152,19 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** A slowdown that only one CPU model reads gives no read, not a hold. The warning shows it on the pull request.
 
+## D185 (2026-11-08): the site shows the `#VALUE!` issues of the check beside the `#TYPE!` issues
 
 
+**Context.** K243. In the playground, the text `1 + "a"` gave no issue, but a card of the kind `text` at the same place gave a `#TYPE!` issue.
+
+**Cause.** The core was correct. A part of `add` has the shape `{ shape: "list", of: "lit" }`, and the site machine declares the kind `number` at that place. A bare value at a place of a declared kind is a value of that kind. Thus the check examines `"a"` as a value of `number`, and gives `#VALUE!`. A card of the kind `text` is a document with its own type. Thus the check gives `#TYPE!` for it. The function `placeTypes` of the site kept only `#TYPE!`, thus the playground did not show the issue of the bare value.
+
+**Decision.**
+
+- `placeTypes` keeps the `#TYPE!` and the `#VALUE!` issues of the check, each with its code.
+- The mark of a card and each line of the list of the check show the code of the issue.
+- The core does not change.
+
+**Why.** The check found the problem before a run. A page that hides it tells the reader that the document has no problem.
+
+**Alternatives.** A `#TYPE!` issue for the bare value. The bare value is not a document with a type. It is a value of the declared kind, and a wrong value of a kind is `#VALUE!` in each other place of the core.
