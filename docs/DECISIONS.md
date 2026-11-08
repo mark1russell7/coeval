@@ -5134,7 +5134,25 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The line "Under that size: no read" gives the smallest slope that the gate can find. It is a size, not a case with no read, thus it gives no warning.
 
+## D184 (2026-11-08): the conformance page shows a hidden duty, not a pass
+
+**Context.** K123. The page `learn/conformance` lets the reader turn on seven breaks of one evaluator. Each break breaks one duty. In a mix of breaks, `conforms` does not give a finding of each broken duty. A finding of `local` stops the checks C4 and C5. An effect without its capability gives an error, and C3 applies only to a value.
+
+**Decision.**
+
+- Each duty of the page has one of four states: found, kept, permitted by the contract, or hidden by another break.
+- The function `dutiesOf` gives the state from the findings of `conforms`, the breaks and the contract. A hidden or permitted state has its reason.
+- A fifth state, missed, is a broken duty without a finding and without a known reason. A test runs `conforms` on each of the 128 sets of breaks under each of the four contracts, and it finds no missed duty.
+- A test also shows each hidden finding again without the break that hides it.
+
+**Why.** A ring without a finding on a broken duty reads as a pass. The page shows the cause instead, thus the reader sees why one fix can show a new finding.
+
+**Alternatives.** Run each break alone. Then the page cannot show how the contract and the other breaks change the findings.
+
+**Limits.** The rules of `dutiesOf` copy two rules of `conform.ts`. The test of all sets finds a change of those rules as a missed duty.
+
 ## D185 (2026-11-08): the site shows the `#VALUE!` issues of the check beside the `#TYPE!` issues
+
 
 **Context.** K243. In the playground, the text `1 + "a"` gave no issue, but a card of the kind `text` at the same place gave a `#TYPE!` issue.
 
