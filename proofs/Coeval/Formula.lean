@@ -227,78 +227,117 @@ def bindParams (scope : Names) : List String → List V → Names
   | param :: rest, [] => bindParams (setField scope param .undef) rest []
   | param :: rest, arg :: args => bindParams (setField scope param arg) rest args
 
-/--
-This function evaluates a document. A bare value is a literal, because each position of the kit declares `lit`. The
-order of the tests is the order of `examine` in `reference.ts`: the kind, then the split, then the evaluator.
--/
-def eval : Nat → Nat → Names → V → R
-  | 0, _, _, _ => .error .clock
-  | clock + 1, applying, names, doc =>
-    let (path, value) :=
-      match envelope doc with
-      | some found => found
-      | none => (["lit"], doc)
-    match kindOf path, value with
-    | none, _ => err "#KIND?"
-    | some .lit, value => pure value
-    | some .ref, value => ref names value
-    | some .list, .arr items => do
-      let values ← evalItems (eval clock applying names) items
-      pure (.arr values)
-    | some .record, .obj fields => do
-      let values ← evalFields (eval clock applying names) fields
-      pure (.obj values)
-    | some .let, .obj fields =>
-      match field fields "bind", field fields "body" with
-      | some (.obj binds), some body => do
-        let scope ← bindAll (eval clock applying names) names binds
-        eval clock applying scope body
-      | _, _ => err "#VALUE!"
-    | some .fn, .obj fields =>
-      match field fields "params" >>= paramsOf, field fields "body" with
-      | some params, some body => pure (.closure params body names)
-      | _, _ => err "#VALUE!"
-    | some .call, .obj fields =>
-      let args :=
-        match field fields "args" with
-        | none => some []
-        | some (.arr items) => some items
-        | some _ => none
-      match field fields "fn", args with
-      | some target, some items =>
-        match eval clock applying names target with
-        | .ok (.closure params body scope) => do
-          let values ← evalItems (eval clock applying names) items
+/-- This function gives the items of a list, or `none` for each other value. -/
+def arrItems : V → Option (List V)
+  | .arr items => some items
+  | _ => none
+
+/-- This function gives the fields of a record, or `none` for each other value. -/
+def objFields : V → Option (List (String × V))
+  | .obj fields => some fields
+  | _ => none
+
+/-- This function applies `k` to the items of a list. Each other value gives `#VALUE!`. -/
+def onArr (value : V) (k : List V → R) : R :=
+  match arrItems value with
+  | some items => k items
+  | none => err "#VALUE!"
+
+/-- This function applies `k` to the fields of a record. Each other value gives `#VALUE!`. -/
+def onObj (value : V) (k : List (String × V) → R) : R :=
+  match objFields value with
+  | some fields => k fields
+  | none => err "#VALUE!"
+
+/-- This function gives the arguments of `call`: no field gives no arguments, and a value that is not a list gives `none`. -/
+def argsOf (fields : List (String × V)) : Option (List V) :=
+  match field fields "args" with
+  | none => some []
+  | some (.arr items) => some items
+  | some _ => none
+
+/-- This function evaluates `let`. The function `self` evaluates a part of the document. -/
+def kLet (self : Nat → Names → V → R) (applying : Nat) (names : Names) (fields : List (String × V)) : R :=
+  match field fields "bind" >>= objFields, field fields "body" with
+  | some binds, some body => bindAll (self applying names) names binds >>= fun scope => self applying scope body
+  | _, _ => err "#VALUE!"
+
+/-- This function evaluates `call`. The function `self` evaluates a part of the document. -/
+def kCall (self : Nat → Names → V → R) (applying : Nat) (names : Names) (fields : List (String × V)) : R :=
+  match field fields "fn", argsOf fields with
+  | some target, some items =>
+    self applying names target >>= fun callee =>
+      match callee with
+      | .closure params body scope =>
+        evalItems (self applying names) items >>= fun values =>
           if applying ≥ applyLimit then
             err "#DEPTH!"
           else
-            eval clock (applying + 1) (bindParams scope params values) body
-        | .ok _ => err "#VALUE!"
-        | .error stop => .error stop
-      | _, _ => err "#VALUE!"
-    | some .if, .obj fields =>
-      match field fields "test", field fields "then" with
-      | some test, some yes =>
-        match eval clock applying names test with
-        | .ok (.bool true) => eval clock applying names yes
-        | .ok (.bool false) =>
-          match field fields "else" with
-          | some no => eval clock applying names no
-          | none => pure .null
-        | .ok _ => err "#VALUE!"
-        | .error stop => .error stop
-      | _, _ => err "#VALUE!"
-    | some .and, .arr items => logic (eval clock applying names) false items
-    | some .or, .arr items => logic (eval clock applying names) true items
-    | some (.op name), .arr items =>
-      if name == "add" then do
-        let values ← evalItems (eval clock applying names) items
-        match addAll values with
-        | some sum => pure (.num sum)
-        | none => err "#CALC!"
-      else
-        err "#NAME?"
-    | some _, _ => err "#VALUE!"
+            self (applying + 1) (bindParams scope params values) body
+      | _ => err "#VALUE!"
+  | _, _ => err "#VALUE!"
+
+/-- This function evaluates `if`. The function `self` evaluates a part of the document. -/
+def kIf (self : Nat → Names → V → R) (applying : Nat) (names : Names) (fields : List (String × V)) : R :=
+  match field fields "test", field fields "then" with
+  | some test, some yes =>
+    self applying names test >>= fun truth =>
+      match truth with
+      | .bool true => self applying names yes
+      | .bool false =>
+        match field fields "else" with
+        | some no => self applying names no
+        | none => pure .null
+      | _ => err "#VALUE!"
+  | _, _ => err "#VALUE!"
+
+/-- This function evaluates an operation. The model knows only `add`. -/
+def kOp (self : Nat → Names → V → R) (applying : Nat) (names : Names) (name : String) (items : List V) : R :=
+  if name == "add" then
+    evalItems (self applying names) items >>= fun values =>
+      match addAll values with
+      | some sum => pure (.num sum)
+      | none => err "#CALC!"
+  else
+    err "#NAME?"
+
+/-- This function evaluates the value of a kind. The function `self` evaluates a part of the document. -/
+def evalKind (self : Nat → Names → V → R) (applying : Nat) (names : Names) (kind : Kind) (value : V) : R :=
+  match kind with
+  | .lit => pure value
+  | .ref => ref names value
+  | .list => onArr value fun items => evalItems (self applying names) items >>= fun values => pure (.arr values)
+  | .record => onObj value fun fields => evalFields (self applying names) fields >>= fun values => pure (.obj values)
+  | .let => onObj value fun fields => kLet self applying names fields
+  | .fn => onObj value fun fields =>
+    match field fields "params" >>= paramsOf, field fields "body" with
+    | some params, some body => pure (.closure params body names)
+    | _, _ => err "#VALUE!"
+  | .call => onObj value fun fields => kCall self applying names fields
+  | .if => onObj value fun fields => kIf self applying names fields
+  | .and => onArr value fun items => logic (self applying names) false items
+  | .or => onArr value fun items => logic (self applying names) true items
+  | .op name => onArr value fun items => kOp self applying names name items
+
+/-- This function gives the keys of the type and the value of a document. A bare value is a literal. -/
+def parse (doc : V) : List String × V :=
+  match envelope doc with
+  | some found => found
+  | none => (["lit"], doc)
+
+/--
+This function makes one step of the evaluation. The function `self` evaluates each part of the document. The order of the
+tests is the order of `examine` in `reference.ts`: the kind, then the split, then the evaluator.
+-/
+def step (self : Nat → Names → V → R) (applying : Nat) (names : Names) (doc : V) : R :=
+  match kindOf (parse doc).1 with
+  | none => err "#KIND?"
+  | some kind => evalKind self applying names kind (parse doc).2
+
+/-- This function evaluates a document. Each step takes one unit of the clock. -/
+def eval : Nat → Nat → Names → V → R
+  | 0, _, _, _ => .error .clock
+  | clock + 1, applying, names, doc => step (eval clock) applying names doc
 
 /-- The clock of the test. A generated document stops at `applyLimit` long before this clock ends. -/
 def testClock : Nat := 100000

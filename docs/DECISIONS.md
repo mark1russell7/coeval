@@ -5365,3 +5365,22 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** Generators over the reference. These keep the stack in the host, and a generator is not data. A cons list as the stack. `JSON.stringify` then overflows at depth. Host closures in a configuration. These are not JSON, thus a host cannot store a configuration. The tier in the defaults. Each caller of `agree` then needs a profile.
 
 **Limits.** A host evaluator is opaque: one step starts it, and each of its handles starts a nested stepper on the stack of the host. A runner gives `#NOEVAL`, and the stepper records no reads. An effect of `stepperNext` goes in a list that lives for that one step, thus a configuration of a document with effects is not data. A compiled evaluator outside the formula kit needs its definition, with `tree.node` too. A value that JSON does not hold, for example `undefined`, changes in a round trip. A record with the key `coeval.closure` or `coeval.held` reads as a closure or a held error. A deep value still overflows a host walk over it, for example `expect` or `JSON.stringify`.
+
+## D194 (2026-11-08): theorems over the Lean model: the clock, determinism and `let`
+
+**Context.** K223, after K96 (D159). The model had one theorem: a clock of zero stops an evaluation. A later proof needs the facts that the clock does not change a result and that `let` is compositional.
+
+**Decision.** The function `eval` of the model is now one step `step (eval clock)`. The step is one function for each kind, with the evaluator of the parts as a parameter. The file `Coeval/Theorems.lean` proves these theorems, and `lake build` checks them:
+
+- `eval_succ_refines`: one more unit of the clock gives the same result, or the clock stopped the first result.
+- `eval_add_clock`: a result that the clock does not stop does not change with a larger clock.
+- `eval_clocks_agree`: two clocks that both give a result give the same result.
+- `eval_deterministic`: a document, its names and its clock give one result.
+- `kLet_eq`: a `let` evaluates its body in the scope that its bindings make.
+- `bindAll_append`: the bindings run in order, thus a list of bindings is the same as its two parts in sequence.
+
+**Why.** The relation `Refines` says that the clock stopped a result or that two results are equal. Each kind keeps it when the evaluator of the parts keeps it. Thus one induction on the clock proves the monotonicity of the clock for all kinds. A step with the evaluator as a parameter makes each lemma small. The test AGREE.LEAN shows that the new form of `eval` gives the same results as the plan.
+
+**Alternatives.** One proof by cases over the old `eval`. Each case then repeats the unfolding of the envelope and of the kind. Theorems over the plan in TypeScript. TypeScript has no proofs, and the model is the reading in a language of proofs. A local `lake build` for each change of a proof. The proofs are checked in CI, like the model (D159).
+
+**Limits.** Determinism is true by construction, because `eval` is a function in Lean. The theorem of the clock covers the model only, not the plan. AGREE.LEAN connects the two on generated documents, not on all documents. The compositionality of `let` is the order of the bindings and the scope of the body. A theorem that a binding can change to another document with the same results is not in this slice.
