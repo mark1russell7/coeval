@@ -1,6 +1,6 @@
 import type { PairedTime } from "@mark1russell7/rigor-bench";
 import { describe, expect, it } from "vitest";
-import { gateLines, gateRead, outcomeOf, roundsAsCases, verdictOf, type BenchCase, type BenchRun } from "./merge.ts";
+import { familyLines, gateLines, gateRead, mixedLine, mixedPair, outcomeOf, roundsAsCases, verdictOf, type BenchCase, type BenchRun } from "./merge.ts";
 
 /** A small fixed spread of the ratios of the rounds: from -0.4 % to +0.4 %. */
 const jitter = (round: number): number => 1 + 0.002 * ((round % 5) - 2);
@@ -41,6 +41,29 @@ describe("the verdict of the bench core for each case (K212, D114)", () => {
   });
 });
 
+describe("a mixed CPU pair gives the verdict of each job, and no read when the jobs do not agree (K225, D183)", () => {
+  it("keeps a verdict that both jobs give", () => {
+    expect(verdictOf(benchCase(1.1), benchCase(1.1, 12), ["1", "2"], true)).toBe("slower");
+    expect(verdictOf(benchCase(1.003), benchCase(1.002, 12), ["1", "2"], true)).toBe("same");
+    expect(verdictOf(benchCase(0.9), benchCase(0.9, 12), ["1", "2"], true)).toBe("faster");
+  });
+
+  it("gives no read when the jobs do not agree, or when a job cannot decide", () => {
+    expect(verdictOf(benchCase(1.1), benchCase(1.003, 12), ["1", "2"], true)).toBe("no read");
+    expect(verdictOf(benchCase(1.1), benchCase(0.9, 12), ["1", "2"], true)).toBe("no read");
+    expect(verdictOf(benchCase(1.1), { name: "x", baseNs: 1, headNs: 1, change: 0, noise: 0 }, ["1", "2"], true)).toBe("no read");
+  });
+
+  it("names the pair only when the CPU models differ", () => {
+    const run = (cpu: string): BenchRun => ({ run: "1", cpu, node: "26", rounds: 12, cases: [] });
+    expect(mixedPair([run("a"), run("b")])).toBe("a + b");
+    expect(mixedPair([run("a"), run("a")])).toBeUndefined();
+    expect(mixedPair([run("a"), undefined])).toBeUndefined();
+    expect(mixedLine("a + b", ["x", "y"])).toBe("Mixed CPU pair (D183): a + b. A case takes the verdict of the two jobs only when they agree. 2 no read: x, y.");
+    expect(mixedLine("a + b", [])).toBe("Mixed CPU pair (D183): a + b. A case takes the verdict of the two jobs only when they agree. 0 no read.");
+  });
+});
+
 /** This function gives one run of the bench with one case. */
 function benchRun(run: string, item: BenchCase): BenchRun {
   return { run, cpu: "x", node: "26", rounds: 12, cases: [item] };
@@ -78,5 +101,34 @@ describe("the gate of the claim not slower is report only (K225, D163)", () => {
     const block = gateLines(gateRead([benchRun("1", benchCase(1.1)), benchRun("2", benchCase(1.1))]));
     expect(block[0]).toBe("Gate (report only, D163): block. 0 not slower, 1 slower, 0 no read.");
     expect(block).toHaveLength(2);
+  });
+});
+
+/** This function gives one run of the bench with the cases of `ratios`, by name. */
+function runOf(run: string, ratios: Readonly<Record<string, number>>, offset = 0): BenchRun {
+  const cases = Object.entries(ratios).map(([name, ratio]): BenchCase => ({ ...benchCase(ratio, offset), name, head: pair(name, ratio, 12, offset), aa: pair(name, 1, 12, offset) }));
+  return { run, cpu: "x", node: "26", rounds: 12, cases };
+}
+
+describe("the family read of the cases is report only (K225, D176)", () => {
+  it("counts the same slower cases as the verdicts with no correction, and names the cases that Holm changes", () => {
+    const runs = [runOf("1", { a: 1.1, b: 1, c: 1.003 }), runOf("2", { a: 1.1, b: 1, c: 1.002 }, 12)];
+    const lines = familyLines(runs, ["a", "b", "c"]);
+    expect(lines[0]).toMatch(/^Family read \(report only\): 3 cases\. Slower: 1, with Holm 1, with each job 1, with each job and Holm 1\. /);
+    expect(["a", "b", "c"].map((name) => verdictOf(runs[0]?.cases.find((item) => item.name === name), runs[1]?.cases.find((item) => item.name === name)))).toEqual(["slower", "same", "same"]);
+    expect(lines.some((line) => line.startsWith("3 of 3 cases have no p"))).toBe(false);
+  });
+
+  it("leaves out a case with different results or with one run", () => {
+    const second = runOf("2", { a: 1, b: 1 }, 12);
+    const different = { ...second, cases: second.cases.map((item) => (item.name === "a" ? { ...item, different: "1 and 2" } : item)) };
+    expect(familyLines([runOf("1", { a: 1, b: 1 }), different], ["a", "b"])[0]).toContain("1 cases.");
+    expect(familyLines([runOf("1", { a: 1, b: 1 }), undefined], ["a", "b"])[0]).toContain("0 cases.");
+  });
+
+  it("reads each job: a case that only one run reads slower is cannot decide in the read of each job", () => {
+    const lines = familyLines([runOf("1", { a: 1.1 }), runOf("2", { a: 1.003 }, 12)], ["a"]);
+    expect(lines[0]).toContain("Slower: 1, with Holm 1, with each job 0, with each job and Holm 0.");
+    expect(lines).toContain('The case "a" reads slower, and a job alone does not read slower.');
   });
 });

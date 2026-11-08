@@ -723,6 +723,71 @@ function narrowAt(type: unknown, path: readonly string[], at: number, narrowed: 
 }
 
 /**
+ * What the result of a test proves of the value at one path (STATIC.OCCURRENCE, D147). The path starts at a root, or at
+ * `names` and a name, and each later key is a field of a record. The fact `is` tells that the value is a member of the
+ * type, and `not` tells that it is not. The facts `present` and `absent` tell if the path reaches a value.
+ */
+export type Proof =
+  | { readonly path: readonly string[]; readonly fact: "is" | "not"; readonly type: ValueType }
+  | { readonly path: readonly string[]; readonly fact: "present" | "absent" };
+
+/** This function gives the type of a value that is a member of both types. The result is the narrower known type. */
+function meetOf(type: ValueType, proved: ValueType, domains: Readonly<Record<string, Domain>> | undefined): ValueType {
+  if (isUnknown(proved, domains)) return type;
+  const form = formOf(type, domains);
+  if (form.t === "one") return { one: form.values.filter((value) => member(value, proved, domains)) };
+  return !isUnknown(type, domains) && isPrecise(type, domains) && fits(type, proved, domains) ? type : proved;
+}
+
+/** This function gives the type of a value of the first type that is not a member of the second type. */
+function withoutOf(type: ValueType, removed: ValueType, domains: Readonly<Record<string, Domain>> | undefined): ValueType {
+  if (isUnknown(removed, domains)) return type;
+  const form = formOf(type, domains);
+  if (form.t === "one") return { one: form.values.filter((value) => !member(value, removed, domains)) };
+  if (form.t === "union") {
+    const members = form.members.map((each) => withoutOf(each, removed, domains)).filter((each) => each !== "never");
+    return members.length === 0 ? "never" : members.length === 1 ? (members[0] as ValueType) : { union: members };
+  }
+  // Only a precise type can leave: a gradual type fits each type, but its values do not.
+  return isPrecise(type, domains) && fits(type, removed, domains) ? "never" : type;
+}
+
+/**
+ * This function gives a type with one proof at a path (STATIC.OCCURRENCE). A path that leaves the records of the type
+ * gives the type back. A fact about a field also tells if the field exists. A value of a type without `undefined`
+ * exists. An optional field without a remaining type does not.
+ *
+ * @param type - The type of the value at the first `at` keys of the path.
+ * @param proof - The proof.
+ * @param at - The number of keys of the path that the type already holds.
+ * @param domains - The domains of the machine.
+ * @returns The narrowed type.
+ */
+export function narrowType(type: ValueType, proof: Proof, at: number, domains: Readonly<Record<string, Domain>> | undefined): ValueType {
+  if (at === proof.path.length) {
+    if (proof.fact === "is") return meetOf(type, proof.type, domains);
+    return proof.fact === "not" ? withoutOf(type, proof.type, domains) : type;
+  }
+  const form = formOf(type, domains);
+  const key = proof.path[at] as string;
+  if (form.t !== "record" || !Object.hasOwn(form.fields, key)) return type;
+  const before = form.fields[key] as ValueType;
+  const optional = new Set(form.optional);
+  let after: ValueType | undefined = narrowType(before, proof, at + 1, domains);
+  if (at + 1 === proof.path.length && optional.has(key)) {
+    if (proof.fact === "present" || (proof.fact === "is" && !member(undefined, proof.type, domains))) optional.delete(key);
+    else if (proof.fact === "absent" || after === "never") after = undefined;
+  }
+  const fields: Record<string, ValueType> = {};
+  for (const name of Object.keys(form.fields)) if (name !== key) setOwn(fields, name, form.fields[name] as ValueType);
+  // The absent case removes the field of a closed record. An open record keeps it as an optional field of the type `never`.
+  if (after !== undefined) setOwn(fields, key, after);
+  else if (form.closed) optional.delete(key);
+  else setOwn(fields, key, "never");
+  return { record: fields, ...(optional.size === 0 ? {} : { optional: [...optional] }), ...(form.closed ? { closed: true } : {}) };
+}
+
+/**
  * This function is the split rule of `fits` (TYPE.FITS-FINITE, D84, TYPE.FITS-PATH, D89). A record type fits when each
  * record of its split fits. A split takes the first field in the order of `splitsOf`. Each member of the field gives a
  * record with the field narrowed to that member. An optional field also gives a record without the field. A type split

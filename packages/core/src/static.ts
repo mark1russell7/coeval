@@ -641,7 +641,8 @@ export function check(machine: Machine, doc: unknown, options: CheckOptions = {}
 export function typeCheck(machine: Machine, doc: unknown, options: CheckOptions = {}): Typing {
   const nodes: TypeNode[] = [];
   const issues = checkAll(machine, doc, options, nodes);
-  const pass = typePass(machine, nodes, options.verb ?? "eval", options.expect, options.rootTypes);
+  const verb = options.verb ?? "eval";
+  const pass = typePass(machine, nodes, verb, options.expect, options.rootTypes, (node) => declaredEffects(node.visit, verb, machine, node.evaluator).length > 0);
   return { type: pass.type, issues: pass.issues.length === 0 ? issues : [...issues, ...pass.issues], places: pass.places };
 }
 

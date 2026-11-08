@@ -20,9 +20,17 @@ const PLAYGROUND = ".cv-playground";
 const TEXT = `${PLAYGROUND} .cv-syntax-text`;
 const PORT = `${PLAYGROUND} .cv-final .cv-port`;
 const PROBLEM = `${PLAYGROUND} .cv-syntax-problem`;
+const ISSUES = `${PLAYGROUND} section.cv-type-issues`;
 
 /** This function gives the result of the document as a text. */
 const result = (): string => $(PORT)?.getAttribute("title")?.replace("The result of this document: ", "") ?? "";
+/** This function gives the type of the selected card, as the panel shows it (C14). */
+const typeText = (): string =>
+  $$(`${PLAYGROUND} .cv-panel .cv-small`)
+    .find((each) => each.querySelector(".cv-panel-head")?.textContent?.trim() === "Its type")
+    ?.querySelector(".ce-mono")?.textContent?.trim() ?? "";
+/** This function tells if the card at this path is the selected card. */
+const selectedAt = (path: string): boolean => $(`${PLAYGROUND} .cv-card[data-path="${path}"]`)?.getAttribute("data-selected") === "true";
 /** This function gives the text of the document. */
 const text = (): string => ($(TEXT) as HTMLTextAreaElement | null)?.value ?? "";
 /** This function gives the button of the playground with this text. */
@@ -32,6 +40,17 @@ const write = (value: string): void => {
   const box = $(TEXT) as HTMLTextAreaElement;
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, value);
   box.dispatchEvent(new Event("input", { bubbles: true }));
+};
+/** This function gives the input or the menu of the panel with this label. */
+const field = (label: string): HTMLInputElement | HTMLSelectElement | undefined =>
+  $$(`${PLAYGROUND} .cv-panel label.cv-field-edit`)
+    .find((each) => each.querySelector("span")?.textContent?.trim() === label)
+    ?.querySelector<HTMLInputElement | HTMLSelectElement>("input, select") ?? undefined;
+/** This function sets the value of an input or a menu. React reads the value through the setter of the prototype. */
+const set = (target: HTMLInputElement | HTMLSelectElement, value: string): void => {
+  const prototype = target instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(target, value);
+  target.dispatchEvent(new Event(target instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
 };
 
 check("the playground starts", await until(() => $(PLAYGROUND)?.closest("astro-island")?.hasAttribute("ssr") === false), $(PLAYGROUND)?.closest("astro-island")?.outerHTML.slice(0, 120));
@@ -58,7 +77,7 @@ check("a bad text keeps the last result", result() === "25", result());
 write("3 + 4");
 check("a good text removes the problem", await until(() => $(PROBLEM) === null && result() === "7"), result());
 
-// A card takes a new part. The new part of `add` is the number 1.
+// A card takes a new part. The new part is an empty place (D151). It gets the kind `number` and the value 1.
 click(button("Arithmetic") as Element);
 await until(() => result() === "14");
 click(`${PLAYGROUND} .cv-card[data-path="1"]`);
@@ -66,11 +85,33 @@ check("a card shows in the panel", await until(() => $(`${PLAYGROUND} .cv-card[d
 click(button("Select the parent") as Element);
 check("the root card shows in the panel", await until(() => $(`${PLAYGROUND} .cv-card[data-path=""]`)?.getAttribute("data-selected") === "true"));
 click(button("Add a part") as Element);
+check("a new part is an empty place with an error", await until(() => $(PORT)?.getAttribute("data-ok") === "false"), result());
+check("the text shows the empty place of an edit (C17b)", await until(() => text().includes("hole()")), text());
+click(`${PLAYGROUND} .cv-card[data-path="2"]`);
+check("the empty place shows in the panel", await until(() => field("Kind")?.value === ""), $(`${PLAYGROUND} .cv-panel-title`)?.textContent);
+set(field("Kind") as HTMLSelectElement, "number");
+check("the empty place takes a kind", await until(() => field("Value") !== undefined), $(`${PLAYGROUND} .cv-panel-title`)?.textContent);
+set(field("Value") as HTMLInputElement, "1");
 check("a new part changes the result", await until(() => result() === "15"), result());
+check("the text follows each edit of the tree (C17b)", !text().includes("hole()") && text().includes("1"), text());
 
 // A missing name gives an error at the result, and not a broken page.
 click(button("A missing name") as Element);
 check("a missing name gives an error", await until(() => $(PORT)?.getAttribute("data-ok") === "false"), $(PORT)?.textContent);
+
+// The check of the types shows the type of each card, and each #TYPE! issue at its card (C14).
+click(button("Arithmetic") as Element);
+check("the root card shows its type", await until(() => result() === "14" && typeText() === "number"), typeText());
+check("a good document has no type issue", $(ISSUES) === null && $(`${PLAYGROUND} .cv-type-mark`) === null);
+click(`${PLAYGROUND} .cv-card[data-path="0"]`);
+await until(() => selectedAt("0"));
+set(field("Kind") as HTMLSelectElement, "text");
+check("a text in place of a number gives one #TYPE! issue", await until(() => $$(`${ISSUES} button.cv-link`).length === 1), $(ISSUES)?.textContent);
+check("the card of the issue has the mark #TYPE!", await until(() => $(`${PLAYGROUND} .cv-card[data-path="0"] .cv-type-mark`) !== null));
+click(button("Select the parent") as Element);
+await until(() => selectedAt(""));
+click($(`${ISSUES} button.cv-link`) as Element);
+check("the button of an issue selects its card", await until(() => selectedAt("0")), $(`${PLAYGROUND} .cv-panel-title`)?.textContent);
 
 // The steps of the evaluation move.
 click(button("Arithmetic") as Element);

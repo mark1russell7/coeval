@@ -4022,6 +4022,24 @@ The parts of `allOf` and the other keywords of a schema give the meet of their t
 
 **Why.** In the reference, an application of a short body uses the stack of approximately three nested documents. A quarter of `maxDepth` keeps a body of up to approximately nine nested documents for each application under the stack, in each tier. A recursion that stops under the limit gives its value as before. An endless recursion gives the same error in each tier, thus `agree` compares it without the exception for an overflow. The cost is an increment, a compare and a `finally` for each application. No case of the bench applies a closure.
 
+## D133 (2026-11-03): the standard evaluator `ref.resolve` compiles its path, and the reference gets a definition
+
+**Context.** K77, from K12 and D29. The formula kit compiles each static path in `prepare`, but the standard evaluator `ref.resolve` was a function. Thus each evaluation made the input of a function and resolved its path again. A step document asked the ladder of `step` again too. The reference reads a function evaluator directly, but it cannot read compiled code (REF.DIRECT). The design calls are when a path is static and what another navigator does. The other calls are how the planner interacts and how a test shows that each tier stays the same.
+
+**Decision.** `ref.resolve` in `STD_EVALUATORS` is a compiled evaluator (PLAN.PATH-STD). Its `compile` reads the field `data` of its input, and it calls `compilePath` with the field `machine`. The code reads the path with `resolveCompiled`, thus the list of reads, a trace and each other runtime work as for the formula kit. A value that is not a path gives one `#VALUE!` at each evaluation, with the reason of the function form.
+
+- Each path of the evaluator is static. The function form read only `data`, and it did not evaluate a part. The split fixes `data` before the first evaluation, also for a kind `ref` of a language that declares parts. Thus the compiled form takes the same `data`, and no document needs the function form. A path that a program computes at evaluation is the form of a function evaluator or of the formula kit (`stepsRef`). That code stays as it is.
+- The navigator is the machine of the plan (PLAN.PATH-STD-NAV). `Session` already compares the navigator of a compiled path with its machine. A path of another navigator resolves the steps again, and a runtime of a host gets the steps through `resolve`.
+- The planner keeps one plan for each document object and one machine (PLAN.PATH-STD-CACHE). Thus a cached path does not meet another navigator, and an equal document compiles again. An equation of a tree compiles one time for each machine, as before (TREE.PLAN). A new machine of `durable` gets a new planner.
+- `STD_DEFINITIONS` gets the definition of `ref.resolve` (REF.RESOLVE), written as the function form was. The reference uses it for the standard evaluator, as for `tree.node`.
+- The agreement has three parts (PLAN.PATH-STD-SAME, PLAN.PATH-STD-AGREES). Strict `agree` runs over 28 documents, 3 contexts and 4 navigators. The compiled form is compared with the definition under the same name, for each result, error, place and read. 300 generated documents take the same two tests. The configurations of `agree.test.ts` also reach the new code, because they read the standard machine.
+
+One value changes for a host. `STD_EVALUATORS["ref.resolve"]` is an object, not a function. Its type stays `Evaluator`. A host that calls the entry as a function must call `STD_DEFINITIONS.evaluators["ref.resolve"]` (PLAN.PATH-STD-WRAP). Two wrappers on the site did this, and they read the definition.
+
+**Alternatives.** A function with a field `compile`. It keeps each wrapper, but `isCompiledEvaluator` then reads a new form, and the two forms of `Evaluator` stop being separate. A side table from the function to its compiled form. Then each function evaluator costs a lookup in `prepare`, and the reference still has no definition of its own. The kernel can test the name `ref.resolve` in `compileNode`, but the kernel has no standard kinds. A compiled form only for paths without step documents leaves the costliest paths in the function form. A compiled form that also tests `Held` and `address`, as the formula kit does, changes behaviour. These rules are not rules of the standard kit.
+
+**Why.** The path, the machine and the ladder of `step` are static, thus the work belongs in `prepare`, as D29 tells. `resolveCompiled` already gives the same reads and the same host calls, thus the compiled form adds no new route. No read or step function changes, thus each other case of the bench keeps its code. The compilation of a reference adds `keysFrom`, `startOf` and one object, and it removes the closures of `interpret` from the plan. No bench case times a `prepare` of a standard reference. The case `PLAN.COMPILE-SPEED prepare` uses the formula kit, and the two tree cases call `prepare` in their setup. These tree cases evaluate standard references, thus they get the gain.
+
 ## D126 (2026-11-03): a higher-order attribute gives a document as data, and the last rung `forward` reads a node that an attribute gives
 
 **Context.** L2i, from R3 P9. An equation gave a value, or a nested node of its own text. It could not compute a document and put it under the node. A kind also could not take its attributes from a node that it builds. Thus a sugar form copied each equation of its expansion.
@@ -4885,6 +4903,125 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 
 **Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
 
+## D147 (2026-11-04): a narrowing changes the type of a name or a root in a branch
+
+**Context.** R5 P6 asks for occurrence typing in `if`, `and` and `or`. It names two risks: a host thing can give two values for one path, and an effect can change the world between two reads.
+
+**Decision.**
+
+- A `Signature` gets `proves`, the type that a true result proves of the first argument, and `present`, the proof of a value at that argument.
+- A `TypeRule` gets `reads`, `proves`, `first` and `usesProofs`. A `PartType` gets `narrow` and `keep`.
+- The pass applies a proof to the types of the names and of the roots of a part. A binding of the same name, a change of a root and an evaluator without a rule thus end a narrowing with no new code.
+- The rule of `if` types `test` first, for each order of the fields.
+- A proof comes up the stack of the pass. Only a part of a rule with `usesProofs` gets a proof. Thus a deep test uses no recursion. A document without `if`, `and` or `or` pays for one array only.
+- `then` of a value type gives the narrower of the two types. `else` removes only a precise type that fits the proved type.
+- A document with a declared effect narrows only its names.
+
+**Alternatives.**
+
+- A list of narrowed paths beside the types. Each reader of a path then needs a second lookup, and each binder needs a rule that removes a path.
+- An end of the narrowing at the step with the effect. A closure from a branch can run after a later effect of the document, thus a local rule is not sound. The rule for the whole document is one sentence.
+- A meet of two types. The proved type alone is sound, because a value of the branch is a member of it. A meet needs a test for disjoint types, and no language asks for it yet.
+- A rule that follows each overload. The check selects an overload after the arguments, thus the proof can depend on the types that it changes.
+
+**Why.** A narrowing is a change of a type in a scope, and the pass already has scopes. The compiled plan and the second tier read no types, thus each evaluation stays the same (TYPE.ROOTS-SOUND).
+
+**Limits.**
+
+- A host thing that gives two values for one path breaks a narrowing of a root. TYPE.ROOTS-SOUND already asks for plain data.
+- The check does not examine the promise of `proves`. An operation that gives `true` for a value outside the type gives a wrong narrowing.
+- A path into a type `unknown` or a union of records does not narrow. Only a whole name or root of the type `unknown` takes the proved type.
+- The operation `not` proves nothing, because a signature has no key for it.
+- One test keeps 32 proofs or fewer. A proof only adds knowledge, thus the limit is safe.
+
+## D148 (2026-11-04): `agreeTypes` is the agreement rule for types, as a helper that a language imports
+
+**Context.** R5 P5 states three clauses for a document that checks. TYPE.SOUND and TYPE.ROOTS-SOUND test the first clause in the tests of the kernel, thus a language has no helper for its own signatures and rules.
+
+**Decision.**
+
+- `agreeTypes(machine, doc, context, options)` sits beside `agree`. It gives the first place that breaks a clause, or the number of values that it examined.
+- The clause `value` is the first clause of R5.
+- The clause `argument` is the second clause. It reads the need of each position, so that it holds for each kind with a rule.
+- The clause `error` is the third clause. It holds only for parts with precise types and declared needs, and only at the place that made the error.
+- A document with an issue gives `checked: false`. The rule tells nothing about it.
+- A run gives `checked: false` when a value breaks a position of an imprecise type. A signature promises a result only for its parameters, and a name can carry the wrong result to each later place.
+
+**Alternatives.**
+
+- A new obligation of `conforms` with a local test of each rule. A probe needs samples for each domain, and a finding changes what a host sees. The helper changes no result.
+- A `#N/A` in the third clause. An optional field can give it after a check with no issue, and the trace does not tell that case from a closed record.
+
+**Why.** A type error at a position with the type `unknown` is the promise of K28, not a defect. The clauses thus examine precise types only, and a language gets no false finding from a part with no types.
+
+**Limits.**
+
+- The local test of R5 P5 stays open. The property tests of a language give the same evidence, with a generator that reaches each kind.
+- The error clause knows only the evaluators of the formula kit.
+- A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
+- A `#N/A` of a closed record stays with TYPE.NO-STEP.
+
+## D149 (2026-11-04): a guard is data from a check, and `prepare` reads it
+
+**Context.** R5 P7 asks for a test at each boundary of `unknown`, and at each read from a typed root. A store with a wrong schema then gives an error at the read, not a wrong value far away. A plan without the option keeps its speed.
+
+**Decision.**
+
+- `boundariesOf(typing, domains)` gives a list of places with types. The list is plain data, thus a host can examine it, keep it and filter it.
+- The option `guards` of `prepare`, `evaluate` and `run` takes that list. The default is no list.
+- A rule with `read` tells that a value comes from outside the document. The formula kit sets it on `ref`.
+- The test sits inside the code of the part, and inside the record of a trace. The trace thus shows the error at the boundary.
+- A part with a test is not a total part, thus it gets a place and a catch.
+- `agreeTypes` with `guards: true` evaluates with the boundaries of its own check.
+
+**Alternatives.**
+
+- An option `guards` that holds the root types, with a check inside `prepare`. `evaluate.ts` then imports the check, and each plan pays for a second walk. A host with a list pays once.
+- A new evaluator around each boundary. The trace then gets one more document, and each place moves.
+
+**Why.** A check already knows each position where its promise needs a test. A list of places keeps the check and the plan apart, and the compiled code changes only for a plan with a list.
+
+**Limits.**
+
+- A read of a name that `let` binds is a boundary too, because a rule does not see the scope of its root. The test is true there, and it takes time.
+- A test of a deep record walks the whole value at each read.
+- A list from a check with a different `declaredType` can name places that the plan does not have. Such an entry has no effect.
+- The extensions and the operations stay trusted. Only a value from a read or from an imprecise part gets a test.
+
+## D150 (2026-11-04): an evaluator that is a function can hold a type rule
+
+**Context.** C14 shows the types of the cards on the site. The standard evaluators are functions and have no rules, thus each card of the site has the type `unknown`.
+
+**Decision.**
+
+- `ruleOf` reads the field `type` of a function too, as it reads the field of an object.
+- The site gives rules to the standard kinds of its pictures, on a new function that calls the standard evaluator.
+- The standard kit stays without rules at this time.
+
+**Alternatives.**
+
+- Rules on `STD_EVALUATORS`. A rule needs an object or a new function. Each standard evaluation then goes through other code, and the speed gates change for a site feature.
+- A `typeRules` field on the machine. It is a second place for one fact, and each reader of a rule must know both.
+
+**Why.** The rule follows the evaluator, as TYPE.RULE tells. One test in `ruleOf` keeps this true for each form of an evaluator.
+
+**Limits.**
+
+- A rule on a run side kind has no effect, thus the cards of `seq`, `log` and the run form of `if` show `unknown`.
+- A later roadmap item can move the rules from the site to the standard kit.
+
+## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
+
+**Context.** C11, from R6 P6. The panel of the playground named its kinds in code. It had an input for `number`, a menu of each world entry and a table of new documents. A new document needed a value, thus a reader could not leave a position empty.
+
+**Decision.** The function `editorOf` gives the editor of a kind from `Kind.parts` alone. A data shape gives an input. A record shape gives one row for each field, with a mark for each necessary field. A position lists only the kinds of its `term` shape (SHAPE.KINDS). The function `emptyDoc` gives a new document from the contract, and each necessary position holds a hole. The evaluator of `hole` gives the error value `#HOLE`, and the kernel adds its place. The function `namesAt` reads the names of a reference editor from `walk`.
+
+**Alternatives.** A kind `hole` in `STD_WORLD`. A hole is a state of an editor, and a host without an editor has no use for it. Thus the kernel does not change.
+
+**Why.** Each fact of the editor was already in a contract, except the shapes of the data kinds. The standard world gives `number`, `text` and `bool` no `parts`, so `SITE_WORLD` adds them. It also adds the fields of `write` and the necessary fields of `if`. A check reads these shapes in the same way as other contracts. An error value keeps each state of an edit evaluable, as in Hazelnut.
+
+**Limits.** A kind with no contract has no input, and "Edit the JSON" stays its editor. A reference keeps a small rule of its own, because its value is a path and no shape tells that. An edit does not check the type of a position against the kind that it lists. The field `of` declares the type of a bare value, and only `kinds` limits a term.
+
 ## D155 (2026-11-04): a reference adapter for signals lives in the tests
 
 **Context.** S3b, R4 P6. The kernel keeps no reactive engine, and a host brings its own. R4 gives four rules for such a host, and no code examined them.
@@ -4922,3 +5059,274 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** A runner for `formula.if` in each formula machine. A runner wins over an evaluator of the same name. Thus each formula `if` then pays for a generator, and the bench refuses a slower read. A formula `if` holds no effect, so it has no need to wait.
 
 **Limits.** A bare value in a part stays a literal of the kit. A missing `then` stays an error of `check`. A host that reads older documents keeps these two rewrites, and `mapDocs` (D152) is the place for them.
+
+## D176 (2026-11-07): the Speed verdict prints the family read of its cases, as a report
+
+**Context.** K225. On equal arms, 4 of 352 case reads were slower (1.1 %), and this fits the level of 2.5 % for each case. But a run reads 16 cases with no correction, thus up to a third of the runs can read one false slower case. Also, one slower job beside a flat job can make a pooled case slower. The function `familyRead` of rigor-bench 0.2.26 (rigor #101) gives two reads. The Holm read corrects over the cases. The read of each job keeps a case only when each job reads it alone.
+
+**Decision.**
+
+- `merge.ts` takes rigor-bench 0.2.26 and rigor-statistics 0.1.16. The function `familyLines` gives the pooled verdict of each case again, with the option `pValues`. It gives the lines of `familyRead` at the level 0.025 for each side.
+- The verdict prints these lines after the line of the gate. The first line counts the slower and faster cases with no correction, with Holm, with each job, and with both.
+- The read is a report. It changes no verdict, no hold and no state of `Speed OK`.
+- A case with different results, or without each run, has no pooled verdict, thus the read leaves it out.
+
+**Why.** The p values come from the draws of the interval of the verdict, thus the outcome of each case stays the same. The records of 77 runs give the logged outcome in each of 1232 cases with this code. The counts of each read on real runs are the data for the ruling on the gate.
+
+**Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
+
+**Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
+
+## D156 (2026-11-04): a part owns verbs, and it adds their entries to the kinds of other parts
+
+**Context.** K35, R6 P4. A language adds a verb, for example `format`, to the kinds of another language. Before, it copied each kind and named it in `replaces`, or it used a function of `prev`. Two such languages then depended on their order. R6 asks for entries that the merge adds, with a rule against piracy. The owner of a verb had no declaration.
+
+**Decision.** `WorldPart` gets two fields. `verbs` lists the verbs that the part owns. `extends` lists the entries, each with the path of a kind and its evaluators by verb. The path has the form of `replaces`, thus it reaches the fallback kind of the namespace `ops`. The merge holds the entries, and it adds them after each part. The conflicts are piracy, a verb of the kernel, two owners, two evaluators for one verb of a kind, and a path without a kind. Each conflict has a path, and the mark `replaces` of that path resolves it. For a path without a kind, the mark drops the entry.
+
+**Why.** The entries join after each part, thus a language can come before the language of its kinds, and two languages commute. The result is the data of a kind, so the ladder, `check` and `checkWorld` read it with no change. The verbs `eval`, `deref` and `step` belong to the kernel. An equal part that owns the same verb is one owner, thus a merge of a part with itself stays idempotent.
+
+**Alternatives.** A function in the style of `extendDomain`. It reads `prev`, thus it needs its kind first, and it cannot report a conflict. An external table of methods. The ladder then gets a new rung, and D2 keeps the ladder small. An object as in R6 with a path as its key. A key is one text, and a world has a path of keys.
+
+**Limits.** A world keeps no owner and no entries, thus a part of a later merge does not see them. The merge of an extension with no base is a conflict, thus associativity (WORLD.LAWS) holds only when the first group holds the kind. Merge the parts flat, as K37 `compose` will do. An entry gives only an evaluator: a verb with effects does not declare them in `verbEffects` of a foreign kind (VERB.EFFECTS). An alias is not a kind, thus an entry names the kind itself.
+## D157 (2026-11-04): a language is one value, and its identity is the canonical text of its data half
+
+**Context.** K37, R6 P7. A language was a set of exports, and a host merged the parts by hand. R6 asks for `defineLanguage` and `compose`, with an identity from a hash of the data half. Its question 7 asks for the home of the format.
+
+**Decision.** The module `language.ts` of the kernel holds the format. `defineLanguage` takes a name, a version, `world`, `requires` and `code`, and it gives one frozen value with a frozen copy of the data half. The text `data` is the canonical JSON of `requires` and `world`. `compose` checks the languages, and it calls `mergeMachines`. A language that another language needs comes first, at a version in the caret range of SemVer. Its conflicts are entries of one `MergeError`, with the path `["languages", name]`.
+
+**Why.** The module needs only the merge, it has no dependency, and an unused export goes from a bundle. The canonical text gives each property of a hash with no collision, and it needs no hash function. The kernel has no such function, and a synchronous SHA-256 does not exist in each host. A host that wants a short pin hashes the text. This order keeps the meaning of `replaces` and of a function part, because both read the merge before them.
+
+**Alternatives.** A hash of 32 or 64 bits. A pin then has collisions, and the function needs a home. A separate package. The owner then makes a new package, and the kernel format cannot use it. A topological sort in `compose`. It hides the order that `replaces` reads, and the home of a sort is outside the kernel. The fields `owns` and `profile` of R6. The world already gives the kinds and `verbs` gives the verbs. A profile gives a machine, and its fields are in the code half.
+
+**Limits.** The data half is JSON, thus a domain and a hook go in the code half and they are not in the identity. A version has only three numbers, with no pre-release. Two languages with one data half and two objects of code merge by the rules of a merge. The text grows with the world.
+
+## D177 (2026-11-07): a field of data gives `handle` a text in `WORLD_SYNTAX`
+
+**Context.** L1c. The kind `handle` (D146) keeps its clauses in `with`, a list of records of data. Each record has the data `op` and the document `do` or `abort`. A profile had text only for documents, thus SYNTAX.WORLD pinned a reason for `handle`.
+
+**Decision.**
+
+- The new field `data` of `SyntaxForm` names the fields that take data with documents in it (SYNTAX.DATA-FIELD).
+- In such a field, brackets read a list and braces read a record. A literal stays its data, and each other text is a document.
+- A record of data has no key `type`, because that key makes a document. `print` writes a record that is an envelope as a document.
+- `WORLD_SYNTAX` has the form `handle` with the arguments `named`, the field of data `with`, and `wrap` on `return` and `body`.
+- The text `handle(with: [{op: "log", do: payload}], body: log("a"))` reads to the document of D146, and `print` writes the same text.
+- A form with data needs fields. A name of `data` is a field, and it is not in `wrap`. No operator of such a profile starts with a bracket or a brace.
+- The new generator `handlers` of SYNTAX.ISSUES-GENERATED writes lists and records in `with`. SYNTAX.ROUNDTRIP and the damage check read its texts.
+- The damage check ignores the quote marks in an escape. A fault between a backslash and its quote mark is thus a quote cascade (D138, Limits).
+
+**Alternatives.**
+
+- A form for each clause, for example `do(log, payload)`. A clause is not a document, thus such a form needs a kind that the world does not have.
+- Brackets and braces in each place of each profile. That takes symbols from each profile and changes the meaning of each text with braces under `constructs.record`.
+- A literal in a field of data with its envelope. Then `op: "log"` becomes a document, and `handle` refuses it.
+
+**Why.** The rule is general: each kind with a list or a record of data gets a text from one field of its form. The parser, the printer and recovery read the same rule, thus SYNTAX.ROUNDTRIP holds for each such kind.
+
+**Limits.**
+
+- A literal in a clause body needs its form, for example `do: number(7)`. A bare literal in `do` is data, and the kernel refuses it with `#PART?`.
+- Brackets and braces are fixed. A profile cannot pick other symbols for a field of data.
+
+## D178 (2026-11-08): each new document of the structured editor has a text
+
+**Context.** C17b. The structured editor (C11, D151) and the text pane (C17, D61) show one document. A test of each kind of the menu found seven new documents with no text in `SITE_SYNTAX`. Thus a reader saw an empty text pane after such an edit.
+
+**Decision.**
+
+- A field with a list or a map shape gets an empty list or map, and not a hole. Thus `handle` starts as `handle(with: [], body: hole())`.
+- The function `emptyDoc` takes a profile. A list gets one hole for each argument that the call form needs, thus `log` starts as `log(hole())`.
+- A new path starts at the root `self`, because the root `names` alone has no text.
+- The menu of a position leaves out a step of a path: a kind with the verb `step` and no verb `eval`, for example `nearest`.
+- A test prints each new document of the menu and reads it back. The site probe reads the text pane after an edit of the tree.
+
+**Alternatives.**
+
+- A least count on the list shape of a contract. The kernel has none, and the call form already holds the count.
+- A text for a bare `names`. The text `names` reads as the name `names`, so such a text needs new syntax.
+
+**Why.** The editor and the text pane agree on each new document, thus each state of an edit has a text (SYNTAX.ROUNDTRIP).
+
+**Limits.** A field with a record shape still starts as a hole. A step of a path stays inside the path of a reference, and the path input edits it.
+
+## D179 (2026-11-08): a dispatch of Speed reads one gate unit for each pair of jobs
+
+**Context.** K225. The owner of the gate gives four bars before `continue-on-error` goes. The first bar is a false-block rate over at least 73 A/A units. Its Wilson 95 % upper end must be at most 5 %.
+
+The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the control run 42438379740 gave records and no read.
+
+**Decision.**
+
+- The unit of the A/A series is one gate read of two jobs, as a pull request gets it.
+- A dispatch with the jobs 1 to 2k gives k units. The step "The further pairs of jobs" reads each pair after the jobs 1 and 2 with `merge.ts`.
+- The step writes no output of the job and no summary. Thus `Speed OK` reads only the jobs 1 and 2.
+- The line "Run N" of each job names its CPU model. Thus each unit records its pair of CPU models, and the series gives a rate for each pair too.
+
+**Why.** Each job has its own runner, its own install and its own build. Thus two pairs of one dispatch share only the commit and the time of the dispatch. The script `merge.ts` of the control commit reads the jobs 1 and 2 again with the same lines as CI.
+
+**Alternatives.** Each case as the unit. The 16 cases of a job share one runner, and the shift of a job (RMS 0.0094) moves all of them. Also the merge rule blocks on any case. Thus a rate for each case is a different claim.
+
+**Limits.** The jobs 3 and 4 of the control used two CPU models, and the gate read only 9 of its 16 cases. The rounds that give a read on each pair of CPU models are not known yet.
+
+## D180 (2026-11-08): the flip test of Speed seeds a real slowdown in the head arm
+
+**Context.** K225. The second bar of the owner of the gate is power. The gate must find a real slowdown of a stated size in at least 90 % of the seeded runs. The bench had no way to make the head arm slower by a known factor.
+
+**Decision.**
+
+- The dispatch input `slow` gives a multiple `k` of the margin of each family. `paths.ts` reads it as `BENCH_SLOW`.
+- The function `slowFactors` gives `exp(k * margin)` for each case. The margin is on a log scale, thus `k = 1` gives exactly the printed margin.
+- The script builds the head arm again with the esbuild define `BENCH_SLOW`. The base arm and each pull request get no define.
+- A sample with a factor above 1 waits in its timed part. Its time then is that factor times the time of its calls.
+- The concurrency group of Speed includes `slow`. Thus a flip dispatch and an A/A dispatch on one base do not cancel each other.
+
+**Why.** The wait is in the timed part, thus the timer reads the slowdown as real time. The noise of the calls stays, and the factor scales it. Only the head arm changes, thus the arms differ and a slower reading holds the merge.
+
+**Alternatives.** A slower copy of the kernel. Its slowdown is not known before a measurement, thus it gives no stated size.
+
+**Limits.** The wait does not change the code of the calls. Thus the flip reads the power of the gate for a slower time, not for a change of the compiled code. The flip uses the multiples 1, 1.5 and 2.
+
+## D181 (2026-11-08): Speed OK shows the line of the report-only gate on each pull request
+
+**Context.** K225. The gate of the claim "not slower" (D163) is report only. Its line was only in the log of the job `verdict`. A CPU pair of two models read 9 of 16 cases, and `Speed OK` stayed green with no word of the 7 unread cases. A green check with a hidden "no read" is a silent pass.
+
+**Decision.**
+
+- The function `gateNote` of `merge.ts` gives one line. It has the outcome, the counts of all cases, the CPU pair and the names of the slower and unread cases.
+- The job `verdict` writes the line to the output `gate`, and the outcome to the output `gate_outcome`.
+- The script `speed-read.ts` prints the line in the log and the summary of `Speed OK`.
+- An outcome other than "pass", or a missing line, gives a warning annotation on the pull request.
+- `Speed OK` stays green on a gate "no read" while the gate is report only. The state of the check does not change.
+
+**Why.** A check does not show a "no read" as a pass at any time. The warning tells the reader of the pull request which cases have no read, and on which CPU pair.
+
+**Alternatives.** A red check on a gate "no read". The gate is report only until the four bars of K225 pass. Thus a red check at this time blocks merges on a gate that is not ready.
+
+**Limits.** The further pairs of a dispatch (D179) stay in the log of the job `verdict`. They are for the A/A series, not for a pull request.
+
+## D182 (2026-11-08): a block of the report-only ladder gate gives a warning on the pull request
+
+**Context.** K225 and D181. The ladder gate of `Measure` (D164) is report only. A block exits with the code 3, and the step keeps the job green. The line of the block was only in the log and the summary of the job. A green check with a hidden block is a silent pass.
+
+**Decision.**
+
+- With `LADDER_ANNOTATE=1`, the mode `merge` of `ladder.ts` prints a warning annotation with the gate line on a block.
+- Only the step "Pool the five runs" sets `LADDER_ANNOTATE`. The flip rows block on purpose, thus they give no annotation.
+- The flip step checks the warning text of each block row, and no warning on the pass row.
+- The flip step reads the warnings inside a `stop-commands` window. Thus the runner makes no annotation from them.
+
+**Why.** The warning tells the reader of the pull request that the ladder gate found a slope over its bound. The check stays green while the gate is report only.
+
+**Limits.** The line "Under that size: no read" gives the smallest slope that the gate can find. It is a size, not a case with no read, thus it gives no warning.
+
+## D183 (2026-11-08): on a mixed CPU pair, the hold of Speed takes a verdict only when the two jobs agree
+
+**Context.** K225. The first head of #312 got a hold on one case on a mixed CPU pair, an AMD EPYC 7763 and an Intel Xeon Platinum 8370C. Each job alone said "cannot decide", at +0.5 % and +0.8 %. The pool of the 24 rounds said "slower". The change of the head has no path into the timed code, and the later heads read "same" on one CPU model. Thus the hold was false.
+
+**Decision.**
+
+- The script `merge.ts` reads the CPU models of the two runs. When they differ, each case gets the verdict of each job alone.
+- A case is "same", "slower" or "faster" only when the two jobs give that verdict. Else the case has "no read".
+- The reason of `Speed OK` names the CPU pair and the cases with no read. A case with no read gives a warning on the pull request.
+- A case with no read is not slower, thus it does not hold a merge. The check stays green.
+- A pair of one CPU model keeps the pooled verdict of the rounds of both runs.
+
+**Why.** Each job runs both arms on one runner, thus the ratio of a job compares code, not computers. But the ratio of a change can differ between two CPU models. The pool then puts two populations in one bootstrap, and its interval does not hold the difference between the two models. The verdict of each job keeps the information of each model.
+
+**Alternatives.** A stratified bootstrap draws the rounds inside each job and then joins the estimates of the jobs, with a test that they agree. It is the general form, and it goes to the shared bench core. A second alternative gives no read for each case on each mixed pair. It removes the verdicts that both jobs agree on.
+
+**Limits.** A slowdown that only one CPU model reads gives no read, not a hold. The warning shows it on the pull request.
+
+## D184 (2026-11-08): the conformance page shows a hidden duty, not a pass
+
+**Context.** K123. The page `learn/conformance` lets the reader turn on seven breaks of one evaluator. Each break breaks one duty. In a mix of breaks, `conforms` does not give a finding of each broken duty. A finding of `local` stops the checks C4 and C5. An effect without its capability gives an error, and C3 applies only to a value.
+
+**Decision.**
+
+- Each duty of the page has one of four states: found, kept, permitted by the contract, or hidden by another break.
+- The function `dutiesOf` gives the state from the findings of `conforms`, the breaks and the contract. A hidden or permitted state has its reason.
+- A fifth state, missed, is a broken duty without a finding and without a known reason. A test runs `conforms` on each of the 128 sets of breaks under each of the four contracts, and it finds no missed duty.
+- A test also shows each hidden finding again without the break that hides it.
+
+**Why.** A ring without a finding on a broken duty reads as a pass. The page shows the cause instead, thus the reader sees why one fix can show a new finding.
+
+**Alternatives.** Run each break alone. Then the page cannot show how the contract and the other breaks change the findings.
+
+**Limits.** The rules of `dutiesOf` copy two rules of `conform.ts`. The test of all sets finds a change of those rules as a missed duty.
+
+## D185 (2026-11-08): the site shows the `#VALUE!` issues of the check beside the `#TYPE!` issues
+
+
+**Context.** K243. In the playground, the text `1 + "a"` gave no issue, but a card of the kind `text` at the same place gave a `#TYPE!` issue.
+
+**Cause.** The core was correct. A part of `add` has the shape `{ shape: "list", of: "lit" }`, and the site machine declares the kind `number` at that place. A bare value at a place of a declared kind is a value of that kind. Thus the check examines `"a"` as a value of `number`, and gives `#VALUE!`. A card of the kind `text` is a document with its own type. Thus the check gives `#TYPE!` for it. The function `placeTypes` of the site kept only `#TYPE!`, thus the playground did not show the issue of the bare value.
+
+**Decision.**
+
+- `placeTypes` keeps the `#TYPE!` and the `#VALUE!` issues of the check, each with its code.
+- The mark of a card and each line of the list of the check show the code of the issue.
+- The core does not change.
+
+**Why.** The check found the problem before a run. A page that hides it tells the reader that the document has no problem.
+
+**Alternatives.** A `#TYPE!` issue for the bare value. The bare value is not a document with a type. It is a value of the declared kind, and a wrong value of a kind is `#VALUE!` in each other place of the core.
+
+## D186 (2026-11-08): the syntax page reads one text with three profiles
+
+**Context.** C16. The syntax kit (C15, D41) reads a profile as data. The site had no page that shows a profile as data.
+
+**Decision.**
+
+- The page `learn/syntax` reads one text with three profiles. They are `STD_SYNTAX`, a profile like the formulas of a spreadsheet, and the profile of the world of the site.
+- The spreadsheet profile is in the site, in `syntax-kit.ts`. It is like the profile `SHEET` of the tests of the core, with cells under the root `cells`.
+- Each example reads differently under at least two profiles. A test pins the tree of each example under each profile.
+- The page prints each document again and reads the printed text. A test examines the round trip of each document of the examples.
+- A bad text shows each issue at its span with its number. An issue with no length shows a bar at its place.
+- The table of the operators marks each operator that the text uses.
+
+**Why.** A reader sees that the profile, not the parser, decides the tree. The text `-x ^ 2` gives `-(x ^ 2)` in one profile and `(-x) ^ 2` in another.
+
+**Alternatives.** A form to edit a profile. A profile has functions for its references, thus a form cannot show each field. The three profiles show the fields that change the tree.
+
+## D187 (2026-11-08): K115 is dropped
+
+**Context.** K115 (D132). Each part of a plan keeps `runOf` of its code, approximately 96 bytes. The change made the steps of a part at its first run. D132 left the decision to the Speed verdict of CI.
+
+**Decision.** K115 is dropped, and #258 is closed without a merge. The branch `k115` stays as the record.
+
+- Two heads read two reference cases slower by 3.4 to 4.6 %, and `prepare` slower by 1.5 to 2.5 % (Speed runs 42485335912 and 42489026596).
+- A placebo in `compileNode` (#344) changed code that does not run. In 4 jobs of 2 runs, no reference case moved by more than 1.5 %.
+
+**Why.** `prepare` runs the changed lines, and its cost is in each run. A gain of 112 bytes for each part does not pay for a cost in `prepare` and in two cases of evaluation.
+
+**Alternatives.** A record in `bench/accepted` (K239). The cost has one sign on two heads, and the placebo did not give it. Thus the cost is not a move of the code of `compileNode` alone, and a record accepts a cost that the change gives.
+
+## D188 (2026-11-08): the bench imports only the parts of the kernel that its cases use
+
+**Context.** K246. The cases imported the namespace of the kernel and gave it to each case. Thus the bundle of each arm kept each export, also code that no timed call runs. K37 (#343) adds only `defineLanguage` and `compose`, and no case calls them. Three Speed runs of #343 read 5, 5 and 2 cases slower, by 0.6 to 11.7 %, with a different set in each run. The case "a reference of five steps" was slower in each of its 6 jobs.
+
+**Decision.**
+
+- `bench/cases.ts` imports the 7 parts that the cases use by name, and gives each case an object of those parts.
+- esbuild removes each export that the cases do not reach, as the bundler of a host does. The core sets `sideEffects` to false.
+- A case that reaches changed code still measures it, because the bundle keeps each part that a case reaches.
+- A change outside each timed path gives the same bundle on the two arms. With main and the head of #343, the two bundles have the hash `08a86c17bca3`. The hold of D117 starts only when the arms differ.
+
+**Why.** The timed code of the two arms of #343 is the same. A host does not see a difference of the bundle outside the timed code. The bundle of a host keeps only what the host imports. The cause of the slower reads of #343 is unread. With equal bundles, the code of such a change cannot give a hold.
+
+**Alternatives.** A record in `bench/accepted` for each slower case. Each run of #343 gave a different set, thus each push needed new records, and a record tells nothing about the cause. A placebo of the same size outside the timed paths. It costs a run, and it does not stop the next hold of this kind.
+
+## D189 (2026-11-08): a row of the ladder flip replaces a run that does not count
+
+**Context.** K247. The job `ladder-flip` measures one run for each row (D164). A run counts only when the A/A band of each walk contains 1. A row whose run does not count has no read. The gate then gives a block with the text "No run counts", and the check of the reasons failed the job. This occurred in run 42489026541, with the band 0.942 to 0.997 of `refsOf` on an EPYC 9V74, and in run 42482539243.
+
+**Decision.**
+
+- A row whose runs do not count measures a new run, up to 3 runs. The row pools all of its runs, as the gate pools its five runs.
+- The line of each replaced run tells the row and the number of the run.
+- After 3 runs with no counted run, the row has no read. The job fails with the line "no read. No run of 3 counts.", and the row gets no check of its reasons.
+
+**Why.** The table of the gate says "no: replace it" for a run that does not count. The flip did not do that. A no read is not a pass, thus the job still fails when no run counts.
+
+**Alternatives.** A pass for a row with no read. A no read then shows as a pass. A wider A/A band for the flip. The flip then examines a gate that is not the gate of the job `ladder`.
+

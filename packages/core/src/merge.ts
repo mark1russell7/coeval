@@ -7,14 +7,30 @@ import { type Kind, type World, type WorldEntry, isAlias, isKind, isNamespace } 
 /** The keys from a part of a merge to one of its entries, for example `["kinds", "ref"]`. */
 export type MergePath = readonly Key[];
 
+/** The entries of one kind of another part (COMPOSE.EXTEND-VERB). */
+export interface VerbEntries {
+  /**
+   * The path of the kind, as `replaces` names it, for example `["kinds", "ref"]`, `["kinds", "ops", "kinds", "mul"]`,
+   * `["kinds", "ops", "fallback"]` or `["fallback"]`.
+   */
+  readonly kind: MergePath;
+  /** The evaluator names, by verb, as in `verbs` of a kind. */
+  readonly verbs: Readonly<Record<string, string>>;
+}
+
 /**
  * A world as a part of a merge. Each field is optional. `replaces` names the paths of the entries that this part
- * replaces, for example `["kinds", "ref"]` or `["defaults", "view"]`. The result of a merge has no `replaces`.
+ * replaces, for example `["kinds", "ref"]` or `["defaults", "view"]`. The result of a merge has no `replaces`, no
+ * `verbs` and no `extends`.
  */
 export interface WorldPart {
   readonly kinds?: Readonly<Record<string, WorldEntry>>;
   readonly defaults?: Readonly<Record<string, string>>;
   readonly fallback?: Kind;
+  /** The verbs that this part owns. A part can add an entry of such a verb to a kind of another part. */
+  readonly verbs?: readonly string[];
+  /** The entries that this part adds to kinds. The merge adds them after each part (COMPOSE.EXTEND-VERB). */
+  readonly extends?: readonly VerbEntries[];
   readonly replaces?: readonly MergePath[];
 }
 
@@ -58,6 +74,8 @@ type Known = NonNullable<Machine["known"]>;
 type Facts = NonNullable<Machine["facts"]>;
 
 const NONE: ReadonlySet<string> = /* @__PURE__ */ new Set();
+/** The verbs that the kernel reads. Thus no language owns them (COMPOSE.PIRACY). */
+const KERNEL_VERBS: ReadonlySet<string> = /* @__PURE__ */ new Set(["eval", "deref", "step"]);
 
 function keyOf(path: MergePath): string {
   return JSON.stringify(path.map(String));
@@ -283,15 +301,112 @@ function mergeEntry(m: Merger, earlier: WorldEntry, later: WorldEntry, path: Mer
   return earlier;
 }
 
+/** One entry of `extends`, with what the merge knows from its part. */
+interface VerbEntry {
+  readonly kind: MergePath;
+  readonly verb: string;
+  readonly code: string;
+  readonly path: MergePath;
+  readonly part: number;
+  /** The part owns the verb, or it gives the kind. Thus the entry is not piracy. */
+  readonly allowed: boolean;
+  readonly replaced: boolean;
+}
+
 interface WorldDraft {
   readonly kinds: Record<string, WorldEntry>;
   readonly defaults: Record<string, string>;
   fallback?: Kind;
+  /** The part that owns each verb. */
+  readonly owners: Map<string, WorldPart>;
+  readonly entries: VerbEntry[];
 }
 
-function worldOf(draft: WorldDraft): World {
-  const world = { kinds: { ...draft.kinds }, defaults: { ...draft.defaults } };
-  return draft.fallback === undefined ? world : { ...world, fallback: draft.fallback };
+function worldDraft(): WorldDraft {
+  return { kinds: {}, defaults: {}, owners: new Map(), entries: [] };
+}
+
+interface KindTable {
+  readonly kinds: Readonly<Record<string, WorldEntry>>;
+  readonly fallback?: Kind;
+}
+
+/**
+ * This function gives a copy of a table with a change to the kind at a path, as `replaces` names the path. It gives
+ * `undefined` when no kind is at the path. An alias is not a kind.
+ */
+function changeKind<T extends KindTable>(table: T, path: MergePath, change: (kind: Kind) => Kind): T | undefined {
+  const [first, key, ...rest] = path;
+  if (String(first) === "fallback" && key === undefined) return table.fallback === undefined ? undefined : { ...table, fallback: change(table.fallback) };
+  if (String(first) !== "kinds" || key === undefined) return undefined;
+  const entry = own(table.kinds, String(key));
+  const next = rest.length === 0 ? (isKind(entry) ? change(entry) : undefined) : isNamespace(entry) ? changeKind(entry, rest, change) : undefined;
+  if (next === undefined) return undefined;
+  const kinds = { ...table.kinds };
+  setOwn(kinds, String(key), next);
+  return { ...table, kinds };
+}
+
+/**
+ * This function adds the entries of `extends` to the kinds of a draft. A later part can give the kind, thus this step
+ * reads the whole draft. Without `m`, it reports no conflict: a function part sees the entries of the parts before it.
+ */
+function addVerbs(draft: WorldDraft, m?: Merger): KindTable {
+  let table: KindTable = draft.fallback === undefined ? { kinds: draft.kinds } : { kinds: draft.kinds, fallback: draft.fallback };
+  for (const entry of draft.entries) {
+    if (!entry.allowed && !entry.replaced) {
+      m?.clash(entry.path, entry.part, "A part adds a verb that it does not own to a kind that it does not give.");
+      continue;
+    }
+    const next = changeKind(table, entry.kind, (kind) => {
+      const verbs: Record<string, string> = { ...kind.verbs };
+      const earlier = own(verbs, entry.verb);
+      if (earlier === undefined) m?.give(entry.path, entry.part);
+      else if (entry.replaced) m?.replace(entry.path, entry.part);
+      else if (earlier !== entry.code) m?.clash(entry.path, entry.part, "Two parts give two different evaluators for this verb of this kind.");
+      if (earlier === undefined || entry.replaced) setOwn(verbs, entry.verb, entry.code);
+      return { ...kind, verbs };
+    });
+    if (next !== undefined) table = next;
+    else if (!entry.replaced) m?.clash(entry.path, entry.part, "A part adds a verb to a path without a kind.");
+  }
+  return table;
+}
+
+function worldOf(draft: WorldDraft, m?: Merger): World {
+  const table = addVerbs(draft, m);
+  const world = { kinds: { ...table.kinds }, defaults: { ...draft.defaults } };
+  return table.fallback === undefined ? world : { ...world, fallback: table.fallback };
+}
+
+/** This function records the verbs that a part owns, and the entries that it adds to kinds. */
+function mergeVerbs(m: Merger, draft: WorldDraft, part: WorldPart, index: number, replaces: ReadonlySet<string>, base: MergePath): void {
+  const owned = part.verbs ?? [];
+  for (const verb of owned) {
+    const path = [...base, "verbs", verb];
+    const owner = draft.owners.get(verb);
+    if (replaces.has(keyOf(path))) {
+      draft.owners.set(verb, part);
+      m.replace(path, index);
+    } else if (KERNEL_VERBS.has(verb)) {
+      m.clash(path, index, "The kernel owns this verb.");
+    } else if (owner === undefined) {
+      draft.owners.set(verb, part);
+      m.give(path, index);
+    } else if (!same(owner, part)) {
+      m.clash(path, index, "Two parts own this verb.");
+    }
+  }
+  const table: KindTable = part.fallback === undefined ? { kinds: part.kinds ?? {} } : { kinds: part.kinds ?? {}, fallback: part.fallback };
+  for (const { kind, verbs } of part.extends ?? []) {
+    const gives = changeKind(table, kind, (found) => found) !== undefined;
+    for (const verb of Object.keys(verbs)) {
+      const code = verbs[verb];
+      if (code === undefined) continue;
+      const path = [...base, ...kind, "verbs", verb];
+      draft.entries.push({ kind, verb, code, path, part: index, allowed: gives || owned.includes(verb), replaced: replaces.has(keyOf(path)) });
+    }
+  }
 }
 
 function mergeWorldInto(m: Merger, draft: WorldDraft, part: WorldPart | undefined, index: number, replaces: ReadonlySet<string>, base: MergePath): void {
@@ -303,6 +418,7 @@ function mergeWorldInto(m: Merger, draft: WorldDraft, part: WorldPart | undefine
   }
   const fallback = mergeFallback(m, draft.fallback, part.fallback, [...base, "fallback"], index, replaces);
   if (fallback !== undefined) draft.fallback = fallback;
+  mergeVerbs(m, draft, part, index, replaces, base);
 }
 
 /**
@@ -313,6 +429,8 @@ function mergeWorldInto(m: Merger, draft: WorldDraft, part: WorldPart | undefine
  * - The defaults merge verb by verb, and the world keeps one fallback.
  * - Each other pair of entries at one path is a conflict, unless the later part names the path in `replaces`.
  *   Then the later entry wins, with no merge below it.
+ * - The entries of `extends` join their kinds after each part, thus the order of the parts does not change them. A
+ *   verb that a part does not own on a kind that it does not give is a conflict (COMPOSE.PIRACY).
  *
  * A part can be a function of the merge of the parts before it (`prev`, as an overlay of Nix). Thus a part can read
  * the entry that it replaces.
@@ -323,13 +441,14 @@ function mergeWorldInto(m: Merger, draft: WorldDraft, part: WorldPart | undefine
  */
 export function mergeWorlds(...parts: readonly (WorldPart | ((prev: World) => WorldPart))[]): World {
   const m = new Merger();
-  const draft: WorldDraft = { kinds: {}, defaults: {} };
+  const draft = worldDraft();
   parts.forEach((input, index) => {
     const part = typeof input === "function" ? input(worldOf(draft)) : input;
     mergeWorldInto(m, draft, part, index, new Set((part.replaces ?? []).map(keyOf)), []);
   });
+  const world = worldOf(draft, m);
   if (m.conflicts.length > 0) throw new MergeError(m.conflicts);
-  return worldOf(draft);
+  return world;
 }
 
 /** The fields of a machine that merge by their own rules. Each other field is one value, or a conflict. */
@@ -392,12 +511,12 @@ function composeFacts(hooks: readonly { readonly part: number; readonly facts: F
   };
 }
 
-function machineOf(draft: MachineDraft): Machine {
+function machineOf(draft: MachineDraft, m?: Merger): Machine {
   const known = composeKnown(draft.hooks, draft.replaced);
   const facts = composeFacts(draft.factHooks, draft.replaced);
   return {
     ...draft.rest,
-    world: worldOf(draft.world),
+    world: worldOf(draft.world, m),
     evaluators: { ...draft.evaluators },
     ...(draft.runners === undefined ? {} : { runners: { ...draft.runners } }),
     ...(draft.derefs === undefined ? {} : { derefs: { ...draft.derefs } }),
@@ -474,7 +593,7 @@ function checkHidden(m: Merger, draft: MachineDraft): void {
  */
 export function mergeMachines(...parts: readonly (MachinePart | ((prev: Machine) => MachinePart))[]): Machine {
   const m = new Merger();
-  const draft: MachineDraft = { world: { kinds: {}, defaults: {} }, evaluators: {}, hooks: [], factHooks: [], replaced: new Map(), rest: {}, parts: [] };
+  const draft: MachineDraft = { world: worldDraft(), evaluators: {}, hooks: [], factHooks: [], replaced: new Map(), rest: {}, parts: [] };
   parts.forEach((input, index) => {
     const part = typeof input === "function" ? input(machineOf(draft)) : input;
     draft.parts.push(part);
@@ -502,8 +621,9 @@ export function mergeMachines(...parts: readonly (MachinePart | ((prev: Machine)
     }
   });
   checkHidden(m, draft);
+  const machine = machineOf(draft, m);
   if (m.conflicts.length > 0) throw new MergeError(m.conflicts);
-  return machineOf(draft);
+  return machine;
 }
 
 /** This function removes the entry at a path from a table of entries. It gives the same table when no entry is there. */

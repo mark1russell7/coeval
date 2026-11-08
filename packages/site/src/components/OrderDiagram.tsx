@@ -100,7 +100,7 @@ export default function OrderDiagram() {
               ))}
             </ol>
           </div>
-          <div className="ce-scroll">
+          <div className="ce-scroll scroll-cue">
             <p className="ce-panel-title">As a graph</p>
             <svg
               className="ce-svg"
