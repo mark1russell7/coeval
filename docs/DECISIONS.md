@@ -4912,6 +4912,28 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
 - A `#N/A` of a closed record stays with TYPE.NO-STEP.
 
+## D150 (2026-11-04): an evaluator that is a function can hold a type rule
+
+**Context.** C14 shows the types of the cards on the site. The standard evaluators are functions and have no rules, thus each card of the site has the type `unknown`.
+
+**Decision.**
+
+- `ruleOf` reads the field `type` of a function too, as it reads the field of an object.
+- The site gives rules to the standard kinds of its pictures, on a new function that calls the standard evaluator.
+- The standard kit stays without rules at this time.
+
+**Alternatives.**
+
+- Rules on `STD_EVALUATORS`. A rule needs an object or a new function. Each standard evaluation then goes through other code, and the speed gates change for a site feature.
+- A `typeRules` field on the machine. It is a second place for one fact, and each reader of a rule must know both.
+
+**Why.** The rule follows the evaluator, as TYPE.RULE tells. One test in `ruleOf` keeps this true for each form of an evaluator.
+
+**Limits.**
+
+- A rule on a run side kind has no effect, thus the cards of `seq`, `log` and the run form of `if` show `unknown`.
+- A later roadmap item can move the rules from the site to the standard kit.
+
 ## D176 (2026-11-07): the Speed verdict prints the family read of its cases, as a report
 
 **Context.** K225. On equal arms, 4 of 352 case reads were slower (1.1 %), and this fits the level of 2.5 % for each case. But a run reads 16 cases with no correction, thus up to a third of the runs can read one false slower case. Also, one slower job beside a flat job can make a pooled case slower. The function `familyRead` of rigor-bench 0.2.26 (rigor #101) gives two reads. The Holm read corrects over the cases. The read of each job keeps a case only when each job reads it alone.
@@ -4928,6 +4950,7 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
 
 **Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
+
 
 
 ## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
