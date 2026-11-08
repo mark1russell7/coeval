@@ -3,7 +3,7 @@ import { partsOf as docParts } from "./parts.ts";
 import type { Kind, KindFacts, LazyRule, WorldEntry } from "./world.ts";
 import { type CompiledPath, type Context, type Resolution, compilePath, valueOfThing, walkerOf } from "./deref.ts";
 import { type EvalError, type Failed, type Result, Failure, fail, ok, thrown } from "./errors.ts";
-import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, codeReader, resolveCompiled, totalCode } from "./evaluate.ts";
+import { type Code, type CompileInput, type CompiledEvaluator, type CompiledPart, type Evaluator, type Machine, type Runtime, resolveCompiled, totalCode } from "./evaluate.ts";
 import { type MachinePart, mergeMachines } from "./merge.ts";
 import { type Domain, type Proof, type ValueType, HEADER_KEYS, STD_DOMAINS, callable, fieldOf, fits, fnOf, holdsEnvelope, isPrecise, isUnknown, itemOf, join, member, stepType, typeIssues, typeText } from "./types.ts";
 import type { Declared, PartType, Proven, TypeInput, TypeRule } from "./typing.ts";
@@ -171,9 +171,8 @@ function setOwn(target: Record<string, unknown>, key: string, value: unknown): v
   else target[key] = value;
 }
 
-/** This function gives a compiled evaluator of the kit. Each one reads only the code of its parts (PLAN.PART-RUN). */
 function compiled(compile: (input: CompileInput) => Code): CompiledEvaluator {
-  return { compile: codeReader(compile) };
+  return { compile };
 }
 
 /** This function evaluates parts in order. It gives the value of each part, or the first error. */
