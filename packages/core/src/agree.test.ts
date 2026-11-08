@@ -466,7 +466,7 @@ function formulaConfig(name: string, profile: FormulaProfile, more: Partial<Mach
     name,
     machine,
     options: formulaOptions(machine),
-    agree: { strict: true, definitions: formulaDefinitions(profile), declaredType: "lit", observe: () => calls.splice(0), equal: boxes },
+    agree: { strict: true, profile, definitions: formulaDefinitions(profile), declaredType: "lit", observe: () => calls.splice(0), equal: boxes },
   };
 }
 
@@ -534,19 +534,19 @@ const CONFIGS: readonly Config[] = [
     name: "two languages in one machine",
     machine: composed,
     options: { ...formulaOptions(composed), types: [...typesOf(composed.world), ...OP_TYPES, ...EXT_TYPES, ["ops", "twice"]] },
-    agree: { strict: true, definitions: formulaDefinitions(STRICT), declaredType: "lit", observe: () => calls.splice(0), equal: boxes },
+    agree: { strict: true, profile: STRICT, definitions: formulaDefinitions(STRICT), declaredType: "lit", observe: () => calls.splice(0), equal: boxes },
   },
   {
     name: "language",
     machine: language,
     options: { ...formulaOptions(language), types: LANGUAGE_TYPES },
-    agree: { strict: true, definitions: formulaDefinitions(LOOSE), declaredType: "lit", observe: () => calls.splice(0) },
+    agree: { strict: true, profile: LOOSE, definitions: formulaDefinitions(LOOSE), declaredType: "lit", observe: () => calls.splice(0) },
   },
   {
     name: "language, a default of step",
     machine: defaulted,
     options: { ...formulaOptions(defaulted), types: LANGUAGE_TYPES },
-    agree: { strict: true, definitions: formulaDefinitions(LOOSE), declaredType: "lit", observe: () => calls.splice(0) },
+    agree: { strict: true, profile: LOOSE, definitions: formulaDefinitions(LOOSE), declaredType: "lit", observe: () => calls.splice(0) },
   },
 ];
 
@@ -791,6 +791,20 @@ async function harnessRun(config: Config, total: number): Promise<RunOutcome> {
   }
   return { findings, codes, reordered, reads };
 }
+
+describe.each(CONFIGS.filter((config) => config.agree.profile !== undefined).map((config) => [config.name, config] as const))("the stepper on %s", (_name, config) => {
+  it("[AGREE.STEPPER] the stepper gives the result of the plan for each generated document", () => {
+    const findings: unknown[] = [];
+    for (let index = 0; index < COUNT; index += 1) {
+      const seed = SEED * 1_000_003 + index;
+      const doc = generate(config.machine.world, { ...config.options, seed });
+      const ctx = CONTEXTS[index % CONTEXTS.length] as Context;
+      const outcome = agree(config.machine, doc, ctx, { ...config.agree, tiers: ["stepper"] });
+      if (!outcome.ok) findings.push({ seed, tier: outcome.tier, reason: outcome.reason, plan: outcome.plan, other: outcome.other, doc });
+    }
+    expect(findings.slice(0, 2)).toEqual([]);
+  });
+});
 
 const outcomes = new Map<string, Outcome>();
 
