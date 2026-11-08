@@ -95,6 +95,11 @@ export function groups(names: readonly string[]): number[][] {
 const CASES_FILE = fileURLToPath(new URL("./cases.ts", import.meta.url));
 /** The one tsconfig of both arms. The base arm has no install, so its own file cannot find the file that it extends (K234). */
 const TSCONFIG = fileURLToPath(new URL("../tsconfig.json", import.meta.url));
+/**
+ * The folder of the packages of the install of the bench. The base arm has no install, thus esbuild finds each package
+ * of both arms here, as the runtime dependencies of the kernel (D191). Both arms then bundle the same code of a package.
+ */
+const NODE_PATHS = [fileURLToPath(new URL("../node_modules", import.meta.url))];
 
 /** The name of the file of rows that accept a changed result (K237, D169). It is in the folder `bench` of each arm. */
 export const ROWS_FILE = "changed-results.json";
@@ -130,7 +135,7 @@ export async function bundle(kernelFile: string, name: string, dir: string, tsco
     },
   };
   const define = slow === undefined ? {} : { define: { BENCH_SLOW: JSON.stringify(slow) } };
-  const { warnings } = await bundler.build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, plugins: [copy], ...define });
+  const { warnings } = await bundler.build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, nodePaths: NODE_PATHS, plugins: [copy], ...define });
   const unresolved = warnings.filter((warning) => warning.text.includes("Cannot find base config file"));
   if (unresolved.length > 0) throw new Error(`The tsconfig of the arms does not resolve: ${unresolved.map((warning) => warning.text).join(" ")}`);
   return outfile;
