@@ -2,6 +2,35 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.24.1
+
+PATCH: before `1.0.0`, a new feature or a fix increases PATCH. Each change adds an export or an optional field, or corrects a fault. No export goes, and no type changes.
+
+### New features
+
+- **The agreement rule for types (D148).** `agreeTypes(machine, doc, context, options)` evaluates a document and examines that each value agrees with its type. The clauses are `value`, `argument` and `error`. The new exports are `agreeTypes`, `AgreeTypesOptions` and `TypeAgreement`.
+- **Guards at the boundaries of types (D149).** `boundariesOf(typing, domains)` gives each place where a part with an imprecise type meets a position that needs a type. The new option `guards` of `prepare`, `evaluate` and `run` takes that list. The default is no list, thus a run without the option does not change. The new exports are `Boundary` and `boundariesOf`. `TypeRule` and `Typed` get the optional field `read`.
+- **A map over the documents (D152).** `mapDocs(world, doc, change, options)` changes the documents of a tree from the root to the parts, and it can stop at a node. The new export is the type `DocChange`.
+- **A runner for `if` (D153).** `ifRunner(truth)` gives a runner of `if` with the three failures and the order of the parts in one body.
+- **A call form is the text of a domain value (D141).** `SyntaxForm` gets the optional field `domain`.
+- **A field of data in a syntax form (D177).** `SyntaxForm` gets the optional field `data`. `WORLD_SYNTAX` gets a form for the kind `handle`, thus `print` writes a text for each document of D146.
+- **A function evaluator can hold a type rule (D150).** `ruleOf` reads the field `type` of a function, as it reads the field of an object. The field must be a `TypeRule` with a function `synth`.
+
+### Fixes
+
+- **`print` gives an error for a dotted call without field steps (D142).** With `ops: true` and `fields: false`, it wrote `m.p(1)`, and `parse` refused that text.
+- **A kept read that reaches a true cycle gives no false `#CYCLE!` (D145).** A node with a real read from the cycle stays on the cycle in each order. A node without one stays outside it.
+- **A plain attribute of a node with a circular attribute takes the cell of the host (K244).**
+- **`agreeTypes` gives its finding for a bigint or a record with a cycle (K245).** It threw a `TypeError` before.
+- **`print` writes a record with the key `type` that is not an envelope as `sub` (K245).** `parse` refused the text that `print` gave before.
+- **`factsOf` is 15 to 16 % faster on a tree with an equation (K238).** The walk reads the grant rules one time for each kind. A part with no grant keeps its capabilities with no copy. 0.24.0 read them again for each part.
+
+### Tests and CI
+
+These changes are not in the package. The dev dependencies `rigor-bench` and `rigor-statistics` move to `^0.2.29` and `^0.1.16`.
+
+Speed reads one gate unit for each pair of jobs (D179). Its flip test seeds a real slowdown (D180), and each PR shows its gate line (D181). On a mixed CPU pair, a case takes the verdict of the two jobs only when they agree (D183). A block of the ladder gate gives a PR warning (D182). A group of split test parts above 0.0359 of the test time fails a full CI run (D174).
+
 ## 0.24.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The union `CapsRule` gets a member, and a document of the kind `handle` gives a result where it gave an error. No export goes.
