@@ -1,5 +1,6 @@
 import { type Key, isRecord } from "./doc.ts";
-import type { Machine } from "./evaluate.ts";
+import { type InputWithRuntime, type Machine, type Plan, RUNTIME, evaluateWithin, makeContext, planner } from "./evaluate.ts";
+import { fail } from "./errors.ts";
 import { type MachinePart, type MergeConflict, type WorldPart, MergeError, mergeMachines } from "./merge.ts";
 
 /** The code half of a language: each field of a machine part, without the world. */
@@ -144,4 +145,53 @@ export function compose(...languages: readonly Language[]): Machine {
   });
   if (conflicts.length > 0) throw new MergeError(conflicts);
   return mergeMachines(...parts);
+}
+
+/**
+ * This function makes the language of the boundary kind `lang` (K38, D193). A document of the kind holds the name of a
+ * language and a document in that language: `{ type: "lang", value: { language, doc } }`. The machine of the named
+ * language prepares and evaluates the inner document, as a module of another language (COMPOSE.BOUNDARY).
+ *
+ * The boundary is closed. The inner document gets no names, no capabilities and no node as `self`. Only its result
+ * crosses the boundary. Thus an effect in the inner document fails with `#CAP!`, and the inner machine cannot read the
+ * names of the outer document.
+ *
+ * @param machines - The machine of each language, by the name that a document gives.
+ * @returns The language, for `compose`.
+ */
+export function boundary(machines: Readonly<Record<string, Machine>>): Language {
+  const plans = new Map<string, (doc: unknown) => Plan>();
+  const planOf = (name: string): ((doc: unknown) => Plan) | undefined => {
+    let found = plans.get(name);
+    if (found === undefined && Object.hasOwn(machines, name)) {
+      found = planner(machines[name] as Machine);
+      plans.set(name, found);
+    }
+    return found;
+  };
+  return defineLanguage({
+    name: "boundary",
+    version: "1.0.0",
+    world: {
+      kinds: {
+        lang: {
+          verbs: { eval: "boundary.lang" },
+          summary: "A document in another language. The machine of that language evaluates it, with no names and no capabilities.",
+        },
+      },
+    },
+    code: {
+      evaluators: {
+        "boundary.lang": (input) => {
+          const { data, place } = input;
+          if (!isRecord(data) || typeof data["language"] !== "string" || !("doc" in data)) {
+            return fail("#VALUE!", "A document of the kind lang has the value { language, doc }.", { place });
+          }
+          const plans = planOf(data["language"]);
+          if (plans === undefined) return fail("#NAME?", `The boundary knows no language ${JSON.stringify(data["language"])}.`, { place });
+          return evaluateWithin(plans(data["doc"]), makeContext(), (input as InputWithRuntime)[RUNTIME]);
+        },
+      },
+    },
+  });
 }

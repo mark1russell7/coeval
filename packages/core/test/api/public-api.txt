@@ -291,6 +291,7 @@ attributeGraph: build/index.d.ts#attributeGraph
 attributeTrace: build/index.d.ts#attributeTrace
 attributeVertexId: build/index.d.ts#attributeVertexId
 boundariesOf: build/index.d.ts#boundariesOf
+boundary: build/index.d.ts#boundary
 capKeys: build/index.d.ts#capKeys
 check: build/index.d.ts#check
 checkCycles: build/index.d.ts#checkCycles
@@ -2535,6 +2536,9 @@ export declare function attributeVertexId(place: readonly Key[], attribute: stri
 export declare function boundariesOf(typing: {
   readonly places: readonly Typed[];
 }, domains?: Readonly<Record<string, Domain>>): readonly Boundary[];
+
+### build/index.d.ts#boundary
+export declare function boundary(machines: Readonly<Record<string, Machine>>): Language;
 
 ### build/index.d.ts#capKeys
 export declare function capKeys(kind: Cap): readonly string[];
