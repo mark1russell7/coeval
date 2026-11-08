@@ -166,6 +166,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D149 | `boundariesOf` gives the boundaries of a check as data, and the option `guards` of `prepare` tests them (K28). A value that breaks a boundary gives `#VALUE!` there. A plan without the option has no test. |
 | D150 | A function evaluator can hold a type rule in its field `type`, so the site shows real types without a change to the standard kit (C14). |
 | D151 | The playground reads each editor from a contract, and an empty position holds a site kind `hole` that evaluates to an error value with its place (C11). The kernel does not change. |
+| D154 | A walker and an extension declare the roots that they read, and the facts count these reads (K54). The new profile field is `extReads`. |
 | D152 | The export `mapDocs` changes the documents of a document from the root to the parts, and its function can stop at a node (K222). |
 | D153 | The export `ifRunner` gives an `if` with the truth of a host, and `control.if` is one such runner (K221). |
 | D176 | The Speed verdict prints the Holm read and the read of each job over its cases, as a report (K225). It changes no verdict and no hold. |
@@ -184,6 +185,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D187 | K115 is dropped. Two heads read two reference cases 3.4 to 4.6 % slower, and a placebo in `compileNode` did not give the cost (K115). |
 | D188 | The bench imports only the parts of the kernel that its cases use, thus a change outside each timed path gives the same bundle on the two arms (K246). |
 | D189 | A row of the ladder flip whose run does not count measures a new run, up to 3. After 3 runs with no counted run, the row has no read, and the job fails (K247). |
+| D159 | The formula kit has a Lean model with a clock, and CI compares it with the plan on generated documents (K96). |
 | D191 | The random numbers of the core come from `mulberry32` of `rigor-generators`, and the draws of the core keep their rules (K248). |
 
 ## Open
