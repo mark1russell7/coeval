@@ -186,6 +186,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D187 | K115 is dropped. Two heads read two reference cases 3.4 to 4.6 % slower, and a placebo in `compileNode` did not give the cost (K115). |
 | D188 | The bench imports only the parts of the kernel that its cases use, thus a change outside each timed path gives the same bundle on the two arms (K246). |
 | D189 | A row of the ladder flip whose run does not count measures a new run, up to 3. After 3 runs with no counted run, the row has no read, and the job fails (K247). |
+| D192 | The search of the strongly connected components comes from `strongComponentsCompact` of `@mark1russell7/collections`. A test pins the answers of the old copy first (K249). |
 | D159 | The formula kit has a Lean model with a clock, and CI compares it with the plan on generated documents (K96). |
 
 ## Open

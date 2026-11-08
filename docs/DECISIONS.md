@@ -5353,3 +5353,19 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** A tier of `agree`. A tier runs in the process of the test, and the model is another process. One process for each batch keeps the run fast. Elan to install Lean. The workflow then runs a script from the network, and a pinned hash is simpler. Theorems in this slice. Determinism and the monotonicity of the clock need the model first, and K223 holds them.
 
 **Limits.** This slice proves one small theorem only: a clock of zero stops an evaluation. The model has no `ext`, no field `own` and no `maxDepth` for documents. A generated document stays far under that limit. The test skips a document with `ext` or `own`. A number that is not a safe integer becomes 7 before the comparison, because `V` holds integers. The model has one operation, `add`. A walk into a held error gives another result, because the model does not hold the fields of that error. The clock counts the nesting of an evaluation, not its steps.
+
+## D192 (2026-11-08): the search of strongly connected components comes from `collections`
+
+**Context.** K249. The core had its own copy of the search of Tarjan in `graph.ts`, with its own stack. The home of graphs is `@mark1russell7/collections`. Its version 0.9.11 adds `strongComponentsCompact(n, start, targets)` in the entry `@mark1russell7/collections/graph`.
+
+**Decision.**
+
+- The function `strong` of `graph.ts` uses `strongComponentsCompact` with the indexed form of the graph. The core keeps no copy of the search.
+- `components`, `heights`, `nodeLayers` and `cycles` keep their own rules of edges: lazy edges, edges without a target and sinks.
+- The test GRAPH.SCC-SAME pins the answers of the old copy on 600 seeded graphs, before the move (CA14).
+
+**Why.** Each thing has one home. The search of the home gives the same order. The deepest component is first, and the members of a component are in increasing order. The entry imports no other package and has no side effects, thus the bundle of the core stays pure.
+
+**Alternatives.** The copy in the core. Two copies then drift. The keyed form `stronglyConnectedComponents`. It needs a function for each node, and the indexed form of the core has arrays already.
+
+**Limits.** The core has its first runtime dependency. The search of the home checks its arguments, and this check walks each edge one more time.

@@ -1,3 +1,4 @@
+import { strongComponentsCompact } from "@mark1russell7/collections/graph";
 import type { Side } from "./world.ts";
 
 /*
@@ -110,72 +111,12 @@ interface Strong {
 }
 
 /**
- * This function finds the strongly connected components with the algorithm of Tarjan. It keeps its own stack of
- * calls in two arrays, thus a long chain does not overflow the stack of the host. Each component comes after each
- * component that its nodes reach: the deepest component comes first.
+ * This function finds the strongly connected components with `strongComponentsCompact` of
+ * `@mark1russell7/collections` (K249). The search keeps its own stack, thus a long chain does not overflow the stack
+ * of the host. Each component comes after each component that its nodes reach: the deepest component comes first.
  */
 function strong(graph: Indexed<unknown>): Strong {
-  const { size, start, targets } = graph;
-  const order = new Int32Array(size).fill(-1);
-  const low = new Int32Array(size);
-  const of = new Int32Array(size).fill(-1);
-  // The nodes of the components that are still open.
-  const open = new Int32Array(size);
-  const onOpen = new Uint8Array(size);
-  // The stack of calls: a node, and the position of its next edge.
-  const calls = new Int32Array(size);
-  const next = new Int32Array(size);
-  const list: number[][] = [];
-  let top = 0;
-  let count = 0;
-  const enter = (node: number, depth: number): void => {
-    order[node] = count;
-    low[node] = count;
-    count += 1;
-    open[top] = node;
-    top += 1;
-    onOpen[node] = 1;
-    calls[depth] = node;
-    next[depth] = start[node] as number;
-  };
-  for (let root = 0; root < size; root += 1) {
-    if (order[root] !== -1) continue;
-    enter(root, 0);
-    let depth = 1;
-    while (depth > 0) {
-      const node = calls[depth - 1] as number;
-      const edge = next[depth - 1] as number;
-      if (edge < (start[node + 1] as number)) {
-        next[depth - 1] = edge + 1;
-        const to = targets[edge] as number;
-        if (order[to] === -1) {
-          enter(to, depth);
-          depth += 1;
-        } else if (onOpen[to] === 1 && (order[to] as number) < (low[node] as number)) {
-          low[node] = order[to] as number;
-        }
-        continue;
-      }
-      depth -= 1;
-      if (low[node] === order[node]) {
-        const members: number[] = [];
-        let member: number;
-        do {
-          top -= 1;
-          member = open[top] as number;
-          onOpen[member] = 0;
-          of[member] = list.length;
-          members.push(member);
-        } while (member !== node);
-        list.push(members.sort((a, b) => a - b));
-      }
-      if (depth > 0) {
-        const reader = calls[depth - 1] as number;
-        if ((low[node] as number) < (low[reader] as number)) low[reader] = low[node] as number;
-      }
-    }
-  }
-  return { of, list };
+  return strongComponentsCompact(graph.size, graph.start, graph.targets);
 }
 
 /** This function tells if a component has a cycle: two or more nodes, or one node with an edge to itself. */
