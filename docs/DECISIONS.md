@@ -5328,6 +5328,18 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** A pass for a row with no read. A no read then shows as a pass. A wider A/A band for the flip. The flip then examines a gate that is not the gate of the job `ladder`.
 
+## D159 (2026-11-04): the formula kit has a Lean model, and CI compares it with the plan
+
+**Context.** K96, R7 P7. Three readings of the semantics are in TypeScript. A model in a language of proofs is a reading that shares no host with them. The main risk of such a model is drift from the code.
+
+**Decision.** The folder `proofs/` holds a Lean 4 package. The file `Coeval/Formula.lean` defines the formula kit over JSON as a total function with a clock. The executable `coeval-model` reads one document on each line and prints one result. The test AGREE.LEAN gives the same generated documents to the model and to the plan. It compares the value, or the code of the error. The workflow `lean.yml` runs each night, by hand, and on a pull request that changes the model. It downloads one release of Lean with a pinned hash.
+
+**Why.** A comparison in CI controls the drift, as JSRef does for JSCert. The clock makes `eval` total, thus later proofs need no assumption about termination. A nested list keeps the keys of a record in order. This is necessary because `Lean.Json` sorts its keys, and the order of the fields selects the first error. The comparison uses the code of an error and not its reason. A reason is text for a reader, not a part of the semantics.
+
+**Alternatives.** A tier of `agree`. A tier runs in the process of the test, and the model is another process. One process for each batch keeps the run fast. Elan to install Lean. The workflow then runs a script from the network, and a pinned hash is simpler. Theorems in this slice. Determinism and the monotonicity of the clock need the model first, and K223 holds them.
+
+**Limits.** This slice proves one small theorem only: a clock of zero stops an evaluation. The model has no `ext`, no field `own` and no `maxDepth` for documents. A generated document stays far under that limit. The test skips a document with `ext` or `own`. A number that is not a safe integer becomes 7 before the comparison, because `V` holds integers. The model has one operation, `add`. A walk into a held error gives another result, because the model does not hold the fields of that error. The clock counts the nesting of an evaluation, not its steps.
+
 ## D158 (2026-11-04): the stepper is a third tier, and its stack is data
 
 **Context.** K95, R7 P6. The plan and the reference share the code of the lookup, the split and the steps of a path (D15). Thus `agree` cannot find a bug in that code. A document that nests deeply overflows the stack of the host in both tiers. An evaluation cannot stop and go on from data.

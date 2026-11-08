@@ -255,6 +255,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | AGREE.ERRORS | Two errors agree when they have the same code, and the same place when both have one. With `strict`, they also have the same reason, and each has a place. An overflow of the stack of the host is the one permitted difference. |
 | AGREE.EFFECTS | Two tiers agree only when they cause the same effects in the same order, with the same kinds, places and payloads. The host also sees the same calls. |
 | AGREE.TIER | A language gives `agree` its second tier as a function. `agree` names the first tier that disagrees with the plan, and the reason. |
+| AGREE.LEAN | The Lean model in `proofs/` gives the result of the plan for each generated document of the formula kit: the value, or the code of the error. The workflow `lean.yml` runs it. |
 | AGREE.STEPPER | The tier `stepper` of `agree` gives the result of the plan for each generated document of the formula kit, with the effects. It is not a default tier, and `agree` takes the profile in its option `profile`. |
 | AGREE.MOCK | `agree` gives its mock `perform` to each tier, also to the second tier of a language. Thus the tiers agree on documents with effects. When two tiers record the address or the outcome of an effect, these agree too. |
 | AGREE.MUTANT | The harness finds a tier that changes the order of the parts, or that evaluates a branch that the reference does not evaluate. |
