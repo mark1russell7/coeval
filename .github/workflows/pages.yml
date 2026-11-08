@@ -53,5 +53,5 @@ jobs:
       deploy: ${{ github.event_name != 'pull_request' }}
       # The site check opens these pages in a browser before the deploy. Its probe drives the first page.
       site-check: true
-      site-check-pages: /playground/,/,/start/model/,/releases/,/status/,/learn/replay/
+      site-check-pages: /playground/,/,/start/model/,/releases/,/status/,/learn/replay/,/learn/conformance/
       site-check-probe: packages/site/src/check-probe.ts
