@@ -238,7 +238,7 @@ function pathKey(path: readonly Key[]): string {
 export function ruleOf(machine: Machine, name: string | undefined): TypeRule | undefined {
   if (name === undefined || (machine.runners !== undefined && Object.hasOwn(machine.runners, name))) return undefined;
   const evaluator = Object.hasOwn(machine.evaluators, name) ? machine.evaluators[name] : undefined;
-  const rule = typeof evaluator === "object" && evaluator !== null ? (evaluator as { readonly type?: unknown }).type : undefined;
+  const rule = (typeof evaluator === "object" && evaluator !== null) || typeof evaluator === "function" ? (evaluator as { readonly type?: unknown }).type : undefined;
   return typeof rule === "object" && rule !== null && typeof (rule as TypeRule).synth === "function" ? (rule as TypeRule) : undefined;
 }
 
