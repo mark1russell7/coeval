@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   STD_CAPS,
-  STD_EVALUATORS,
   STD_RUNNERS,
   STD_WALKERS,
   evaluate,
@@ -19,12 +18,14 @@ import {
 import { HOLE_KIND, evalHole } from "../lib/contract.ts";
 import { Port } from "./Card.tsx";
 import { valueText } from "./Value.tsx";
-import { ContextStrip, EffectsLog, LadderGlyph, SealedPart } from "./Panels.tsx";
+import { ContextStrip, EffectsLog, LadderGlyph, SealedPart, TypeIssues } from "./Panels.tsx";
 import { View, SITE_WORLD, WorldContext } from "./View.tsx";
 import { OverlayContext, pathKey, type Overlay } from "./overlay.ts";
 import { useReducedMotion, prettyJson } from "../lib/motion.ts";
 import { links } from "../lib/scope.ts";
 import { moveLinks } from "../lib/moves.ts";
+import { placeTypes } from "../lib/types.ts";
+import { TYPED_EVALUATORS } from "../lib/typedStd.ts";
 import RefArrows from "./RefArrows.tsx";
 
 /**
@@ -42,7 +43,7 @@ export function playgroundHref(doc: Json): string {
 const NO_NAMES: Readonly<Record<string, Json>> = {};
 
 /** The machine of the site: the world of the site, and the standard evaluators. */
-export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: { ...STD_EVALUATORS, [HOLE_KIND]: evalHole }, runners: STD_RUNNERS, walkers: STD_WALKERS };
+export const SITE_MACHINE: Machine = { world: SITE_WORLD, evaluators: { ...TYPED_EVALUATORS, [HOLE_KIND]: evalHole }, runners: STD_RUNNERS, walkers: STD_WALKERS };
 
 /** The props of the explorer. */
 export interface ExplorerProps {
@@ -138,6 +139,7 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
   const last = events[tick - 1];
   const current = last?.node;
   const focus = selected === undefined ? current : (nodes.get(selected) ?? current);
+  const typing = useMemo(() => placeTypes(SITE_MACHINE, doc, names), [doc, names]);
 
   const overlay: Overlay = {
     run,
@@ -146,6 +148,7 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
     ...(current === undefined ? {} : { current: current.id }),
     showRungs,
     ...(selected === undefined ? {} : { selected }),
+    typeIssues: typing.marked,
     onSelect: (path) => setSelected(pathKey(path)),
   };
 
@@ -278,12 +281,17 @@ export default function Explorer({ doc, names = NO_NAMES, caps = STD_CAPS, label
                   <h4 className="cv-panel-head">4. Its result</h4>
                   {focus.exit < tick ? <Port result={focus.result} /> : <span className="cv-muted cv-small">Not yet.</span>}
                 </section>
+                <section>
+                  <h4 className="cv-panel-head">Its type</h4>
+                  <span className="ce-mono cv-small">{typing.types.get(pathKey(focus.path)) ?? "unknown"}</span>
+                </section>
               </>
             )}
           </aside>
         )}
       </div>
 
+      <TypeIssues issues={typing.issues} onSelect={(path) => setSelected(pathKey(path))} />
       {run.effects.length > 0 && <EffectsLog effects={run.effects} tick={tick} />}
 
       <div className="cv-final" data-ok={run.result.ok}>
