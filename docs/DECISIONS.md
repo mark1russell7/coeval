@@ -5119,6 +5119,21 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The further pairs of a dispatch (D179) stay in the log of the job `verdict`. They are for the A/A series, not for a pull request.
 
+## D182 (2026-11-08): a block of the report-only ladder gate gives a warning on the pull request
+
+**Context.** K225 and D181. The ladder gate of `Measure` (D164) is report only. A block exits with the code 3, and the step keeps the job green. The line of the block was only in the log and the summary of the job. A green check with a hidden block is a silent pass.
+
+**Decision.**
+
+- With `LADDER_ANNOTATE=1`, the mode `merge` of `ladder.ts` prints a warning annotation with the gate line on a block.
+- Only the step "Pool the five runs" sets `LADDER_ANNOTATE`. The flip rows block on purpose, thus they give no annotation.
+- The flip step checks the warning text of each block row, and no warning on the pass row.
+- The flip step reads the warnings inside a `stop-commands` window. Thus the runner makes no annotation from them.
+
+**Why.** The warning tells the reader of the pull request that the ladder gate found a slope over its bound. The check stays green while the gate is report only.
+
+**Limits.** The line "Under that size: no read" gives the smallest slope that the gate can find. It is a size, not a case with no read, thus it gives no warning.
+
 ## D184 (2026-11-08): the conformance page shows a hidden duty, not a pass
 
 **Context.** K123. The page `learn/conformance` lets the reader turn on seven breaks of one evaluator. Each break breaks one duty. In a mix of breaks, `conforms` does not give a finding of each broken duty. A finding of `local` stops the checks C4 and C5. An effect without its capability gives an error, and C3 applies only to a value.
@@ -5135,5 +5150,6 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** Run each break alone. Then the page cannot show how the contract and the other breaks change the findings.
 
 **Limits.** The rules of `dutiesOf` copy two rules of `conform.ts`. The test of all sets finds a change of those rules as a missed duty.
+
 
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { STD_MACHINE, decodeLog } from "@mark1russell7/coeval";
-import { DOCUMENT_CHANGES, RECORDED_TEXT, countingHost, logJson, recordRun, replayRun } from "./replay.ts";
+import { DOCUMENT_CHANGES, RECORDED_TEXT, countingHost, logJson, recordRun, replayRun, shownReplay } from "./replay.ts";
 
 const change = (id: string): string => DOCUMENT_CHANGES.find((item) => item.id === id)?.text ?? "";
 
@@ -47,5 +47,18 @@ describe("the runs of the replay diagram", () => {
     const read = decodeLog(STD_MACHINE, JSON.parse(JSON.stringify(logJson(recorded.log))));
     expect(read.ok).toBe(true);
     if (read.ok) expect((await replayRun(RECORDED_TEXT, read.value)).result).toEqual(recorded.result);
+  });
+
+  it("[RUN.REPLAY] the diagram shows a replay only for its change and its recording", async () => {
+    const host = countingHost();
+    const first = await recordRun(RECORDED_TEXT, host);
+    const second = await recordRun(RECORDED_TEXT, host);
+    const run = await replayRun(change("payload"), first.log);
+    const kept = { change: "payload", recorded: first, run };
+    expect(shownReplay(kept, "payload", first)).toBe(run);
+    // A click on another change, or a new recording, makes the last replay old until the new one comes.
+    expect(shownReplay(kept, "kind", first)).toBeUndefined();
+    expect(shownReplay(kept, "payload", second)).toBeUndefined();
+    expect(shownReplay(undefined, "payload", first)).toBeUndefined();
   });
 });

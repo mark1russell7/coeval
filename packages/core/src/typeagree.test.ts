@@ -36,6 +36,23 @@ describe("the agreement rule for types", () => {
     expect(found).toMatchObject({ ok: false, clause: "value", place: PLACE });
   });
 
+  it("[STATIC.TYPES-AGREE] gives the finding of a value without a JSON text, as a bigint or a record with a cycle", () => {
+    const ring: Record<string, unknown> = {};
+    ring["self"] = ring;
+    const host = formulaMachine({ ops: { big: () => 10n as never, ring: () => ring as never }, sigs: { big: { params: [], to: "number" }, ring: { params: [], to: "number" } } });
+    expect(agreeTypes(host, op("big"), context(), LIT)).toMatchObject({ ok: false, clause: "value", place: [], reason: "The value 10 is not a member of number." });
+    expect(agreeTypes(host, op("ring"), context(), LIT)).toMatchObject({ ok: false, clause: "value", place: [] });
+    // The clause argument writes its value with the same text.
+    const domains: Readonly<Record<string, Domain>> = {
+      whole: { is: (value) => typeof value === "bigint", covers: [["small", "big"]] },
+      small: { is: (value) => typeof value === "bigint" && value < 1n, under: ["whole"] },
+      big: { is: (value) => typeof value === "bigint" && value > 9n, under: ["whole"] },
+    };
+    const sigs: Readonly<Record<string, Signature>> = { make: { params: [], to: "whole" }, use: { params: [{ union: ["small", "big"] }], to: "number" } };
+    const covered: Machine = mergeMachines(formulaMachine({ ops: { make: () => 5n as never, use: () => 1 }, sigs }), { domains });
+    expect(agreeTypes(covered, op("use", op("make")), context(), LIT)).toMatchObject({ ok: false, clause: "argument", place: PLACE, reason: "The value 5 is not a member of the needed type small | big." });
+  });
+
   it("[STATIC.TYPES-AGREE] finds a root that is not a member of its root type", () => {
     const rootTypes = { self: { record: { x: "number" } } };
     expect(agreeTypes(machine, ref("self", "x"), context({ self: { x: "a" } }), { rootTypes })).toMatchObject({ ok: false, clause: "value" });

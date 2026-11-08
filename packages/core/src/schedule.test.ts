@@ -1488,6 +1488,15 @@ describe("the certain cycles of a schedule", () => {
     // A change of the structure changes the answer.
     s.set("b", 2);
     expect(checkCycles(s).map((issue) => issue.place)).toEqual([["self"]]);
+
+    // A node on the run side is a sink, thus no cycle goes through it, and checkCycles agrees with each read.
+    const side = schedule(STD_MACHINE, { context: context({ caps: ["log"] }) });
+    side.set("p", { type: "log", value: [ref("world", "q")] });
+    side.set("q", { type: "list", value: [ref("world", "p")] });
+    side.set("r", { type: "log", value: [ref("world", "r")] });
+    expect(side.graph().get("p")?.side).toBe("run");
+    expect(checkCycles(side)).toEqual([]);
+    expect(side.read("q")).toEqual(fail("#REF!", "The node p is on the run side, thus it has no value for a reader.", { place: [0] }));
     s.remove("self");
     expect(checkCycles(s)).toEqual([]);
     expect(s.read("a")).toEqual(ok(3));

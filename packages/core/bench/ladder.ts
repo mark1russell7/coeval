@@ -449,8 +449,14 @@ function merge(files: readonly string[]): void {
       `| \`${name}\` | ${rungs.map((value) => Math.round(value)).join(", ")} | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
   });
-  lines.push("", `Gate (report only, D164): ${blocks.length === 0 ? "pass." : `block. ${blocks.join(" ")}`}`, `Smallest slope that gives a block: ${sights.join(", ")}. Under that size: no read.`);
+  const gateLine = `Gate (report only, D164): ${blocks.length === 0 ? "pass." : `block. ${blocks.join(" ")}`}`;
+  lines.push("", gateLine, `Smallest slope that gives a block: ${sights.join(", ")}. Under that size: no read.`);
   writeSummary(lines);
+  // A block of the report-only gate gives a warning on the pull request, thus a green check does not hide it (K225, D182).
+  // Only the real pool sets LADDER_ANNOTATE, because the flip rows block on purpose.
+  if (blocks.length > 0 && process.env["LADDER_ANNOTATE"] === "1") {
+    process.stdout.write(`::warning title=Ladder gate (report only)::${gateLine.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}\n`);
+  }
   if (blocks.length > 0 && process.env["LADDER_BLOCK"] === "1") process.exitCode = 3;
   const excluded = all.filter((run) => !counts(run)).map(runName);
   process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", counted: runs.map(runName), excluded, walks: measures })}\n`);
