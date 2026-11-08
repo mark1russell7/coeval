@@ -5014,3 +5014,21 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Why.** The editor and the text pane agree on each new document, thus each state of an edit has a text (SYNTAX.ROUNDTRIP).
 
 **Limits.** A field with a record shape still starts as a hole. A step of a path stays inside the path of a reference, and the path input edits it.
+
+## D180 (2026-11-08): the flip test of Speed seeds a real slowdown in the head arm
+
+**Context.** K225. The second bar of the owner of the gate is power. The gate must find a real slowdown of a stated size in at least 90 % of the seeded runs. The bench had no way to make the head arm slower by a known factor.
+
+**Decision.**
+
+- The dispatch input `slow` gives a multiple `k` of the margin of each family. `paths.ts` reads it as `BENCH_SLOW`.
+- The function `slowFactors` gives `exp(k * margin)` for each case. The margin is on a log scale, thus `k = 1` gives exactly the printed margin.
+- The script builds the head arm again with the esbuild define `BENCH_SLOW`. The base arm and each pull request get no define.
+- A sample with a factor above 1 waits in its timed part. Its time then is that factor times the time of its calls.
+- The concurrency group of Speed includes `slow`. Thus a flip dispatch and an A/A dispatch on one base do not cancel each other.
+
+**Why.** The wait is in the timed part, thus the timer reads the slowdown as real time. The noise of the calls stays, and the factor scales it. Only the head arm changes, thus the arms differ and a slower reading holds the merge.
+
+**Alternatives.** A slower copy of the kernel. Its slowdown is not known before a measurement, thus it gives no stated size.
+
+**Limits.** The wait does not change the code of the calls. Thus the flip reads the power of the gate for a slower time, not for a change of the compiled code. The flip uses the multiples 1, 1.5 and 2.

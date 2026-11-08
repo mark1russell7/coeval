@@ -44,6 +44,10 @@
  * esbuild of the base, and the workflow sets it only when the two lock files give different versions. The script then
  * also builds the base with the esbuild of the head, and prints the two hashes of the base. Equal hashes show that the
  * new version gives the same code. Different hashes make the table a time read of the new version.
+ *
+ * The flip test (K225, D180). `BENCH_SLOW` gives a multiple `k` of the margin of each family. The script then builds
+ * the head arm again with one factor `exp(k * margin)` for each case, and each sample of the head waits to that factor.
+ * Without `BENCH_SLOW`, the head arm has no factors, as in each pull request.
  */
 import * as esbuild from "esbuild";
 import type { Plugin } from "esbuild";
@@ -116,7 +120,7 @@ export function bundlerIn(prefix: string): Bundler {
 }
 
 /** This function bundles the cases with one copy of the kernel, under one tsconfig. A tsconfig that does not resolve stops it. */
-export async function bundle(kernelFile: string, name: string, dir: string, tsconfig: string = TSCONFIG, bundler: Bundler = esbuild): Promise<string> {
+export async function bundle(kernelFile: string, name: string, dir: string, tsconfig: string = TSCONFIG, bundler: Bundler = esbuild, slow?: readonly number[]): Promise<string> {
   const outfile = join(dir, `${name}.mjs`);
   const kernel = resolveFile(kernelFile);
   const copy: Plugin = {
@@ -125,10 +129,20 @@ export async function bundle(kernelFile: string, name: string, dir: string, tsco
       builder.onResolve({ filter: /^\.\.\/src\/index\.ts$/ }, (args) => (resolveFile(args.importer) === CASES_FILE ? { path: kernel } : undefined));
     },
   };
-  const { warnings } = await bundler.build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, plugins: [copy] });
+  const define = slow === undefined ? {} : { define: { BENCH_SLOW: JSON.stringify(slow) } };
+  const { warnings } = await bundler.build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, plugins: [copy], ...define });
   const unresolved = warnings.filter((warning) => warning.text.includes("Cannot find base config file"));
   if (unresolved.length > 0) throw new Error(`The tsconfig of the arms does not resolve: ${unresolved.map((warning) => warning.text).join(" ")}`);
   return outfile;
+}
+
+/**
+ * This function gives the seeded factor of each case for the flip test (K225, D180): `exp(k * margin)`, with the margin
+ * of the family of the case. The margin is on a log scale, thus `k = 1` gives a slowdown of exactly the margin.
+ */
+export function slowFactors(names: readonly string[], multiple: number): number[] {
+  if (!Number.isFinite(multiple) || multiple <= 0 || multiple > 4) throw new RangeError(`The multiple of the margin must be above 0 and at most 4: ${String(multiple)}.`);
+  return names.map((name) => Math.exp(multiple * (limitsOf(name).options.margin ?? 0)));
 }
 
 /** This function runs one bundle in a new process, and gives its measurements. With `only`, the process runs those cases. */
@@ -166,6 +180,8 @@ export interface SpeedOptions {
   readonly cases?: readonly string[];
   /** The rows of the base and of the head. Without them, the run reads `changed-results.json` of each arm. */
   readonly rows?: ResultRows;
+  /** The multiple of the margin for the seeded slowdown of the head arm (K225, D180). Without it, the head has no factors. */
+  readonly slow?: number;
 }
 
 /** The output of one run: the record that `merge.ts` reads, the lines of its table and the verdict of its results. */
@@ -186,26 +202,30 @@ export async function speedRun(options: SpeedOptions): Promise<SpeedOutput> {
   const prefix = process.env["BENCH_BASE_ESBUILD"];
   const baseBundler = prefix === undefined || prefix === "" ? esbuild : bundlerIn(prefix);
   const [baseCopy, headCopy] = [await bundle(baseFile, "base", dir, TSCONFIG, baseBundler), await bundle(headFile, "head", dir)];
-  const arms = { base: armHash(readFileSync(baseCopy, "utf8")), head: armHash(readFileSync(headCopy, "utf8")) };
+  const baseHash = armHash(readFileSync(baseCopy, "utf8"));
   const esbuildLine =
     baseBundler === esbuild
       ? `Esbuild (K233): both arms build with esbuild ${esbuild.version}.`
       : await (async () => {
           const other = armHash(readFileSync(await bundle(baseFile, "base-new", dir), "utf8"));
-          const read = other === arms.base ? "equal: the new version gives the same code" : "different: the table reads the time of the new version";
-          return `Esbuild (K233): the base arm builds with esbuild ${baseBundler.version}, the head arm with ${esbuild.version}. The hash of the base is ${arms.base.slice(0, 12)} with ${baseBundler.version} and ${other.slice(0, 12)} with ${esbuild.version}, ${read}.`;
+          const read = other === baseHash ? "equal: the new version gives the same code" : "different: the table reads the time of the new version";
+          return `Esbuild (K233): the base arm builds with esbuild ${baseBundler.version}, the head arm with ${esbuild.version}. The hash of the base is ${baseHash.slice(0, 12)} with ${baseBundler.version} and ${other.slice(0, 12)} with ${esbuild.version}, ${read}.`;
         })();
   console.log(esbuildLine);
   // A first process calibrates the calls of each sample, thus each copy does the same work. Its times do not count.
   const all = measureCopy(baseCopy);
   const counts = all.map((item) => item.calls);
+  // The flip test builds the head again with the factors of the cases, thus only the head arm waits (K225, D180).
+  const timedHead = options.slow === undefined ? headCopy : await bundle(headFile, "head-slow", dir, TSCONFIG, esbuild, slowFactors(all.map((item) => item.name), options.slow));
+  if (options.slow !== undefined) console.log(`Seeded slowdown (K225, D180): each sample of the head arm waits to exp(${String(options.slow)} * margin) of its family.`);
+  const arms = { base: baseHash, head: armHash(readFileSync(timedHead, "utf8")) };
   const absent = (options.cases ?? []).filter((name) => !all.some((item) => item.name === name));
   if (absent.length > 0) throw new Error(`cases.ts does not have the cases ${absent.join(", ")}.`);
   const first = options.cases === undefined ? all : all.filter((item) => options.cases?.includes(item.name) === true);
   const names = first.map((item) => item.name);
   const indexes = names.map((name) => all.findIndex((item) => item.name === name));
   // A first process of the head gives its results. The fresh runner times only the arms, and the verdict of the rows reads the results.
-  const heads = measureCopy(headCopy, counts, indexes);
+  const heads = measureCopy(timedHead, counts, indexes);
   const results = resultVerdict(
     names.map((name, index) => ({ case: name, base: resultHash((first[index] as Measured).result), head: resultHash((heads[index] as Measured).result) })),
     options.rows ?? { base: rowsOf(baseFile), head: rowsOf(headFile) },
@@ -220,7 +240,7 @@ export async function speedRun(options: SpeedOptions): Promise<SpeedOutput> {
       ? undefined
       : await freshRun({
           base: arm("base", baseCopy),
-          candidates: [arm("head", headCopy)],
+          candidates: [arm("head", timedHead)],
           cases: timed,
           rounds,
           roundOffset: Number.isInteger(job) && job >= 1 ? (job - 1) * rounds : 0,
@@ -270,7 +290,8 @@ async function main(): Promise<void> {
   const [baseFile, headFile] = process.argv.slice(2);
   if (baseFile === undefined || headFile === undefined) throw new Error("Give the index.ts of the base and of the head.");
   const run = process.env["BENCH_RUN"] ?? "1";
-  const { record, lines, results } = await speedRun({ baseFile, headFile, rounds: ROUNDS, run });
+  const slow = process.env["BENCH_SLOW"];
+  const { record, lines, results } = await speedRun({ baseFile, headFile, rounds: ROUNDS, run, ...(slow === undefined || slow === "" ? {} : { slow: Number(slow) }) });
   const text = lines.join("\n");
   console.log(text);
   const summary = process.env["GITHUB_STEP_SUMMARY"];
