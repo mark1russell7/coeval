@@ -4920,3 +4920,24 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** A runner for `formula.if` in each formula machine. A runner wins over an evaluator of the same name. Thus each formula `if` then pays for a generator, and the bench refuses a slower read. A formula `if` holds no effect, so it has no need to wait.
 
 **Limits.** A bare value in a part stays a literal of the kit. A missing `then` stays an error of `check`. A host that reads older documents keeps these two rewrites, and `mapDocs` (D152) is the place for them.
+
+## D178 (2026-11-08): each new document of the structured editor has a text
+
+**Context.** C17b. The structured editor (C11, D151) and the text pane (C17, D61) show one document. A test of each kind of the menu found seven new documents with no text in `SITE_SYNTAX`. Thus a reader saw an empty text pane after such an edit.
+
+**Decision.**
+
+- A field with a list or a map shape gets an empty list or map, and not a hole. Thus `handle` starts as `handle(with: [], body: hole())`.
+- The function `emptyDoc` takes a profile. A list gets one hole for each argument that the call form needs, thus `log` starts as `log(hole())`.
+- A new path starts at the root `self`, because the root `names` alone has no text.
+- The menu of a position leaves out a step of a path: a kind with the verb `step` and no verb `eval`, for example `nearest`.
+- A test prints each new document of the menu and reads it back. The site probe reads the text pane after an edit of the tree.
+
+**Alternatives.**
+
+- A least count on the list shape of a contract. The kernel has none, and the call form already holds the count.
+- A text for a bare `names`. The text `names` reads as the name `names`, so such a text needs new syntax.
+
+**Why.** The editor and the text pane agree on each new document, thus each state of an edit has a text (SYNTAX.ROUNDTRIP).
+
+**Limits.** A field with a record shape still starts as a hole. A step of a path stays inside the path of a reference, and the path input edits it.

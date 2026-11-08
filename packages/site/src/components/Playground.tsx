@@ -14,7 +14,7 @@ import { editorOf, emptyDoc, isHole, kindsAt, namesAt, newHole } from "../lib/co
 import { appendAt, declaredAt, getAt, removeAt, setAt } from "../lib/edit.ts";
 import { prettyJson } from "../lib/motion.ts";
 import { PROGRAMS } from "../lib/programs.ts";
-import { docText, markIssue, readText } from "../lib/syntax.ts";
+import { SITE_SYNTAX, docText, markIssue, readText } from "../lib/syntax.ts";
 
 /** The wait after the last key, in milliseconds, before the text pane reads its text. */
 const TEXT_WAIT = 300;
@@ -184,7 +184,7 @@ export default function Playground() {
             <select
               value={hole || !kinds.includes(type) ? "" : type}
               onChange={(event) => {
-                const next = emptyDoc(SITE_WORLD, event.target.value);
+                const next = emptyDoc(SITE_WORLD, event.target.value, SITE_SYNTAX);
                 const keep = envelope?.name;
                 const withName = keep === undefined ? next : { ...(fromJson(next) ?? typed(event.target.value, null)), name: keep };
                 change(setAt(doc, selected, withName));
