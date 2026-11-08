@@ -155,6 +155,7 @@ jobs:
       state: ${{ steps.merge.outputs.state }}
       reason: ${{ steps.merge.outputs.reason }}
       gate: ${{ steps.merge.outputs.gate }}
+      gate_annotation: ${{ steps.merge.outputs.gate_annotation }}
       gate_outcome: ${{ steps.merge.outputs.gate_outcome }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -217,6 +218,7 @@ jobs:
           STATE: ${{ needs.verdict.outputs.state }}
           REASON: ${{ needs.verdict.outputs.reason }}
           GATE: ${{ needs.verdict.outputs.gate }}
+          GATE_ANNOTATION: ${{ needs.verdict.outputs.gate_annotation }}
           GATE_OUTCOME: ${{ needs.verdict.outputs.gate_outcome }}
       - uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         if: always()

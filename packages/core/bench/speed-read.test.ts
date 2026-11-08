@@ -42,44 +42,44 @@ function acceptedDir(name: string, records: unknown): string {
 }
 
 /** This function starts the real script of the verdict, and gives its exit status and the outputs that it writes. */
-function verdict(name: string, first: string, second: string, accepted: string = acceptedDir(name, undefined)): { status: number | null; output: string; state: string; reason: string; gate: string; gateOutcome: string } {
+function verdict(name: string, first: string, second: string, accepted: string = acceptedDir(name, undefined)): { status: number | null; output: string; state: string; reason: string; gate: string; gateAnnotation: string; gateOutcome: string } {
   const output = join(dir, `${name}.output`);
   writeFileSync(output, "");
   const child = spawnSync(process.execPath, [MERGE, first, second], { encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: "", BENCH_ACCEPTED: accepted } });
   const text = readFileSync(output, "utf8");
   const field = (key: string): string => new RegExp(`^${key}=(.*)$`, "m").exec(text)?.[1] ?? "";
-  return { status: child.status, output: text, state: field("state"), reason: field("reason"), gate: field("gate"), gateOutcome: field("gate_outcome") };
+  return { status: child.status, output: text, state: field("state"), reason: field("reason"), gate: field("gate"), gateAnnotation: field("gate_annotation"), gateOutcome: field("gate_outcome") };
 }
 
 /** This function starts the script of the check with a state, a reason and the gate. `text` is the first line of the output. */
-function check(state: string, reason: string, gate = "", gateOutcome = ""): { status: number | null; text: string; lines: string[] } {
-  const env = { ...process.env, STATE: state, REASON: reason, GATE: gate, GATE_OUTCOME: gateOutcome, GITHUB_STEP_SUMMARY: "" };
+function check(state: string, reason: string, gate = "", gateOutcome = "", annotation = ""): { status: number | null; text: string; lines: string[] } {
+  const env = { ...process.env, STATE: state, REASON: reason, GATE: gate, GATE_OUTCOME: gateOutcome, GATE_ANNOTATION: annotation, GITHUB_STEP_SUMMARY: "" };
   const child = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env });
   const lines = child.stdout.trim().split("\n");
   return { status: child.status, text: lines[0] ?? "", lines };
 }
 
-describe("the check shows the line of the report-only gate (K225, D181)", () => {
-  const LINE = "Gate (report only, D163): no read. 9 not slower, 0 slower, 7 no read, of 16 cases, on the CPU pair A + B. No read: x.";
+describe("the check shows the line of the report-only gate (K225, D181, K242)", () => {
+  const LINE = "Speed gate (D163): no read for 1 of 2 cases: x. jobs on 1 CPU model: A (2 jobs). A no read is not a pass.";
+  const WARNING = `::warning title=Speed gate (D163)%3A no read (report only)%2C 1 no read::${LINE}`;
 
   it("prints the line of a pass with no warning", () => {
-    const read = check("same", "the reason", "Gate (report only, D163): pass. 16 not slower, 0 slower, 0 no read, of 16 cases, on the CPU pair A + A.", "pass");
+    const read = check("same", "the reason", "Speed gate (D163): pass for 2 of 2 cases. Jobs on 1 CPU model: A (2 jobs).", "pass");
     expect(read.status).toBe(0);
-    expect(read.lines).toEqual(["Speed OK: same. the reason", "Gate (report only, D163): pass. 16 not slower, 0 slower, 0 no read, of 16 cases, on the CPU pair A + A."]);
+    expect(read.lines).toEqual(["Speed OK: same. the reason", "Speed gate (D163): pass for 2 of 2 cases. Jobs on 1 CPU model: A (2 jobs)."]);
   });
 
-  it("gives a warning on a gate no read, and the check stays green while the gate is report only", () => {
-    const read = check("same", "the reason", LINE, "no read");
+  it("prints the warning of the job verdict on a gate no read, and the check stays green while the gate is report only", () => {
+    const read = check("same", "the reason", LINE, "no read", WARNING);
     expect(read.status).toBe(0);
-    expect(read.lines).toEqual(["Speed OK: same. the reason", LINE, `::warning title=Speed gate (report only)::${LINE}`]);
+    expect(read.lines).toEqual(["Speed OK: same. the reason", LINE, WARNING]);
   });
 
-  it("gives a warning on a gate block, and on a missing line of the gate", () => {
-    expect(check("same", "r", "Gate (report only, D163): block. 1 %", "block").lines[2]).toBe("::warning title=Speed gate (report only)::Gate (report only, D163): block. 1 %25");
-    expect(check("same", "r").lines.slice(1)).toEqual([
-      "Gate (report only, D163): no read. The job verdict wrote no line of the gate.",
-      "::warning title=Speed gate (report only)::Gate (report only, D163): no read. The job verdict wrote no line of the gate.",
-    ]);
+  it("gives the fixed warning on a missing line, and on a block or a no read with no warning", () => {
+    const missing = ["Speed gate (D163): no read. The job verdict wrote no line of the gate.", "::warning title=Speed gate (D163)%3A no read (report only)::The job verdict wrote no line of the gate. A no read is not a pass."];
+    expect(check("same", "r").lines.slice(1)).toEqual(missing);
+    expect(check("same", "r", "", "pass").lines.slice(1)).toEqual(missing);
+    expect(check("same", "r", LINE, "block").lines.slice(1)).toEqual(missing);
   });
 });
 
@@ -110,14 +110,16 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
     expect(read.reason).toContain("0 slower");
   });
 
-  it("writes the line of the gate with the CPU pair, and the names of the cases with no read (K225, D181)", () => {
+  it("writes the line of the gate from gateLine of rigor-bench, with the CPU models and the cases with no read (K225, D181, K242)", () => {
     const pass = verdict("gate-pass", runFile("gate-pass-1", whole), runFile("gate-pass-2", second));
-    expect(pass.gateOutcome).toBe("pass");
-    expect(pass.gate).toBe("Gate (report only, D163): pass. 2 not slower, 0 slower, 0 no read, of 2 cases, on the CPU pair a CPU + a CPU.");
+    expect(pass).toMatchObject({ gateOutcome: "pass", gateAnnotation: "" });
+    expect(pass.gate).toBe("Speed gate (D163): pass for 2 of 2 cases. Jobs on 1 CPU model: a CPU (2 jobs).");
     const split = verdict("gate-split", runFile("gate-split-1", [benchCase("x", 1.1, 0), benchCase("y", 1, 0)]), runFile("gate-split-2", second));
-    expect(split.gateOutcome).toBe("no read");
-    expect(split.gate).toBe("Gate (report only, D163): no read. 1 not slower, 0 slower, 1 no read, of 2 cases, on the CPU pair a CPU + a CPU. No read: x.");
+    const line = "Speed gate (D163): no read for 1 of 2 cases: x. jobs on 1 CPU model: a CPU (2 jobs). A no read is not a pass.";
+    expect(split).toMatchObject({ gateOutcome: "no read", gate: line, gateAnnotation: `::warning title=Speed gate (D163)%3A no read (report only)%2C 1 no read::${line}` });
     expect(split.state).not.toBe("no read");
+    // The check prints the line and the warning that the verdict wrote.
+    expect(check("same", "r", split.gate, split.gateOutcome, split.gateAnnotation).lines.slice(1)).toEqual([line, split.gateAnnotation]);
   });
 
   it("writes slower on a slower case, and it exits 0, because this stays report only", () => {

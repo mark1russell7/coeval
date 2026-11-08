@@ -26,7 +26,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { familyRead, notSlowerVerdict, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
+import { familyRead, gateLine, jobModels, notSlowerVerdict, writeGateLine, pooledVerdict, timeVerdict, type NotSlowerVerdict, type PairedTime, type PooledVerdict, type TimeOutcome, type TimeVerdict, type VerdictOptions } from "@mark1russell7/rigor-bench";
 import { acceptHold, readAccepted, type Acceptance } from "./accepted.ts";
 import { FAMILIES, limitsOf, limitsRecord, percentOf, type Family } from "./limits.ts";
 
@@ -341,19 +341,28 @@ export function familyLines(runs: readonly (BenchRun | undefined)[], names: read
   return familyRead(items).lines;
 }
 
+/** The line of the gate that `Speed OK` shows, and the annotation of GitHub for a block or a no read (K242). */
+export interface GateCheck {
+  readonly text: string;
+  /** The annotation of `writeGateLine`, or an empty text for a pass. */
+  readonly annotation: string;
+}
+
 /**
- * This function gives the one line of the gate that `Speed OK` shows on the pull request (K225, D181). The line has the
- * outcome and the counts of all cases. It also has the CPU models of the two runs, and the names of the slower and unread cases.
+ * This function gives the line of the gate that `Speed OK` shows on the pull request (K225, D181, K242). The line comes
+ * from `gateLine` of `rigor-bench`. It names each block and each no read, and the CPU models of the jobs.
  * Thus a gate with no read does not look like a pass, also while the gate is report only.
  */
-export function gateNote(gate: NotSlowerVerdict, runs: readonly (BenchRun | undefined)[]): string {
-  const count = (read: NotSlowerVerdict["cases"][number]["read"]): number => gate.cases.filter((item) => item.read === read).length;
-  const pair = runs.map((run) => run?.cpu ?? "no run").join(" + ");
-  const named = (label: string, names: readonly string[]): string => (names.length === 0 ? "" : ` ${label}: ${names.join(", ")}.`);
-  const counts = `${String(count("not slower"))} not slower, ${String(count("slower"))} slower, ${String(count("no read"))} no read, of ${String(gate.cases.length)} cases`;
-  const text = `Gate (report only, D163): ${gate.outcome}. ${counts}, on the CPU pair ${pair}.${named("Slower", gate.blocks)}${named("No read", gate.noRead)}`;
-  return text.replace(/\s+/g, " ").trim();
+export function gateCheck(gate: NotSlowerVerdict, runs: readonly (BenchRun | undefined)[]): GateCheck {
+  const models = jobModels(runs.flatMap((run) => (run === undefined ? [] : [{ cpu: run.cpu }])));
+  const line = gateLine(gate.cases, { title: GATE_TITLE, ...(models.length === 0 ? { reason: "the two runs are missing" } : { models }) });
+  if (line !== undefined) return { text: line.text, annotation: writeGateLine(line, { log: () => undefined, summary: undefined })?.annotation ?? "" };
+  const each = models.map((item) => `${item.model} (${String(item.jobs)} ${item.jobs === 1 ? "job" : "jobs"})`).join(", ");
+  return { text: `${GATE_TITLE}: pass for ${String(gate.cases.length)} of ${String(gate.cases.length)} cases. Jobs on ${String(models.length)} CPU ${models.length === 1 ? "model" : "models"}: ${each}.`, annotation: "" };
 }
+
+/** The name of the report-only gate in its line and in its annotation. */
+export const GATE_TITLE = "Speed gate (D163)";
 
 /** This function gives the lines of the gate in the verdict: one line of counts, then the reason of each slower case. */
 export function gateLines(gate: NotSlowerVerdict): string[] {
@@ -418,8 +427,9 @@ function main(): void {
   const mixed = pair === undefined ? "" : mixedLine(pair, noReadNames);
   lines.push("", armLine(runs), hold, ...(acceptance?.lines ?? []), ...(mixed === "" ? [] : [mixed]));
   const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different, equalArms(runs), acceptance, mixed);
+  const check = gateCheck(gate, runs);
   const output = process.env["GITHUB_OUTPUT"];
-  if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\ngate=${gateNote(gate, runs)}\ngate_outcome=${gate.outcome}\n`);
+  if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\ngate=${check.text}\ngate_annotation=${check.annotation}\ngate_outcome=${gate.outcome}\n`);
   const text = lines.join("\n");
   console.log(text);
   // A case with no read on a mixed CPU pair gives a warning on the pull request, and the check stays green (D183).
