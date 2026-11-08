@@ -134,7 +134,9 @@ export default function SyntaxKitDiagram() {
         <div id={`${inputId}-status`} aria-live="polite">
           {read.ok ? (
             <p className="ce-result" data-state="go" style={{ margin: 0 }}>
-              The profile <strong>{profile.label}</strong> reads the text as one document. The tree has {rows.length} {rows.length === 1 ? "node" : "nodes"}.
+              <span>
+                The profile <strong>{profile.label}</strong> reads the text as one document. The tree has {rows.length} {rows.length === 1 ? "node" : "nodes"}.
+              </span>
             </p>
           ) : (
             <div className="ce-result" data-state="stop" style={{ display: "grid", gap: "var(--space-2)" }}>
