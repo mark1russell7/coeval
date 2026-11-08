@@ -1,6 +1,7 @@
 import { type Json, type Key, docEquals, isEnvelope, typePath } from "./doc.ts";
 import { type Kind, type ScopeRule, type Shape, type World, type WorldEntry, isAlias, isKind, isNamespace, lookupKind } from "./world.ts";
 import { pathMatches } from "./parts.ts";
+import { mulberry32 } from "@mark1russell7/rigor-generators";
 import { ROOTS, type Root } from "./deref.ts";
 
 /** A source of random numbers with a seed. The same seed gives the same numbers. */
@@ -16,20 +17,14 @@ export interface Random {
 }
 
 /**
- * This function makes a source of random numbers with a seed (the algorithm mulberry32). It needs no package.
+ * This function makes a source of random numbers with a seed. The numbers come from `mulberry32` of
+ * `@mark1russell7/rigor-generators` (K248, D191). The draws `int`, `chance` and `pick` keep the rules of the core.
  *
  * @param seed - The seed: a whole number.
  * @returns The source.
  */
 export function random(seed: number): Random {
-  let state = seed >>> 0;
-  const next = (): number => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  const next = mulberry32(seed);
   const int = (below: number): number => Math.floor(next() * below);
   return { next, int, chance: (p) => next() < p, pick: (items) => items[int(items.length)] as never };
 }
