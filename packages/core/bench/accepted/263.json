@@ -1,0 +1,9 @@
+[
+  {
+    "case": "a reference into a host thing with resolve",
+    "head": "227e208dafd7",
+    "cost": "+0.6 % (noise -0.2 %) and +1.4 % (noise -0.3 %), slower in each job: Speed run 42504593514. +1.7 % (noise -0.2 %) and +1.3 % (noise +0.1 %), slower in each job: Speed run 42512924631. The case takes about 150 ns, thus the cost is about 2 ns for each evaluation.",
+    "reason": "The cost is small and steady, with one sign in four jobs. K216 adds the limit of work (WORK.LIMIT, D134): each evaluation of the reference tier gets a count of its work, three fields of the environment and an end mark in a finally block. Which of these parts gives the cost is unread. A limit of work needs a count for each evaluation, thus the cost stays with the feature. The other 15 cases are not slower, and D190 removed the cost of 64 % in the same tree, with a list of reads.",
+    "owner": "coeval session (K216)"
+  }
+]
