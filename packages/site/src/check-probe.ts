@@ -20,9 +20,17 @@ const PLAYGROUND = ".cv-playground";
 const TEXT = `${PLAYGROUND} .cv-syntax-text`;
 const PORT = `${PLAYGROUND} .cv-final .cv-port`;
 const PROBLEM = `${PLAYGROUND} .cv-syntax-problem`;
+const ISSUES = `${PLAYGROUND} section.cv-type-issues`;
 
 /** This function gives the result of the document as a text. */
 const result = (): string => $(PORT)?.getAttribute("title")?.replace("The result of this document: ", "") ?? "";
+/** This function gives the type of the selected card, as the panel shows it (C14). */
+const typeText = (): string =>
+  $$(`${PLAYGROUND} .cv-panel .cv-small`)
+    .find((each) => each.querySelector(".cv-panel-head")?.textContent?.trim() === "Its type")
+    ?.querySelector(".ce-mono")?.textContent?.trim() ?? "";
+/** This function tells if the card at this path is the selected card. */
+const selectedAt = (path: string): boolean => $(`${PLAYGROUND} .cv-card[data-path="${path}"]`)?.getAttribute("data-selected") === "true";
 /** This function gives the text of the document. */
 const text = (): string => ($(TEXT) as HTMLTextAreaElement | null)?.value ?? "";
 /** This function gives the button of the playground with this text. */
@@ -90,6 +98,20 @@ check("the text follows each edit of the tree (C17b)", !text().includes("hole()"
 // A missing name gives an error at the result, and not a broken page.
 click(button("A missing name") as Element);
 check("a missing name gives an error", await until(() => $(PORT)?.getAttribute("data-ok") === "false"), $(PORT)?.textContent);
+
+// The check of the types shows the type of each card, and each #TYPE! issue at its card (C14).
+click(button("Arithmetic") as Element);
+check("the root card shows its type", await until(() => result() === "14" && typeText() === "number"), typeText());
+check("a good document has no type issue", $(ISSUES) === null && $(`${PLAYGROUND} .cv-type-mark`) === null);
+click(`${PLAYGROUND} .cv-card[data-path="0"]`);
+await until(() => selectedAt("0"));
+set(field("Kind") as HTMLSelectElement, "text");
+check("a text in place of a number gives one #TYPE! issue", await until(() => $$(`${ISSUES} button.cv-link`).length === 1), $(ISSUES)?.textContent);
+check("the card of the issue has the mark #TYPE!", await until(() => $(`${PLAYGROUND} .cv-card[data-path="0"] .cv-type-mark`) !== null));
+click(button("Select the parent") as Element);
+await until(() => selectedAt(""));
+click($(`${ISSUES} button.cv-link`) as Element);
+check("the button of an issue selects its card", await until(() => selectedAt("0")), $(`${PLAYGROUND} .cv-panel-title`)?.textContent);
 
 // The steps of the evaluation move.
 click(button("Arithmetic") as Element);

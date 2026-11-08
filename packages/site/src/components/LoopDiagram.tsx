@@ -180,7 +180,7 @@ export default function LoopDiagram() {
           {counts.evaluations === 1 ? "time" : "times"} and kept {counts.reuses} {counts.reuses === 1 ? "result" : "results"}.
         </span>
       </div>
-      <div className="ce-stage ce-scroll">
+      <div className="ce-stage ce-scroll scroll-cue">
         <svg className="ce-svg" viewBox="0 0 720 330" style={{ minWidth: "34rem" }} role="img" aria-label="Store, derive, view, event and run in a loop">
           <defs>
             <marker id="ce-loop-derive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">

@@ -1,7 +1,7 @@
 import { type Envelope, type Key, isRecord, typeName } from "./doc.ts";
 import type { Machine } from "./evaluate.ts";
 import type { DocVisit, Issue, WorldIssue } from "./static.ts";
-import { type ValueType, domainOf, fits, isUnknown, typeIssues, typeText } from "./types.ts";
+import { type Domain, type ValueType, domainOf, fits, isPrecise, isUnknown, typeIssues, typeText } from "./types.ts";
 import { type Kind, type Shape, eachKind, kindAt } from "./world.ts";
 
 /*
@@ -116,6 +116,8 @@ export interface TypeProblem {
  * (TYPE.RULE).
  */
 export interface TypeRule {
+  /** `true` when the document reads a value from outside the document. The check then has no proof of its type (PLAN.GUARD-BOUNDARY). */
+  readonly read?: true;
   /**
    * This function tells the type that a part must have, and the types of the names for the part. The check asks it
    * before it types the part. The parts that give the names of a rule `keysAt` come first.
@@ -174,6 +176,33 @@ export interface Typed {
   readonly type: ValueType;
   /** The type that the position of the document needs, when it needs one. */
   readonly expected?: ValueType;
+  /** `true` when the rule of the document tells a read of a value that comes from outside the document. */
+  readonly read?: true;
+}
+
+/** A place where a promise of the types holds only with a test at run time (PLAN.GUARD). */
+export interface Boundary {
+  /** The keys from the root document to the document. */
+  readonly place: readonly Key[];
+  /** The type that the value of the place must have. */
+  readonly type: ValueType;
+}
+
+/**
+ * This function gives the boundaries of a check. A part with an imprecise type at a position that needs a type is a
+ * boundary. A read of a known type is a boundary too, because the check trusts the root types (PLAN.GUARD-BOUNDARY).
+ *
+ * @param typing - The places of a check of types.
+ * @param domains - The domains of the machine.
+ * @returns The boundaries, in the order of the document.
+ */
+export function boundariesOf(typing: { readonly places: readonly Typed[] }, domains?: Readonly<Record<string, Domain>>): readonly Boundary[] {
+  const found: Boundary[] = [];
+  for (const item of typing.places) {
+    if (item.expected !== undefined && item.expected !== "unknown" && !isPrecise(item.type, domains)) found.push({ place: item.place, type: item.expected });
+    else if (item.read === true && item.type !== "unknown") found.push({ place: item.place, type: item.type });
+  }
+  return found;
 }
 
 /** One document that the walk of a check visited, with what the pass of types needs. The package does not export it. */
@@ -408,7 +437,8 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
 
   const places = nodes.map((node, index) => {
     const want = needed[index];
-    const entry = { type: types[index] ?? "unknown", ...(want === undefined ? {} : { expected: want }) } as Typed;
+    const read = !node.marked && ruleOf(machine, node.evaluator)?.read === true;
+    const entry = { type: types[index] ?? "unknown", ...(want === undefined ? {} : { expected: want }), ...(read ? { read } : {}) } as Typed;
     // The keys of a place are made only when a reader asks for them, as a visit does.
     Object.defineProperty(entry, "place", { enumerable: true, get: () => node.visit.place });
     Object.defineProperty(entry, "at", { enumerable: true, get: () => node.visit.at });

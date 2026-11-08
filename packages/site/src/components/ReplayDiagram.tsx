@@ -185,7 +185,7 @@ export default function ReplayDiagram() {
               </span>
             </div>
 
-            <div className="ce-scroll">
+            <div className="ce-scroll scroll-cue">
               <table className="ce-matrix" style={{ marginTop: "var(--space-4)" }}>
                 <thead>
                   <tr>

@@ -315,6 +315,20 @@ export function familyLines(runs: readonly (BenchRun | undefined)[], names: read
   return familyRead(items).lines;
 }
 
+/**
+ * This function gives the one line of the gate that `Speed OK` shows on the pull request (K225, D181). The line has the
+ * outcome and the counts of all cases. It also has the CPU models of the two runs, and the names of the slower and unread cases.
+ * Thus a gate with no read does not look like a pass, also while the gate is report only.
+ */
+export function gateNote(gate: NotSlowerVerdict, runs: readonly (BenchRun | undefined)[]): string {
+  const count = (read: NotSlowerVerdict["cases"][number]["read"]): number => gate.cases.filter((item) => item.read === read).length;
+  const pair = runs.map((run) => run?.cpu ?? "no run").join(" + ");
+  const named = (label: string, names: readonly string[]): string => (names.length === 0 ? "" : ` ${label}: ${names.join(", ")}.`);
+  const counts = `${String(count("not slower"))} not slower, ${String(count("slower"))} slower, ${String(count("no read"))} no read, of ${String(gate.cases.length)} cases`;
+  const text = `Gate (report only, D163): ${gate.outcome}. ${counts}, on the CPU pair ${pair}.${named("Slower", gate.blocks)}${named("No read", gate.noRead)}`;
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /** This function gives the lines of the gate in the verdict: one line of counts, then the reason of each slower case. */
 export function gateLines(gate: NotSlowerVerdict): string[] {
   const count = (read: NotSlowerVerdict["cases"][number]["read"]): string => String(gate.cases.filter((item) => item.read === read).length);
@@ -368,12 +382,13 @@ function main(): void {
   const held = holdRead(slower, runs, faults.length === 0 && different === 0);
   const hold = held.line;
   const acceptance = held.hold && slower > 0 ? acceptHold(slowerNames, runs.map((run) => run?.arms?.head), records.records) : undefined;
-  lines.push("", ...gateLines(gateRead(runs)));
+  const gate = gateRead(runs);
+  lines.push("", ...gateLines(gate));
   lines.push("", ...familyLines(runs, names));
   lines.push("", armLine(runs), hold, ...(acceptance?.lines ?? []));
   const { state, reason } = speedState(slower, counts.get("cannot decide") ?? 0, hold, faults, different, equalArms(runs), acceptance);
   const output = process.env["GITHUB_OUTPUT"];
-  if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\n`);
+  if (output !== undefined && output !== "") appendFileSync(output, `state=${state}\nreason=${reason}\ngate=${gateNote(gate, runs)}\ngate_outcome=${gate.outcome}\n`);
   const text = lines.join("\n");
   console.log(text);
   const summary = process.env["GITHUB_STEP_SUMMARY"];

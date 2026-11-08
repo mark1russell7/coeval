@@ -21,11 +21,14 @@ export default defineConfig({
       customCss: [
         "@fontsource-variable/atkinson-hyperlegible-next",
         "@fontsource-variable/atkinson-hyperlegible-mono",
+        "@mark1russell7/site-pages/scroll-cue.css",
         "./src/styles/tokens.css",
         "./src/styles/theme.css",
         "./src/styles/diagrams.css",
         "./src/styles/glyphs.css",
       ],
+      // A long line of code wraps, thus a code block does not go out of view on a phone.
+      expressiveCode: { defaultProps: { wrap: true } },
       components: { Hero: "./src/components/Hero.astro" },
       sidebar: [
         { label: "Start", items: [{ label: "Home", link: "/" }, "start/model"] },

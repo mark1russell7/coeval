@@ -4912,6 +4912,33 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
 - A `#N/A` of a closed record stays with TYPE.NO-STEP.
 
+## D149 (2026-11-04): a guard is data from a check, and `prepare` reads it
+
+**Context.** R5 P7 asks for a test at each boundary of `unknown`, and at each read from a typed root. A store with a wrong schema then gives an error at the read, not a wrong value far away. A plan without the option keeps its speed.
+
+**Decision.**
+
+- `boundariesOf(typing, domains)` gives a list of places with types. The list is plain data, thus a host can examine it, keep it and filter it.
+- The option `guards` of `prepare`, `evaluate` and `run` takes that list. The default is no list.
+- A rule with `read` tells that a value comes from outside the document. The formula kit sets it on `ref`.
+- The test sits inside the code of the part, and inside the record of a trace. The trace thus shows the error at the boundary.
+- A part with a test is not a total part, thus it gets a place and a catch.
+- `agreeTypes` with `guards: true` evaluates with the boundaries of its own check.
+
+**Alternatives.**
+
+- An option `guards` that holds the root types, with a check inside `prepare`. `evaluate.ts` then imports the check, and each plan pays for a second walk. A host with a list pays once.
+- A new evaluator around each boundary. The trace then gets one more document, and each place moves.
+
+**Why.** A check already knows each position where its promise needs a test. A list of places keeps the check and the plan apart, and the compiled code changes only for a plan with a list.
+
+**Limits.**
+
+- A read of a name that `let` binds is a boundary too, because a rule does not see the scope of its root. The test is true there, and it takes time.
+- A test of a deep record walks the whole value at each read.
+- A list from a check with a different `declaredType` can name places that the plan does not have. Such an entry has no effect.
+- The extensions and the operations stay trusted. Only a value from a read or from an imprecise part gets a test.
+
 ## D150 (2026-11-04): an evaluator that is a function can hold a type rule
 
 **Context.** C14 shows the types of the cards on the site. The standard evaluators are functions and have no rules, thus each card of the site has the type `unknown`.
@@ -4950,7 +4977,6 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
 
 **Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
-
 
 
 ## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
@@ -5075,6 +5101,24 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The wait does not change the code of the calls. Thus the flip reads the power of the gate for a slower time, not for a change of the compiled code. The flip uses the multiples 1, 1.5 and 2.
 
+## D181 (2026-11-08): Speed OK shows the line of the report-only gate on each pull request
+
+**Context.** K225. The gate of the claim "not slower" (D163) is report only. Its line was only in the log of the job `verdict`. A CPU pair of two models read 9 of 16 cases, and `Speed OK` stayed green with no word of the 7 unread cases. A green check with a hidden "no read" is a silent pass.
+
+**Decision.**
+
+- The function `gateNote` of `merge.ts` gives one line. It has the outcome, the counts of all cases, the CPU pair and the names of the slower and unread cases.
+- The job `verdict` writes the line to the output `gate`, and the outcome to the output `gate_outcome`.
+- The script `speed-read.ts` prints the line in the log and the summary of `Speed OK`.
+- An outcome other than "pass", or a missing line, gives a warning annotation on the pull request.
+- `Speed OK` stays green on a gate "no read" while the gate is report only. The state of the check does not change.
+
+**Why.** A check does not show a "no read" as a pass at any time. The warning tells the reader of the pull request which cases have no read, and on which CPU pair.
+
+**Alternatives.** A red check on a gate "no read". The gate is report only until the four bars of K225 pass. Thus a red check at this time blocks merges on a gate that is not ready.
+
+**Limits.** The further pairs of a dispatch (D179) stay in the log of the job `verdict`. They are for the A/A series, not for a pull request.
+
 ## D184 (2026-11-08): the conformance page shows a hidden duty, not a pass
 
 **Context.** K123. The page `learn/conformance` lets the reader turn on seven breaks of one evaluator. Each break breaks one duty. In a mix of breaks, `conforms` does not give a finding of each broken duty. A finding of `local` stops the checks C4 and C5. An effect without its capability gives an error, and C3 applies only to a value.
@@ -5091,4 +5135,5 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** Run each break alone. Then the page cannot show how the contract and the other breaks change the findings.
 
 **Limits.** The rules of `dutiesOf` copy two rules of `conform.ts`. The test of all sets finds a change of those rules as a missed duty.
+
 
