@@ -838,6 +838,7 @@ function leaderOnHost(n: LoopNode, key: string, rule: CircularRule & { readonly 
 /**
  * This function gives an attribute of a node with circular attributes, or an attribute in an open fixed point (D113).
  * The memo and the marks of the node do not hold the attribute. An open fixed point does not use the cells of the host.
+ * With the cells of a host, only a circular attribute comes here outside a fixed point. A plain attribute takes its cell.
  */
 function circularRead(n: LoopNode, key: string): Result | undefined {
   const rule = circularRule(n.tree, key);
@@ -1224,7 +1225,8 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
           const text = attributeText(key, type, place);
           if (marks.has(key)) return busyAt(state, key);
           if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
-          if (circular || openPoint !== undefined) return circularRead(state, key);
+          // Outside a fixed point, a plain attribute of a node with a circular attribute also takes the cell of the host.
+          if (openPoint !== undefined || (circular && circularRule(tree, key) !== undefined)) return circularRead(state, key);
           marks.set(key, BUSY);
           demands.push({ cells: marks, key, text });
           let thrown: unknown = NOT_THROWN;
