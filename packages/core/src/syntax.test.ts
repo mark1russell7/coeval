@@ -3,6 +3,7 @@ import { corpus } from "./corpus.test-support.ts";
 import {
   type Json,
   type Random,
+  type SyntaxForm,
   type SyntaxIssue,
   type SyntaxProfile,
   STD_CAPS,
@@ -394,7 +395,7 @@ describe("the syntax kit", () => {
       expect(kinds, kind).toContain(kind);
       expect(written.has(kind), kind).toBe(false);
     }
-    expect(Object.keys(NO_TEXT)).toEqual(["handle"]);
+    expect(Object.keys(NO_TEXT)).toEqual([]);
     // The text of each kind reads to a document of that kind, and print writes the same text.
     expect(Object.keys(WORLD_TEXTS).sort()).toEqual(kinds.filter((kind) => !Object.hasOwn(NO_TEXT, kind)).sort());
     for (const [kind, source] of Object.entries(WORLD_TEXTS)) {
@@ -425,6 +426,51 @@ describe("the syntax kit", () => {
     expect(doc(host, "2 + 3")).toEqual({ type: "add", value: [2, 3] });
     expect(parse(WORLD_SYNTAX, 'card(title: text("a"))').ok).toBe(false);
     expect(issue(host, "max(1, 2)")).toMatchObject({ offset: 0 });
+  });
+
+  it("[SYNTAX.DATA-FIELD] a field of data reads lists and records with documents in them, and print writes them back", () => {
+    const run = (source: string): unknown => evaluate(STD_MACHINE, doc(WORLD_SYNTAX, source), makeContext({}, STD_CAPS)).result;
+    const t = (value: string): Json => ({ type: "text", value });
+    // A literal in a field of data stays its data, and each other text is a document.
+    const source = 'handle(with: [{op: "log", do: list(payload, "b")}], body: log("a"))';
+    expect(doc(WORLD_SYNTAX, source)).toEqual({
+      type: "handle",
+      value: { with: [{ op: "log", do: { type: "list", value: [ref("names", "payload"), t("b")] } }], body: { type: "log", value: ["a"] } },
+    });
+    expect(text(WORLD_SYNTAX, doc(WORLD_SYNTAX, source))).toBe(source);
+    expect(run(source)).toEqual(ok(["a", "b"]));
+    // A clause abort stops the body, and the clause return reads the result of the body.
+    expect(run('handle(with: [{op: ["log"], abort: text("stop")}], body: seq(log("a"), 5))')).toEqual(ok("stop"));
+    expect(run("handle(with: [], return: result * 2, body: 21)")).toEqual(ok(42));
+    // A list and a record of data nest, and they can be empty.
+    const nested: SyntaxProfile = { calls: { forms: [{ name: "f", kind: "f", fields: ["a"], data: ["a"] }] } };
+    expect(doc(nested, "f([[1, {}], {k: [true, null], `a b`: add(x, 1)}, []])")).toEqual({
+      type: "f",
+      value: { a: [[1, {}], { k: [true, null], "a b": op("add", ref("names", "x"), 1) }, []] },
+    });
+    for (const each of ["f([[1, {}], {k: [true, null], `a b`: add(x, 1)}, []])", "f({})", 'f(["a", -2])', "f(x)"]) expect(text(nested, doc(nested, each)), each).toBe(each);
+    // A record with the key type is a document, thus print writes it as a document.
+    expect(print(nested, { type: "f", value: { a: [op("add", 1, 2)] } })).toEqual(ok("f([add(1, 2)])"));
+    expect(issue(nested, 'f({type: "x"})')).toEqual({ offset: 3, length: 4, message: "A record of data has no key type, because the key type makes a document." });
+    expect(print(WORLD_SYNTAX, { type: "handle", value: { with: [{ op: "log", do: Number.NaN }], body: t("a") } })).toMatchObject({ ok: false, error: { place: ["with", 0, "do"] } });
+    // An issue names the bracket or the brace that is missing, and recovery reads past each bracket.
+    expect(issue(nested, "f([1, 2)")).toMatchObject({ message: 'A "," or a closing bracket is missing.' });
+    expect(issue(nested, "f({k: 1)")).toMatchObject({ message: 'A "," or a closing brace is missing.' });
+    expect(issue(nested, "f([")).toMatchObject({ message: "A term is missing at the end of the text." });
+    const many = parse(nested, "f([1 2, {k: 3 4}, 5])");
+    expect(many.ok ? [] : many.issues.map((each) => each.offset)).toEqual([5, 14]);
+    // A deep list of data stops at the depth of the profile.
+    expect(issue({ ...nested, maxDepth: 8 }, `f(${"[".repeat(9)}${"]".repeat(9)})`)).toMatchObject({ message: "The text is deeper than 8 levels." });
+    // A form with data needs fields, each name of data is a field, a field of data is not in wrap, and no operator starts with a bracket or a brace.
+    const form = (more: Omit<SyntaxForm, "name" | "kind">): SyntaxProfile => ({ calls: { forms: [{ name: "f", kind: "f", ...more }] } });
+    expect(() => parse(form({ data: ["a"] }), "1")).toThrow("takes data only with fields");
+    expect(() => parse(form({ fields: ["a"], data: ["b"] }), "1")).toThrow("has no field b for its data");
+    expect(() => parse(form({ fields: ["a"], data: ["a"], wrap: ["a"] }), "1")).toThrow("in wrap and in data");
+    expect(() => parse(form({ fields: ["a"], data: ["a"], wrap: true }), "1")).toThrow("in wrap and in data");
+    expect(() => parse({ ...nested, operators: [{ symbol: "[[", fixity: "prefix", prec: 1, kind: "g" }] }, "1")).toThrow("reads the text of a field of data");
+    expect(() => parse({ ...nested, operators: [{ symbol: "}", fixity: "postfix", prec: 1, kind: "g" }] }, "1")).toThrow("reads the text of a field of data");
+    expect(parse({ ...form({ fields: ["a"] }), operators: [{ symbol: "[[", fixity: "prefix", prec: 1, kind: "g" }] }, "[[1").ok).toBe(true);
+    expect(checkSyntax(nested)).toEqual([]);
   });
 
   it("[SYNTAX.ENVELOPE] a literal in a place that takes a document gets its data envelope, and STD_MACHINE evaluates it", () => {
@@ -841,10 +887,8 @@ const OTHER_TEXT: Readonly<Record<string, string>> = {
   ref: "The reference syntax of the kit writes a path, for example self.parent.width.",
 };
 
-/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. L1c removes the entry. */
-const NO_TEXT: Readonly<Record<string, string>> = {
-  handle: "Each clause is a record of data, and the profile has no text for a list of records (D146).",
-};
+/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. Since L1c (D177), each kind has a text. */
+const NO_TEXT: Readonly<Record<string, string>> = {};
 
 /** One text for each kind of `STD_WORLD`, in the profile `WORLD_SYNTAX`. */
 const WORLD_TEXTS: Readonly<Record<string, string>> = {
@@ -869,6 +913,7 @@ const WORLD_TEXTS: Readonly<Record<string, string>> = {
   pure: 'pure(log("hello"))',
   log: 'log("start")',
   write: 'write("total", 2 + 3)',
+  handle: 'handle(with: [{op: "log", do: payload}, {op: ["write"], abort: text("no")}], return: list(result), body: log("a"))',
 };
 
 /** This function lists the kinds and the aliases of a world, with dots between the keys of a namespace. */
