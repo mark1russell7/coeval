@@ -113,6 +113,9 @@ type Key: build/index.d.ts#Key
 type Kind: build/index.d.ts#Kind
 type KindFacts: build/index.d.ts#KindFacts
 type KindSource: build/index.d.ts#KindSource
+type Language: build/index.d.ts#Language
+type LanguageCode: build/index.d.ts#LanguageCode
+type LanguageDefinition: build/index.d.ts#LanguageDefinition
 type LazyOp: build/index.d.ts#LazyOp
 type LazyRule: build/index.d.ts#LazyRule
 type Lookup: build/index.d.ts#Lookup
@@ -300,6 +303,7 @@ codecLaws: build/index.d.ts#codecLaws
 collectOf: build/index.d.ts#collectOf
 compilePath: build/index.d.ts#compilePath
 components: build/index.d.ts#components
+compose: build/index.d.ts#compose
 conforms: build/index.d.ts#conforms
 context: build/index.d.ts#context
 cycles: build/index.d.ts#cycles
@@ -307,6 +311,7 @@ dataEdges: build/index.d.ts#dataEdges
 decodeDomain: build/index.d.ts#decodeDomain
 decodeLog: build/index.d.ts#decodeLog
 decodeValue: build/index.d.ts#decodeValue
+defineLanguage: build/index.d.ts#defineLanguage
 derefStep: build/index.d.ts#derefStep
 describe: build/index.d.ts#describe
 docEquals: build/index.d.ts#docEquals
@@ -1242,6 +1247,28 @@ interface KindFacts {
 
 ### build/index.d.ts#KindSource
 type KindSource = "document" | "container";
+
+### build/index.d.ts#Language
+interface Language {
+  readonly name: string;
+  readonly version: string;
+  readonly world: WorldPart;
+  readonly requires: Readonly<Record<string, string>>;
+  readonly code?: LanguageCode | ((prev: Machine) => LanguageCode);
+  readonly data: string;
+}
+
+### build/index.d.ts#LanguageCode
+type LanguageCode = Omit<MachinePart, "world">;
+
+### build/index.d.ts#LanguageDefinition
+interface LanguageDefinition {
+  readonly name: string;
+  readonly version: string;
+  readonly world?: WorldPart;
+  readonly requires?: Readonly<Record<string, string>>;
+  readonly code?: LanguageCode | ((prev: Machine) => LanguageCode);
+}
 
 ### build/index.d.ts#LazyOp
 type LazyOp = (args: readonly (() => Result)[]) => Result;
@@ -2515,6 +2542,9 @@ export declare function compilePath(nav: Navigator, path: readonly unknown[]): C
 ### build/index.d.ts#components
 export declare function components<Id>(graph: NodeGraph<Id>, options?: GraphOptions): readonly (readonly Id[])[];
 
+### build/index.d.ts#compose
+export declare function compose(...languages: readonly Language[]): Machine;
+
 ### build/index.d.ts#conforms
 export declare function conforms(machine: Machine, name: string, options?: ConformOptions): readonly Finding[];
 
@@ -2535,6 +2565,9 @@ export declare function decodeLog(machine: Pick<Machine, "domains">, data: unkno
 
 ### build/index.d.ts#decodeValue
 export declare function decodeValue(machine: Machine, doc: unknown): Result;
+
+### build/index.d.ts#defineLanguage
+export declare function defineLanguage(definition: LanguageDefinition): Language;
 
 ### build/index.d.ts#derefStep
 export declare function derefStep(nav: Navigator, thing: Thing, key: Key): {
