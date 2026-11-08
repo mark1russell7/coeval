@@ -13,10 +13,17 @@
  * thus no other copy changes its type feedback, its inline caches or its heap.
  */
 import { median } from "@mark1russell7/rigor-statistics";
-import * as kernel from "../src/index.ts";
+import type * as kernel from "../src/index.ts";
+import { STD_MACHINE, THING, context, factsOf, formulaMachine, prepare, resolve } from "../src/index.ts";
 import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
-type Kernel = typeof kernel;
+/**
+ * The parts of the kernel that the cases use (K246, D188). The bundle keeps only these parts and the code that they
+ * reach, as the bundle of a host keeps it. Thus a change outside each timed path gives the same bundle on the two arms.
+ */
+const KERNEL = { STD_MACHINE, THING, context, factsOf, formulaMachine, prepare, resolve };
+
+type Kernel = typeof KERNEL;
 
 interface Case {
   readonly name: string;
@@ -298,7 +305,7 @@ export function show(value: unknown): string {
 export function run(counts?: readonly number[], only?: readonly number[]): Measured[] {
   const chosen = (only ?? CASES.map((_, index) => index)).map((index) => ({ item: CASES[index] as Case, index }));
   return chosen.map(({ item, index }) => {
-    const fn = item.make(kernel);
+    const fn = item.make(KERNEL);
     const result = show(fn());
     const calls = counts?.[index] ?? calibrate(fn);
     const samples: number[] = [];
