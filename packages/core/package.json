@@ -39,7 +39,7 @@
   ],
   "devDependencies": {
     "@mark1russell7/cue": "^2.1.1",
-    "@mark1russell7/rigor-bench": "^0.2.26",
+    "@mark1russell7/rigor-bench": "^0.2.27",
     "@mark1russell7/rigor-statistics": "^0.1.16",
     "@types/node": "^26.6.4",
     "esbuild": "^0.28.2",
