@@ -84,6 +84,28 @@
   color: var(--ce-stop);
 }
 
+/* A dashed outline and the label #TYPE! mark a card with a type issue, thus the mark does not depend on the color. */
+.cv-card[data-type-issue="true"] {
+  min-width: 7.6rem;
+  outline: 2px dashed var(--ce-stop);
+  outline-offset: 2px;
+}
+
+.cv-type-mark {
+  color: var(--ce-stop);
+  font-weight: 600;
+}
+
+.cv-type-issues {
+  padding: var(--space-3) 0 0;
+}
+
+.cv-type-issues ul {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
 .cv-run-mark {
   color: var(--ce-run);
 }
