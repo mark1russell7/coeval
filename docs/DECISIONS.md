@@ -5014,3 +5014,18 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Why.** The editor and the text pane agree on each new document, thus each state of an edit has a text (SYNTAX.ROUNDTRIP).
 
 **Limits.** A field with a record shape still starts as a hole. A step of a path stays inside the path of a reference, and the path input edits it.
+
+## D182 (2026-11-08): a block of the report-only ladder gate gives a warning on the pull request
+
+**Context.** K225 and D181. The ladder gate of `Measure` (D164) is report only. A block exits with the code 3, and the step keeps the job green. The line of the block was only in the log and the summary of the job. A green check with a hidden block is a silent pass.
+
+**Decision.**
+
+- With `LADDER_ANNOTATE=1`, the mode `merge` of `ladder.ts` prints a warning annotation with the gate line on a block.
+- Only the step "Pool the five runs" sets `LADDER_ANNOTATE`. The flip rows block on purpose, thus they give no annotation.
+- The flip step checks the warning text of each block row, and no warning on the pass row.
+- The flip step reads the warnings inside a `stop-commands` window. Thus the runner makes no annotation from them.
+
+**Why.** The warning tells the reader of the pull request that the ladder gate found a slope over its bound. The check stays green while the gate is report only.
+
+**Limits.** The line "Under that size: no read" gives the smallest slope that the gate can find. It is a size, not a case with no read, thus it gives no warning.
