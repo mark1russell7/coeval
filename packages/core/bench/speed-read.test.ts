@@ -110,7 +110,7 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
     expect(read.reason).toContain("0 slower");
   });
 
-  // Each test starts the script one time, because a start takes about 1.5 s and the test time has a budget (CI 42460573497).
+  // Each test starts the script one time, because a start takes approximately 1.5 s and the test time has a budget (CI 42460573497).
   it("writes the line of a gate pass with the CPU pair (K225, D181)", () => {
     const pass = verdict("gate-pass", runFile("gate-pass-1", whole), runFile("gate-pass-2", second));
     expect(pass.gateOutcome).toBe("pass");
