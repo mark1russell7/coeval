@@ -148,6 +148,8 @@ type Plan: build/index.d.ts#Plan
 type PlanRunOptions: build/index.d.ts#PlanRunOptions
 type PrepareOptions: build/index.d.ts#PrepareOptions
 type PrintOptions: build/index.d.ts#PrintOptions
+type Proof: build/index.d.ts#Proof
+type Proven: build/index.d.ts#Proven
 ROOTS: build/index.d.ts#ROOTS
 RUNGS: build/index.d.ts#RUNGS
 type Random: build/index.d.ts#Random
@@ -1425,6 +1427,8 @@ interface PartType {
   readonly what?: string;
   readonly names?: Readonly<Record<string, ValueType>>;
   readonly roots?: Omit<RootTypes, "names">;
+  readonly narrow?: readonly Proof[];
+  readonly keep?: boolean;
 }
 
 ### build/index.d.ts#PartsSpec
@@ -1465,6 +1469,22 @@ interface PrepareOptions {
 interface PrintOptions {
   readonly limit?: number;
   readonly stamp?: (value: object) => unknown;
+}
+
+### build/index.d.ts#Proof
+type Proof = {
+  readonly path: readonly string[];
+  readonly fact: "is" | "not";
+  readonly type: ValueType;
+} | {
+  readonly path: readonly string[];
+  readonly fact: "present" | "absent";
+};
+
+### build/index.d.ts#Proven
+interface Proven {
+  readonly yes: readonly Proof[];
+  readonly no: readonly Proof[];
 }
 
 ### build/index.d.ts#ROOTS
@@ -1928,6 +1948,8 @@ interface Signature {
   readonly params: readonly ValueType[];
   readonly rest?: ValueType;
   readonly to: ValueType;
+  readonly proves?: ValueType;
+  readonly present?: boolean;
 }
 
 ### build/index.d.ts#Split
@@ -2216,6 +2238,8 @@ interface TypeInput {
   nameType(name: string): ValueType | undefined;
   rootType(root: string): ValueType;
   contract(type: unknown, what: string): ValueType;
+  readOf(path: readonly Key[]): readonly string[] | undefined;
+  provenBy(path: readonly Key[]): Proven;
 }
 
 ### build/index.d.ts#TypeIssue
@@ -2250,6 +2274,10 @@ interface TypeRule {
   readonly part?: (input: TypeInput, path: readonly Key[]) => PartType;
   readonly synth: (input: TypeInput, report: (problem: TypeProblem) => void) => ValueType;
   readonly declared?: () => readonly Declared[];
+  readonly first?: string;
+  readonly usesProofs?: boolean;
+  readonly reads?: (input: TypeInput) => readonly string[] | undefined;
+  readonly proves?: (input: TypeInput) => Proven;
 }
 
 ### build/index.d.ts#Typed

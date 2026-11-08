@@ -4937,6 +4937,37 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 
 **Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
 
+## D147 (2026-11-04): a narrowing changes the type of a name or a root in a branch
+
+**Context.** R5 P6 asks for occurrence typing in `if`, `and` and `or`. It names two risks: a host thing can give two values for one path, and an effect can change the world between two reads.
+
+**Decision.**
+
+- A `Signature` gets `proves`, the type that a true result proves of the first argument, and `present`, the proof of a value at that argument.
+- A `TypeRule` gets `reads`, `proves`, `first` and `usesProofs`. A `PartType` gets `narrow` and `keep`.
+- The pass applies a proof to the types of the names and of the roots of a part. A binding of the same name, a change of a root and an evaluator without a rule thus end a narrowing with no new code.
+- The rule of `if` types `test` first, for each order of the fields.
+- A proof comes up the stack of the pass. Only a part of a rule with `usesProofs` gets a proof. Thus a deep test uses no recursion. A document without `if`, `and` or `or` pays for one array only.
+- `then` of a value type gives the narrower of the two types. `else` removes only a precise type that fits the proved type.
+- A document with a declared effect narrows only its names.
+
+**Alternatives.**
+
+- A list of narrowed paths beside the types. Each reader of a path then needs a second lookup, and each binder needs a rule that removes a path.
+- An end of the narrowing at the step with the effect. A closure from a branch can run after a later effect of the document, thus a local rule is not sound. The rule for the whole document is one sentence.
+- A meet of two types. The proved type alone is sound, because a value of the branch is a member of it. A meet needs a test for disjoint types, and no language asks for it yet.
+- A rule that follows each overload. The check selects an overload after the arguments, thus the proof can depend on the types that it changes.
+
+**Why.** A narrowing is a change of a type in a scope, and the pass already has scopes. The compiled plan and the second tier read no types, thus each evaluation stays the same (TYPE.ROOTS-SOUND).
+
+**Limits.**
+
+- A host thing that gives two values for one path breaks a narrowing of a root. TYPE.ROOTS-SOUND already asks for plain data.
+- The check does not examine the promise of `proves`. An operation that gives `true` for a value outside the type gives a wrong narrowing.
+- A path into a type `unknown` or a union of records does not narrow. Only a whole name or root of the type `unknown` takes the proved type.
+- The operation `not` proves nothing, because a signature has no key for it.
+- One test keeps 32 proofs or fewer. A proof only adds knowledge, thus the limit is safe.
+
 ## D148 (2026-11-04): `agreeTypes` is the agreement rule for types, as a helper that a language imports
 
 **Context.** R5 P5 states three clauses for a document that checks. TYPE.SOUND and TYPE.ROOTS-SOUND test the first clause in the tests of the kernel, thus a language has no helper for its own signatures and rules.
@@ -5013,24 +5044,6 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - A rule on a run side kind has no effect, thus the cards of `seq`, `log` and the run form of `if` show `unknown`.
 - A later roadmap item can move the rules from the site to the standard kit.
 
-## D176 (2026-11-07): the Speed verdict prints the family read of its cases, as a report
-
-**Context.** K225. On equal arms, 4 of 352 case reads were slower (1.1 %), and this fits the level of 2.5 % for each case. But a run reads 16 cases with no correction, thus up to a third of the runs can read one false slower case. Also, one slower job beside a flat job can make a pooled case slower. The function `familyRead` of rigor-bench 0.2.26 (rigor #101) gives two reads. The Holm read corrects over the cases. The read of each job keeps a case only when each job reads it alone.
-
-**Decision.**
-
-- `merge.ts` takes rigor-bench 0.2.26 and rigor-statistics 0.1.16. The function `familyLines` gives the pooled verdict of each case again, with the option `pValues`. It gives the lines of `familyRead` at the level 0.025 for each side.
-- The verdict prints these lines after the line of the gate. The first line counts the slower and faster cases with no correction, with Holm, with each job, and with both.
-- The read is a report. It changes no verdict, no hold and no state of `Speed OK`.
-- A case with different results, or without each run, has no pooled verdict, thus the read leaves it out.
-
-**Why.** The p values come from the draws of the interval of the verdict, thus the outcome of each case stays the same. The records of 77 runs give the logged outcome in each of 1232 cases with this code. The counts of each read on real runs are the data for the ruling on the gate.
-
-**Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
-
-**Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
-
-
 ## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
 
 **Context.** C11, from R6 P6. The panel of the playground named its kinds in code. It had an input for `number`, a menu of each world entry and a table of new documents. A new document needed a value, thus a reader could not leave a position empty.
@@ -5066,6 +5079,23 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** A runner for `formula.if` in each formula machine. A runner wins over an evaluator of the same name. Thus each formula `if` then pays for a generator, and the bench refuses a slower read. A formula `if` holds no effect, so it has no need to wait.
 
 **Limits.** A bare value in a part stays a literal of the kit. A missing `then` stays an error of `check`. A host that reads older documents keeps these two rewrites, and `mapDocs` (D152) is the place for them.
+
+## D176 (2026-11-07): the Speed verdict prints the family read of its cases, as a report
+
+**Context.** K225. On equal arms, 4 of 352 case reads were slower (1.1 %), and this fits the level of 2.5 % for each case. But a run reads 16 cases with no correction, thus up to a third of the runs can read one false slower case. Also, one slower job beside a flat job can make a pooled case slower. The function `familyRead` of rigor-bench 0.2.26 (rigor #101) gives two reads. The Holm read corrects over the cases. The read of each job keeps a case only when each job reads it alone.
+
+**Decision.**
+
+- `merge.ts` takes rigor-bench 0.2.26 and rigor-statistics 0.1.16. The function `familyLines` gives the pooled verdict of each case again, with the option `pValues`. It gives the lines of `familyRead` at the level 0.025 for each side.
+- The verdict prints these lines after the line of the gate. The first line counts the slower and faster cases with no correction, with Holm, with each job, and with both.
+- The read is a report. It changes no verdict, no hold and no state of `Speed OK`.
+- A case with different results, or without each run, has no pooled verdict, thus the read leaves it out.
+
+**Why.** The p values come from the draws of the interval of the verdict, thus the outcome of each case stays the same. The records of 77 runs give the logged outcome in each of 1232 cases with this code. The counts of each read on real runs are the data for the ruling on the gate.
+
+**Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
+
+**Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
 
 ## D177 (2026-11-07): a field of data gives `handle` a text in `WORLD_SYNTAX`
 
@@ -5221,7 +5251,6 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The rules of `dutiesOf` copy two rules of `conform.ts`. The test of all sets finds a change of those rules as a missed duty.
 
-
 ## D185 (2026-11-08): the site shows the `#VALUE!` issues of the check beside the `#TYPE!` issues
 
 
@@ -5239,7 +5268,6 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** A `#TYPE!` issue for the bare value. The bare value is not a document with a type. It is a value of the declared kind, and a wrong value of a kind is `#VALUE!` in each other place of the core.
 
-
 ## D186 (2026-11-08): the syntax page reads one text with three profiles
 
 **Context.** C16. The syntax kit (C15, D41) reads a profile as data. The site had no page that shows a profile as data.
@@ -5256,3 +5284,4 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Why.** A reader sees that the profile, not the parser, decides the tree. The text `-x ^ 2` gives `-(x ^ 2)` in one profile and `(-x) ^ 2` in another.
 
 **Alternatives.** A form to edit a profile. A profile has functions for its references, thus a form cannot show each field. The three profiles show the fields that change the tree.
+
