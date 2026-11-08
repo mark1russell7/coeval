@@ -5186,3 +5186,21 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Why.** The check found the problem before a run. A page that hides it tells the reader that the document has no problem.
 
 **Alternatives.** A `#TYPE!` issue for the bare value. The bare value is not a document with a type. It is a value of the declared kind, and a wrong value of a kind is `#VALUE!` in each other place of the core.
+
+
+## D186 (2026-11-08): the syntax page reads one text with three profiles
+
+**Context.** C16. The syntax kit (C15, D41) reads a profile as data. The site had no page that shows a profile as data.
+
+**Decision.**
+
+- The page `learn/syntax` reads one text with three profiles. They are `STD_SYNTAX`, a profile like the formulas of a spreadsheet, and the profile of the world of the site.
+- The spreadsheet profile is in the site, in `syntax-kit.ts`. It is like the profile `SHEET` of the tests of the core, with cells under the root `cells`.
+- Each example reads differently under at least two profiles. A test pins the tree of each example under each profile.
+- The page prints each document again and reads the printed text. A test examines the round trip of each document of the examples.
+- A bad text shows each issue at its span with its number. An issue with no length shows a bar at its place.
+- The table of the operators marks each operator that the text uses.
+
+**Why.** A reader sees that the profile, not the parser, decides the tree. The text `-x ^ 2` gives `-(x ^ 2)` in one profile and `(-x) ^ 2` in another.
+
+**Alternatives.** A form to edit a profile. A profile has functions for its references, thus a form cannot show each field. The three profiles show the fields that change the tree.
