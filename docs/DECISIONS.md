@@ -5034,6 +5034,20 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 
 **Limits.** A reference from `self` inside an equation stops before its steps, thus the facts do not see the walkers of such a reference, as before. A declaration is a claim of the host: the facts do not test it.
 
+## D155 (2026-11-04): a reference adapter for signals lives in the tests
+
+**Context.** S3b, R4 P6. The kernel keeps no reactive engine, and a host brings its own. R4 gives four rules for such a host, and no code examined them.
+
+**Decision.** The file `signals.test.ts` holds a small push-pull signal library and an engine on it. Each node is a computed that evaluates its plan. The root `world` is a host thing that reads each other node through its computed. The function `sameResult` is the cutoff. No source file of the kernel changes.
+
+**Why.** The engine passes `agreeSchedule`, thus a host has a working model of the adapter. The tests also fix the four rules. A plan keeps no value, so the library sees each read. A memo that lives longer than one evaluation is a signal. A fold reads nothing outside, and a host thing does not fix a name. With `adopt` each key is a signal read, and a thing with `resolve` answers a path with one read.
+
+**Cycles.** The meaning of D31 gives each node of a cycle `#CYCLE!`, and a plain computed cannot find a cycle. The adapter keeps the algorithm of Tarjan over the demands. A node of a cycle is computed again at each mark, because a cycle has no order to verify. A mutation of this rule fails the harness, and so does a mutation of the cutoff.
+
+**Alternatives.** A signal library from npm. The tests of the kernel then depend on a third party, and the marks stay hidden. A public export. No host asked for it, and an engine of a host has its own graph.
+
+**Limits.** A change of data gives a new context signal, thus each node evaluates again and stops at its cutoff. A host that wants a change of one field holds that field in a host thing, as the tests show. The adapter is a first push-pull engine for S3d, not a schedule of the kernel.
+
 ## D152 (2026-11-04): `mapDocs` changes the documents of a document from the root to the parts
 
 **Context.** K222. The static kit has `walk`, which only reads, and `mapRefs`, which changes only free references. A host that changes each step of a document kept its own recursion. That recursion named its step kinds and kept its own limit of depth.
@@ -5339,6 +5353,18 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** A tier of `agree`. A tier runs in the process of the test, and the model is another process. One process for each batch keeps the run fast. Elan to install Lean. The workflow then runs a script from the network, and a pinned hash is simpler. Theorems in this slice. Determinism and the monotonicity of the clock need the model first, and K223 holds them.
 
 **Limits.** This slice proves one small theorem only: a clock of zero stops an evaluation. The model has no `ext`, no field `own` and no `maxDepth` for documents. A generated document stays far under that limit. The test skips a document with `ext` or `own`. A number that is not a safe integer becomes 7 before the comparison, because `V` holds integers. The model has one operation, `add`. A walk into a held error gives another result, because the model does not hold the fields of that error. The clock counts the nesting of an evaluation, not its steps.
+
+## D158 (2026-11-04): the stepper is a third tier, and its stack is data
+
+**Context.** K95, R7 P6. The plan and the reference share the code of the lookup, the split and the steps of a path (D15). Thus `agree` cannot find a bug in that code. A document that nests deeply overflows the stack of the host in both tiers. An evaluation cannot stop and go on from data.
+
+**Decision.** The module `stepper.ts` is a CPS transformation and a defunctionalization of the reference, for the kernel and the formula kit. The stack is a flat list of frames, and each frame is data. `stepperStart` gives the first configuration, `stepperNext` does one pure step, and `stepper` runs to the end. The module reads the lookup, the ladder, the split and the path itself. The tier `stepper` of `agree` compares it with the plan. It is not a default tier, because it needs the profile of the formula kit. A closure is a record with the key `coeval.closure`, and a held error is a record with the key `coeval.held`. Host code gets a function and a `Held`.
+
+**Why.** A third reading has no shared code to hide a bug. A flat list does not break `JSON.stringify` at depth. The place is not in each frame, because a copy at each level costs O(n²) at depth 100000. The stepper joins the steps of the stack only for an error, a host evaluator and a function. Data closures keep a configuration as JSON. The answer to question 7 of R7 is no. The stepper does not replace K46 for runs, because a run needs promises and a stepper has no runner.
+
+**Alternatives.** Generators over the reference. These keep the stack in the host, and a generator is not data. A cons list as the stack. `JSON.stringify` then overflows at depth. Host closures in a configuration. These are not JSON, thus a host cannot store a configuration. The tier in the defaults. Each caller of `agree` then needs a profile.
+
+**Limits.** A host evaluator is opaque: one step starts it, and each of its handles starts a nested stepper on the stack of the host. A runner gives `#NOEVAL`, and the stepper records no reads. An effect of `stepperNext` goes in a list that lives for that one step, thus a configuration of a document with effects is not data. A compiled evaluator outside the formula kit needs its definition, with `tree.node` too. A value that JSON does not hold, for example `undefined`, changes in a round trip. A record with the key `coeval.closure` or `coeval.held` reads as a closure or a held error. A deep value still overflows a host walk over it, for example `expect` or `JSON.stringify`.
 
 
 ## D191 (2026-11-08): the random numbers of the core come from `rigor-generators`
