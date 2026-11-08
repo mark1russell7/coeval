@@ -5387,7 +5387,7 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Context.** K223, after K96 (D159). The model had one theorem: a clock of zero stops an evaluation. A later proof needs the facts that the clock does not change a result and that `let` is compositional.
 
-**Decision.** The function `eval` of the model is now one step `step (eval clock)`. The step is one function for each kind, with the evaluator of the parts as a parameter. The file `Coeval/Theorems.lean` proves these theorems, and `lake build` checks them:
+**Decision.** The function `eval` of the model is one step `step (eval clock)`. The step is one function for each kind, with the evaluator of the parts as a parameter. The file `Coeval/Theorems.lean` proves these theorems, and `lake build` checks them:
 
 - `eval_succ_refines`: one more unit of the clock gives the same result, or the clock stopped the first result.
 - `eval_add_clock`: a result that the clock does not stop does not change with a larger clock.
