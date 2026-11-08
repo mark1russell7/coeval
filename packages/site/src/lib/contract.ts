@@ -1,4 +1,4 @@
-import { fail, fromJson, isAlias, isKind, isNamespace, kindNamed, typed, typeName, walk, type EvalFn, type Json, type Kind, type PartShape, type World, type WorldEntry } from "@mark1russell7/coeval";
+import { fail, fromJson, isAlias, isKind, isNamespace, kindNamed, typed, typeName, walk, type EvalFn, type Json, type Kind, type PartShape, type SyntaxProfile, type World, type WorldEntry } from "@mark1russell7/coeval";
 import { getAt } from "./edit.ts";
 
 /*
@@ -41,11 +41,15 @@ export type DataEditor =
   | { readonly form: "number"; readonly whole: boolean; readonly min?: number; readonly max?: number }
   | { readonly form: "one"; readonly values: readonly Json[] };
 
-/** One field of a record, from its contract. A field with `data` is an input. A field without it holds a document. */
+/**
+ * One field of a record, from its contract. A field with `data` is an input. A field with `parts` holds a list or a
+ * map, and its new value is empty (D178). Each other field holds a document.
+ */
 export interface FieldEditor {
   readonly key: string;
   readonly required: boolean;
   readonly data?: DataEditor;
+  readonly parts?: "list" | "map";
 }
 
 /** The editor of a value. Each form comes from the contract of the kind. */
@@ -62,7 +66,8 @@ function fieldsOf(shape: Extract<PartShape, { readonly shape: "record" }>): read
   const named: readonly (readonly [string, PartShape | undefined])[] = Array.isArray(shape.fields) ? (shape.fields as readonly string[]).map((key) => [key, undefined]) : Object.entries(shape.fields);
   return named.map(([key, field]) => {
     const data = dataEditor(field);
-    return { key, required: shape.required?.includes(key) === true, ...(data === undefined ? {} : { data }) };
+    const parts = field?.shape === "list" || field?.shape === "map" ? { parts: field.shape } : {};
+    return { key, required: shape.required?.includes(key) === true, ...(data === undefined ? {} : { data }), ...parts };
   });
 }
 
@@ -90,38 +95,57 @@ function emptyData(editor: DataEditor): Json {
   return editor.max === undefined ? low : Math.min(editor.max, low);
 }
 
-function emptyValue(editor: Editor): Json {
+function emptyField(field: FieldEditor): Json {
+  if (field.data !== undefined) return emptyData(field.data);
+  if (field.parts === "list") return [];
+  return field.parts === "map" ? {} : newHole();
+}
+
+function emptyValue(editor: Editor, least: number): Json {
   switch (editor.form) {
     case "text":
     case "number":
     case "one":
       return emptyData(editor);
-    case "record": {
-      const fields = editor.fields.filter((field) => field.required).map((field) => [field.key, field.data === undefined ? newHole() : emptyData(field.data)]);
-      return Object.fromEntries(fields) as Json;
-    }
+    case "record":
+      return Object.fromEntries(editor.fields.filter((field) => field.required).map((field) => [field.key, emptyField(field)])) as Json;
     case "list":
-      return [];
+      return Array.from({ length: least }, newHole);
     case "map":
       return {};
     case "term":
       return newHole();
     case "path":
-      return ["names"];
+      // The root `names` alone has no text, because the text `names` reads as a name. The path `self` has a text (D178).
+      return ["self"];
     default:
       return null;
   }
 }
 
+/** The least count of arguments of the call form of a kind in a profile, or 0. */
+function leastArguments(profile: SyntaxProfile | undefined, kind: string): number {
+  const form = profile?.calls?.forms?.find((each) => [each.kind].flat().join(".") === kind);
+  return form?.min ?? 0;
+}
+
 /**
- * This function gives a new document of a kind from its contract alone. Each necessary position is a hole.
+ * This function gives a new document of a kind from its contract. Each necessary position is a hole. With a profile,
+ * a list gets a hole for each argument of the call form. Thus the document has a text (D178).
  *
  * @param world - The world.
  * @param kind - The name of the kind, with dots between the keys.
+ * @param profile - The text syntax of the editor, if it has one.
  * @returns The new document.
  */
-export function emptyDoc(world: World, kind: string): Json {
-  return typed(kind.includes(".") ? kind.split(".") : kind, emptyValue(editorOf(world, kind)));
+export function emptyDoc(world: World, kind: string, profile?: SyntaxProfile): Json {
+  return typed(kind.includes(".") ? kind.split(".") : kind, emptyValue(editorOf(world, kind), leastArguments(profile, kind)));
+}
+
+/** A kind with the verb `step` and no verb `eval` is a step of a path. It is not a document of a position (D178). */
+function isStep(world: World, name: string): boolean {
+  const verbs = (kindNamed(world, name.split(".")) as Kind | undefined)?.verbs;
+  return verbs !== undefined && Object.hasOwn(verbs, "step") && !Object.hasOwn(verbs, "eval");
 }
 
 function shapeAt(parts: PartShape | undefined, key: string): PartShape | undefined {
@@ -149,7 +173,8 @@ function kindNames(world: World): readonly string[] {
 
 /**
  * This function lists the kinds that a position permits (SHAPE.KINDS). A hole is not on the list, because the button
- * that empties a position makes it. The kind `kind` is not on the list, because it has only a view.
+ * that empties a position makes it. The kind `kind` is not on the list, because it has only a view. A step of a path
+ * is not on the list (D178).
  *
  * @param world - The world.
  * @param root - The root document.
@@ -161,7 +186,7 @@ export function kindsAt(world: World, root: Json, path: readonly string[]): read
   const parts = parent === undefined ? undefined : (kindNamed(world, parent.type) as Kind | undefined)?.parts;
   const shape = shapeAt(parts, path.at(-1) ?? "");
   const permitted = shape?.shape === "term" ? shape.kinds : undefined;
-  const names = kindNames(world).filter((name) => name !== HOLE_KIND && name !== "kind");
+  const names = kindNames(world).filter((name) => name !== HOLE_KIND && name !== "kind" && !isStep(world, name));
   if (permitted === undefined) return names;
   return names.filter((name) => permitted.some((keys) => name === keys.join(".") || name.startsWith(`${keys.join(".")}.`)));
 }

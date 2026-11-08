@@ -78,12 +78,14 @@ click(button("Select the parent") as Element);
 check("the root card shows in the panel", await until(() => $(`${PLAYGROUND} .cv-card[data-path=""]`)?.getAttribute("data-selected") === "true"));
 click(button("Add a part") as Element);
 check("a new part is an empty place with an error", await until(() => $(PORT)?.getAttribute("data-ok") === "false"), result());
+check("the text shows the empty place of an edit (C17b)", await until(() => text().includes("hole()")), text());
 click(`${PLAYGROUND} .cv-card[data-path="2"]`);
 check("the empty place shows in the panel", await until(() => field("Kind")?.value === ""), $(`${PLAYGROUND} .cv-panel-title`)?.textContent);
 set(field("Kind") as HTMLSelectElement, "number");
 check("the empty place takes a kind", await until(() => field("Value") !== undefined), $(`${PLAYGROUND} .cv-panel-title`)?.textContent);
 set(field("Value") as HTMLInputElement, "1");
 check("a new part changes the result", await until(() => result() === "15"), result());
+check("the text follows each edit of the tree (C17b)", !text().includes("hole()") && text().includes("1"), text());
 
 // A missing name gives an error at the result, and not a broken page.
 click(button("A missing name") as Element);
