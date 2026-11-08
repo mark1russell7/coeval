@@ -28,11 +28,13 @@ import {
   generate,
   lookupKind,
   mergeMachines,
+  mergeWorlds,
   ok,
   prepare,
   restrictMachine,
   typesOf,
 } from "./index.ts";
+import { kindAt } from "./world.ts";
 
 /*
  * The composition checklist (R6 P1, K34). Each test is one mode of composition from Erdweg, Giarrusso and Rendel
@@ -102,6 +104,21 @@ const TEXT: MachinePart = {
     },
   },
   evaluators: { "text.upper": upper, "text.join": join },
+};
+
+/* Extension three: the verb format. It adds entries to the kinds of the base, and it does not copy a kind. */
+
+const terms: EvalFn = ofValues((values) => ok(`(${values.join(", ")})`));
+
+const FORMAT: MachinePart = {
+  world: {
+    verbs: ["format"],
+    extends: [
+      { kind: ["kinds", "ops", "fallback"], verbs: { format: "format.terms" } },
+      { kind: ["kinds", "lit"], verbs: { format: "format.lit" } },
+    ],
+  },
+  evaluators: { "format.terms": terms, "format.lit": ({ doc }) => ok(JSON.stringify(doc.value)) },
 };
 
 /* The harness: each composed machine must agree with the reference interpreter, on given and generated documents. */
@@ -437,6 +454,92 @@ describe("the composition checklist", () => {
     expect(check(grown, op("join", doc("avg", [1, 2]), doc("upper", "ab")))).toEqual([]);
     expect(check(grown, upperDoc).map((issue) => issue.reason)).toEqual(["The world has no kind show."]);
     agreesOn(grown, [op("join", doc("avg", [1, 2]), doc("upper", "ab")), doc("mean", [1, 2, 2]), upperDoc]);
+  });
+
+  it("[COMPOSE.EXTEND-VERB] a language adds a verb that it owns to the kinds of other languages, and it copies no kind", () => {
+    const op = ["kinds", "ops", "fallback"];
+    const add = { type: ["ops", "add"], value: [1, 2] };
+    const machine = mergeMachines(BASE, FORMAT);
+    expect(prepare(machine, add, { verb: "format" }).evaluate()).toEqual(ok("(1, 2)"));
+    // The verb eval of the kind and the base do not change, and the result of the merge has no marks.
+    expect(prepare(machine, add).evaluate()).toEqual(ok(3));
+    expect((formulaKinds()["ops"] as Namespace).fallback?.verbs["format"]).toBeUndefined();
+    expect(BASE.world).not.toHaveProperty("verbs");
+    expect(machine.world).not.toHaveProperty("extends");
+    expect(machine.world).not.toHaveProperty("verbs");
+    // The order of the parts does not change the machine, and two equal parts give one entry.
+    expect(sameMachine(mergeMachines(FORMAT, BASE), machine)).toBe(true);
+    expect(sameMachine(mergeMachines(BASE, FORMAT, FORMAT), machine)).toBe(true);
+    expect(mergeWorlds(FORMAT.world as WorldPart, BASE.world)).toEqual(machine.world);
+    // A path reaches a kind at each depth, and the fallback of the world.
+    const stats = mergeMachines(BASE, STATS, {
+      world: {
+        verbs: ["format"],
+        extends: [
+          { kind: ["kinds", "mean"], verbs: { format: "format.terms" } },
+          { kind: ["kinds", "ops", "kinds", "twice"], verbs: { format: "format.terms" } },
+        ],
+      },
+      evaluators: { "format.terms": terms },
+    });
+    expect(kindAt(stats.world, ["mean"])?.verbs).toEqual({ eval: "stats.mean", format: "format.terms" });
+    expect(kindAt(stats.world, ["ops", "twice"])?.verbs).toEqual({ eval: "stats.twice", format: "format.terms" });
+    const open = mergeWorlds({ fallback: { verbs: { eval: "a" } } }, { verbs: ["format"], extends: [{ kind: ["fallback"], verbs: { format: "b" } }] });
+    expect(open.fallback?.verbs).toEqual({ eval: "a", format: "b" });
+    // Two languages with one verb each add to one kind, and a function part reads the entries before it.
+    const size: WorldPart = { verbs: ["size"], extends: [{ kind: op, verbs: { size: "size.op" } }] };
+    const both = mergeWorlds(BASE.world, FORMAT.world as WorldPart, size, (prev) => {
+      expect((prev.kinds["ops"] as Namespace).fallback?.verbs).toMatchObject({ format: "format.terms", size: "size.op" });
+      return {};
+    });
+    expect(Object.keys((both.kinds["ops"] as Namespace).fallback?.verbs ?? {})).toEqual([...Object.keys(OP_KIND.verbs), "format", "size"]);
+    // A part needs no ownership for a kind that it gives.
+    const here = { kinds: { mine: { verbs: { eval: "a" } } }, extends: [{ kind: ["kinds", "mine"], verbs: { view: "b" } }] };
+    expect(kindAt(mergeWorlds(here), ["mine"])?.verbs).toEqual({ eval: "a", view: "b" });
+  });
+
+  it("[COMPOSE.PIRACY] a foreign verb on a foreign kind is a conflict, and each conflict of an entry has its mark", () => {
+    const path = ["world", "kinds", "ref", "verbs", "format"];
+    const entry = { kind: ["kinds", "ref"], verbs: { format: "rival.format" } };
+    const pirate: MachinePart = { world: { extends: [entry] } };
+    expect(conflictsOf(() => mergeMachines(BASE, pirate))).toEqual([{ path, parts: [0, 1], reason: "A part adds a verb that it does not own to a kind that it does not give." }]);
+    // Another part that owns the verb does not make the entry legal.
+    expect(conflictsOf(() => mergeMachines(BASE, FORMAT, pirate)).map((item) => item.path)).toEqual([path]);
+    // The mark replaces says that the language knows what it takes.
+    expect(kindAt(mergeMachines(BASE, FORMAT, { world: { extends: [entry], replaces: [path.slice(1)] } }).world, ["ref"])?.verbs["format"]).toBe("rival.format");
+    // The kernel owns its verbs.
+    const kernel = { verbs: ["eval"], extends: [{ kind: ["kinds", "ref"], verbs: { eval: "rival.eval" } }] };
+    expect(conflictsOf(() => mergeMachines(BASE, { world: kernel })).map((item) => [item.path, item.reason])).toEqual([
+      [["world", "verbs", "eval"], "The kernel owns this verb."],
+      [["world", "kinds", "ref", "verbs", "eval"], "Two parts give two different evaluators for this verb of this kind."],
+    ]);
+    const taken = { ...kernel, replaces: [["verbs", "eval"], ["kinds", "ref", "verbs", "eval"]] };
+    expect(kindAt(mergeMachines(BASE, { world: taken }).world, ["ref"])?.verbs["eval"]).toBe("rival.eval");
+    // Two different parts do not own one verb, in each order.
+    const other: WorldPart = { verbs: ["format"], extends: [{ kind: ["kinds", "ref"], verbs: { format: "format.terms" } }] };
+    const owners = { path: ["verbs", "format"], parts: [0, 1], reason: "Two parts own this verb." };
+    expect(conflictsOf(() => mergeWorlds(BASE.world, other, FORMAT.world as WorldPart))).toContainEqual({ ...owners, parts: [1, 2] });
+    expect(conflictsOf(() => mergeWorlds(FORMAT.world as WorldPart, other))).toContainEqual(owners);
+    expect(conflictsOf(() => mergeWorlds(other, FORMAT.world as WorldPart))).toContainEqual(owners);
+    // Two entries for one verb of one kind conflict, and the mark of the later part gives its evaluator.
+    const rival = { ...other, extends: [{ kind: ["kinds", "ops", "fallback"], verbs: { format: "rival.format" } }] };
+    const verb = ["kinds", "ops", "fallback", "verbs", "format"];
+    const twice: readonly WorldPart[] = [BASE.world, FORMAT.world as WorldPart, { ...rival, replaces: [["verbs", "format"]] }];
+    expect(conflictsOf(() => mergeWorlds(...twice))).toEqual([{ path: verb, parts: [1, 2], reason: "Two parts give two different evaluators for this verb of this kind." }]);
+    const later = mergeWorlds(...twice.slice(0, 2), { ...rival, replaces: [["verbs", "format"], verb] });
+    expect((later.kinds["ops"] as Namespace).fallback?.verbs["format"]).toBe("rival.format");
+    // An entry for a path without a kind is a conflict, and the mark drops the entry. An alias is not a kind.
+    for (const kind of [["kinds", "nope"], ["kinds", "ops", "kinds", "nope"], ["kinds", "nope", "kinds", "x"], ["fallback"], ["defaults"], []]) {
+      const lost = [...kind, "verbs", "format"];
+      expect(conflictsOf(() => mergeWorlds(BASE.world, { verbs: ["format"], extends: [{ kind, verbs: { format: "a" } }] })).map((item) => [item.path, item.reason])).toEqual([[lost, "A part adds a verb to a path without a kind."]]);
+      expect(mergeWorlds(BASE.world, { verbs: ["format"], extends: [{ kind, verbs: { format: "a" } }], replaces: [lost] })).toEqual(BASE.world);
+    }
+    const alias: WorldPart = { kinds: { other: { type: "ref", value: ["kinds", "ref"] } }, verbs: ["format"], extends: [{ kind: ["kinds", "other"], verbs: { format: "a" } }] };
+    expect(conflictsOf(() => mergeWorlds(BASE.world, alias)).map((item) => item.reason)).toEqual(["A part adds a verb to a path without a kind."]);
+    // A key of the prototype stays an own entry.
+    const proto = JSON.parse('{ "verbs": { "__proto__": "a" } }') as { readonly verbs: Readonly<Record<string, string>> };
+    const odd = mergeWorlds(BASE.world, { verbs: ["__proto__"], extends: [{ kind: ["kinds", "ref"], verbs: proto.verbs }] });
+    expect(Object.getOwnPropertyDescriptor(kindAt(odd, ["ref"])?.verbs, "__proto__")?.value).toBe("a");
   });
 
   it("[COMPOSE.CONFLICT] two extensions that each compose with the base can conflict, and the error lists each path for replaces", () => {

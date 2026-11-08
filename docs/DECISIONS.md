@@ -5063,6 +5063,17 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 
 **Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
 
+## D156 (2026-11-04): a part owns verbs, and it adds their entries to the kinds of other parts
+
+**Context.** K35, R6 P4. A language adds a verb, for example `format`, to the kinds of another language. Before, it copied each kind and named it in `replaces`, or it used a function of `prev`. Two such languages then depended on their order. R6 asks for entries that the merge adds, with a rule against piracy. The owner of a verb had no declaration.
+
+**Decision.** `WorldPart` gets two fields. `verbs` lists the verbs that the part owns. `extends` lists the entries, each with the path of a kind and its evaluators by verb. The path has the form of `replaces`, thus it reaches the fallback kind of the namespace `ops`. The merge holds the entries, and it adds them after each part. The conflicts are piracy, a verb of the kernel, two owners, two evaluators for one verb of a kind, and a path without a kind. Each conflict has a path, and the mark `replaces` of that path resolves it. For a path without a kind, the mark drops the entry.
+
+**Why.** The entries join after each part, thus a language can come before the language of its kinds, and two languages commute. The result is the data of a kind, so the ladder, `check` and `checkWorld` read it with no change. The verbs `eval`, `deref` and `step` belong to the kernel. An equal part that owns the same verb is one owner, thus a merge of a part with itself stays idempotent.
+
+**Alternatives.** A function in the style of `extendDomain`. It reads `prev`, thus it needs its kind first, and it cannot report a conflict. An external table of methods. The ladder then gets a new rung, and D2 keeps the ladder small. An object as in R6 with a path as its key. A key is one text, and a world has a path of keys.
+
+**Limits.** A world keeps no owner and no entries, thus a part of a later merge does not see them. The merge of an extension with no base is a conflict, thus associativity (WORLD.LAWS) holds only when the first group holds the kind. Merge the parts flat, as K37 `compose` will do. An entry gives only an evaluator: a verb with effects does not declare them in `verbEffects` of a foreign kind (VERB.EFFECTS). An alias is not a kind, thus an entry names the kind itself.
 ## D177 (2026-11-07): a field of data gives `handle` a text in `WORLD_SYNTAX`
 
 **Context.** L1c. The kind `handle` (D146) keeps its clauses in `with`, a list of records of data. Each record has the data `op` and the document `do` or `abort`. A profile had text only for documents, thus SYNTAX.WORLD pinned a reason for `handle`.
