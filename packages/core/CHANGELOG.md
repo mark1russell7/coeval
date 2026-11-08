@@ -2,6 +2,20 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.25.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. The entry `ref.resolve` of `STD_EVALUATORS` is an object, not a function, and `TypeInput` gets two methods. No export goes.
+
+### Changes of behavior
+
+- **The standard evaluator `ref.resolve` compiles its path in `prepare` (D133).** `STD_EVALUATORS["ref.resolve"]` is a compiled evaluator. Its type stays `Evaluator`. A host that calls the entry as a function calls `STD_DEFINITIONS.evaluators["ref.resolve"]`. Each result, error, place and read stays the same.
+- **`TypeInput` gets the methods `readOf` and `provenBy` (D147).** The pass gives them. A host that makes its own `TypeInput` must add them.
+
+### New features
+
+- **A test with `proves` narrows a path in `if`, `and` and `or` (D147).** `Signature` gets the optional fields `proves` and `present`. `TypeRule` gets `first`, `usesProofs`, `reads` and `proves`. `PartType` gets `narrow` and `keep`. The new types are `Proof` and `Proven`. A document with a declared effect narrows only its names.
+- **A language adds its own verbs to the kinds of other languages (D156).** `WorldPart` gets the optional fields `verbs` and `extends`. The merge adds each entry after each part, thus two languages commute. Piracy, a verb of the kernel, two owners, two entries for one verb and a path without a kind are conflicts. The new type is `VerbEntries`.
+
 ## 0.24.1
 
 PATCH: before `1.0.0`, a new feature or a fix increases PATCH. Each change adds an export or an optional field, or corrects a fault. No export goes, and no type changes.

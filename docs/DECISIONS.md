@@ -5274,3 +5274,31 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** A form to edit a profile. A profile has functions for its references, thus a form cannot show each field. The three profiles show the fields that change the tree.
 
+## D187 (2026-11-08): K115 is dropped
+
+**Context.** K115 (D132). Each part of a plan keeps `runOf` of its code, approximately 96 bytes. The change made the steps of a part at its first run. D132 left the decision to the Speed verdict of CI.
+
+**Decision.** K115 is dropped, and #258 is closed without a merge. The branch `k115` stays as the record.
+
+- Two heads read two reference cases slower by 3.4 to 4.6 %, and `prepare` slower by 1.5 to 2.5 % (Speed runs 42485335912 and 42489026596).
+- A placebo in `compileNode` (#344) changed code that does not run. In 4 jobs of 2 runs, no reference case moved by more than 1.5 %.
+
+**Why.** `prepare` runs the changed lines, and its cost is in each run. A gain of 112 bytes for each part does not pay for a cost in `prepare` and in two cases of evaluation.
+
+**Alternatives.** A record in `bench/accepted` (K239). The cost has one sign on two heads, and the placebo did not give it. Thus the cost is not a move of the code of `compileNode` alone, and a record accepts a cost that the change gives.
+
+## D188 (2026-11-08): the bench imports only the parts of the kernel that its cases use
+
+**Context.** K246. The cases imported the namespace of the kernel and gave it to each case. Thus the bundle of each arm kept each export, also code that no timed call runs. K37 (#343) adds only `defineLanguage` and `compose`, and no case calls them. Three Speed runs of #343 read 5, 5 and 2 cases slower, by 0.6 to 11.7 %, with a different set in each run. The case "a reference of five steps" was slower in each of its 6 jobs.
+
+**Decision.**
+
+- `bench/cases.ts` imports the 7 parts that the cases use by name, and gives each case an object of those parts.
+- esbuild removes each export that the cases do not reach, as the bundler of a host does. The core sets `sideEffects` to false.
+- A case that reaches changed code still measures it, because the bundle keeps each part that a case reaches.
+- A change outside each timed path gives the same bundle on the two arms. With main and the head of #343, the two bundles have the hash `08a86c17bca3`. The hold of D117 starts only when the arms differ.
+
+**Why.** The timed code of the two arms of #343 is the same. A host does not see a difference of the bundle outside the timed code. The bundle of a host keeps only what the host imports. The cause of the slower reads of #343 is unread. With equal bundles, the code of such a change cannot give a hold.
+
+**Alternatives.** A record in `bench/accepted` for each slower case. Each run of #343 gave a different set, thus each push needed new records, and a record tells nothing about the cause. A placebo of the same size outside the timed paths. It costs a run, and it does not stop the next hold of this kind.
+
