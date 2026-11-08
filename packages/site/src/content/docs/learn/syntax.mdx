@@ -1,0 +1,31 @@
+---
+title: Syntax
+description: One parser and one printer read a profile as data. Select a profile, type a text, and see the document, each issue at its span, and the printed text.
+tableOfContents: false
+---
+
+import SyntaxKitDiagram from "../../../components/SyntaxKitDiagram.tsx";
+
+A document is data. A text is one way to write it. The syntax kit of the core gives one parser and one printer for each text syntax. A profile tells them the syntax: the operators with their precedence and grouping, the literals, the references and the call forms.
+
+`parse(profile, text)` gives a document, or the issues of the text. Each issue has an offset, a length and a message. `print(profile, doc)` writes the document with the fewest parentheses that keep its tree.
+
+## Read a text with a profile
+
+The diagram reads the text with the selected profile. It shows the tree of the document, the printed text, and the operators of the profile. It then reads the printed text again, to check that the round trip gives the same document.
+
+<SyntaxKitDiagram client:visible />
+
+## The profile decides the tree
+
+The text `-x ^ 2` is the same in each profile. The tree is different.
+
+- In the standard profile, `^` binds more tightly than a minus sign. Thus the text is `-(x ^ 2)`.
+- In the spreadsheet profile, a minus sign binds more tightly than `^`. Thus the text is `(-x) ^ 2`.
+- The world profile has no minus sign before a term. Thus the text gives an issue.
+
+A profile is data, thus a new text syntax needs no new parser. A language of a host program becomes one more profile, and the same tests examine it.
+
+## An issue has a span
+
+A bad text gives no document. It gives each issue with its place, in the order of the offsets. An issue with no length marks a place between two characters, for example a term that is missing. `parse` gives at most 20 issues for one text.

@@ -192,7 +192,8 @@ export const STD_WORLD: World = {
  * A literal in a place that takes a document gets its data envelope (K159, D65). Such a place is a part of `if`,
  * `list`, `seq` or `pure`, the value of `write`, or the whole text. The document after a header name is such a place
  * too. Thus `list(1, "a")` evaluates to `[1, "a"]`. The forms `add`, `multiply` and `greater` write an operator document that its operator
- * does not write, for example `add(5)` (K163).
+ * does not write, for example `add(5)` (K163). The field `with` of `handle` is a field of data, thus each clause is a
+ * record between braces in a list between brackets (D177).
  *
  * A host with more kinds spreads this profile and adds its forms to `calls.forms`. `STD_SYNTAX` stays the profile of
  * the formula kit.
@@ -223,6 +224,8 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "tree.named", kind: "tree.named", args: "named", fields: ["name", "in"] },
       { name: "tree.at", kind: "tree.at", args: "named", fields: ["attr", "args"] },
       { name: "tree.quote", kind: "tree.quote", args: "literal" },
+      // The clauses are data with documents in it, for example handle(with: [{op: "log", do: payload + 1}], body: log(2)) (D177).
+      { name: "handle", kind: "handle", args: "named", fields: ["with", "return", "body"], data: ["with"], wrap: ["return", "body"] },
       // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
       { name: "add", kind: "add" },
       { name: "multiply", kind: "multiply" },
@@ -835,6 +838,7 @@ function leaderOnHost(n: LoopNode, key: string, rule: CircularRule & { readonly 
 /**
  * This function gives an attribute of a node with circular attributes, or an attribute in an open fixed point (D113).
  * The memo and the marks of the node do not hold the attribute. An open fixed point does not use the cells of the host.
+ * With the cells of a host, only a circular attribute comes here outside a fixed point. A plain attribute takes its cell.
  */
 function circularRead(n: LoopNode, key: string): Result | undefined {
   const rule = circularRule(n.tree, key);
@@ -1221,7 +1225,8 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
           const text = attributeText(key, type, place);
           if (marks.has(key)) return busyAt(state, key);
           if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
-          if (circular || openPoint !== undefined) return circularRead(state, key);
+          // Outside a fixed point, a plain attribute of a node with a circular attribute also takes the cell of the host.
+          if (openPoint !== undefined || (circular && circularRule(tree, key) !== undefined)) return circularRead(state, key);
           marks.set(key, BUSY);
           demands.push({ cells: marks, key, text });
           let thrown: unknown = NOT_THROWN;
@@ -1528,6 +1533,27 @@ function isOp(value: unknown): value is Cap {
 }
 
 /**
+ * This function gives the runner of an `if` with its own truth (RUN.IF-TRUTH). A branch can wait for the host, thus a
+ * language with the function `truthy` of a profile does not need a copy of `if`. A missing test and a test without a
+ * truth give `#VALUE!`, a failed test gives its failure, and a missing branch gives `null`.
+ *
+ * @param truth - The function that gives the truth of a value, or `undefined` for a value without a truth.
+ * @returns The runner.
+ */
+export function ifRunner(truth: (value: unknown) => boolean | undefined): Runner {
+  return function* ({ parts }) {
+    const test = parts.find((part) => part.key === "test");
+    if (test === undefined) return fail("#VALUE!", "if needs a test.");
+    const chosen = yield* test.evaluate();
+    if (!chosen.ok) return chosen;
+    const held = truth(chosen.value);
+    if (held === undefined) return fail("#VALUE!", "The test of if must give a truth value.");
+    const branch = parts.find((part) => part.key === (held ? "then" : "else"));
+    return branch === undefined ? ok(null) : yield* branch.evaluate();
+  };
+}
+
+/**
  * The runners of the standard world, by name: the kinds that can hold effects. Each one evaluates its parts in
  * order. In a run, an effect ends before the next step starts.
  */
@@ -1576,15 +1602,7 @@ export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
     if (!result.ok || after === undefined) return result;
     return yield* after.evaluate({ ...context, names: { ...context.names, result: result.value } });
   },
-  "control.if": function* ({ parts }) {
-    const test = parts.find((part) => part.key === "test");
-    if (test === undefined) return fail("#VALUE!", "if needs a test.");
-    const chosen = yield* test.evaluate();
-    if (!chosen.ok) return chosen;
-    if (typeof chosen.value !== "boolean") return fail("#VALUE!", "The test of if must give a truth value.");
-    const branch = parts.find((part) => part.key === (chosen.value === true ? "then" : "else"));
-    return branch === undefined ? ok(null) : yield* branch.evaluate();
-  },
+  "control.if": /* @__PURE__ */ ifRunner((value) => (typeof value === "boolean" ? value : undefined)),
   "list.all": function* ({ parts }) {
     const all = yield* inOrder(parts);
     return "error" in all ? all.error : ok(all.values);

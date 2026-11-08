@@ -42,20 +42,46 @@ function acceptedDir(name: string, records: unknown): string {
 }
 
 /** This function starts the real script of the verdict, and gives its exit status and the outputs that it writes. */
-function verdict(name: string, first: string, second: string, accepted: string = acceptedDir(name, undefined)): { status: number | null; output: string; state: string; reason: string } {
+function verdict(name: string, first: string, second: string, accepted: string = acceptedDir(name, undefined)): { status: number | null; output: string; state: string; reason: string; gate: string; gateAnnotation: string; gateOutcome: string } {
   const output = join(dir, `${name}.output`);
   writeFileSync(output, "");
   const child = spawnSync(process.execPath, [MERGE, first, second], { encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: "", BENCH_ACCEPTED: accepted } });
   const text = readFileSync(output, "utf8");
   const field = (key: string): string => new RegExp(`^${key}=(.*)$`, "m").exec(text)?.[1] ?? "";
-  return { status: child.status, output: text, state: field("state"), reason: field("reason") };
+  return { status: child.status, output: text, state: field("state"), reason: field("reason"), gate: field("gate"), gateAnnotation: field("gate_annotation"), gateOutcome: field("gate_outcome") };
 }
 
-/** This function starts the script of the check with a state and a reason. */
-function check(state: string, reason: string): { status: number | null; text: string } {
-  const child = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env: { ...process.env, STATE: state, REASON: reason } });
-  return { status: child.status, text: child.stdout };
+/** This function starts the script of the check with a state, a reason and the gate. `text` is the first line of the output. */
+function check(state: string, reason: string, gate = "", gateOutcome = "", annotation = ""): { status: number | null; text: string; lines: string[] } {
+  const env = { ...process.env, STATE: state, REASON: reason, GATE: gate, GATE_OUTCOME: gateOutcome, GATE_ANNOTATION: annotation, GITHUB_STEP_SUMMARY: "" };
+  const child = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env });
+  const lines = child.stdout.trim().split("\n");
+  return { status: child.status, text: lines[0] ?? "", lines };
 }
+
+describe("the check shows the line of the report-only gate (K225, D181, K242)", () => {
+  const LINE = "Speed gate (D163): no read for 1 of 2 cases: x. jobs on 1 CPU model: A (2 jobs). A no read is not a pass.";
+  const WARNING = `::warning title=Speed gate (D163)%3A no read (report only)%2C 1 no read::${LINE}`;
+
+  it("prints the line of a pass with no warning", () => {
+    const read = check("same", "the reason", "Speed gate (D163): pass for 2 of 2 cases. Jobs on 1 CPU model: A (2 jobs).", "pass");
+    expect(read.status).toBe(0);
+    expect(read.lines).toEqual(["Speed OK: same. the reason", "Speed gate (D163): pass for 2 of 2 cases. Jobs on 1 CPU model: A (2 jobs)."]);
+  });
+
+  it("prints the warning of the job verdict on a gate no read, and the check stays green while the gate is report only", () => {
+    const read = check("same", "the reason", LINE, "no read", WARNING);
+    expect(read.status).toBe(0);
+    expect(read.lines).toEqual(["Speed OK: same. the reason", LINE, WARNING]);
+  });
+
+  it("gives the fixed warning on a missing line, and on a block or a no read with no warning", () => {
+    const missing = ["Speed gate (D163): no read. The job verdict wrote no line of the gate.", "::warning title=Speed gate (D163)%3A no read (report only)::The job verdict wrote no line of the gate. A no read is not a pass."];
+    expect(check("same", "r").lines.slice(1)).toEqual(missing);
+    expect(check("same", "r", "", "pass").lines.slice(1)).toEqual(missing);
+    expect(check("same", "r", LINE, "block").lines.slice(1)).toEqual(missing);
+  });
+});
 
 describe("the check reads the state of the verdict (K235, D167)", () => {
   it.each([
@@ -82,6 +108,22 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
     const read = verdict("same", runFile("same-1", whole), runFile("same-2", second));
     expect(read).toMatchObject({ status: 0, state: "same" });
     expect(read.reason).toContain("0 slower");
+  });
+
+  // Each test starts the script one time, because a start takes approximately 1.5 s and the test time has a budget (CI 42460573497).
+  it("writes the line of a gate pass with the CPU models (K225, D181, K242)", () => {
+    const pass = verdict("gate-pass", runFile("gate-pass-1", whole), runFile("gate-pass-2", second));
+    expect(pass).toMatchObject({ gateOutcome: "pass", gateAnnotation: "" });
+    expect(pass.gate).toBe("Speed gate (D163): pass for 2 of 2 cases. Jobs on 1 CPU model: a CPU (2 jobs).");
+  });
+
+  it("writes the line and the warning of gateLine of rigor-bench for a gate no read (K225, D181, K242)", () => {
+    const split = verdict("gate-split", runFile("gate-split-1", [benchCase("x", 1.1, 0), benchCase("y", 1, 0)]), runFile("gate-split-2", second));
+    const line = "Speed gate (D163): no read for 1 of 2 cases: x. jobs on 1 CPU model: a CPU (2 jobs). A no read is not a pass.";
+    expect(split).toMatchObject({ gateOutcome: "no read", gate: line, gateAnnotation: `::warning title=Speed gate (D163)%3A no read (report only)%2C 1 no read::${line}` });
+    expect(split.state).not.toBe("no read");
+    // The check prints the line and the warning that the verdict wrote.
+    expect(check("same", "r", split.gate, split.gateOutcome, split.gateAnnotation).lines.slice(1)).toEqual([line, split.gateAnnotation]);
   });
 
   it("writes slower on a slower case, and it exits 0, because this stays report only", () => {
@@ -181,6 +223,7 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
   it("gives a fault before a slower case, and a reason on one line", () => {
     expect(speedState(3, 0, "a hold", ["The first\nfault.", "The second."])).toEqual({ state: "no read", reason: "The first fault. The second." });
     expect(speedState(1, 2, "a hold", []).reason).toBe("1 slower, 2 cannot decide. a hold");
+    expect(speedState(0, 1, "a hold", [], 0, false, undefined, "Mixed CPU pair (D183): a + b. 1 no read: x.")).toEqual({ state: "same", reason: "0 slower, 1 cannot decide. Mixed CPU pair (D183): a + b. 1 no read: x." });
     expect(speedState(3, 0, "a hold", ["A short run."], 2)).toEqual({ state: "different results", reason: "2 cases read different results. The arms differ or have no hashes, so a changed result can explain this. A short run." });
   });
 });

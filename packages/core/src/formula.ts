@@ -447,6 +447,7 @@ function formulaTypes(profile: FormulaProfile): Readonly<Record<string, TypeRule
     "formula.lit": { synth: (input) => valueType(input.doc.value) },
 
     "formula.ref": {
+      read: true,
       reads: (input) => {
         const path = input.doc.value;
         if (input.address || !Array.isArray(path) || path.length === 0) return undefined;
