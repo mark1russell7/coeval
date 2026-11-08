@@ -44,8 +44,7 @@
 import { leastSquares, mean, median, quantile, sd } from "@mark1russell7/rigor-statistics";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
-import { GCProfiler, setFlagsFromString } from "node:v8";
-import { runInNewContext } from "node:vm";
+import { allocated, exposedGc } from "./memory.ts";
 
 type Kernel = typeof import("../src/index.ts");
 
@@ -170,24 +169,6 @@ function orderOf(round: number, pass: number, length: number): number[] {
   return order;
 }
 
-/**
- * This function gives the bytes that one call of `call` allocates. A full collection by `gc` starts the measure. The
- * bytes that a collection in the call frees are added, thus a scavenge loses no bytes (D105).
- */
-function allocated(gc: () => void, call: () => unknown): number {
-  gc();
-  // A new profiler for each measure: the profiler of Node does not start again after `stop()`.
-  const profiler = new GCProfiler();
-  profiler.start();
-  const before = process.memoryUsage().heapUsed;
-  call();
-  const after = process.memoryUsage().heapUsed;
-  const { statistics } = profiler.stop();
-  let freed = 0;
-  for (const item of statistics) freed += item.beforeGC.heapStatistics.usedHeapSize - item.afterGC.heapStatistics.usedHeapSize;
-  return after - before + freed;
-}
-
 function writeSummary(lines: readonly string[]): void {
   const text = `${lines.join("\n")}\n`;
   process.stdout.write(text);
@@ -293,8 +274,7 @@ async function measure(): Promise<void> {
   }
   // The memory phase (K209, D105). It starts after all timed rounds, thus the timed passes keep the conditions of D97.
   const memoryStarted = performance.now();
-  setFlagsFromString("--expose-gc");
-  const gc = runInNewContext("gc") as () => void;
+  const gc = exposedGc();
   const empty = (): number => 0;
   // bytes[arm][round]: the bytes of one call, less the bytes of an empty measure in the same round
   const bytes: number[][] = arms.map(() => []);
@@ -469,8 +449,14 @@ function merge(files: readonly string[]): void {
       `| \`${name}\` | ${rungs.map((value) => Math.round(value)).join(", ")} | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
   });
-  lines.push("", `Gate (report only, D164): ${blocks.length === 0 ? "pass." : `block. ${blocks.join(" ")}`}`, `Smallest slope that gives a block: ${sights.join(", ")}. Under that size: no read.`);
+  const gateLine = `Gate (report only, D164): ${blocks.length === 0 ? "pass." : `block. ${blocks.join(" ")}`}`;
+  lines.push("", gateLine, `Smallest slope that gives a block: ${sights.join(", ")}. Under that size: no read.`);
   writeSummary(lines);
+  // A block of the report-only gate gives a warning on the pull request, thus a green check does not hide it (K225, D182).
+  // Only the real pool sets LADDER_ANNOTATE, because the flip rows block on purpose.
+  if (blocks.length > 0 && process.env["LADDER_ANNOTATE"] === "1") {
+    process.stdout.write(`::warning title=Ladder gate (report only)::${gateLine.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}\n`);
+  }
   if (blocks.length > 0 && process.env["LADDER_BLOCK"] === "1") process.exitCode = 3;
   const excluded = all.filter((run) => !counts(run)).map(runName);
   process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", counted: runs.map(runName), excluded, walks: measures })}\n`);

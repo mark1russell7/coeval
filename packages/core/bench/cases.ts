@@ -266,10 +266,24 @@ export function calibrate(fn: () => unknown): number {
   }
 }
 
-/** This function gives the time of one call in nanoseconds. */
-export function measure(fn: () => unknown, n: number): number {
+/*
+ * The seeded slowdown of the flip test (K225, D180). The script `paths.ts` builds the head arm with the define
+ * `BENCH_SLOW`: one factor for each case of `CASES`. Without the define, each factor is 1.
+ */
+declare const BENCH_SLOW: readonly number[] | undefined;
+const SLOW: readonly number[] = typeof BENCH_SLOW === "undefined" ? [] : BENCH_SLOW;
+
+/**
+ * This function gives the time of one call in nanoseconds. With a factor `slow` above 1, the sample waits in the timed
+ * part until its time is `slow` times the time of its calls. Thus the timer reads a real slowdown of that factor.
+ */
+export function measure(fn: () => unknown, n: number, slow = 1): number {
   const start = performance.now();
   for (let index = 0; index < n; index += 1) fn();
+  if (slow > 1) {
+    const until = start + (performance.now() - start) * slow;
+    for (;;) if (performance.now() >= until) break;
+  }
   return ((performance.now() - start) * 1e6) / n;
 }
 
@@ -288,7 +302,7 @@ export function run(counts?: readonly number[], only?: readonly number[]): Measu
     const result = show(fn());
     const calls = counts?.[index] ?? calibrate(fn);
     const samples: number[] = [];
-    for (let round = 0; round < WARMUP + SAMPLES; round += 1) samples.push(measure(fn, calls));
+    for (let round = 0; round < WARMUP + SAMPLES; round += 1) samples.push(measure(fn, calls, SLOW[index] ?? 1));
     return { name: item.name, result, calls, ns: median(samples.slice(WARMUP)), samples };
   });
 }

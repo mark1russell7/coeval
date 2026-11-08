@@ -101,7 +101,7 @@ export default function KindDiagram() {
                 : "The classifier put each copy in an envelope with the type box."}
             </p>
           </div>
-          <div className="ce-scroll">
+          <div className="ce-scroll scroll-cue">
             <table className="ce-table">
               <thead>
                 <tr>

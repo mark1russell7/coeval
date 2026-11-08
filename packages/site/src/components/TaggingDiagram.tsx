@@ -110,7 +110,7 @@ export default function TaggingDiagram() {
           ))}
         </div>
       </div>
-      <div className="ce-stage ce-scroll">
+      <div className="ce-stage ce-scroll scroll-cue">
         <table className="ce-table cv-ways">
           <thead>
             <tr>

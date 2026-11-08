@@ -1,4 +1,4 @@
-import { fromJson, isRecord, kindNamed, typed, type Json, type World } from "@mark1russell7/coeval";
+import { fromJson, isRecord, kindNamed, type Json, type World } from "@mark1russell7/coeval";
 
 /**
  * This function gives the value inside a document: the value of an envelope, or the bare value itself.
@@ -106,58 +106,4 @@ export function declaredAt(world: World, root: Json, path: readonly string[]): s
   const parts = kindNamed(world, parent.type)?.parts;
   // A data shape has no parts, so it declares no type.
   return parts === undefined || !("of" in parts) ? undefined : parts.of;
-}
-
-/**
- * This function gives a new document of a kind, with a small value that obeys the contract of the kind.
- *
- * @param kind - The name of the kind.
- * @returns The new document.
- */
-export function newDoc(kind: string): Json {
-  switch (kind) {
-    case "number":
-      return typed("number", 1);
-    case "text":
-      return typed("text", "hello");
-    case "bool":
-      return typed("bool", true);
-    case "add":
-    case "multiply":
-      return typed(kind, [1, 2]);
-    case "greater":
-      return typed("greater", [3, 2]);
-    case "list":
-      return typed("list", [typed("number", 1), typed("text", "two")]);
-    case "if":
-      return typed("if", { test: typed("bool", true), then: typed("text", "yes"), else: typed("text", "no") });
-    case "ref":
-      return typed("ref", ["names", "a"]);
-    case "seq":
-      return typed("seq", [typed("number", 1, { name: "a" }), typed("ref", ["names", "a"])]);
-    case "pure":
-      return typed("pure", [typed("number", 1)]);
-    case "log":
-      return typed("log", ["hello"]);
-    case "write":
-      return typed("write", { key: "x", value: typed("number", 1) });
-    default:
-      return typed(kind, null);
-  }
-}
-
-/**
- * This function gives a new part for a document with a list value. The part is a bare value of the declared
- * type, or else a number in an envelope.
- *
- * @param world - The world.
- * @param kind - The kind of the document that gets the part.
- * @returns The new part.
- */
-export function newPart(world: World, kind: string): Json {
-  const parts = kindNamed(world, kind)?.parts;
-  const of = parts !== undefined && parts.shape === "list" ? parts.of : undefined;
-  if (of === "number") return 1;
-  if (of === "text") return "more";
-  return typed("number", 1);
 }

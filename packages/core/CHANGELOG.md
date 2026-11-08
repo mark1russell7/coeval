@@ -2,6 +2,24 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.24.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. The union `CapsRule` gets a member, and a document of the kind `handle` gives a result where it gave an error. No export goes.
+
+### Changes of behavior
+
+- **The union `CapsRule` gets the rule `grant` (D146).** An exhaustive match over the union does not compile until it has the new member.
+- **`STD_WORLD` gets the kind `handle` (D146).** In 0.23.0, a document of the kind `handle` gave an error. In 0.24.0, it answers the effects of its body.
+
+### New features
+
+- **Handlers as documents (D146).** The kind `handle` answers the effects of its body with its clauses `do` and `abort`, and its field `return` changes the result. Thus a mock, a log or a retry is a document. A clause has the capabilities of its `handle`, and `pure` still stops a handled effect. A handled effect does not reach the host, thus `check` and `effectsOf` do not give it. The new exports are the type `Clause` and `partGrants`. `RunPart` gets the optional method `handled`, and `DocVisit` gets the optional field `handled`.
+- **The faults of a syntax profile (D140).** `checkSyntax(profile)` gives each clash of a syntax profile as a named finding with a place. Each finding is a small document that breaks `parse(print(doc))`.
+
+### Tests and CI
+
+These changes are not in the package. The limit of PLAN.LEAN reads the data spaces of the heap (D171). Both arms of Speed build under one resolved `tsconfig.json` (D168). The ladder starts on each change of the kernel, and two flips show that its report-only gate can block (D164).
+
 ## 0.23.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. `conforms` gives findings for host code that passed before, and some documents give another error. No export goes.

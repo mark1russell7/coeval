@@ -867,7 +867,7 @@ function instanceOf(env: Env, under: Under, doc: Envelope, split: SplitOk, sampl
     const fn = under.fn;
     return (shot) => {
       const ctx = shot.context;
-      const parts: RunPart[] = split.parts.map((slot, index) => ({ ...handleOf(slot), evaluate: (given?: Context) => shot.steps(index, "evaluate", given ?? ctx) }));
+      const parts: RunPart[] = split.parts.map((slot, index) => ({ ...handleOf(slot), evaluate: (given?: Context) => shot.steps(index, "evaluate", given ?? ctx), handled: () => shot.steps(index, "evaluate", ctx) }));
       const input: RunInput = {
         ...base,
         value: fill(parts),

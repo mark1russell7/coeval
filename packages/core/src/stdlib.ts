@@ -1,7 +1,8 @@
-import { type Json, type Key, docEquals, field, isRecord } from "./doc.ts";
+import { type Json, type Key, docEquals, field, isKey, isRecord } from "./doc.ts";
 import {
   type EvalInput,
   type Evaluator,
+  type Clause,
   type InputWithRuntime,
   type Machine,
   type Plan,
@@ -145,6 +146,27 @@ export const STD_WORLD: World = {
       lazy: [{ after: 1 }],
       summary: "It evaluates its part without capabilities, thus an effect in it fails.",
     },
+    handle: {
+      verbs: { eval: "control.handle", view: "view.op" },
+      parts: {
+        shape: "record",
+        fields: {
+          with: { shape: "list", item: { shape: "record", fields: { op: { shape: "none" }, do: { shape: "term" }, abort: { shape: "term" } }, required: ["op"], closed: true } },
+          return: { shape: "term" },
+          body: { shape: "term" },
+        },
+        required: ["with", "body"],
+        closed: true,
+      },
+      scope: [
+        { names: { fixed: ["payload"] }, in: [["with", "*", "do"], ["with", "*", "abort"]] },
+        { names: { fixed: ["result"] }, in: [["return"]] },
+      ],
+      caps: [{ rule: "grant", from: ["with", "*", "op"], in: [["body"]] }],
+      // A clause runs at an effect of the body, and the clause return runs only after a body without a failure.
+      lazy: [{ in: [["with", "*", "do"], ["with", "*", "abort"], ["return"]] }],
+      summary: "It answers the effects of its body with its clauses, in place, thus a mock, a retry or a log is a document.",
+    },
     log: {
       verbs: { eval: "effect.log", view: "view.op" },
       parts: { shape: "list", of: "text" },
@@ -171,7 +193,8 @@ export const STD_WORLD: World = {
  * A literal in a place that takes a document gets its data envelope (K159, D65). Such a place is a part of `if`,
  * `list`, `seq` or `pure`, the value of `write`, or the whole text. The document after a header name is such a place
  * too. Thus `list(1, "a")` evaluates to `[1, "a"]`. The forms `add`, `multiply` and `greater` write an operator document that its operator
- * does not write, for example `add(5)` (K163).
+ * does not write, for example `add(5)` (K163). The field `with` of `handle` is a field of data, thus each clause is a
+ * record between braces in a list between brackets (D177).
  *
  * A host with more kinds spreads this profile and adds its forms to `calls.forms`. `STD_SYNTAX` stays the profile of
  * the formula kit.
@@ -202,6 +225,8 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "tree.named", kind: "tree.named", args: "named", fields: ["name", "in"] },
       { name: "tree.at", kind: "tree.at", args: "named", fields: ["attr", "args"] },
       { name: "tree.quote", kind: "tree.quote", args: "literal" },
+      // The clauses are data with documents in it, for example handle(with: [{op: "log", do: payload + 1}], body: log(2)) (D177).
+      { name: "handle", kind: "handle", args: "named", fields: ["with", "return", "body"], data: ["with"], wrap: ["return", "body"] },
       // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
       { name: "add", kind: "add" },
       { name: "multiply", kind: "multiply" },
@@ -821,6 +846,7 @@ function leaderOnHost(n: LoopNode, key: string, rule: CircularRule & { readonly 
 /**
  * This function gives an attribute of a node with circular attributes, or an attribute in an open fixed point (D113).
  * The memo and the marks of the node do not hold the attribute. An open fixed point does not use the cells of the host.
+ * With the cells of a host, only a circular attribute comes here outside a fixed point. A plain attribute takes its cell.
  */
 function circularRead(n: LoopNode, key: string): Result | undefined {
   const rule = circularRule(n.tree, key);
@@ -1207,7 +1233,8 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
           const text = attributeText(key, type, place);
           if (marks.has(key)) return busyAt(state, key);
           if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
-          if (circular || openPoint !== undefined) return circularRead(state, key);
+          // Outside a fixed point, a plain attribute of a node with a circular attribute also takes the cell of the host.
+          if (openPoint !== undefined || (circular && circularRule(tree, key) !== undefined)) return circularRead(state, key);
           marks.set(key, BUSY);
           demands.push({ cells: marks, key, text });
           let thrown: unknown = NOT_THROWN;
@@ -1501,6 +1528,39 @@ function* inOrder(parts: readonly RunPart[]): Generator<Promise<unknown>, { read
   return { values };
 }
 
+/** The value of a `handle` document, with a part in the place of each part. */
+interface HandleValue {
+  readonly with: readonly { readonly op: Cap; readonly do?: RunPart; readonly abort?: RunPart }[];
+  readonly return?: RunPart;
+  readonly body?: RunPart;
+}
+
+/** This function tells if a value names a kind of effects: a text, or a list of keys. */
+function isOp(value: unknown): value is Cap {
+  return typeof value === "string" || (Array.isArray(value) && value.every(isKey));
+}
+
+/**
+ * This function gives the runner of an `if` with its own truth (RUN.IF-TRUTH). A branch can wait for the host, thus a
+ * language with the function `truthy` of a profile does not need a copy of `if`. A missing test and a test without a
+ * truth give `#VALUE!`, a failed test gives its failure, and a missing branch gives `null`.
+ *
+ * @param truth - The function that gives the truth of a value, or `undefined` for a value without a truth.
+ * @returns The runner.
+ */
+export function ifRunner(truth: (value: unknown) => boolean | undefined): Runner {
+  return function* ({ parts }) {
+    const test = parts.find((part) => part.key === "test");
+    if (test === undefined) return fail("#VALUE!", "if needs a test.");
+    const chosen = yield* test.evaluate();
+    if (!chosen.ok) return chosen;
+    const held = truth(chosen.value);
+    if (held === undefined) return fail("#VALUE!", "The test of if must give a truth value.");
+    const branch = parts.find((part) => part.key === (held ? "then" : "else"));
+    return branch === undefined ? ok(null) : yield* branch.evaluate();
+  };
+}
+
 /**
  * The runners of the standard world, by name: the kinds that can hold effects. Each one evaluates its parts in
  * order. In a run, an effect ends before the next step starts.
@@ -1524,15 +1584,33 @@ export const STD_RUNNERS: Readonly<Record<string, Runner>> = {
     if (only === undefined || parts.length > 1) return fail("#VALUE!", "pure needs exactly one part.");
     return yield* only.evaluate();
   },
-  "control.if": function* ({ parts }) {
-    const test = parts.find((part) => part.key === "test");
-    if (test === undefined) return fail("#VALUE!", "if needs a test.");
-    const chosen = yield* test.evaluate();
-    if (!chosen.ok) return chosen;
-    if (typeof chosen.value !== "boolean") return fail("#VALUE!", "The test of if must give a truth value.");
-    const branch = parts.find((part) => part.key === (chosen.value === true ? "then" : "else"));
-    return branch === undefined ? ok(null) : yield* branch.evaluate();
+  // A clause gets the context of the handle document, thus it has no more authority than its parent (HANDLE.CLAUSE).
+  "control.handle": function* ({ value, context }) {
+    const { with: list, return: after, body } = value as HandleValue;
+    if (body?.handled === undefined) return fail("#VALUE!", "handle needs a body.");
+    let stopped: Result | undefined;
+    const clauses: Clause[] = [];
+    for (const item of list) {
+      const part = item.do ?? item.abort;
+      if (!isOp(item.op)) return fail("#VALUE!", "The op of a clause of handle must be a text or a list of keys.");
+      if (part === undefined || (item.do !== undefined && item.abort !== undefined)) return fail("#VALUE!", "Each clause of handle needs exactly one of do and abort.");
+      const stops = item.do === undefined;
+      clauses.push({
+        op: item.op,
+        answer: function* (payload) {
+          const result = yield* part.evaluate({ ...context, names: { ...context.names, payload } });
+          if (!stops) return result;
+          stopped ??= result;
+          return fail("#CALC!", "A clause abort of handle stopped the body.");
+        },
+      });
+    }
+    const result = yield* body.handled(clauses);
+    if (stopped !== undefined) return stopped;
+    if (!result.ok || after === undefined) return result;
+    return yield* after.evaluate({ ...context, names: { ...context.names, result: result.value } });
   },
+  "control.if": /* @__PURE__ */ ifRunner((value) => (typeof value === "boolean" ? value : undefined)),
   "list.all": function* ({ parts }) {
     const all = yield* inOrder(parts);
     return "error" in all ? all.error : ok(all.values);
