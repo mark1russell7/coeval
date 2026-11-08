@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   STD_CAPS,
+  STD_DEFINITIONS,
   ROOTS,
   context,
   evaluate,
@@ -9,7 +10,6 @@ import {
   ref,
   resolve,
   worldThing,
-  type EvalFn,
   type Hop,
   type Json,
   type Machine,
@@ -33,7 +33,8 @@ interface Walk {
 /** This function evaluates the tree, and keeps the resolution of each reference in the order of the evaluation. */
 function treeWalks(): readonly { readonly path: readonly Json[]; readonly resolution: Resolution }[] {
   const seen: { path: readonly Json[]; resolution: Resolution }[] = [];
-  const base = SITE_MACHINE.evaluators["ref.resolve"];
+  // The standard evaluator is compiled, thus this wrapper calls its definition (PLAN.PATH-STD-WRAP).
+  const base = STD_DEFINITIONS.evaluators?.["ref.resolve"];
   const machine: Machine = {
     ...SITE_MACHINE,
     evaluators: {
@@ -43,7 +44,7 @@ function treeWalks(): readonly { readonly path: readonly Json[]; readonly resolu
           const path: readonly Json[] = input.data;
           seen.push({ path, resolution: input.resolve(path) });
         }
-        return base === undefined ? { ok: false, error: { code: "#NOEVAL", reason: "No evaluator." } } : (base as EvalFn)(input);
+        return base === undefined ? { ok: false, error: { code: "#NOEVAL", reason: "No evaluator." } } : base(input);
       },
     },
   };

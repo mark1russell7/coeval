@@ -132,6 +132,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D129 | The package exports `compilePath`, `resolveCompiled` and the type `CompiledPath` (K75). A language compiles a static path one time, and a read through the route gives the value, the place and the reads of its interpreter. |
 | D130 | `codecLaws` examines the codec of one domain (K141). It tests sample and edge members for a throw, JSON, one document, a read through `decodeDomain` and the round trip. A finding has the form of `conforms`. |
 | D131 | The export `checkCycles` gives each certain cycle of a schedule as one issue with the code `#CYCLE!` (S2d). A possible cycle gives no issue. |
+| D133 | The standard evaluator `ref.resolve` compiles its path one time in `prepare`, and `STD_DEFINITIONS` gives the reference its definition (K77). The entry of `STD_EVALUATORS` is an object, thus a host wraps the definition. |
 | D136 | A kept read that a reference leads to the node in evaluation closes no cycle (K217). Thus a closure at a node whose `self` refers to that node gives its value. Each list of reads stays the same. |
 | D160 | Each parameter property becomes a plain field first in its class, and the constructor assigns it first (K224). The emitted code stays the same, and the option `erasableSyntaxOnly` stays on. |
 | D161 | A failed test of the measure step turns it red. The limit of PLAN.LEAN was not enforced from K211 to this decision, and it failed in 8 of 99 jobs. The limit is 401.1 bytes, the worst of these jobs plus their spread. |
