@@ -2,11 +2,18 @@
 # the shared Pages workflow of mark1russell7 (reusable-pages.yml of mark1russell7/template, its CI.md).
 # The Pages source of the repository is "GitHub Actions" (Settings > Pages).
 # A scheduled build takes the newest commit of main, or the newest green one if CI failed on it.
+# A pull request builds and checks the site in a browser, with no deploy.
 name: Pages
 
 on:
   push:
     branches: [main]
+  # After a release, so that the Releases page has the new version
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+  pull_request:
   # Every 3 hours, so that the Status page shows the open pull requests and issues of now
   schedule:
     - cron: "13 */3 * * *"
@@ -15,13 +22,14 @@ on:
 permissions: {}
 
 # One deployment at a time. A newer push cancels a deployment that waits.
+# Each pull request has its own group, and a newer push cancels its run.
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pages:
-    uses: mark1russell7/template/.github/workflows/reusable-pages.yml@35488f7ab12bb5d452fe8307ebb05f77bb3f0f6f # main
+    uses: mark1russell7/template/.github/workflows/reusable-pages.yml@3ef4ae39143b074a58f013abe2c2c3bccea63643 # main
     # The build job of the shared workflow gets only the read permissions. Only its deploy job,
     # which runs no code of the repository, writes to Pages.
     permissions:
@@ -42,3 +50,8 @@ jobs:
       roadmap: docs/ROADMAP.md
       packages: "@mark1russell7/coeval"
       site-name: coeval
+      deploy: ${{ github.event_name != 'pull_request' }}
+      # The site check opens these pages in a browser before the deploy. Its probe drives the first page.
+      site-check: true
+      site-check-pages: /playground/,/,/start/model/,/releases/,/status/,/learn/replay/,/learn/conformance/,/learn/syntax/
+      site-check-probe: packages/site/src/check-probe.ts

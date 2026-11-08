@@ -150,6 +150,7 @@ function unionOf(types: readonly ValueType[]): ValueType {
 
 /** The state of one reading of a schema: the root, the issues and the definitions that it read. */
 class SchemaReader {
+  readonly root: unknown;
   readonly issues: TypeIssue[] = [];
   /** The type of each definition that a reference reached. Each reading of a definition is sound, thus the first stays. */
   readonly defs = new Map<string, ValueType>();
@@ -158,7 +159,9 @@ class SchemaReader {
   /** The number of schemas with an own `$id` around the current schema. A reference inside them has another base. */
   inner = 0;
 
-  constructor(readonly root: unknown) {}
+  constructor(root: unknown) {
+    this.root = root;
+  }
 
   issue(at: readonly Key[], reason: string): void {
     this.issues.push({ at, reason });

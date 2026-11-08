@@ -1,6 +1,6 @@
 ---
 title: Playground
-description: Build a document from the kinds of the world. Select a card to change its kind, its value, its name or its parts. The picture evaluates after each change.
+description: Build a document from the kinds of the world. Each editor comes from the contract of a kind, and an empty place evaluates to an error value.
 tableOfContents: false
 ---
 
@@ -14,9 +14,21 @@ Each card of this page is the same glyph as on the other pages. Build a larger d
 
 1. Select a starting document, or keep the one that is there.
 2. Select a card. The panel shows its kind, its value and its name.
-3. Change the kind to replace the card with a new document of that kind.
-4. Select **Add a part** to add a part to a list. Select **Put in a list** to nest the card one level deeper.
-5. Select **Step through it** to see each event of the evaluation.
+3. Change the kind to replace the card with a new document of that kind. Each necessary place of the new document is empty.
+4. Select **Add a part** to add an empty part to a list. Select **Put in a list** to nest the card one level deeper.
+5. Select **Empty this place** to remove the document and keep its place.
+6. Select **Step through it** to see each event of the evaluation.
+
+## The editors come from the contracts
+
+The panel names no kind. It reads the contract of the selected card:
+
+- A data shape gives an input: a text, a number or a menu.
+- A record shape gives one row for each field, and each row tells if the field is necessary.
+- A position lists only the kinds that its contract permits.
+- A reference lists the names that its place can read.
+
+An empty place holds a document of the kind `hole`. It evaluates to the error value `#HOLE`, and that error has its place. Thus each state of an edit evaluates, and the other cards keep their results. The text of an empty place is `hole()`.
 
 ## The text
 

@@ -2,6 +2,8 @@
 # A limit is the worst value of the runs plus the spread of the values. A seeded count is the same in each run, thus a test pins it.
 # Each job prints its values in its log and in its summary. A local machine is shared, thus the measures run here.
 # The jobs "ladder" measure the slope of the walks of STATIC.LINEAR (K208, D97). The job "ladder-verdict" pools them.
+# The job "ladder-flip" reads walks with the slopes 2, 1.3 and 1 on one runner. It holds the code of the verdict and the exit code.
+# The job "ladder-plain" calls a workflow that holds the size that the gate prints. It runs on each change of the code of the gate (K227, D164).
 # The jobs "mode" compare each bench case alone with the same case in the order of cases.ts (K210, D98).
 # Each part measures 8 cases on its runner in 341 processes, approximately 2 minutes by the times of run 41430307699.
 # The job "mode-verdict" pools the parts.
@@ -10,7 +12,8 @@ name: Measure
 on:
   # Each pull request starts this workflow, so its summary check is always there. Two jobs of the action "changes"
   # skip the work when the pull request changes no file of a gate (CI.md of the template, "A gate with paths").
-  # The job "core-changes" starts the job "measure". The job "changes" starts the jobs "ladder" and "mode".
+  # The job "core-changes" starts the job "measure". The job "changes" starts the jobs "mode". The job "ladder-changes"
+  # starts the jobs "ladder", because a change of the kernel can change the slope of a walk (D164).
   pull_request:
   workflow_dispatch:
 
@@ -21,6 +24,10 @@ concurrency:
   group: measure-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -30,14 +37,70 @@ jobs:
       pull-requests: read
     outputs:
       match: ${{ steps.changes.outputs.match }}
+    env:
+      GATE_PATHS: |
+        .github/workflows/measure.yml
+        packages/core/bench/ladder.ts
+        packages/core/bench/mode.ts
+        packages/core/bench/merge.ts
+        packages/core/bench/limits.ts
+        packages/core/bench/limits.json
+        packages/core/bench/cases.ts
+        packages/core/bench/paths.ts
+        packages/core/bench/settings.ts
+        pnpm-lock.yaml
+        packages/core/package.json
+        packages/core/tsconfig.json
+        pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@35488f7ab12bb5d452fe8307ebb05f77bb3f0f6f # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
+        with:
+          paths: ${{ env.GATE_PATHS }}
+      # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
+      # A list with no lock file reads false, so each line of the check can fail (K232, D166).
+      - name: The filter on fixtures (K232, D166)
+        run: |
+          rules=("${RUNNER_WORKSPACE%/*}"/_actions/mark1russell7/template/*/.github/actions/changes/match.jq)
+          if [ "${#rules[@]}" != 1 ] || [ ! -f "${rules[0]}" ]; then echo "::error::No single match.jq of the action changes."; exit 1; fi
+          check() {
+            got=$(printf '%s\n' "$3" | jq -R -s -r --arg paths "$2" --arg ignore "" -f "${rules[0]}")
+            echo "FIXTURE $1: $got"
+            if [ "$got" != "$4" ]; then echo "::error::The filter reads $got for $1, not $4."; exit 1; fi
+          }
+          check "the lock file" "$GATE_PATHS" pnpm-lock.yaml true
+          check "a docs file" "$GATE_PATHS" docs/ROADMAP.md false
+          check "the lock file with no lock line" "$(printf '%s\n' "$GATE_PATHS" | grep -v '^pnpm-lock.yaml$')" pnpm-lock.yaml false
+
+  # Two filters in one job, because each further job waits in the queue again.
+  ladder-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      match: ${{ steps.changes.outputs.match }}
+      plain: ${{ steps.plain.outputs.match }}
+    steps:
+      - id: changes
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           paths: |
-            .github/workflows/measure.yml
+            packages/core/src/**
             packages/core/bench/ladder.ts
-            packages/core/bench/mode.ts
+            pnpm-lock.yaml
+            packages/core/package.json
+            packages/core/tsconfig.json
+            pnpm-workspace.yaml
+            .github/workflows/measure.yml
+      - id: plain
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
+        with:
+          paths: |
+            packages/core/bench/ladder.ts
+            .github/workflows/ladder-plain.yml
+            .github/workflows/measure.yml
 
   # The job "checks" of ci.yml does not apply the limit of PLAN.LEAN. Thus the job "measure" is its gate (K211, D104).
   core-changes:
@@ -48,15 +111,33 @@ jobs:
       pull-requests: read
     outputs:
       match: ${{ steps.changes.outputs.match }}
+    env:
+      GATE_PATHS: |
+        packages/core/src/**
+        packages/core/package.json
+        packages/core/tsconfig.json
+        pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .github/workflows/measure.yml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@35488f7ab12bb5d452fe8307ebb05f77bb3f0f6f # main
+        uses: mark1russell7/template/.github/actions/changes@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
-          paths: |
-            packages/core/src/**
-            packages/core/package.json
-            pnpm-lock.yaml
-            .github/workflows/measure.yml
+          paths: ${{ env.GATE_PATHS }}
+      # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
+      # A list with no lock file reads false, so each line of the check can fail (K232, D166).
+      - name: The filter on fixtures (K232, D166)
+        run: |
+          rules=("${RUNNER_WORKSPACE%/*}"/_actions/mark1russell7/template/*/.github/actions/changes/match.jq)
+          if [ "${#rules[@]}" != 1 ] || [ ! -f "${rules[0]}" ]; then echo "::error::No single match.jq of the action changes."; exit 1; fi
+          check() {
+            got=$(printf '%s\n' "$3" | jq -R -s -r --arg paths "$2" --arg ignore "" -f "${rules[0]}")
+            echo "FIXTURE $1: $got"
+            if [ "$got" != "$4" ]; then echo "::error::The filter reads $got for $1, not $4."; exit 1; fi
+          }
+          check "the lock file" "$GATE_PATHS" pnpm-lock.yaml true
+          check "a docs file" "$GATE_PATHS" docs/ROADMAP.md false
+          check "the lock file with no lock line" "$(printf '%s\n' "$GATE_PATHS" | grep -v '^pnpm-lock.yaml$')" pnpm-lock.yaml false
 
   measure:
     needs: core-changes
@@ -69,6 +150,16 @@ jobs:
       max-parallel: 3
       matrix:
         run: [1, 2, 3, 4, 5]
+        # The flip tests of this gate (K227, D162, K229). The 5 jobs above are the copy with no fault.
+        # The row "flip" adds 20 bytes to the value that the limit reads. The row "retain" makes each plan keep an array
+        # of 1 KB, a true retained cost that the reading of the data spaces sees (D170).
+        include:
+          - run: flip
+            fault: true
+            inject: "20"
+          - run: retain
+            fault: true
+            retain: "1024"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pnpm version comes from "packageManager" in package.json
@@ -79,18 +170,36 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: PLAN.LEAN and WORLD.LAWS
+        id: plan
+        # Only the flip row continues, and its next step decides. The outcome of this step stays failure.
+        continue-on-error: ${{ matrix.fault == true }}
         working-directory: packages/core
+        # The default shell has no pipefail, and the pipe into tee then hid each failed test of this step (K228).
+        shell: bash
         env:
           COEVAL_MEASURE: "1"
+          COEVAL_MEASURE_INJECT: ${{ matrix.inject }}
+          COEVAL_MEASURE_RETAIN: ${{ matrix.retain }}
         run: |
-          pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" | tee out.txt
+          # K229 reads the values of PLAN.LEAN against these facts of the runner, and the logs do not name all of them.
+          echo "Runner: cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs) image=$ImageVersion kernel=$(uname -r) node=$(node -v) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled)"
+          pnpm exec vitest run src/plan.test.ts src/merge.test.ts -t "PLAN.LEAN|WORLD.LAWS" 2>&1 | tee out.txt
           grep -o 'MEASURE {.*}' out.txt | sed 's/^MEASURE //' > measures.jsonl
           cat measures.jsonl
           { echo "### Run ${{ matrix.run }}"; echo '```'; cat measures.jsonl; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # A step that stays green with the fault is a gate that does not hold. Another failure of the step is no flip.
+      - name: The fault turned the step red, by the limit of PLAN.LEAN
+        if: ${{ matrix.fault == true }}
+        working-directory: packages/core
+        env:
+          OUTCOME: ${{ steps.plan.outcome }}
+        run: |
+          test "$OUTCOME" = failure
+          grep -q 'bytes of data for each plan' out.txt
 
   ladder:
-    needs: changes
-    if: needs.changes.outputs.match == 'true'
+    needs: ladder-changes
+    if: needs.ladder-changes.outputs.match == 'true'
     name: ladder (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -122,8 +231,8 @@ jobs:
           retention-days: 90
 
   ladder-verdict:
-    needs: [changes, ladder]
-    if: ${{ !cancelled() && needs.changes.outputs.match == 'true' }}
+    needs: [ladder-changes, ladder]
+    if: ${{ !cancelled() && needs.ladder-changes.outputs.match == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -141,8 +250,84 @@ jobs:
           pattern: ladder-run-*
           merge-multiple: true
           path: ${{ runner.temp }}/ladder
+      # The gate is report only (D164): the exit code 3 of a block keeps the job green, and each other failure turns it red.
       - name: Pool the five runs
-        run: node packages/core/bench/ladder.ts merge "$RUNNER_TEMP"/ladder/ladder-*.json
+        env:
+          LADDER_BLOCK: "1"
+          # A block gives a warning annotation on the pull request (K225, D182).
+          LADDER_ANNOTATE: "1"
+        run: node packages/core/bench/ladder.ts merge "$RUNNER_TEMP"/ladder/ladder-*.json || test $? -eq 3
+
+  # A change of the code of the gate that breaks this flip does not merge. A weekly read comes after the merge (D164).
+  ladder-plain:
+    needs: ladder-changes
+    if: needs.ladder-changes.outputs.plain == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ladder-plain.yml
+
+  ladder-flip:
+    needs: ladder-changes
+    if: needs.ladder-changes.outputs.match == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The pnpm version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Each row: a name, the true slope of the walk, the exit code, and the text of the gate. The slope 1 is the copy with no fault.
+      # A run whose A/A band does not contain 1 does not count. The row then measures a new run and pools its runs, as the
+      # gate pools its five runs (K247, D189). After 3 runs with no counted run, the row has no read, and the job fails.
+      - name: Three walks at one setting
+        shell: bash
+        # The rows check the warning of a block (D182). The stop-commands window keeps the seeded blocks from the annotations.
+        run: |
+          fail=0
+          noread=""
+          token="flip-$RANDOM-$RANDOM"
+          echo "::stop-commands::$token"
+          for row in 'slope-2 2 3 block' 'slope-1.3 1.3 3 block' 'linear 1 0 pass'; do
+            read -r name slope want gate <<< "$row"
+            files=()
+            for attempt in 1 2 3; do
+              LADDER_INJECT="$slope" LADDER_RUN="$attempt" LADDER_JSON="$RUNNER_TEMP/$name-$attempt.json" pnpm exec tsx packages/core/bench/ladder.ts 250 10
+              files+=("$RUNNER_TEMP/$name-$attempt.json")
+              code=0
+              LADDER_BLOCK=1 LADDER_ANNOTATE=1 node packages/core/bench/ladder.ts merge "${files[@]}" > "$name.txt" 2>&1 || code=$?
+              grep -q 'No run counts\.' "$name.txt" || break
+              if [ "$attempt" -lt 3 ]; then echo "Flip row $name: run $attempt does not count, thus the row measures a new run."; fi
+            done
+            cat "$name.txt"
+            if grep -q 'No run counts\.' "$name.txt"; then
+              echo "Flip row $name: no read. No run of 3 counts."
+              fail=1
+              noread="$noread $name"
+              continue
+            fi
+            echo "Flip row $name: ${#files[@]} runs measured."
+            echo "Flip row $name: exit code $code, expected $want."
+            test "$code" = "$want" || fail=1
+            grep -q "Gate (report only, D164): $gate" "$name.txt" || fail=1
+            warned=no
+            grep -q '^::warning title=Ladder gate (report only)::Gate (report only, D164): block\.' "$name.txt" && warned=yes
+            want_warn=no
+            [ "$gate" = block ] && want_warn=yes
+            echo "Flip row $name: warning $warned, expected $want_warn."
+            test "$warned" = "$want_warn" || fail=1
+          done
+          echo "::$token::"
+          for name in slope-2 slope-1.3; do
+            case " $noread " in *" $name "*) continue ;; esac
+            for reason in 'refsOf is not linear' 'walk is not linear' 'memory of refsOf is over the bound' 'memory of walk is over the bound'; do
+              grep -q "$reason" "$name.txt" || { echo "Flip row $name has no reason: $reason."; fail=1; }
+            done
+          done
+          exit "$fail"
 
   mode:
     needs: changes
@@ -203,24 +388,41 @@ jobs:
 
   measure-ok:
     name: Measure OK
-    if: always()
-    needs: [changes, core-changes, measure, ladder, ladder-verdict, mode, mode-verdict]
+    if: ${{ !cancelled() }}
+    needs: [changes, core-changes, ladder-changes, measure, ladder, ladder-verdict, ladder-flip, ladder-plain, mode, mode-verdict]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
     # The action "gate-summary" reads one job of the action "changes". Thus each step gets one filter and its jobs.
     steps:
       - name: The jobs of the filter "changes"
-        uses: mark1russell7/template/.github/actions/gate-summary@35488f7ab12bb5d452fe8307ebb05f77bb3f0f6f # main
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           needs: >-
-            {"changes": ${{ toJSON(needs.changes) }}, "ladder": ${{ toJSON(needs.ladder) }},
-            "ladder-verdict": ${{ toJSON(needs.ladder-verdict) }}, "mode": ${{ toJSON(needs.mode) }},
+            {"changes": ${{ toJSON(needs.changes) }}, "mode": ${{ toJSON(needs.mode) }},
             "mode-verdict": ${{ toJSON(needs.mode-verdict) }}}
-      # This step also runs when the first step failed, thus the summary shows both verdicts.
+      # The next steps also run when an earlier step failed, thus the summary shows each verdict.
+      - name: The jobs of the filter "ladder-changes"
+        if: ${{ !cancelled() }}
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
+        with:
+          changes: ladder-changes
+          needs: >-
+            {"ladder-changes": ${{ toJSON(needs.ladder-changes) }}, "ladder": ${{ toJSON(needs.ladder) }},
+            "ladder-verdict": ${{ toJSON(needs.ladder-verdict) }}, "ladder-flip": ${{ toJSON(needs.ladder-flip) }}}
+      # The second filter of the job "ladder-changes" is an output of that job, so this step names it as a job of its own.
+      - name: The job of the filter "plain"
+        if: ${{ !cancelled() }}
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
+        with:
+          changes: plain-changes
+          needs: >-
+            {"plain-changes": {"result": ${{ toJSON(needs.ladder-changes.result) }},
+            "outputs": {"match": ${{ toJSON(needs.ladder-changes.outputs.plain) }}}},
+            "ladder-plain": ${{ toJSON(needs.ladder-plain) }}}
       - name: The jobs of the filter "core-changes"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@35488f7ab12bb5d452fe8307ebb05f77bb3f0f6f # main
+        uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         with:
           changes: core-changes
           needs: >-

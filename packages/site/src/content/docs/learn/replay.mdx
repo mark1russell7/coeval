@@ -1,0 +1,25 @@
+---
+title: Record and replay
+description: A recording keeps each effect of a run with its address and its answer. A replay gives those answers again and calls no host.
+tableOfContents: false
+---
+
+import ReplayDiagram from "../../../components/ReplayDiagram.tsx";
+
+An effect goes to the host, and the answer of the host can be different at each run. A clock, a random number and a request are examples. A failed run is then hard to find again.
+
+The function `recorder` wraps the function `perform` of a host. Its log has each effect with its address, its kind, its payload and its answer. The function `replayer` makes a new `perform` from that log. A replay gives each answer of the log, and the host gets no call. Thus the replay gives the result of the recording.
+
+## A replay examines each effect
+
+The replayer finds each effect by its address. It compares the kind and the payload of the effect with the log. A different effect at an address gives `#REPLAY!`, and the run stops there. Thus a replay of a changed document does not give an old answer to a new question.
+
+The address comes from the place of the effect in the document. A new step before an effect takes the address of that effect, thus the log refuses it.
+
+Select **Record a run** to get a new log. Then select a document under **Replay against**, and select **Next effect** to step through the log.
+
+<ReplayDiagram client:visible />
+
+## A log is data
+
+The function `encodeLog` writes a log as JSON, and `decodeLog` reads it again. Thus a host can store a log and replay it on another computer. An error of a recording comes again with its code, its reason and its place.

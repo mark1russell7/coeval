@@ -41,10 +41,13 @@ export type Split =
   | { readonly ok: false; readonly reason: string; readonly at: readonly Key[] };
 
 class Bad {
-  constructor(
-    readonly reason: string,
-    readonly at: readonly Key[],
-  ) {}
+  readonly reason: string;
+  readonly at: readonly Key[];
+
+  constructor(reason: string, at: readonly Key[]) {
+    this.reason = reason;
+    this.at = at;
+  }
 }
 
 /** This function sets an own data property. Only the key `__proto__` needs `defineProperty`. */

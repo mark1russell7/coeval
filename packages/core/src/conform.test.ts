@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   type AllOptions,
+  type Cap,
   type CompiledEvaluator,
   type CompiledRunner,
   type Context,
+  type DerefCode,
   type Domain,
   type Effect,
   type EvalFn,
@@ -16,6 +18,7 @@ import {
   type RunPart,
   type Steps,
   type Walker,
+  Failure,
   Held,
   STD_CAPS,
   STD_DOMAINS,
@@ -24,8 +27,11 @@ import {
   fail,
   formulaDefinitions,
   formulaMachine,
+  isHostThing,
   jsTruthy,
   makeContext,
+  mergeMachines,
+  nearestWalker,
   ok,
   run,
 } from "./index.ts";
@@ -873,6 +879,306 @@ describe("the orders of the parts of all", () => {
     expect(ofRunner(second)).toEqual(ofRunner(second));
     expect(ofRunner(second, {}, 7)).toEqual(ofRunner(second, {}, 7));
     expect(obligations(ofRunner(second, {}, 7))).toEqual(["parallel"]);
+  });
+});
+
+/** The standard machine with the kind `probed`, whose verb `step` names the walker. */
+function walkerMachine(walker: Walker, more: Partial<Kind> = {}): Machine {
+  return mergeMachines(STD_MACHINE, { world: { kinds: { probed: { verbs: { step: "test.walk" }, ...more } } }, walkers: { "test.walk": walker } });
+}
+
+/** A correct walker: one step, with the key of its data, and one visit. */
+const STEPS: Walker = ({ data, here, deref, visit }) => {
+  const key = typeof data === "string" ? data : "a";
+  const thing = deref(here, key);
+  visit?.(key, thing);
+  return { ok: true, thing };
+};
+
+/** The findings of a walker, by the name of the walker. */
+function walkerFindings(walker: Walker, more: Partial<Kind> = {}): readonly string[] {
+  return obligations(conforms(walkerMachine(walker, more), "test.walk"));
+}
+
+describe("the laws of a walker", () => {
+  it("[CONFORM.WALKER-STD] each walker of the standard machine conforms, and a language walker conforms", () => {
+    const names = Object.keys(STD_MACHINE.walkers ?? {});
+    expect(names.length).toBeGreaterThan(2);
+    // The kinds have no shape, thus the option values gives the data of the steps that have an effect.
+    const values = { nearest: [{ type: "panel" }, { type: "panel", self: true }, { type: "box", self: true }], "tree.named": [{ name: "a" }, { name: "a", in: "panel" }], "tree.at": [{ attr: "a" }, { attr: "a", args: [1] }] };
+    for (const name of names) expect(conforms(STD_MACHINE, name, { values }), name).toEqual([]);
+    expect(conforms(walkerMachine(STEPS), "test.walk")).toEqual([]);
+    expect(conforms(walkerMachine(STEPS, { pure: true }), "test.walk")).toEqual([]);
+    expect(conforms(walkerMachine(nearestWalker({ eachStep: true })), "test.walk", { values: { probed: values.nearest } })).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-STD] the name selects a walker, the option verb selects it by force, and an evaluator keeps its place", () => {
+    const machine = mergeMachines(walkerMachine(STEPS), { evaluators: { "test.walk": (() => ok(1)) as EvalFn }, world: { kinds: { both: { verbs: { eval: "test.walk" } } } } });
+    const wrong = mergeMachines(machine, { replaces: [["walkers", "test.walk"]], walkers: { "test.walk": (() => undefined) as unknown as Walker } });
+    expect(conforms(wrong, "test.walk")).toEqual([]);
+    expect(obligations(conforms(wrong, "test.walk", { verb: "step" }))).toEqual(["result"]);
+    // A verb without code of that name stays a verb of an evaluator (D49).
+    expect(() => conforms(walkerMachine(STEPS), "test.walk", { verb: "deref" })).toThrow("no evaluator and no runner");
+    expect(() => conforms(mergeMachines(STD_MACHINE, { walkers: { lonely: STEPS } }), "lonely")).toThrow("option types");
+    expect(conforms(mergeMachines(walkerMachine(STEPS), { walkers: { lonely: STEPS } }), "lonely", { types: ["probed"] })).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-RESULT] a walker gives a thing or the reason of a failure, and each other answer is a finding", () => {
+    const faults: readonly Walker[] = [
+      (() => undefined) as unknown as Walker,
+      (() => 7) as unknown as Walker,
+      (() => ({ ok: true })) as unknown as Walker,
+      (() => ({ ok: false })) as unknown as Walker,
+      (() => ({ ok: false, reason: "No field.", code: "NOPE" })) as unknown as Walker,
+      (async () => ({ ok: true, thing: 1 })) as unknown as Walker,
+      () => {
+        throw new TypeError("no field");
+      },
+    ];
+    for (const fault of faults) expect(walkerFindings(fault)).toEqual(["result"]);
+  });
+
+  it("[CONFORM.WALKER-RESULT] a Failure and a failure with a code are the error channels of a walker", () => {
+    const failing: Walker = () => {
+      throw new Failure({ code: "#REF!", reason: "The step has no target." });
+    };
+    expect(walkerFindings(failing)).toEqual([]);
+    expect(walkerFindings(() => ({ ok: false, reason: "No field.", code: "#REF!" }))).toEqual([]);
+    expect(walkerFindings(() => ({ ok: false, reason: "No field." }))).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-RESULT] a walker that writes to its context throws, thus it cannot widen the context", () => {
+    const widens: Walker = ({ context, here }) => {
+      (context.caps as Cap[]).push("write");
+      return { ok: true, thing: here };
+    };
+    const names: Walker = ({ context, here }) => {
+      (context.names as Record<string, unknown>)["more"] = 1;
+      return { ok: true, thing: here };
+    };
+    expect(walkerFindings(widens)).toEqual(["result"]);
+    expect(walkerFindings(names)).toEqual(["result"]);
+  });
+
+  it("[CONFORM.WALKER-LOCAL] a walker that keeps state gets a finding, and a volatile kind needs no same answer", () => {
+    let calls = 0;
+    const counts: Walker = () => ({ ok: true, thing: (calls += 1) });
+    let turn = false;
+    const turns: Walker = ({ here, deref }) => {
+      turn = !turn;
+      deref(here, turn ? "a" : "x");
+      return { ok: true, thing: 1 };
+    };
+    expect(walkerFindings(counts)).toEqual(["local"]);
+    expect(walkerFindings(turns)).toEqual(["local"]);
+    expect(walkerFindings(counts, { volatile: true })).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-LADDER] a walker that skips its input for a host thing gets a finding with the thing", () => {
+    const direct: Walker = ({ here }) => ({ ok: true, thing: isHostThing(here) ? here.deref("a") : here });
+    const asks: Walker = ({ here }) => ({ ok: true, thing: isHostThing(here) && here.has?.("a") === true });
+    const [finding] = conforms(walkerMachine(direct), "test.walk");
+    expect(finding?.obligation).toBe("ladder");
+    expect(isHostThing(finding?.probe.here)).toBe(true);
+    expect(finding?.reason).toContain("the key a of the leaf directly");
+    expect(walkerFindings(asks)).toEqual(["ladder"]);
+  });
+
+  it("[CONFORM.WALKER-HOPS] each visit tells a step of the walk, and a walk without visit stays the same", () => {
+    const invents: Walker = ({ here, deref, visit }) => {
+      visit?.("a", "another thing");
+      return { ok: true, thing: deref(here, "a") };
+    };
+    const needs: Walker = ({ here, deref, visit }) => ({ ok: true, thing: visit === undefined ? "no visit" : deref(here, "a") });
+    const skips: Walker = ({ here, deref, visit }) => {
+      if (visit !== undefined) deref(here, "a");
+      return { ok: true, thing: 1 };
+    };
+    expect(walkerFindings(invents)).toEqual(["hops"]);
+    expect(walkerFindings(needs)).toEqual(["hops"]);
+    expect(walkerFindings(skips)).toEqual(["hops"]);
+  });
+
+  it("[CONFORM.WALKER-PURE] a pure step kind gets no read of the context, and a kind without the mark can read it", () => {
+    const reads: Walker = ({ context }) => ({ ok: true, thing: context.names["x"] });
+    expect(walkerFindings(reads, { pure: true })).toEqual(["C4"]);
+    expect(walkerFindings(reads)).toEqual([]);
+  });
+
+  it("[CONFORM.WALKER-TYPE] a walker keeps its type rule, and a rule that throws stays a type issue of the check", () => {
+    const reaches = (rule: NonNullable<Walker["type"]>): Walker => Object.assign((() => ({ ok: true, thing: "text" })) as Walker, { type: rule });
+    expect(walkerFindings(reaches(() => "text"))).toEqual([]);
+    expect(walkerFindings(reaches(() => ({ union: ["text", "number"] })))).toEqual([]);
+    expect(walkerFindings(reaches(() => "number"))).toEqual(["typed"]);
+    // The rule is wrong only from a thing of one type.
+    expect(walkerFindings(reaches(({ here }) => (here === "number" ? "number" : "text")))).toEqual(["typed"]);
+    const throws = reaches(() => {
+      throw new Error("No rule.");
+    });
+    expect(walkerFindings(throws)).toEqual([]);
+    expect(walkerFindings(reaches(() => "nmber"))).toEqual([]);
+    // A reference that the walker reaches is the next step of the path.
+    const refers = Object.assign((() => ({ ok: true, thing: { type: "ref", value: ["names", "x"] } })) as Walker, { type: () => "number" });
+    expect(walkerFindings(refers)).toEqual([]);
+  });
+});
+
+/** The standard machine with the kind `held`, whose verb `deref` names the code. */
+function derefMachine(code: DerefCode, more: Partial<Kind> = {}): Machine {
+  return mergeMachines(STD_MACHINE, { world: { kinds: { held: { verbs: { deref: "test.deref" }, ...more } } }, derefs: { "test.deref": code } });
+}
+
+/** This code gives the field of a record value. A key that the record does not hold gives `undefined`. */
+const FIELD: DerefCode = (doc, key) => (typeof doc.value === "object" && doc.value !== null ? (doc.value as Readonly<Record<string, unknown>>)[String(key)] : undefined);
+
+/** This function gives new code with the function `has`. */
+function withHas(code: (...args: Parameters<DerefCode>) => unknown, has: unknown): DerefCode {
+  return Object.assign(code, { has }) as DerefCode;
+}
+
+describe("the laws of the code of a deref", () => {
+  it("[CONFORM.DEREF-STD] correct code conforms, with a function has and without one", () => {
+    const told = withHas((doc, key) => FIELD(doc, key), (doc: Parameters<DerefCode>[0], key: Parameters<DerefCode>[1]) => FIELD(doc, key) !== undefined || key === "gone");
+    expect(conforms(derefMachine(FIELD), "test.deref")).toEqual([]);
+    expect(conforms(derefMachine(told), "test.deref")).toEqual([]);
+    expect(conforms(derefMachine(told), "test.deref", { verb: "deref" })).toEqual([]);
+  });
+
+  it("[CONFORM.DEREF-RESULT] code that throws gets a finding with the key, and a Failure is an error channel", () => {
+    const throws: DerefCode = () => {
+      throw new TypeError("no field");
+    };
+    const failing: DerefCode = () => {
+      throw new Failure({ code: "#REF!", reason: "The key has no target." });
+    };
+    const [finding] = conforms(derefMachine(throws), "test.deref");
+    expect(finding?.obligation).toBe("result");
+    expect(finding?.probe.key).toBe("a");
+    expect(obligations(conforms(derefMachine(withHas((doc, key) => FIELD(doc, key), throws)), "test.deref"))).toEqual(["result"]);
+    expect(conforms(derefMachine(failing), "test.deref")).toEqual([]);
+  });
+
+  it("[CONFORM.DEREF-LOCAL] code that keeps state gets a finding, and a volatile kind needs no same answer", () => {
+    let calls = 0;
+    const counts: DerefCode = () => (calls += 1);
+    let told = false;
+    const turns = withHas(() => undefined, () => (told = !told));
+    expect(obligations(conforms(derefMachine(counts), "test.deref"))).toEqual(["local"]);
+    expect(obligations(conforms(derefMachine(turns), "test.deref"))).toEqual(["local"]);
+    expect(conforms(derefMachine(counts, { volatile: true }), "test.deref")).toEqual([]);
+  });
+
+  it("[CONFORM.DEREF-HAS] the function has gives a truth, and true for each key that the code answers", () => {
+    const [finding] = conforms(derefMachine(withHas(() => 1, () => false)), "test.deref");
+    expect(finding?.obligation).toBe("has");
+    expect(finding?.probe.key).toBe("a");
+    expect(obligations(conforms(derefMachine(withHas(() => 1, () => "yes")), "test.deref"))).toEqual(["has"]);
+  });
+});
+
+/** The operations of a small typed language. */
+const TYPED_OPS: FormulaProfile["ops"] = {
+  add: (a: number, b: number) => a + b,
+  neg: (a: number) => -a,
+  sum: (...values: number[]) => values.reduce((total, value) => total + value, 0),
+  label: (a: unknown) => String(a),
+};
+
+/** The signatures of the small typed language. */
+const TYPED_SIGS: FormulaProfile["sigs"] = {
+  add: { params: ["number", "number"], to: "number" },
+  neg: [{ params: ["number"], to: "number" }],
+  sum: { params: [], rest: "number", to: "number" },
+  label: { params: ["unknown"], to: "text" },
+};
+
+/** The findings of `formula.op` of a profile, with the default types. */
+function opFindings(profile: FormulaProfile): readonly string[] {
+  return obligations(conforms(formulaMachine(profile), "formula.op", { definitions: formulaDefinitions(profile) }));
+}
+
+/** The findings of `formula.ext` of a profile, with the default types. */
+function extFindings(profile: FormulaProfile): readonly string[] {
+  return obligations(conforms(formulaMachine(profile), "formula.ext", { definitions: formulaDefinitions(profile) }));
+}
+
+describe("the laws of the functions of a formula profile", () => {
+  it("[CONFORM.PROFILE-STD] the kit with a typed profile conforms, with the default types of each evaluator", () => {
+    const profile: FormulaProfile = {
+      ops: TYPED_OPS,
+      sigs: TYPED_SIGS,
+      lazy: { first: (args) => args[0]?.() ?? fail("#ARGS", "first needs an argument.") },
+      ext: { size: (data) => ok(JSON.stringify(data).length) },
+      extTypes: { size: "number" },
+      omit: (error) => error.code === "#N/A",
+      missing: (value) => value === undefined,
+      check: (value) => (typeof value === "number" && !Number.isFinite(value) ? fail("#NUM!", "The number is not finite.") : undefined),
+      combine: (errors) => ({ code: "#MANY", reason: `${errors.length} parts failed.` }),
+    };
+    const machine = formulaMachine(profile);
+    for (const name of Object.keys(machine.evaluators)) {
+      if (name === "formula.step") continue;
+      expect(conforms(machine, name, { definitions: formulaDefinitions(profile) }), name).toEqual([]);
+    }
+  });
+
+  it("[CONFORM.PROFILE-NAMES] the default types hold each named function, thus the older checks see its code", () => {
+    let calls = 0;
+    expect(opFindings({ ops: { tick: () => (calls += 1) } })).toContain("local");
+    expect(opFindings({ ops: { tick: () => (calls += 1) }, volatile: ["tick"] })).toEqual([]);
+    expect(extFindings({ ext: { tick: () => ok((calls += 1)) } })).toContain("local");
+    expect(extFindings({ ext: { here: (_data, ctx) => ok(ctx.names["x"]) }, pureExt: ["here"] })).toContain("C4");
+    expect(extFindings({ ext: { here: (_data, ctx) => ok(ctx.names["x"]) } })).toEqual([]);
+    // The option types keeps its place.
+    expect(obligations(conforms(formulaMachine({ ops: { tick: () => (calls += 1) } }), "formula.op", { types: [["ops", "probe"]] }))).toEqual([]);
+  });
+
+  it("[CONFORM.PROFILE-SIGNATURE] an operation keeps the result type of each signature that its arguments match", () => {
+    const number = { neg: { params: ["number"], to: "number" } };
+    expect(opFindings({ ops: { neg: (a: number) => String(-a) }, sigs: number })).toEqual(["typed"]);
+    expect(opFindings({ ops: { sum: () => "none" }, sigs: { sum: { params: [], rest: "number", to: "number" } } })).toEqual(["typed"]);
+    expect(opFindings({ ops: { pick: (a: unknown) => a }, sigs: { pick: [{ params: ["text"], to: "text" }, { params: ["number"], to: "text" }] } })).toEqual(["typed"]);
+    // The hook check gives the result of the kit, thus a wrong hook fails a correct operation.
+    expect(opFindings({ ops: { neg: (a: number) => -a }, sigs: number, check: (value) => ok(String(value)) })).toEqual(["typed"]);
+    expect(opFindings({ lazy: { size: () => ok("big") }, sigs: { size: { params: ["number"], to: "number" } } })).toEqual(["typed"]);
+    const finding = conforms(formulaMachine({ ops: { neg: (a: number) => String(-a) }, sigs: number }), "formula.op")[0];
+    expect(finding?.probe.type).toBe("ops.neg");
+    expect(finding?.reason).toContain("its signature gives number");
+  });
+
+  it("[CONFORM.PROFILE-SIGNATURE] a throw and an error stay the errors of the language, and a bad type is a type issue of the check", () => {
+    const throws = () => {
+      throw new TypeError("no value");
+    };
+    expect(opFindings({ ops: { neg: throws }, sigs: { neg: { params: ["number"], to: "number" } } })).toEqual([]);
+    expect(opFindings({ ops: { neg: (a: number) => String(a) }, sigs: { neg: { params: ["nmber"], to: "number" } } })).toEqual([]);
+    expect(opFindings({ ops: { neg: () => "a" }, check: () => fail("#NUM!", "No value."), sigs: { neg: { params: ["number"], to: "number" } } })).toEqual([]);
+  });
+
+  it("[CONFORM.PROFILE-EXT] an extension gives a member of its entry in extTypes", () => {
+    expect(extFindings({ ext: { size: () => ok("big") }, extTypes: { size: "number" } })).toEqual(["typed"]);
+    expect(extFindings({ ext: { size: (data) => ok(data === 1 ? "one" : 2) }, extTypes: { size: "number" } })).toEqual(["typed"]);
+    expect(extFindings({ ext: { size: () => ok("big") } })).toEqual([]);
+    expect(extFindings({ ext: { size: () => fail("#N/A", "No size.") }, extTypes: { size: "number" } })).toEqual([]);
+    const profile: FormulaProfile = { ext: { size: (data) => ok(data === "only here" ? "text" : 1) }, extTypes: { size: "number" } };
+    expect(obligations(conforms(formulaMachine(profile), "formula.ext", { definitions: formulaDefinitions(profile), values: { "ext.size": ["only here"] } }))).toEqual(["typed"]);
+  });
+
+  it("[CONFORM.PROFILE-FORM] each function of a profile gives the form that its type states", () => {
+    const wrong = <T,>(value: unknown): T => value as T;
+    const form = (profile: FormulaProfile, name: string): readonly string[] => obligations(conforms(formulaMachine(profile), name, { definitions: formulaDefinitions(profile) }));
+    expect(form({ ext: { size: wrong(() => 1) } }, "formula.ext")).toContain("result");
+    expect(form({ lazy: { first: wrong(() => 1) } }, "formula.op")).toContain("result");
+    expect(form({ check: wrong(() => 1) }, "formula.op")).toContain("result");
+    expect(form({ combine: wrong(() => "many") }, "formula.op")).toContain("result");
+    expect(form({ omit: wrong(() => 1) }, "formula.record")).toContain("result");
+    expect(form({ missing: wrong(() => "yes") }, "formula.ref")).toContain("result");
+    // A throw of these functions gives an error of the language (E-THROW).
+    const throws = () => {
+      throw new TypeError("no value");
+    };
+    expect(form({ omit: throws }, "formula.record")).not.toContain("result");
+    expect(form({ check: throws }, "formula.op")).not.toContain("result");
   });
 });
 

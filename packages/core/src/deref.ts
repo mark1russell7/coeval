@@ -58,6 +58,15 @@ export interface HostThing {
    * @returns What the step reaches, or `undefined` when the host does not know it yet. Then the kept read ends at the thing.
    */
   known?(key: Key): { readonly thing: Thing } | undefined;
+  /**
+   * This optional function holds a kept read (SCHED.OWN-NODE). The evaluation did not ask for that read. Thus a host
+   * that follows the reads of an evaluation can tell the two apart. The kernel calls this function of the root `world`
+   * around each kept read that resolves its path.
+   *
+   * @param read - This function does the read.
+   * @returns What `read` gives.
+   */
+  keeping?<T>(read: () => T): T;
 }
 
 /** Something that a path can reach: any value of the host, or a host thing. */

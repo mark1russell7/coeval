@@ -1,0 +1,9 @@
+[
+  {
+    "case": "PLAN.TOTAL a record of 20 literals, without folds",
+    "head": "8b46843be367",
+    "cost": "+0.7 % in run 1 (slower, noise -0.4 %) and +0.6 % in run 2 (cannot decide, noise -0.5 %): Speed run 42428235743. +0.5 % (noise -0.5 %) and +0.3 % (noise -0.0 %), cannot decide in each run: Speed run 42434980877. The pooled verdict reads slower in both Speed runs.",
+    "reason": "The cost is small and steady, and its source is unread. K26 adds the function agreeTypes to agree.ts, its exports and two imports of agree.ts. The case calls only prepare and evaluate of a record, and no changed function. The index imports evaluate.ts and static.ts before the first module that imports agree.ts, thus the new imports move no module that the import list shows. The gate of D163 reads no case slower: 16 no read in the first Speed run, 3 not slower and 13 no read in the second.",
+    "owner": "coeval session (K26)"
+  }
+]

@@ -32,6 +32,11 @@
  * script imports `@mark1russell7/rigor-statistics` (D114). The workflow `measure.yml` runs the ladder in CI, because
  * a shared machine gives unreliable numbers.
  *
+ * The mode `merge` prints the gate of the verdicts as report only (K227, D164). With `LADDER_BLOCK=1`, a block gives the
+ * exit code 3. It also prints the smallest slope that gives a block with the spread of its own runs. Under that size, it
+ * has no read. With `LADDER_INJECT=s`, each call walks more levels, so the levels of one call grow as `n^s`. The count of
+ * calls does not change, so the fault of a flip keeps the setting of the plain gate.
+ *
  * The statistics come from `@mark1russell7/rigor-statistics`: the median, the quantiles, the least squares fit, the
  * mean and the standard deviation (D114). The verdicts and the t quantile stay here, because the shared packages do not
  * have them. A comment names the issue of each gap.
@@ -39,8 +44,7 @@
 import { leastSquares, mean, median, quantile, sd } from "@mark1russell7/rigor-statistics";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
-import { GCProfiler, setFlagsFromString } from "node:v8";
-import { runInNewContext } from "node:vm";
+import { allocated, exposedGc } from "./memory.ts";
 
 type Kernel = typeof import("../src/index.ts");
 
@@ -165,24 +169,6 @@ function orderOf(round: number, pass: number, length: number): number[] {
   return order;
 }
 
-/**
- * This function gives the bytes that one call of `call` allocates. A full collection by `gc` starts the measure. The
- * bytes that a collection in the call frees are added, thus a scavenge loses no bytes (D105).
- */
-function allocated(gc: () => void, call: () => unknown): number {
-  gc();
-  // A new profiler for each measure: the profiler of Node does not start again after `stop()`.
-  const profiler = new GCProfiler();
-  profiler.start();
-  const before = process.memoryUsage().heapUsed;
-  call();
-  const after = process.memoryUsage().heapUsed;
-  const { statistics } = profiler.stop();
-  let freed = 0;
-  for (const item of statistics) freed += item.beforeGC.heapStatistics.usedHeapSize - item.afterGC.heapStatistics.usedHeapSize;
-  return after - before + freed;
-}
-
 function writeSummary(lines: readonly string[]): void {
   const text = `${lines.join("\n")}\n`;
   process.stdout.write(text);
@@ -195,6 +181,38 @@ function chain(levels: number): unknown {
   let doc: unknown = { type: "ref", value: ["names", "x"] };
   for (let index = 0; index < levels; index += 1) doc = { type: ["ops", "add"], value: [doc, 1] };
   return doc;
+}
+
+/**
+ * This function gives the fault of a flip test: a call that walks its document `times` more times, then a shorter document.
+ * No document is deeper than its rung, so the fault does not reach the limit of the stack (K227, D164).
+ */
+function faulted(call: (doc: unknown) => number, times: number, rest: unknown): (doc: unknown) => number {
+  return (doc) => {
+    let total = call(doc);
+    for (let time = 0; time < times; time += 1) total += call(doc);
+    return rest === undefined ? total : total + call(rest);
+  };
+}
+
+/** This function gives the smallest true slope that the time verdict tells from 1: the interval leaves 1 or passes `UPPER`. */
+function seenTime(low: number, high: number): number {
+  const half = (high - low) / 2;
+  return fixed(Math.min(1 + half, UPPER - half));
+}
+
+/** This function gives the smallest true slope that the memory verdict blocks: the upper end passes `UPPER`. */
+function seenMemory(low: number, high: number): number {
+  return fixed(UPPER - (high - low) / 2);
+}
+
+/** This function gives the true slope of the fault from `LADDER_INJECT`, or nothing with no fault (K227, D164). */
+function injectedSlope(): number | undefined {
+  const text = process.env["LADDER_INJECT"];
+  if (text === undefined || text === "") return undefined;
+  const slope = Number(text);
+  if (!(slope >= 1)) throw new Error("Give a slope of at least 1 in LADDER_INJECT.");
+  return slope;
 }
 
 async function measure(): Promise<void> {
@@ -227,7 +245,17 @@ async function measure(): Promise<void> {
   ];
   const results: WalkRun[] = [];
   // arms[walk * docs.length + doc]
-  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: walk.call, doc })));
+  // With a fault, one call walks step^(s-1) times the levels of its rung, so the slope over the rungs is s.
+  const fault = injectedSlope();
+  const callOf = (call: (doc: unknown) => number, step: number): ((doc: unknown) => number) => {
+    if (fault === undefined) return call;
+    const more = step ** (fault - 1) - 1;
+    const times = Math.floor(more);
+    const rest = Math.round(step * base * (more - times));
+    return times === 0 && rest === 0 ? call : faulted(call, times, rest === 0 ? undefined : chain(rest));
+  };
+  const steps = [...STEPS, AA_STEP];
+  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: callOf(walk.call, steps[d] as number), doc })));
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {
@@ -246,8 +274,7 @@ async function measure(): Promise<void> {
   }
   // The memory phase (K209, D105). It starts after all timed rounds, thus the timed passes keep the conditions of D97.
   const memoryStarted = performance.now();
-  setFlagsFromString("--expose-gc");
-  const gc = runInNewContext("gc") as () => void;
+  const gc = exposedGc();
   const empty = (): number => 0;
   // bytes[arm][round]: the bytes of one call, less the bytes of an empty measure in the same round
   const bytes: number[][] = arms.map(() => []);
@@ -376,6 +403,8 @@ function merge(files: readonly string[]): void {
     "| --- | --- | ---: | ---: | ---: | ---: | --- |",
   );
   const measures: Record<string, unknown>[] = [];
+  const blocks: string[] = runs.length === 0 ? ["No run counts."] : [];
+  const sights: string[] = [];
   // The walks of the counted runs for each name. The memory slopes come from the same counted runs (D105).
   const groups = names
     .map((name) => ({
@@ -392,7 +421,9 @@ function merge(files: readonly string[]): void {
     const pooled = summarize({ slopes: of.flatMap((walk) => walk.slopes), aa: of.flatMap((walk) => walk.aa) });
     const medians = of.map((walk) => median(walk.slopes));
     const { mean, half } = meanInterval(medians);
-    measures.push({ walk: name, ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half) });
+    if (pooled.verdict !== "linear") blocks.push(`${name} is ${pooled.verdict}: ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)}.`);
+    sights.push(`${name} ${seenTime(pooled.p05, pooled.p95).toFixed(2)} on time`);
+    measures.push({ walk: name, seen: seenTime(pooled.p05, pooled.p95), ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half) });
     lines.push(
       `| \`${name}\` | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
@@ -410,13 +441,23 @@ function merge(files: readonly string[]): void {
     const medians = of.map((walk) => median(walk.byteSlopes));
     const { mean, half } = meanInterval(medians);
     const rungs = (all[0]?.levels ?? []).map((_, d) => median(of.map((walk) => walk.bytes[d] as number)));
+    if (pooled.verdict !== "at most linear") blocks.push(`The memory of ${name} is ${pooled.verdict}: the upper end is ${pooled.p95.toFixed(3)}.`);
+    sights.push(`${name} ${seenMemory(pooled.p05, pooled.p95).toFixed(2)} on memory`);
     const record = measures[index] as Record<string, unknown>;
-    record["memory"] = { ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half), bytes: rungs.map((value) => Math.round(value)) };
+    record["memory"] = { seen: seenMemory(pooled.p05, pooled.p95), ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half), bytes: rungs.map((value) => Math.round(value)) };
     lines.push(
       `| \`${name}\` | ${rungs.map((value) => Math.round(value)).join(", ")} | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
   });
+  const gateLine = `Gate (report only, D164): ${blocks.length === 0 ? "pass." : `block. ${blocks.join(" ")}`}`;
+  lines.push("", gateLine, `Smallest slope that gives a block: ${sights.join(", ")}. Under that size: no read.`);
   writeSummary(lines);
+  // A block of the report-only gate gives a warning on the pull request, thus a green check does not hide it (K225, D182).
+  // Only the real pool sets LADDER_ANNOTATE, because the flip rows block on purpose.
+  if (blocks.length > 0 && process.env["LADDER_ANNOTATE"] === "1") {
+    process.stdout.write(`::warning title=Ladder gate (report only)::${gateLine.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}\n`);
+  }
+  if (blocks.length > 0 && process.env["LADDER_BLOCK"] === "1") process.exitCode = 3;
   const excluded = all.filter((run) => !counts(run)).map(runName);
   process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", counted: runs.map(runName), excluded, walks: measures })}\n`);
 }
