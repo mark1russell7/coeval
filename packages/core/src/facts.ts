@@ -234,6 +234,18 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
     if (options.volatile?.(read) === true) volatile = true;
   };
   /**
+   * This function adds a read of each declared root at the place of a document (FACTS.KIND-READS, FACTS.STEP-READS).
+   * It is one function for the facts, thus a visit makes no new function.
+   */
+  const declare = (list: readonly Root[] | undefined, node: DocVisit | undefined, lazy: boolean, place: DocVisit): void => {
+    if (list === undefined) return;
+    for (const root of list) {
+      // In an equation, the root self is the node, thus its read is not free (READS.EQUATION).
+      if (node !== undefined && root === "self") continue;
+      add({ root, keys: NONE, exact: true, lazy, address: false, path: [root], place: tight(place.place), at: tight(place.at) });
+    }
+  };
+  /**
    * This function walks a document. Without `node`, it walks the document of the facts. With `node`, it walks an
    * equation of a tree kind, and each read gets the place of that node: the first document of the kind.
    */
@@ -266,14 +278,7 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
           roots = answer?.reads;
         }
         // The code of the kind resolves each of these roots as a whole, at the place of its document (FACTS.KIND-READS).
-        const declare = (list: readonly Root[] | undefined): void => {
-          for (const root of list ?? NONE) {
-            // In an equation, the root self is the node, thus its read is not free (READS.EQUATION).
-            if (node !== undefined && root === "self") continue;
-            add({ root, keys: NONE, exact: true, lazy, address: false, path: [root], place: tight(place.place), at: tight(place.at) });
-          }
-        };
-        declare(roots);
+        declare(roots, node, lazy, place);
         // check and effectsOf read the declared effects with the same function (D27). The verb of the facts selects the
         // declaration: effects for eval, and the entry of verbEffects for another verb (D49, D111).
         // The answer of the hook for the code of eval wins over the contract, also for an own entry (D118).
@@ -327,7 +332,7 @@ export function factsOf(machine: Machine, doc: unknown, options: FactsOptions = 
           if (walker.described) note(stepAnswer?.pure ?? found.kind.pure, stepAnswer?.volatile ?? found.kind.volatile);
           else note(stepAnswer?.pure, stepAnswer?.volatile);
           // A walker can resolve a root of its own. The read has the place of the reference (FACTS.STEP-READS).
-          declare(stepAnswer?.reads ?? (walker.described ? found.kind.reads : undefined));
+          declare(stepAnswer?.reads ?? (walker.described ? found.kind.reads : undefined), node, lazy, place);
         }
         const first = path[1];
         // A reference to a name that a kind around it binds reads inside the document: it is not a read. The names of
