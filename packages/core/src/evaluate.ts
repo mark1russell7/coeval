@@ -2418,8 +2418,8 @@ function runOf(code: Code): RunCode {
  * The accessor costs a call of `defineProperty` for each part, thus the compilers of the kernel do not use it.
  */
 
-/** The compilers that read only the field `code` of their parts. The mark is on the function: a wrapper has no mark. */
-const CODE_READERS: WeakSet<CompiledEvaluator["compile"]> = /* @__PURE__ */ new WeakSet();
+/** The key of the mark on a compiler that reads only the field `code` of its parts. A wrapper has no mark. */
+const CODE_READER: unique symbol = /* @__PURE__ */ Symbol("coeval.codeReader");
 
 /**
  * This function marks a compiler that reads only the field `code` of its parts. The kits of the kernel use it. The
@@ -2429,7 +2429,7 @@ const CODE_READERS: WeakSet<CompiledEvaluator["compile"]> = /* @__PURE__ */ new 
  * @returns The same compiler.
  */
 export function codeReader(compile: CompiledEvaluator["compile"]): CompiledEvaluator["compile"] {
-  CODE_READERS.add(compile);
+  Object.defineProperty(compile, CODE_READER, { value: true });
   return compile;
 }
 
@@ -2440,7 +2440,7 @@ export function codeReader(compile: CompiledEvaluator["compile"]): CompiledEvalu
  * @returns `true` when no code of a host can read the steps of the parts.
  */
 export function readsOnlyCode(evaluator: Evaluator): boolean {
-  return !isCompiledEvaluator(evaluator) || CODE_READERS.has(evaluator.compile);
+  return !isCompiledEvaluator(evaluator) || (evaluator.compile as { readonly [CODE_READER]?: true })[CODE_READER] === true;
 }
 
 /**
