@@ -1,6 +1,6 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
 import { type Context, isHostThing } from "./deref.ts";
-import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
+import { type EvalError, type Result, describe, isStackOverflow, thrown } from "./errors.ts";
 import { type CheckOptions, typeCheck } from "./static.ts";
 import { isPrecise, member, typeText } from "./types.ts";
 import { type Effect, type Machine, type Perform, type Read, type TraceNode, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
@@ -394,6 +394,15 @@ function resolutions(reads: readonly Read[]): readonly Read[] {
   return reads.filter((read) => read.free && read.kept !== true);
 }
 
+/** This function gives the text of a value of a trace. It does not throw for a bigint or a record with a cycle. */
+function valueText(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? describe(value);
+  } catch {
+    return describe(value);
+  }
+}
+
 function pathText(path: readonly unknown[] | undefined): string {
   if (path === undefined) return "no read";
   try {
@@ -615,9 +624,9 @@ export function agreeTypes(machine: Machine, doc: unknown, context: Context = ma
     }
     const value = node.result.value;
     values += 1;
-    if (!member(value, place.type, domains)) return { ok: false, clause: "value", place: at, reason: `The value ${JSON.stringify(value)} is not a member of ${typeText(place.type)}.` };
+    if (!member(value, place.type, domains)) return { ok: false, clause: "value", place: at, reason: `The value ${valueText(value)} is not a member of ${typeText(place.type)}.` };
     if (place.expected !== undefined && !member(value, place.expected, domains)) {
-      return { ok: false, clause: "argument", place: at, reason: `The value ${JSON.stringify(value)} is not a member of the needed type ${typeText(place.expected)}.` };
+      return { ok: false, clause: "argument", place: at, reason: `The value ${valueText(value)} is not a member of the needed type ${typeText(place.expected)}.` };
     }
   }
   return { ok: true, checked: true, values };
