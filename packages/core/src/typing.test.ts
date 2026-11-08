@@ -25,6 +25,7 @@ import {
   MergeError,
   STD_DOMAINS,
   STD_MACHINE,
+  agreeTypes,
   check,
   checkWorld,
   context,
@@ -49,6 +50,7 @@ import {
   typeFromSchema,
   typeText,
   typesOf,
+  type Result,
 } from "./index.ts";
 import { corpus, inOrder } from "./corpus.test-support.ts";
 
@@ -429,16 +431,9 @@ describe("signatures and the check of types", () => {
           if (typing.type !== "unknown") totals.precise += 1;
           expect(member(result.value, typing.type, machine.domains), `${name}: ${JSON.stringify(doc)} gives ${JSON.stringify(result.value)}, not a member of ${typeText(typing.type)}`).toBe(true);
           // Each value of the trace is a member of the type of its place too. A body of fn evaluates at each call.
-          const types = new Map(typing.places.map((item) => [JSON.stringify(item.place.map(String)), item.type]));
-          const stack: TraceNode[] = [evaluate(machine, doc).trace];
-          while (stack.length > 0) {
-            const node = stack.pop() as TraceNode;
-            stack.push(...node.children);
-            const type = types.get(JSON.stringify(node.path));
-            if (!node.result.ok || type === undefined) continue;
-            totals.nodes += 1;
-            expect(member(node.result.value, type, machine.domains), `${name}: at ${node.path.join(".")} of ${JSON.stringify(doc)}, ${JSON.stringify(node.result.value)} is not a member of ${typeText(type)}`).toBe(true);
-          }
+          const agreed = agreeTypes(machine, doc);
+          expect(agreed.ok, `${name}: ${JSON.stringify(doc)} gives ${JSON.stringify(agreed)}`).toBe(true);
+          if (agreed.ok) totals.nodes += agreed.values;
         }
       });
     }
@@ -1061,6 +1056,12 @@ describe("the types of the roots, of the names and of the paths", () => {
     expect(extendDomain("whole", { under: ["number"] })(base).domains?.["whole"]).not.toHaveProperty("codec");
   });
 
+  it("[TYPE.RULE] reads the rule of an evaluator that is a function", () => {
+    const code = (): Result => ok(1);
+    const machine: Machine = { ...STD_MACHINE, evaluators: { ...STD_MACHINE.evaluators, "math.add": Object.assign(code, { type: { synth: () => "number" } }) } };
+    expect(typeCheck(machine, { type: "add", value: [1, 2] }).type).toBe("number");
+  });
+
   it("[TYPE.ROOTS-SOUND] for generated root types and contexts of their members, a document that checks evaluates to members of its types", () => {
     const machine = swapMachine({ ops: GUARDED, sigs: SIGS });
     const rng = random(SEED * 7 + 3);
@@ -1087,6 +1088,9 @@ describe("the types of the roots, of the names and of the paths", () => {
       checked += 1;
       const run = evaluate(machine, doc, ctx);
       const at = JSON.stringify({ doc, ctx, rootTypes });
+      // A root of the type unknown adds no issue (TYPE.GRADUAL), and the rule of agreement holds for each document.
+      expect(typeCheck(machine, doc, { names: [...HOST], rootTypes: { ...rootTypes, self: "unknown", event: "unknown" } }).issues, at).toEqual([]);
+      expect(agreeTypes(machine, doc, ctx, { names: [...HOST], rootTypes }).ok, at).toBe(true);
       if (run.result.ok) {
         accepted += 1;
         if (typing.type !== "unknown") precise += 1;
@@ -1173,7 +1177,7 @@ function memberOfType(type: ValueType, rng: Random): Json {
   return out;
 }
 
-/** This function gives a key of a step into a member of a type, mostly a key that the type has, and the type of the step. */
+/** This function gives a key of a step into a member of a type, and the type of the step. The key is mostly a key of the type. */
 function stepOf(type: ValueType, rng: Random): readonly [Key, ValueType] {
   const other = (): readonly [Key, ValueType] => [rng.pick(STEP_KEYS), "unknown"];
   if (rng.chance(0.2)) return other();

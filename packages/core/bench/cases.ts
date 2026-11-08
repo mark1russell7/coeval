@@ -13,10 +13,17 @@
  * thus no other copy changes its type feedback, its inline caches or its heap.
  */
 import { median } from "@mark1russell7/rigor-statistics";
-import * as kernel from "../src/index.ts";
+import type * as kernel from "../src/index.ts";
+import { STD_MACHINE, THING, context, factsOf, formulaMachine, prepare, resolve } from "../src/index.ts";
 import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
-type Kernel = typeof kernel;
+/**
+ * The parts of the kernel that the cases use (K246, D188). The bundle keeps only these parts and the code that they
+ * reach, as the bundle of a host keeps it. Thus a change outside each timed path gives the same bundle on the two arms.
+ */
+const KERNEL = { STD_MACHINE, THING, context, factsOf, formulaMachine, prepare, resolve };
+
+type Kernel = typeof KERNEL;
 
 interface Case {
   readonly name: string;
@@ -33,6 +40,8 @@ export interface Measured {
   readonly calls: number;
   /** The median time of one call in nanoseconds. */
   readonly ns: number;
+  /** The time of one call in each sample of the process, with the warmup, in nanoseconds (`levels.ts`). */
+  readonly samples: readonly number[];
 }
 
 const ref = (...path: kernel.Json[]): kernel.Json => ({ type: "ref", value: path });
@@ -264,10 +273,24 @@ export function calibrate(fn: () => unknown): number {
   }
 }
 
-/** This function gives the time of one call in nanoseconds. */
-export function measure(fn: () => unknown, n: number): number {
+/*
+ * The seeded slowdown of the flip test (K225, D180). The script `paths.ts` builds the head arm with the define
+ * `BENCH_SLOW`: one factor for each case of `CASES`. Without the define, each factor is 1.
+ */
+declare const BENCH_SLOW: readonly number[] | undefined;
+const SLOW: readonly number[] = typeof BENCH_SLOW === "undefined" ? [] : BENCH_SLOW;
+
+/**
+ * This function gives the time of one call in nanoseconds. With a factor `slow` above 1, the sample waits in the timed
+ * part until its time is `slow` times the time of its calls. Thus the timer reads a real slowdown of that factor.
+ */
+export function measure(fn: () => unknown, n: number, slow = 1): number {
   const start = performance.now();
   for (let index = 0; index < n; index += 1) fn();
+  if (slow > 1) {
+    const until = start + (performance.now() - start) * slow;
+    for (;;) if (performance.now() >= until) break;
+  }
   return ((performance.now() - start) * 1e6) / n;
 }
 
@@ -282,15 +305,12 @@ export function show(value: unknown): string {
 export function run(counts?: readonly number[], only?: readonly number[]): Measured[] {
   const chosen = (only ?? CASES.map((_, index) => index)).map((index) => ({ item: CASES[index] as Case, index }));
   return chosen.map(({ item, index }) => {
-    const fn = item.make(kernel);
+    const fn = item.make(KERNEL);
     const result = show(fn());
     const calls = counts?.[index] ?? calibrate(fn);
     const samples: number[] = [];
-    for (let round = 0; round < WARMUP + SAMPLES; round += 1) {
-      const ns = measure(fn, calls);
-      if (round >= WARMUP) samples.push(ns);
-    }
-    return { name: item.name, result, calls, ns: median(samples) };
+    for (let round = 0; round < WARMUP + SAMPLES; round += 1) samples.push(measure(fn, calls, SLOW[index] ?? 1));
+    return { name: item.name, result, calls, ns: median(samples.slice(WARMUP)), samples };
   });
 }
 

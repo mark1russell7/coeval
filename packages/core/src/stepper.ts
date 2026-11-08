@@ -259,10 +259,12 @@ function ladder(world: World, entries: unknown, kind: Kind | undefined, known: b
 }
 
 class Bad {
-  constructor(
-    readonly reason: string,
-    readonly at: readonly Key[],
-  ) {}
+  readonly reason: string;
+  readonly at: readonly Key[];
+  constructor(reason: string, at: readonly Key[]) {
+    this.reason = reason;
+    this.at = at;
+  }
 }
 
 /** The result of the walk for a part: the field is absent from the data (SPLIT-FILL). */

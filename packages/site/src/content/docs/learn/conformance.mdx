@@ -1,0 +1,33 @@
+---
+title: Conformance
+description: The function conforms examines the code of one evaluator against the duties of host code. Break an evaluator here, and see each finding with its probe.
+tableOfContents: false
+---
+
+import ConformanceDiagram from "../../../components/ConformanceDiagram.tsx";
+
+The kernel trusts the code of each evaluator. The code must keep the duties C1 to C8 of `docs/SEMANTICS.md`. A plan, a replay and a check of the types are correct only when the code keeps them.
+
+The function `conforms(machine, name)` examines one evaluator without the kernel. It gives the code probe parts and a probe runtime. The probes record each call of a part, each context, each resolution and each effect. Then `conforms` compares the records with the contract of the kind. Each finding names the duty, the reason and the first probe that shows it.
+
+## Break an evaluator
+
+The evaluator `tally` gives the list of the values of its parts. Without a break, it conforms. Each check box changes one line of its code. The page then runs `conforms` of the core again, and each ring shows what `conforms` found.
+
+<ConformanceDiagram client:visible />
+
+## The contract decides
+
+A duty comes from the contract of the kind. The same code conforms under one contract and breaks a duty under another.
+
+- An effect breaks C2 when the contract does not declare it. On a pure kind, each effect also breaks C4.
+- A read of the context outside `resolve` breaks C4 only on a pure kind.
+
+## A break can hide another break
+
+The function `conforms` gives the first finding of each duty that a probe shows. Some checks need a probe that another break changes.
+
+- Code that keeps state gets the finding `local`. Then `conforms` does not evaluate the probes again, thus it does not check C4 and C5.
+- C3 applies only to a result that is a value. An effect without its capability gives an error, thus C3 gets no check.
+
+Each hidden duty goes with a finding of another duty, thus an empty list hides nothing. But a fix can show a duty that a break hid. Thus fix each finding, and run `conforms` again.

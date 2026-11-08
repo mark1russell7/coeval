@@ -13,7 +13,7 @@
     "typecheck": "tsc -p tsconfig.json && astro sync && tsc -p tsconfig.test.json"
   },
   "devDependencies": {
-    "@mark1russell7/cue": "^1.0.2",
+    "@mark1russell7/cue": "^2.1.1",
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -28,6 +28,7 @@
     "@fontsource-variable/atkinson-hyperlegible-mono": "^5.3.0",
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@mark1russell7/coeval": "workspace:*",
+    "@mark1russell7/site-pages": "^0.4.0",
     "astro": "^7.3.8",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

@@ -1,7 +1,10 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
 import { type Context, isHostThing } from "./deref.ts";
-import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
-import { type Effect, type Machine, type Perform, type Read, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
+import { type EvalError, type Result, describe, isStackOverflow, thrown } from "./errors.ts";
+import { type CheckOptions, typeCheck } from "./static.ts";
+import { isPrecise, member, typeText } from "./types.ts";
+import { boundariesOf } from "./typing.ts";
+import { type Effect, type Machine, type Perform, type Read, type TraceNode, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
 import { type FormulaProfile, Held, isClosure } from "./formula.ts";
 import { type Definitions, reference, referenceRun } from "./reference.ts";
 import { stepper } from "./stepper.ts";
@@ -397,6 +400,15 @@ function resolutions(reads: readonly Read[]): readonly Read[] {
   return reads.filter((read) => read.free && read.kept !== true);
 }
 
+/** This function gives the text of a value of a trace. It does not throw for a bigint or a record with a cycle. */
+function valueText(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? describe(value);
+  } catch {
+    return describe(value);
+  }
+}
+
 function pathText(path: readonly unknown[] | undefined): string {
   if (path === undefined) return "no read";
   try {
@@ -541,4 +553,95 @@ export async function agreeRun(machine: Machine, doc: unknown, context: Context 
     if (why !== undefined) return { ok: false, tier, plan: result, other, reason: why };
   }
   return compared === undefined ? { ok: true, result, effects: first.effects } : { ok: true, result, effects: first.effects, reads: compared };
+}
+
+/** The result of `agreeTypes`: the agreement of a check of types and a traced evaluation (STATIC.TYPES-AGREE). */
+export type TypeAgreement =
+  | {
+      readonly ok: true;
+      /** `false` when the document has an issue, or a value breaks a position of an imprecise type. The rule then tells nothing. */
+      readonly checked: boolean;
+      /** The number of the values of the trace that the rule examined. */
+      readonly values: number;
+    }
+  | {
+      readonly ok: false;
+      /** `value`: a value is not in the type of its place. `argument`: it is not in the type that its position needs. `error`: a type error of the kernel. */
+      readonly clause: "value" | "argument" | "error";
+      /** The keys of the place, as texts. */
+      readonly place: readonly string[];
+      readonly reason: string;
+    };
+
+/** The options of `agreeTypes`: the options of `check`, and `guards`. */
+export interface AgreeTypesOptions extends CheckOptions {
+  /** `true`: the evaluation tests each boundary (PLAN.GUARD). The rule then holds for each context. The default is `false`. */
+  readonly guards?: boolean;
+}
+
+/** The type errors of the kernel, by the evaluator that gives them (STATIC.TYPES-AGREE). */
+const TYPE_ERRORS: Readonly<Record<string, string>> = {
+  "formula.op": "#NAME?",
+  "formula.if": "#VALUE!",
+  "formula.and": "#VALUE!",
+  "formula.or": "#VALUE!",
+};
+
+/**
+ * This function examines the agreement rule for types (STATIC.TYPES-AGREE, D148). A document with no issue evaluates
+ * with a trace. Each value of the trace is a member of the type of its place. A value of a precise type is also a member
+ * of the type that its position needs. No document with precise parts gives a type error of the kernel.
+ *
+ * A language imports this function for its own property tests, with `agree`. A failure tells that a signature, a type
+ * rule, a cover or a root type does not hold. A value that breaks a position of an imprecise type ends the promise, and
+ * the result then has `checked: false` (TYPE.GRADUAL).
+ *
+ * @param machine - The world and the code of the evaluators, with their type rules.
+ * @param doc - The document.
+ * @param context - The context. Its roots are members of the root types.
+ * @param options - The options of `check`, with the root types, and `guards`.
+ * @returns The agreement, or the first place that breaks it.
+ */
+export function agreeTypes(machine: Machine, doc: unknown, context: Context = makeContext(), options: AgreeTypesOptions = {}): TypeAgreement {
+  const typing = typeCheck(machine, doc, options);
+  if (typing.issues.length > 0) return { ok: true, checked: false, values: 0 };
+  const keyOf = (path: readonly unknown[]): string => JSON.stringify(path.map(String));
+  const places = new Map(typing.places.map((item) => [keyOf(item.place), item]));
+  const domains = machine.domains;
+  const guards = options.guards === true ? boundariesOf(typing, domains) : undefined;
+  const given = { ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }), ...(guards === undefined ? {} : { guards }) };
+  const stack: TraceNode[] = [evaluate(machine, doc, context, given).trace];
+  const nodes: TraceNode[] = [];
+  while (stack.length > 0) {
+    const node = stack.pop() as TraceNode;
+    nodes.push(node);
+    stack.push(...node.children);
+  }
+  // A value that breaks a position of an imprecise type leaves the promise of each later type (K28).
+  for (const node of nodes) {
+    const place = places.get(keyOf(node.path));
+    if (place?.expected === undefined || !node.result.ok || isPrecise(place.type, domains)) continue;
+    if (!member(node.result.value, place.expected, domains)) return { ok: true, checked: false, values: 0 };
+  }
+  // The walk goes from the end, thus a part comes before the kind that reads it, and a finding names the origin.
+  let values = 0;
+  for (const node of nodes.reverse()) {
+    const place = places.get(keyOf(node.path));
+    if (place === undefined) continue;
+    const at = node.path.map(String);
+    if (!node.result.ok) {
+      const parts = node.children.map((child) => places.get(keyOf(child.path)));
+      const decided = node.children.every((child) => child.result.ok) && parts.every((part) => part?.expected !== undefined && isPrecise(part.type, domains));
+      const code = TYPE_ERRORS[node.answer.evaluator ?? ""];
+      if (decided && node.result.error.code === code) return { ok: false, clause: "error", place: at, reason: `The document gives ${code}, but it checks with no issue.` };
+      continue;
+    }
+    const value = node.result.value;
+    values += 1;
+    if (!member(value, place.type, domains)) return { ok: false, clause: "value", place: at, reason: `The value ${valueText(value)} is not a member of ${typeText(place.type)}.` };
+    if (place.expected !== undefined && !member(value, place.expected, domains)) {
+      return { ok: false, clause: "argument", place: at, reason: `The value ${valueText(value)} is not a member of the needed type ${typeText(place.expected)}.` };
+    }
+  }
+  return { ok: true, checked: true, values };
 }
