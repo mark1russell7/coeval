@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { Obligation } from "@mark1russell7/coeval";
 import { resultText } from "../lib/effects.ts";
 import { BREAKS, KIND, START_CONTRACT, codeLines, dutiesOf, examine, probeText, type BreakId, type Contract, type DutyRead, type DutyState } from "../lib/conformance.ts";
@@ -89,10 +89,13 @@ function Ring({ reads, breaks, selected, onSelect }: { readonly reads: readonly 
   );
 }
 
+/** The look of the code. A line that is too long scrolls, and the class `scroll-cue` shows that more code is at the edge. */
+const CODE_STYLE = { margin: 0, padding: "var(--space-3)", overflowX: "auto", fontSize: "0.78rem", lineHeight: 1.6, background: "var(--color-surface-sunken)", borderRadius: "var(--radius)", "--scroll-cue-bg": "var(--color-surface-sunken)" } as CSSProperties;
+
 /** The code of the evaluator. Each line that a break changes has a mark and the name of its duty. */
 function Code({ breaks }: { readonly breaks: ReadonlySet<BreakId> }) {
   return (
-    <pre className="ce-mono" aria-label="The code of the evaluator" style={{ margin: 0, padding: "var(--space-3)", overflowX: "auto", fontSize: "0.78rem", lineHeight: 1.6, background: "var(--color-surface-sunken)", borderRadius: "var(--radius)" }}>
+    <pre className="ce-mono scroll-cue" aria-label="The code of the evaluator" tabIndex={0} style={CODE_STYLE}>
       {codeLines(breaks).map((line, index) => (
         <div key={index} style={line.broken === undefined ? undefined : { borderLeft: "3px solid var(--ce-stop)", marginLeft: "-0.75rem", paddingLeft: "calc(0.75rem - 3px)", background: "var(--ce-stop-wash)" }}>
           {line.text}
@@ -120,7 +123,7 @@ function Detail({ read }: { readonly read: DutyRead }) {
           <span>
             <strong>conforms:</strong> {finding.reason}
           </span>
-          <div className="ce-scroll">
+          <div className="ce-scroll scroll-cue">
             <table className="ce-matrix">
               <caption style={{ textAlign: "left", paddingBottom: "var(--space-1)" }}>The probe of the finding</caption>
               <tbody>
