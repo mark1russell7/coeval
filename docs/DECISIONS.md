@@ -5377,6 +5377,7 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 - The draws `int`, `chance` and `pick` keep the rules of the core. Thus `pick([])` gives `undefined`, and the `pick` of the home throws.
 - GEN.SEED pins the draws of five seeds from the old copy, and the new code gives the same draws.
 - The test PKG.PURE marks only the modules of the core as modules with side effects. A module of a dependency keeps the field `sideEffects` of its own package.
+- The bench bundles each arm with `nodePaths` set to the install of the bench. The base arm has no install (K234), thus it finds the dependency there. Both arms bundle the same code of the dependency, and a change of its version does not show in the Speed run.
 
 **Why.** Each area has one home, and a copy is debt. The home has no runtime dependency, and its field `sideEffects` is `false`. Thus an import that uses nothing still leaves nothing in a bundle. PKG.PURE marked each module before, so the data modules of the home stayed in its bundle. Each bundler reads the field of the dependency, thus the new mark tests the claim of the core only. A seeded fault in a module of the core still fails the test.
 
