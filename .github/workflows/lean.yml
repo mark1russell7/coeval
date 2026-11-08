@@ -19,6 +19,10 @@ concurrency:
   group: lean-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 env:
   LEAN_VERSION: 4.35.0
   LEAN_SHA256: 7289597a44543246c9227b8cae501767e095ce17f6d448b95fc4a8dc97268f6d
@@ -76,7 +80,7 @@ jobs:
 
   lean-ok:
     name: Lean OK
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [changes, lean]
     runs-on: ubuntu-latest
     timeout-minutes: 2
