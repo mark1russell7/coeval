@@ -3,6 +3,7 @@ import { corpus } from "./corpus.test-support.ts";
 import {
   type Json,
   type Random,
+  type SyntaxForm,
   type SyntaxIssue,
   type SyntaxProfile,
   STD_CAPS,
@@ -394,7 +395,7 @@ describe("the syntax kit", () => {
       expect(kinds, kind).toContain(kind);
       expect(written.has(kind), kind).toBe(false);
     }
-    expect(Object.keys(NO_TEXT)).toEqual(["handle"]);
+    expect(Object.keys(NO_TEXT)).toEqual([]);
     // The text of each kind reads to a document of that kind, and print writes the same text.
     expect(Object.keys(WORLD_TEXTS).sort()).toEqual(kinds.filter((kind) => !Object.hasOwn(NO_TEXT, kind)).sort());
     for (const [kind, source] of Object.entries(WORLD_TEXTS)) {
@@ -425,6 +426,51 @@ describe("the syntax kit", () => {
     expect(doc(host, "2 + 3")).toEqual({ type: "add", value: [2, 3] });
     expect(parse(WORLD_SYNTAX, 'card(title: text("a"))').ok).toBe(false);
     expect(issue(host, "max(1, 2)")).toMatchObject({ offset: 0 });
+  });
+
+  it("[SYNTAX.DATA-FIELD] a field of data reads lists and records with documents in them, and print writes them back", () => {
+    const run = (source: string): unknown => evaluate(STD_MACHINE, doc(WORLD_SYNTAX, source), makeContext({}, STD_CAPS)).result;
+    const t = (value: string): Json => ({ type: "text", value });
+    // A literal in a field of data stays its data, and each other text is a document.
+    const source = 'handle(with: [{op: "log", do: list(payload, "b")}], body: log("a"))';
+    expect(doc(WORLD_SYNTAX, source)).toEqual({
+      type: "handle",
+      value: { with: [{ op: "log", do: { type: "list", value: [ref("names", "payload"), t("b")] } }], body: { type: "log", value: ["a"] } },
+    });
+    expect(text(WORLD_SYNTAX, doc(WORLD_SYNTAX, source))).toBe(source);
+    expect(run(source)).toEqual(ok(["a", "b"]));
+    // A clause abort stops the body, and the clause return reads the result of the body.
+    expect(run('handle(with: [{op: ["log"], abort: text("stop")}], body: seq(log("a"), 5))')).toEqual(ok("stop"));
+    expect(run("handle(with: [], return: result * 2, body: 21)")).toEqual(ok(42));
+    // A list and a record of data nest, and they can be empty.
+    const nested: SyntaxProfile = { calls: { forms: [{ name: "f", kind: "f", fields: ["a"], data: ["a"] }] } };
+    expect(doc(nested, "f([[1, {}], {k: [true, null], `a b`: add(x, 1)}, []])")).toEqual({
+      type: "f",
+      value: { a: [[1, {}], { k: [true, null], "a b": op("add", ref("names", "x"), 1) }, []] },
+    });
+    for (const each of ["f([[1, {}], {k: [true, null], `a b`: add(x, 1)}, []])", "f({})", 'f(["a", -2])', "f(x)"]) expect(text(nested, doc(nested, each)), each).toBe(each);
+    // A record with the key type is a document, thus print writes it as a document.
+    expect(print(nested, { type: "f", value: { a: [op("add", 1, 2)] } })).toEqual(ok("f([add(1, 2)])"));
+    expect(issue(nested, 'f({type: "x"})')).toEqual({ offset: 3, length: 4, message: "A record of data has no key type, because the key type makes a document." });
+    expect(print(WORLD_SYNTAX, { type: "handle", value: { with: [{ op: "log", do: Number.NaN }], body: t("a") } })).toMatchObject({ ok: false, error: { place: ["with", 0, "do"] } });
+    // An issue names the bracket or the brace that is missing, and recovery reads past each bracket.
+    expect(issue(nested, "f([1, 2)")).toMatchObject({ message: 'A "," or a closing bracket is missing.' });
+    expect(issue(nested, "f({k: 1)")).toMatchObject({ message: 'A "," or a closing brace is missing.' });
+    expect(issue(nested, "f([")).toMatchObject({ message: "A term is missing at the end of the text." });
+    const many = parse(nested, "f([1 2, {k: 3 4}, 5])");
+    expect(many.ok ? [] : many.issues.map((each) => each.offset)).toEqual([5, 14]);
+    // A deep list of data stops at the depth of the profile.
+    expect(issue({ ...nested, maxDepth: 8 }, `f(${"[".repeat(9)}${"]".repeat(9)})`)).toMatchObject({ message: "The text is deeper than 8 levels." });
+    // A form with data needs fields, each name of data is a field, a field of data is not in wrap, and no operator starts with a bracket or a brace.
+    const form = (more: Omit<SyntaxForm, "name" | "kind">): SyntaxProfile => ({ calls: { forms: [{ name: "f", kind: "f", ...more }] } });
+    expect(() => parse(form({ data: ["a"] }), "1")).toThrow("takes data only with fields");
+    expect(() => parse(form({ fields: ["a"], data: ["b"] }), "1")).toThrow("has no field b for its data");
+    expect(() => parse(form({ fields: ["a"], data: ["a"], wrap: ["a"] }), "1")).toThrow("in wrap and in data");
+    expect(() => parse(form({ fields: ["a"], data: ["a"], wrap: true }), "1")).toThrow("in wrap and in data");
+    expect(() => parse({ ...nested, operators: [{ symbol: "[[", fixity: "prefix", prec: 1, kind: "g" }] }, "1")).toThrow("reads the text of a field of data");
+    expect(() => parse({ ...nested, operators: [{ symbol: "}", fixity: "postfix", prec: 1, kind: "g" }] }, "1")).toThrow("reads the text of a field of data");
+    expect(parse({ ...form({ fields: ["a"] }), operators: [{ symbol: "[[", fixity: "prefix", prec: 1, kind: "g" }] }, "[[1").ok).toBe(true);
+    expect(checkSyntax(nested)).toEqual([]);
   });
 
   it("[SYNTAX.ENVELOPE] a literal in a place that takes a document gets its data envelope, and STD_MACHINE evaluates it", () => {
@@ -841,10 +887,8 @@ const OTHER_TEXT: Readonly<Record<string, string>> = {
   ref: "The reference syntax of the kit writes a path, for example self.parent.width.",
 };
 
-/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. L1c removes the entry. */
-const NO_TEXT: Readonly<Record<string, string>> = {
-  handle: "Each clause is a record of data, and the profile has no text for a list of records (D146).",
-};
+/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. Since L1c (D177), each kind has a text. */
+const NO_TEXT: Readonly<Record<string, string>> = {};
 
 /** One text for each kind of `STD_WORLD`, in the profile `WORLD_SYNTAX`. */
 const WORLD_TEXTS: Readonly<Record<string, string>> = {
@@ -869,6 +913,7 @@ const WORLD_TEXTS: Readonly<Record<string, string>> = {
   pure: 'pure(log("hello"))',
   log: 'log("start")',
   write: 'write("total", 2 + 3)',
+  handle: 'handle(with: [{op: "log", do: payload}, {op: ["write"], abort: text("no")}], return: list(result), body: log("a"))',
 };
 
 /** This function lists the kinds and the aliases of a world, with dots between the keys of a namespace. */
@@ -904,14 +949,23 @@ interface Generator {
 /** The names of the forms of `WORLD_SYNTAX` for an operator document with fewer or more terms (K163, D65). */
 const OPERATOR_FORMS: readonly string[] = ["add", "multiply", "greater"];
 
+/** The names of the forms of `WORLD_SYNTAX` after D64 that are not operator forms: `handle` has a text since D177. */
+const LATER_FORMS: readonly string[] = ["handle"];
+
 /**
- * `WORLD_SYNTAX` as D64 gave it: without the data envelopes of K159 and the forms of K163. The generator `world` keeps
+ * `WORLD_SYNTAX` as D64 gave it: without the data envelopes of K159 and the forms of K163 and D177. The generator `world` keeps
  * the documents that it gave before D65 with this profile.
  */
 const WORLD_D64: SyntaxProfile = {
   ...WORLD_SYNTAX,
   literals: {},
-  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name)) },
+  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name) && !LATER_FORMS.includes(form.name)) },
+};
+
+/** `WORLD_SYNTAX` with the one form `handle`, thus many texts of the generator `handlers` have a field of data (D177). */
+const HANDLERS: SyntaxProfile = {
+  ...WORLD_SYNTAX,
+  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => form.name === "handle") },
 };
 
 /** The expected summary of [SYNTAX.ISSUES-GENERATED] for each generator. */
@@ -923,7 +977,8 @@ const GENERATED_PINS: Readonly<Record<string, unknown>> = {
   algebra: { texts: 5114, most: 3, single: 1473, quoteCascades: 0, digest: 4265921408 },
   records: { texts: 4823, most: 3, single: 1291, quoteCascades: 0, digest: 21554679 },
   world: { texts: 5018, most: 3, single: 1388, quoteCascades: 0, digest: 215319946 },
-  envelopes: { texts: 4993, most: 3, single: 1361, quoteCascades: 0, digest: 1780189153 },
+  envelopes: { texts: 5008, most: 3, single: 1372, quoteCascades: 0, digest: 1774173964 },
+  handlers: { texts: 5047, most: 3, single: 1433, quoteCascades: 1, digest: 3993650308 },
 };
 
 const GENERATORS: Readonly<Record<string, Generator>> = {
@@ -982,6 +1037,14 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     steps: true,
     envelopes: true,
   },
+  handlers: {
+    profile: HANDLERS,
+    leaves: [0, -3, 2.5, true, null, "", 'a"b', x, ref("self", "parent", "width"), ref("names", "payload")],
+    calls: [],
+    names: ["a", "a b"],
+    data: ["", 'a"b', 0, -3, true, null],
+    envelopes: true,
+  },
 };
 
 function kindType(kind: string): Json {
@@ -1006,9 +1069,12 @@ function damaged(rng: Random, source: string, faults: number): string {
   return out;
 }
 
-/** This function gives the quote marks of a text. A fault that changes them can pair a quote with a quote of another text. */
+/**
+ * This function gives the quote marks of a text that are not in an escape. A fault that changes them can pair two
+ * quotes of different texts. An example is a fault between a backslash and its quote mark.
+ */
 function quoteMarks(source: string): string {
-  return source.replace(/[^"`\\]/g, "");
+  return source.replace(/\\[\s\S]/g, "").replace(/[^"`]/g, "");
 }
 
 /** This function adds a text to an FNV-1a hash. */
@@ -1041,7 +1107,7 @@ function generateBare(gen: Generator, rng: Random, depth: number): Json {
   if (forms.length > 0 && (gen.calls.length === 0 || rng.int(2) === 0)) {
     const form = pick(rng, forms);
     if (form.args === "literal") return { type: kindType(form.kind), value: pick(rng, gen.data ?? [0]) };
-    if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? []) };
+    if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? [], form.data) };
     const fields = form.fields;
     const least = form.min ?? 0;
     if (fields === undefined) return { type: kindType(form.kind), value: terms(least + rng.int(4 - least)) };
@@ -1066,14 +1132,32 @@ function constructDoc(gen: Generator, rng: Random, depth: number): Json {
 }
 
 /** This function builds the record of a form `named`: some of the keys, in a random order, each with a document. */
-function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly string[]): Json {
+function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly string[], data: readonly string[] = []): Json {
   const value: Record<string, Json> = {};
   const left = [...keys];
   for (let count = rng.int(left.length + 1); count > 0; count -= 1) {
     const [key] = left.splice(rng.int(left.length), 1) as [string];
-    Object.defineProperty(value, key, { value: generateDoc(gen, rng, depth + 1), enumerable: true, writable: true, configurable: true });
+    const item = data.includes(key) ? dataValue(gen, rng, depth + 1) : generateDoc(gen, rng, depth + 1);
+    Object.defineProperty(value, key, { value: item, enumerable: true, writable: true, configurable: true });
   }
   return value;
+}
+
+/** This function builds the argument of a field of data (D177): a list, a record without the key `type`, or a document. */
+function dataValue(gen: Generator, rng: Random, depth: number): Json {
+  const choice = depth > 3 ? 0 : rng.int(3);
+  if (choice === 0) return generateDoc(gen, rng, depth);
+  const count = rng.int(3);
+  if (choice === 1) return Array.from({ length: count }, () => dataValue(gen, rng, depth + 1));
+  return Object.fromEntries(["op", "a b", "do"].slice(0, count).map((key) => [key, dataValue(gen, rng, depth + 1)]));
+}
+
+/** This function gives the documents in an argument of a field of data their envelopes. A literal in it stays its data (D177). */
+function dataEnvelopes(profile: SyntaxProfile, value: Json): Json {
+  if (Array.isArray(value)) return value.map((item) => dataEnvelopes(profile, item));
+  if (typeof value !== "object" || value === null) return value;
+  if (!Object.hasOwn(value, "type")) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, dataEnvelopes(profile, item)]));
+  return withEnvelopes(profile, value, false);
 }
 
 /**
@@ -1100,7 +1184,9 @@ function withEnvelopes(profile: SyntaxProfile, made: Json, place: boolean): Json
   let next: Json | undefined = value;
   if (Array.isArray(value)) next = value.map((item, index) => withEnvelopes(profile, item, wraps(String(index))));
   else if (typeof value === "object" && value !== null) {
-    next = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withEnvelopes(profile, item, wraps(key))]));
+    next = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, form?.data?.includes(key) === true ? dataEnvelopes(profile, item) : withEnvelopes(profile, item, wraps(key))]),
+    );
   }
   return next === value ? made : { ...made, value: next as Json };
 }
