@@ -258,11 +258,14 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       continue;
     }
     const { sees, later } = scopesOf(kind.scope, doc.value, split.parts);
+    // The rules of a grant are read one time for each kind, not for each part. A kind without such a rule gives no list (K238).
+    const grantRules = kind.caps !== undefined && kind.caps.some((rule) => rule.rule === "grant") ? kind.caps : undefined;
     for (let index = split.parts.length - 1; index >= 0; index -= 1) {
       const slot = split.parts[index] as PartSlot;
       const extra = sees[index] ?? [];
       const hidden = later[index] ?? [];
-      const grants = partGrants(kind.caps, slot.path, doc.value);
+      const grants = grantRules === undefined ? undefined : partGrants(grantRules, slot.path, doc.value);
+      const granted = grants !== undefined && grants.length > 0 ? grants : undefined;
       stack.push({
         value: slot.item,
         place: slot.path.length === 0 ? item.place : { up: item.place, keys: slot.path },
@@ -274,8 +277,14 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         address: slot.address === true,
         slot: slot.path,
         parent: here,
-        caps: item.caps === undefined || kind.caps === undefined ? item.caps : [...partCaps(kind.caps, slot.path, item.caps), ...grants],
-        handled: grants.length === 0 ? item.handled : [...(item.handled ?? []), ...grants],
+        // A part with no grant keeps the list of partCaps, with no copy (K238).
+        caps:
+          item.caps === undefined || kind.caps === undefined
+            ? item.caps
+            : granted === undefined
+              ? partCaps(kind.caps, slot.path, item.caps)
+              : [...partCaps(kind.caps, slot.path, item.caps), ...granted],
+        handled: granted === undefined ? item.handled : [...(item.handled ?? []), ...granted],
         bound: extra,
         expect: slot.expect,
       });
@@ -368,6 +377,45 @@ export function mapRefs(world: World, doc: unknown, change: (use: RefUse) => unk
     const next = change(use);
     if (next !== undefined) out = setAt(out, use.at, next);
   }
+  return out;
+}
+
+/**
+ * The answer of the function of `mapDocs` for one document.
+ *
+ * - `undefined`: keep the document and go into its parts.
+ * - `"skip"`: keep the document and stop there.
+ * - `{ to }`: put `to` in the place of the document and stop there.
+ * - `{ to, into: true }`: put `to` in the place of the document, then go into the parts of the old document. Thus
+ *   `to` must keep the path of each such part.
+ */
+export type DocChange = undefined | "skip" | { readonly to: unknown; readonly into?: boolean };
+
+/**
+ * This function changes the documents of a document, from the root to the parts (STATIC.MAPDOCS). The function
+ * `change` reads only the original documents. It decides at each node, and it can stop at a node. The kinds of a
+ * position come from the world, thus this function names no kind. The document is not changed: the function gives a
+ * new document that shares each part without a change.
+ *
+ * @param world - The world of the kinds.
+ * @param doc - The document, as JSON.
+ * @param change - The function that gives the answer for each visit. See `DocChange`.
+ * @param options - The type of a bare root value, and the names that the host binds at the root.
+ * @returns The new document, or `doc` itself when no document changes.
+ */
+export function mapDocs(world: World, doc: unknown, change: (visit: DocVisit) => DocChange, options: WalkOptions = {}): unknown {
+  let out = doc;
+  walk(
+    world,
+    doc,
+    (visit) => {
+      const next = change(visit);
+      if (next === undefined || next === "skip") return next;
+      out = setAt(out, visit.at, next.to);
+      return next.into === true ? undefined : "skip";
+    },
+    options,
+  );
   return out;
 }
 

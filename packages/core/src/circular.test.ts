@@ -266,4 +266,47 @@ describe("circular attributes (L2f, D113)", () => {
     }
     expect(written.filter(([attribute]) => attribute === "reach")).toHaveLength(4);
   });
+
+  it("[TREE.CIRCULAR-CELL] a plain attribute of a node with a circular attribute takes the cell of the host, thus it climbs one time", () => {
+    // The kind `tick` counts each evaluation of its part. The plain attribute `wide` reads it, and `double` reads `wide` two times.
+    let ticks = 0;
+    const tick: Evaluator = ({ parts }) => {
+      ticks += 1;
+      return parts[0]?.evaluate() ?? fail("#VALUE!", "The kind tick has one part.");
+    };
+    const kinds = {
+      tick: { verbs: { eval: "test.tick" }, parts: { shape: "list" }, pure: true } satisfies Kind,
+      mixed: treeKind({
+        equations: { bar: greater(contentOf(inner), self("height")), inner, wide: { type: "tick", value: [add(self("width"), num(1))] }, double: add(self("wide"), self("wide")) },
+        attributes: { bar: { circular: { start: false } } },
+      }),
+    };
+    const kept = new Map<string, AttributeAnswer>();
+    const computed: string[] = [];
+    const cell: AttributeCell = (place, attribute, compute) => {
+      const at = `${place.join(".")}:${attribute}`;
+      let answer = kept.get(at);
+      if (answer === undefined) {
+        computed.push(attribute);
+        answer = compute();
+        kept.set(at, answer);
+      }
+      return answer;
+    };
+    const doc = node("mixed", { width: 10, height: 10, seen: list(self("bar"), self("double"), self("wide")) });
+    const fresh = prepare(withKinds(kinds, { "test.tick": tick }), doc).evaluate();
+    expect(fresh).toMatchObject({ ok: true, value: { seen: [true, 22, 11] } });
+    expect(ticks).toBe(1);
+    const plan = prepare(withKinds(kinds, { "test.tick": tick, "tree.node": treeNodeEvaluator({ cell }) }), doc);
+    ticks = 0;
+    expect(plan.evaluate()).toEqual(fresh);
+    expect(ticks).toBe(1);
+    expect(computed.filter((attribute) => attribute === "wide")).toHaveLength(1);
+    // A second evaluation with the same cells is the same as a fresh evaluation, and it computes nothing.
+    ticks = 0;
+    computed.length = 0;
+    expect(plan.evaluate()).toEqual(fresh);
+    expect(ticks).toBe(0);
+    expect(computed).toEqual([]);
+  });
 });

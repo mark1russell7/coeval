@@ -2,8 +2,8 @@ import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, isKey, ty
 import { type PartSlot, type Split, partsOf, pathMatches, scopesOf } from "./parts.ts";
 import { answerOf, ask, type Answer } from "./ladder.ts";
 import type { CapsRule, Kind, KindFacts, Side } from "./world.ts";
-import type { Domain } from "./types.ts";
-import type { TypeRule } from "./typing.ts";
+import { type Domain, type ValueType, member, typeText } from "./types.ts";
+import type { Boundary, TypeRule } from "./typing.ts";
 import type { StaticRead } from "./facts.ts";
 import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
 import {
@@ -996,6 +996,8 @@ export interface PlanRunOptions {
 export interface RunOptions extends PlanRunOptions {
   /** The type of a bare root value. */
   readonly declaredType?: string;
+  /** The boundaries that test their values (PLAN.GUARD). The default is none. */
+  readonly guards?: readonly Boundary[];
   /** The verb of `run`, for example `format`. The default is `eval` (VERB.PREPARE). */
   readonly verb?: string;
 }
@@ -1026,6 +1028,8 @@ export interface EvaluateOptions {
   readonly perform?: Perform;
   /** A list that gets each read, in the order of the resolutions (READS.RECORD). */
   readonly reads?: Read[];
+  /** The boundaries that test their values (PLAN.GUARD). The default is none. */
+  readonly guards?: readonly Boundary[];
 }
 
 /** The options of a resolution without a record of hops, and with one. One object of each serves each call. */
@@ -1703,6 +1707,11 @@ export interface PrepareOptions {
    * the code without the fold. A plan without folds ignores this option.
    */
   readonly fixed?: { readonly names?: Readonly<Record<string, unknown>> };
+  /**
+   * The boundaries of the document, from `boundariesOf` (PLAN.GUARD, D149). A value that is not a member of the type of
+   * its boundary gives `#VALUE!` at that place. The default is none, and a plan then has no test.
+   */
+  readonly guards?: readonly Boundary[];
 }
 
 /** A compiled document. It evaluates many times, and it does the work of the ladder one time. */
@@ -1743,6 +1752,8 @@ interface Compiler {
   readonly fold: boolean;
   /** The fixed names and their values, or `undefined` when the plan has none (PLAN.FIXED). */
   readonly fixed: Readonly<Record<string, unknown>> | undefined;
+  /** The types of the boundaries by their place, or `undefined` when the plan has no guard (PLAN.GUARD). */
+  readonly guards: ReadonlyMap<string, ValueType> | undefined;
   /** The runtime of the folds of this compilation. The first fold makes it. */
   probe?: Probe;
 }
@@ -1894,7 +1905,8 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
     } catch (error) {
       return failingWith(c, meta, placed(thrown(error, `the runner ${name}`), place));
     }
-    const run = placedRun(inner, place, name);
+    const guard = guardOf(c, place);
+    const run = placedRun(guard === undefined ? inner : guardRun(inner, guard, c.machine.domains), place, name);
     return finish(c, meta, runnerCode(run, place, kindText), run);
   }
 
@@ -1904,8 +1916,9 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   } catch (error) {
     return failingWith(c, meta, placed(thrown(error, `the evaluator ${name}`), place));
   }
+  const guard = guardOf(c, place);
   // Code that cannot fail needs no place and no catch, and it does not read the context of its grant (PLAN.TOTAL).
-  const done = finish(c, meta, TOTAL.has(inner) ? inner : placedCode(inner, place, name), undefined);
+  const done = finish(c, meta, guard !== undefined ? placedCode(guardCode(inner, guard, c.machine.domains), place, name) : TOTAL.has(inner) ? inner : placedCode(inner, place, name), undefined);
   if (frees === undefined || kind === undefined || !pureCode(c, envelope, kind, typePath, name, quick)) return done;
   const free = freeOf(doc, kind, split.parts, frees);
   if (free === undefined) return done;
@@ -2317,6 +2330,34 @@ function gated(rules: readonly CapsRule[], part: Compiled): Compiled {
  * This function gives the steps of a runner, with the place of each error and of each exception. The steps get the
  * context that its grant permits (CAP.NARROW-CODE).
  */
+/** This function gives the key of a place in the guards of a plan. */
+function guardKey(place: readonly Key[]): string {
+  return JSON.stringify(place.map(String));
+}
+
+/** This function gives the type of the boundary at a place, when the plan has one (PLAN.GUARD). */
+function guardOf(c: Compiler, place: readonly Key[]): ValueType | undefined {
+  return c.guards?.get(guardKey(place));
+}
+
+/** This function gives the result of a part of a boundary: a value that is not a member gives `#VALUE!` (PLAN.GUARD). */
+function guarded(result: Result, type: ValueType, domains: Readonly<Record<string, Domain>> | undefined): Result {
+  if (!result.ok || member(result.value, type, domains)) return result;
+  return fail("#VALUE!", `The value is not a member of ${typeText(type)}, the type of its boundary.`);
+}
+
+/** This function adds the test of a boundary to the code of a part. */
+function guardCode(inner: Code, type: ValueType, domains: Readonly<Record<string, Domain>> | undefined): Code {
+  return (ctx, rt) => guarded(inner(ctx, rt), type, domains);
+}
+
+/** This function adds the test of a boundary to the steps of a part. */
+function guardRun(inner: RunCode, type: ValueType, domains: Readonly<Record<string, Domain>> | undefined): RunCode {
+  return function* (ctx, rt) {
+    return guarded(yield* inner(ctx, rt), type, domains);
+  };
+}
+
 function placedRun(inner: RunCode, place: readonly Key[], name: string): RunCode {
   return function* (ctx, rt) {
     try {
@@ -2578,7 +2619,8 @@ export function prepare(machine: Machine, doc: unknown, options: PrepareOptions 
   const traced = options.trace === true;
   const fold = !traced && options.fold !== false;
   const fixed = fold ? fixedNamesOf(options.fixed?.names) : undefined;
-  const c: Compiler = { machine, traced, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer, fold, fixed };
+  const guards = options.guards === undefined || options.guards.length === 0 ? undefined : new Map(options.guards.map((each) => [guardKey(each.place), each.type]));
+  const c: Compiler = { machine, traced, maxDepth: machine.maxDepth ?? 1000, verb, noAnswer, fold, fixed, guards };
   let root: Compiled;
   try {
     root = compileNode(c, doc, [], options.declaredType, 0);
@@ -2701,6 +2743,7 @@ export function evaluate(machine: Machine, doc: unknown, context: Context = make
     trace: true,
     ...(declaredType === undefined ? {} : { declaredType }),
     ...(given.verb === undefined ? {} : { verb: given.verb }),
+    ...(given.guards === undefined ? {} : { guards: given.guards }),
   });
   const ctx = rootContext(machine, context);
   const s = new Session(machine, ctx.caps, false, true, given.perform, undefined, undefined, readingOf(given.reads, ctx));
@@ -2723,6 +2766,7 @@ export async function run(machine: Machine, doc: unknown, context: Context = mak
   const plan = prepare(machine, doc, {
     trace: true,
     ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }),
+    ...(options.guards === undefined ? {} : { guards: options.guards }),
     ...(options.verb === undefined ? {} : { verb: options.verb }),
   });
   const ctx = rootContext(machine, context);
