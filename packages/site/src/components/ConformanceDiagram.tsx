@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { Obligation } from "@mark1russell7/coeval";
 import { resultText } from "../lib/effects.ts";
-import { BREAKS, KIND, START_CONTRACT, codeLines, dutiesOf, examine, probeText, type BreakId, type Contract, type DutyRead, type DutyState } from "../lib/conformance.ts";
+import { BREAKS, KIND, START_CONTRACT, codeLines, dutiesOf, examine, labelY, probeText, type BreakId, type Contract, type DutyRead, type DutyState } from "../lib/conformance.ts";
 
 const WIDTH = 372;
 const HEIGHT = 300;
@@ -79,7 +79,7 @@ function Ring({ reads, breaks, selected, onSelect }: { readonly reads: readonly 
             <text x={at.x} y={at.y + 5} textAnchor="middle" fontSize="13" fontWeight="700" style={{ fontFamily: "var(--font-mono)", fill: read.state === "found" ? "var(--ce-stop)" : undefined }}>
               {read.duty === "local" ? "loc" : read.duty}
             </text>
-            <text x={at.x} y={at.y + LAMP + 15} textAnchor="middle" fontSize="12" style={{ fill: "var(--color-ink-secondary)" }}>
+            <text x={at.x} y={labelY(at, { x: CX, y: CY }, LAMP)} textAnchor="middle" fontSize="12" style={{ fill: "var(--color-ink-secondary)" }}>
               {item.short}
             </text>
           </g>

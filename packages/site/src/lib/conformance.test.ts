@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BREAKS, CONTRACTS, START_CONTRACT, codeLines, dutiesOf, examine, type BreakId, type Contract } from "./conformance.ts";
+import { BREAKS, CONTRACTS, START_CONTRACT, codeLines, dutiesOf, examine, labelY, type BreakId, type Contract } from "./conformance.ts";
 
 const obligations = (breaks: readonly BreakId[], contract: Contract = START_CONTRACT): readonly string[] => examine(new Set(breaks), contract).map((item) => item.obligation);
 
@@ -63,5 +63,12 @@ describe("the conformance diagram (K123)", () => {
     expect(codeLines(new Set()).filter((line) => line.broken !== undefined)).toEqual([]);
     const all = codeLines(new Set(BREAKS.map((item) => item.id)));
     expect(all.filter((line) => line.broken !== undefined).map((line) => line.broken?.id).sort()).toEqual(BREAKS.map((item) => item.id).sort());
+  });
+
+  it("puts the label of a lamp straight above the centre above the lamp, so its spoke does not cross the label", () => {
+    const centre = { x: 186, y: 150 };
+    expect(labelY({ x: 186, y: 50 }, centre, 21)).toBe(19);
+    expect(labelY({ x: 186, y: 250 }, centre, 21)).toBe(286);
+    expect(labelY({ x: 264, y: 88 }, centre, 21)).toBe(124);
   });
 });

@@ -181,3 +181,17 @@ export function probeText(value: unknown): string {
   const text = JSON.stringify(value);
   return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
+
+/** A point of the picture. */
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * This function gives the baseline of the label of a lamp. The label goes below the lamp. A lamp straight above the
+ * centre gets its label above it, because its spoke goes into the lamp from below.
+ */
+export function labelY(at: Point, centre: Point, lamp: number): number {
+  return Math.abs(at.x - centre.x) < lamp && at.y < centre.y ? at.y - lamp - 10 : at.y + lamp + 15;
+}
