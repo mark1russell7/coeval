@@ -243,6 +243,7 @@ type TierResult: build/index.d.ts#TierResult
 type TraceNode: build/index.d.ts#TraceNode
 type TreeContract: build/index.d.ts#TreeContract
 type TreeOptions: build/index.d.ts#TreeOptions
+type TypeAgreement: build/index.d.ts#TypeAgreement
 type TypeInput: build/index.d.ts#TypeInput
 type TypeIssue: build/index.d.ts#TypeIssue
 type TypeProblem: build/index.d.ts#TypeProblem
@@ -270,6 +271,7 @@ type WorldPart: build/index.d.ts#WorldPart
 agree: build/index.d.ts#agree
 agreeRun: build/index.d.ts#agreeRun
 agreeSchedule: build/index.d.ts#agreeSchedule
+agreeTypes: build/index.d.ts#agreeTypes
 argsKey: build/index.d.ts#argsKey
 ask: build/index.d.ts#ask
 atArgsOf: build/index.d.ts#atArgsOf
@@ -2173,6 +2175,18 @@ interface TreeOptions {
   readonly cell?: AttributeCell;
 }
 
+### build/index.d.ts#TypeAgreement
+type TypeAgreement = {
+  readonly ok: true;
+  readonly checked: boolean;
+  readonly values: number;
+} | {
+  readonly ok: false;
+  readonly clause: "value" | "argument" | "error";
+  readonly place: readonly string[];
+  readonly reason: string;
+};
+
 ### build/index.d.ts#TypeInput
 interface TypeInput {
   readonly typePath: readonly Key[];
@@ -2363,6 +2377,9 @@ export declare function agreeRun(machine: Machine, doc: unknown, context?: Conte
 
 ### build/index.d.ts#agreeSchedule
 export declare function agreeSchedule(engine: ScheduleEngineFactory, options?: AgreeScheduleOptions): ScheduleAgreement;
+
+### build/index.d.ts#agreeTypes
+export declare function agreeTypes(machine: Machine, doc: unknown, context?: Context, options?: CheckOptions): TypeAgreement;
 
 ### build/index.d.ts#argsKey
 export declare function argsKey(value: unknown): string | undefined;
