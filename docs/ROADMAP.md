@@ -67,6 +67,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | C17b | The structured editor (C11) shows and accepts the text of a document next to its tree, with the profile of C17. | done (2026-11-08, D178) | C11, C17 |
 | C18 | Machine checks for the decisions. Tests check D2 (no path to the classifier), D7 (no value field on a part), D22 (the domains are on the machine), D29 (no export of `compilePath`) and D32 (a private grant symbol). The audit fixes: references in the sequence diagram name their root, the loop diagram uses the kernel, and the `github:` dependencies have a pinned commit. | done (2026-10-26) | |
 | C19 | The colors of the diagrams keep one meaning: the arrows of the direction diagram and the glyphs of collapse, text and bool get their own tokens in `diagrams.css`. The moves tab finds its targets with the kernel, not with a walk of the site. The kernel has no step for the siblings, the ancestors or the descendants, thus the tab has no such move. From the audit of C18. | done (2026-10-26) | C18 |
+| C20 | The replay diagram shows a replay only for its change and its recording. Before, a click on another change showed the old replay under the new text until the new replay came (audit s20). | done (2026-11-08) | |
 
 ## The kernel
 
