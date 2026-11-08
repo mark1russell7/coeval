@@ -33,13 +33,17 @@ on:
       fault:
         description: Write crash to stop each bench job at its start
         default: ""
+      # The flip test seeds a real slowdown in the head arm only: a multiple of the margin of each family (K225, D180).
+      slow:
+        description: The seeded slowdown of the head, as a multiple of the margin of each family
+        default: ""
 
 permissions:
   contents: read
 
-# Two dispatches on one branch with different bases do not cancel each other.
+# Two dispatches on one branch with different bases or different seeded slowdowns do not cancel each other (K225).
 concurrency:
-  group: bench-${{ github.ref }}-${{ inputs.base }}
+  group: bench-${{ github.ref }}-${{ inputs.base }}-${{ inputs.slow }}
   cancel-in-progress: true
 
 defaults:
@@ -131,6 +135,7 @@ jobs:
           BENCH_RUN: ${{ matrix.run }}
           BENCH_ROUNDS: ${{ inputs.rounds || '12' }}
           BENCH_JSON: ${{ runner.temp }}/bench-${{ matrix.run }}.json
+          BENCH_SLOW: ${{ inputs.slow || '' }}
       # A run with different results also gives its table to the verdict.
       # The records stay 90 days, because the limits of the verdict come from them (K214, D117).
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

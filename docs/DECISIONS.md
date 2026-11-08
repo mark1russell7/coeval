@@ -4912,6 +4912,28 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
 - A `#N/A` of a closed record stays with TYPE.NO-STEP.
 
+## D150 (2026-11-04): an evaluator that is a function can hold a type rule
+
+**Context.** C14 shows the types of the cards on the site. The standard evaluators are functions and have no rules, thus each card of the site has the type `unknown`.
+
+**Decision.**
+
+- `ruleOf` reads the field `type` of a function too, as it reads the field of an object.
+- The site gives rules to the standard kinds of its pictures, on a new function that calls the standard evaluator.
+- The standard kit stays without rules at this time.
+
+**Alternatives.**
+
+- Rules on `STD_EVALUATORS`. A rule needs an object or a new function. Each standard evaluation then goes through other code, and the speed gates change for a site feature.
+- A `typeRules` field on the machine. It is a second place for one fact, and each reader of a rule must know both.
+
+**Why.** The rule follows the evaluator, as TYPE.RULE tells. One test in `ruleOf` keeps this true for each form of an evaluator.
+
+**Limits.**
+
+- A rule on a run side kind has no effect, thus the cards of `seq`, `log` and the run form of `if` show `unknown`.
+- A later roadmap item can move the rules from the site to the standard kit.
+
 ## D176 (2026-11-07): the Speed verdict prints the family read of its cases, as a report
 
 **Context.** K225. On equal arms, 4 of 352 case reads were slower (1.1 %), and this fits the level of 2.5 % for each case. But a run reads 16 cases with no correction, thus up to a third of the runs can read one false slower case. Also, one slower job beside a flat job can make a pooled case slower. The function `familyRead` of rigor-bench 0.2.26 (rigor #101) gives two reads. The Holm read corrects over the cases. The read of each job keeps a case only when each job reads it alone.
@@ -4928,6 +4950,7 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
 
 **Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
+
 
 
 ## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
@@ -5033,3 +5056,22 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** Each case as the unit. The 16 cases of a job share one runner, and the shift of a job (RMS 0.0094) moves all of them. Also the merge rule blocks on any case. Thus a rate for each case is a different claim.
 
 **Limits.** The jobs 3 and 4 of the control used two CPU models, and the gate read only 9 of its 16 cases. The rounds that give a read on each pair of CPU models are not known yet.
+
+## D180 (2026-11-08): the flip test of Speed seeds a real slowdown in the head arm
+
+**Context.** K225. The second bar of the owner of the gate is power. The gate must find a real slowdown of a stated size in at least 90 % of the seeded runs. The bench had no way to make the head arm slower by a known factor.
+
+**Decision.**
+
+- The dispatch input `slow` gives a multiple `k` of the margin of each family. `paths.ts` reads it as `BENCH_SLOW`.
+- The function `slowFactors` gives `exp(k * margin)` for each case. The margin is on a log scale, thus `k = 1` gives exactly the printed margin.
+- The script builds the head arm again with the esbuild define `BENCH_SLOW`. The base arm and each pull request get no define.
+- A sample with a factor above 1 waits in its timed part. Its time then is that factor times the time of its calls.
+- The concurrency group of Speed includes `slow`. Thus a flip dispatch and an A/A dispatch on one base do not cancel each other.
+
+**Why.** The wait is in the timed part, thus the timer reads the slowdown as real time. The noise of the calls stays, and the factor scales it. Only the head arm changes, thus the arms differ and a slower reading holds the merge.
+
+**Alternatives.** A slower copy of the kernel. Its slowdown is not known before a measurement, thus it gives no stated size.
+
+**Limits.** The wait does not change the code of the calls. Thus the flip reads the power of the gate for a slower time, not for a change of the compiled code. The flip uses the multiples 1, 1.5 and 2.
+
