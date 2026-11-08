@@ -42,20 +42,46 @@ function acceptedDir(name: string, records: unknown): string {
 }
 
 /** This function starts the real script of the verdict, and gives its exit status and the outputs that it writes. */
-function verdict(name: string, first: string, second: string, accepted: string = acceptedDir(name, undefined)): { status: number | null; output: string; state: string; reason: string } {
+function verdict(name: string, first: string, second: string, accepted: string = acceptedDir(name, undefined)): { status: number | null; output: string; state: string; reason: string; gate: string; gateOutcome: string } {
   const output = join(dir, `${name}.output`);
   writeFileSync(output, "");
   const child = spawnSync(process.execPath, [MERGE, first, second], { encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: "", BENCH_ACCEPTED: accepted } });
   const text = readFileSync(output, "utf8");
   const field = (key: string): string => new RegExp(`^${key}=(.*)$`, "m").exec(text)?.[1] ?? "";
-  return { status: child.status, output: text, state: field("state"), reason: field("reason") };
+  return { status: child.status, output: text, state: field("state"), reason: field("reason"), gate: field("gate"), gateOutcome: field("gate_outcome") };
 }
 
-/** This function starts the script of the check with a state and a reason. */
-function check(state: string, reason: string): { status: number | null; text: string } {
-  const child = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env: { ...process.env, STATE: state, REASON: reason } });
-  return { status: child.status, text: child.stdout };
+/** This function starts the script of the check with a state, a reason and the gate. `text` is the first line of the output. */
+function check(state: string, reason: string, gate = "", gateOutcome = ""): { status: number | null; text: string; lines: string[] } {
+  const env = { ...process.env, STATE: state, REASON: reason, GATE: gate, GATE_OUTCOME: gateOutcome, GITHUB_STEP_SUMMARY: "" };
+  const child = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env });
+  const lines = child.stdout.trim().split("\n");
+  return { status: child.status, text: lines[0] ?? "", lines };
 }
+
+describe("the check shows the line of the report-only gate (K225, D181)", () => {
+  const LINE = "Gate (report only, D163): no read. 9 not slower, 0 slower, 7 no read, of 16 cases, on the CPU pair A + B. No read: x.";
+
+  it("prints the line of a pass with no warning", () => {
+    const read = check("same", "the reason", "Gate (report only, D163): pass. 16 not slower, 0 slower, 0 no read, of 16 cases, on the CPU pair A + A.", "pass");
+    expect(read.status).toBe(0);
+    expect(read.lines).toEqual(["Speed OK: same. the reason", "Gate (report only, D163): pass. 16 not slower, 0 slower, 0 no read, of 16 cases, on the CPU pair A + A."]);
+  });
+
+  it("gives a warning on a gate no read, and the check stays green while the gate is report only", () => {
+    const read = check("same", "the reason", LINE, "no read");
+    expect(read.status).toBe(0);
+    expect(read.lines).toEqual(["Speed OK: same. the reason", LINE, `::warning title=Speed gate (report only)::${LINE}`]);
+  });
+
+  it("gives a warning on a gate block, and on a missing line of the gate", () => {
+    expect(check("same", "r", "Gate (report only, D163): block. 1 %", "block").lines[2]).toBe("::warning title=Speed gate (report only)::Gate (report only, D163): block. 1 %25");
+    expect(check("same", "r").lines.slice(1)).toEqual([
+      "Gate (report only, D163): no read. The job verdict wrote no line of the gate.",
+      "::warning title=Speed gate (report only)::Gate (report only, D163): no read. The job verdict wrote no line of the gate.",
+    ]);
+  });
+});
 
 describe("the check reads the state of the verdict (K235, D167)", () => {
   it.each([
@@ -82,6 +108,16 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
     const read = verdict("same", runFile("same-1", whole), runFile("same-2", second));
     expect(read).toMatchObject({ status: 0, state: "same" });
     expect(read.reason).toContain("0 slower");
+  });
+
+  it("writes the line of the gate with the CPU pair, and the names of the cases with no read (K225, D181)", () => {
+    const pass = verdict("gate-pass", runFile("gate-pass-1", whole), runFile("gate-pass-2", second));
+    expect(pass.gateOutcome).toBe("pass");
+    expect(pass.gate).toBe("Gate (report only, D163): pass. 2 not slower, 0 slower, 0 no read, of 2 cases, on the CPU pair a CPU + a CPU.");
+    const split = verdict("gate-split", runFile("gate-split-1", [benchCase("x", 1.1, 0), benchCase("y", 1, 0)]), runFile("gate-split-2", second));
+    expect(split.gateOutcome).toBe("no read");
+    expect(split.gate).toBe("Gate (report only, D163): no read. 1 not slower, 0 slower, 1 no read, of 2 cases, on the CPU pair a CPU + a CPU. No read: x.");
+    expect(split.state).not.toBe("no read");
   });
 
   it("writes slower on a slower case, and it exits 0, because this stays report only", () => {
