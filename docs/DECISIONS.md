@@ -5366,6 +5366,23 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** A host evaluator is opaque: one step starts it, and each of its handles starts a nested stepper on the stack of the host. A runner gives `#NOEVAL`, and the stepper records no reads. An effect of `stepperNext` goes in a list that lives for that one step, thus a configuration of a document with effects is not data. A compiled evaluator outside the formula kit needs its definition, with `tree.node` too. A value that JSON does not hold, for example `undefined`, changes in a round trip. A record with the key `coeval.closure` or `coeval.held` reads as a closure or a held error. A deep value still overflows a host walk over it, for example `expect` or `JSON.stringify`.
 
+
+## D191 (2026-11-08): the random numbers of the core come from `rigor-generators`
+
+**Context.** K248. The function `random` of the core had its own copy of `mulberry32`. The home of seeded random numbers is `@mark1russell7/rigor-generators`, and its `mulberry32` gives the same numbers. The core had no runtime dependency, and the spec row GEN.SEED said "Its random numbers need no package".
+
+**Decision.**
+
+- `random` takes `next` from `mulberry32` of `@mark1russell7/rigor-generators`. The core gets its first runtime dependency, `^0.1.8`.
+- The draws `int`, `chance` and `pick` keep the rules of the core. Thus `pick([])` gives `undefined`, and the `pick` of the home throws.
+- GEN.SEED pins the draws of five seeds from the old copy, and the new code gives the same draws.
+- The test PKG.PURE marks only the modules of the core as modules with side effects. A module of a dependency keeps the field `sideEffects` of its own package.
+- The bench bundles each arm with `nodePaths` set to the install of the bench. The base arm has no install (K234), thus it finds the dependency there. Both arms bundle the same code of the dependency, and a change of its version does not show in the Speed run.
+
+**Why.** Each area has one home, and a copy is debt. The home has no runtime dependency, and its field `sideEffects` is `false`. Thus an import that uses nothing still leaves nothing in a bundle. PKG.PURE marked each module before, so the data modules of the home stayed in its bundle. Each bundler reads the field of the dependency, thus the new mark tests the claim of the core only. A seeded fault in a module of the core still fails the test.
+
+**Alternatives.** Keep the copy as an accepted copy. The two copies then can differ after a fix in the home. Use the `random` of the home. Its `int` takes a minimum and a maximum, and its `pick([])` throws, thus the draws and the API of the core change. A subpath export in the home for its random module. The home then has two entries for one module, and the core still reads the field of the home.
+
 ## D192 (2026-11-08): the search of strongly connected components comes from `collections`
 
 **Context.** K249. The core had its own copy of the search of Tarjan in `graph.ts`, with its own stack. The home of graphs is `@mark1russell7/collections`. Its version 0.9.11 adds `strongComponentsCompact(n, start, targets)` in the entry `@mark1russell7/collections/graph`.
