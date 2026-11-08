@@ -5119,6 +5119,21 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The further pairs of a dispatch (D179) stay in the log of the job `verdict`. They are for the A/A series, not for a pull request.
 
+## D182 (2026-11-08): a block of the report-only ladder gate gives a warning on the pull request
+
+**Context.** K225 and D181. The ladder gate of `Measure` (D164) is report only. A block exits with the code 3, and the step keeps the job green. The line of the block was only in the log and the summary of the job. A green check with a hidden block is a silent pass.
+
+**Decision.**
+
+- With `LADDER_ANNOTATE=1`, the mode `merge` of `ladder.ts` prints a warning annotation with the gate line on a block.
+- Only the step "Pool the five runs" sets `LADDER_ANNOTATE`. The flip rows block on purpose, thus they give no annotation.
+- The flip step checks the warning text of each block row, and no warning on the pass row.
+- The flip step reads the warnings inside a `stop-commands` window. Thus the runner makes no annotation from them.
+
+**Why.** The warning tells the reader of the pull request that the ladder gate found a slope over its bound. The check stays green while the gate is report only.
+
+**Limits.** The line "Under that size: no read" gives the smallest slope that the gate can find. It is a size, not a case with no read, thus it gives no warning.
+
 ## D183 (2026-11-08): on a mixed CPU pair, the hold of Speed takes a verdict only when the two jobs agree
 
 **Context.** K225. The first head of #312 got a hold on one case on a mixed CPU pair, an AMD EPYC 7763 and an Intel Xeon Platinum 8370C. Each job alone said "cannot decide", at +0.5 % and +0.8 %. The pool of the 24 rounds said "slower". The change of the head has no path into the timed code, and the later heads read "same" on one CPU model. Thus the hold was false.
@@ -5137,4 +5152,37 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** A slowdown that only one CPU model reads gives no read, not a hold. The warning shows it on the pull request.
 
+## D184 (2026-11-08): the conformance page shows a hidden duty, not a pass
 
+**Context.** K123. The page `learn/conformance` lets the reader turn on seven breaks of one evaluator. Each break breaks one duty. In a mix of breaks, `conforms` does not give a finding of each broken duty. A finding of `local` stops the checks C4 and C5. An effect without its capability gives an error, and C3 applies only to a value.
+
+**Decision.**
+
+- Each duty of the page has one of four states: found, kept, permitted by the contract, or hidden by another break.
+- The function `dutiesOf` gives the state from the findings of `conforms`, the breaks and the contract. A hidden or permitted state has its reason.
+- A fifth state, missed, is a broken duty without a finding and without a known reason. A test runs `conforms` on each of the 128 sets of breaks under each of the four contracts, and it finds no missed duty.
+- A test also shows each hidden finding again without the break that hides it.
+
+**Why.** A ring without a finding on a broken duty reads as a pass. The page shows the cause instead, thus the reader sees why one fix can show a new finding.
+
+**Alternatives.** Run each break alone. Then the page cannot show how the contract and the other breaks change the findings.
+
+**Limits.** The rules of `dutiesOf` copy two rules of `conform.ts`. The test of all sets finds a change of those rules as a missed duty.
+
+
+## D185 (2026-11-08): the site shows the `#VALUE!` issues of the check beside the `#TYPE!` issues
+
+
+**Context.** K243. In the playground, the text `1 + "a"` gave no issue, but a card of the kind `text` at the same place gave a `#TYPE!` issue.
+
+**Cause.** The core was correct. A part of `add` has the shape `{ shape: "list", of: "lit" }`, and the site machine declares the kind `number` at that place. A bare value at a place of a declared kind is a value of that kind. Thus the check examines `"a"` as a value of `number`, and gives `#VALUE!`. A card of the kind `text` is a document with its own type. Thus the check gives `#TYPE!` for it. The function `placeTypes` of the site kept only `#TYPE!`, thus the playground did not show the issue of the bare value.
+
+**Decision.**
+
+- `placeTypes` keeps the `#TYPE!` and the `#VALUE!` issues of the check, each with its code.
+- The mark of a card and each line of the list of the check show the code of the issue.
+- The core does not change.
+
+**Why.** The check found the problem before a run. A page that hides it tells the reader that the document has no problem.
+
+**Alternatives.** A `#TYPE!` issue for the bare value. The bare value is not a document with a type. It is a value of the declared kind, and a wrong value of a kind is `#VALUE!` in each other place of the core.

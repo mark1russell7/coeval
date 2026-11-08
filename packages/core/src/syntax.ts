@@ -1513,7 +1513,8 @@ function dataText(syn: Compiled, value: unknown, path: readonly Key[], sub: SubT
     const texts = partTexts(value.map((item, index) => [index, item] as const), path, each);
     return texts.ok ? ok(`[${texts.value.join(`${syn.separator} `)}]`) : texts;
   }
-  return isRecord(value) && !isEnvelope(value) ? bracesText(syn, value, path, each) : sub(value, path);
+  // A record with the key type that is not an envelope goes to sub, which gives no text for it. The parser refuses its text.
+  return isRecord(value) && !isEnvelope(value) && !Object.hasOwn(value, "type") ? bracesText(syn, value, path, each) : sub(value, path);
 }
 
 /** This function writes a construct form (K145). */
