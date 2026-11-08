@@ -247,11 +247,18 @@ function isNumber(value: unknown): value is number {
 function allValues(results: readonly Result[]): { readonly values: readonly unknown[] } | { readonly error: Result } {
   const errors = results.filter((result) => !result.ok);
   const first = errors[0];
-  if (first === undefined) return { values: results.map((result) => (result.ok ? result.value : null)) };
-  if (errors.length === 1) return { error: first };
+  // D190: the test of the errors comes before the values. With the values first, a case of the bench took 1.2 to 1.4
+  // times the time in the Maglev tier of V8, in probe 4 of K216.
+  if (first !== undefined && errors.length === 1) return { error: first };
+  if (errors.length > 1) return { error: partsFailed(errors) };
+  return { values: results.map((result) => (result.ok ? result.value : null)) };
+}
+
+/** This function gives the error of more than one failed part. */
+function partsFailed(errors: readonly Result[]): Result {
   // WORK.LIMIT: after the limit each counted part fails, and the code of the limit stays the code of the result.
   const stopped = errors.find((result) => !result.ok && result.error.code === "#WORK!");
-  return { error: stopped ?? fail("#ARGS", `${errors.length} parts failed.`) };
+  return stopped ?? fail("#ARGS", `${errors.length} parts failed.`);
 }
 
 function numbers(values: readonly unknown[], kind: string): readonly number[] | Result {
