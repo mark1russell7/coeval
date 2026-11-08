@@ -141,7 +141,7 @@ export default function Card({ doc, declared, path, rung, side = "derive", unkno
           </span>
         )}
         {typeName(doc.type)}
-        {overlay.typeIssues?.has(key) === true && <span className="cv-type-mark">#TYPE!</span>}
+        {overlay.typeIssues?.has(key) === true && <span className="cv-type-mark">{overlay.typeIssues.get(key)}</span>}
         {overlay.showRungs && rung !== undefined && (
           <span className="cv-rung" title={RUNG_TITLE[rung]}>
             {RUNG_LETTER[rung]}
