@@ -192,7 +192,8 @@ export const STD_WORLD: World = {
  * A literal in a place that takes a document gets its data envelope (K159, D65). Such a place is a part of `if`,
  * `list`, `seq` or `pure`, the value of `write`, or the whole text. The document after a header name is such a place
  * too. Thus `list(1, "a")` evaluates to `[1, "a"]`. The forms `add`, `multiply` and `greater` write an operator document that its operator
- * does not write, for example `add(5)` (K163).
+ * does not write, for example `add(5)` (K163). The field `with` of `handle` is a field of data, thus each clause is a
+ * record between braces in a list between brackets (D177).
  *
  * A host with more kinds spreads this profile and adds its forms to `calls.forms`. `STD_SYNTAX` stays the profile of
  * the formula kit.
@@ -223,6 +224,8 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "tree.named", kind: "tree.named", args: "named", fields: ["name", "in"] },
       { name: "tree.at", kind: "tree.at", args: "named", fields: ["attr", "args"] },
       { name: "tree.quote", kind: "tree.quote", args: "literal" },
+      // The clauses are data with documents in it, for example handle(with: [{op: "log", do: payload + 1}], body: log(2)) (D177).
+      { name: "handle", kind: "handle", args: "named", fields: ["with", "return", "body"], data: ["with"], wrap: ["return", "body"] },
       // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
       { name: "add", kind: "add" },
       { name: "multiply", kind: "multiply" },

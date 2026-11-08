@@ -4937,3 +4937,31 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** A runner for `formula.if` in each formula machine. A runner wins over an evaluator of the same name. Thus each formula `if` then pays for a generator, and the bench refuses a slower read. A formula `if` holds no effect, so it has no need to wait.
 
 **Limits.** A bare value in a part stays a literal of the kit. A missing `then` stays an error of `check`. A host that reads older documents keeps these two rewrites, and `mapDocs` (D152) is the place for them.
+
+## D177 (2026-11-07): a field of data gives `handle` a text in `WORLD_SYNTAX`
+
+**Context.** L1c. The kind `handle` (D146) keeps its clauses in `with`, a list of records of data. Each record has the data `op` and the document `do` or `abort`. A profile had text only for documents, thus SYNTAX.WORLD pinned a reason for `handle`.
+
+**Decision.**
+
+- The new field `data` of `SyntaxForm` names the fields that take data with documents in it (SYNTAX.DATA-FIELD).
+- In such a field, brackets read a list and braces read a record. A literal stays its data, and each other text is a document.
+- A record of data has no key `type`, because that key makes a document. `print` writes a record that is an envelope as a document.
+- `WORLD_SYNTAX` has the form `handle` with the arguments `named`, the field of data `with`, and `wrap` on `return` and `body`.
+- The text `handle(with: [{op: "log", do: payload}], body: log("a"))` reads to the document of D146, and `print` writes the same text.
+- A form with data needs fields. A name of `data` is a field, and it is not in `wrap`. No operator of such a profile starts with a bracket or a brace.
+- The new generator `handlers` of SYNTAX.ISSUES-GENERATED writes lists and records in `with`. SYNTAX.ROUNDTRIP and the damage check read its texts.
+- The damage check ignores the quote marks in an escape. A fault between a backslash and its quote mark is thus a quote cascade (D138, Limits).
+
+**Alternatives.**
+
+- A form for each clause, for example `do(log, payload)`. A clause is not a document, thus such a form needs a kind that the world does not have.
+- Brackets and braces in each place of each profile. That takes symbols from each profile and changes the meaning of each text with braces under `constructs.record`.
+- A literal in a field of data with its envelope. Then `op: "log"` becomes a document, and `handle` refuses it.
+
+**Why.** The rule is general: each kind with a list or a record of data gets a text from one field of its form. The parser, the printer and recovery read the same rule, thus SYNTAX.ROUNDTRIP holds for each such kind.
+
+**Limits.**
+
+- A literal in a clause body needs its form, for example `do: number(7)`. A bare literal in `do` is data, and the kernel refuses it with `#PART?`.
+- Brackets and braces are fixed. A profile cannot pick other symbols for a field of data.
