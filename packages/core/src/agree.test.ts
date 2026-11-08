@@ -2060,6 +2060,16 @@ describe("the generator", () => {
     const a = random(7);
     const b = random(7);
     expect(Array.from({ length: 5 }, () => a.next())).toEqual(Array.from({ length: 5 }, () => b.next()));
+    // K248: the draws of the copy of mulberry32 before D191. A seed is read as a 32-bit unsigned integer.
+    const draws = (seed: number): unknown[] => {
+      const r = random(seed);
+      return [r.next(), r.next(), r.int(10), r.int(1000), r.chance(0.5), r.pick(["a", "b", "c"]), r.pick([])];
+    };
+    expect(draws(0)).toEqual([0.26642920868471265, 0.0003297457005828619, 2, 146, true, "b", undefined]);
+    expect(draws(7)).toEqual([0.011704753153026104, 0.06195825757458806, 9, 699, false, "b", undefined]);
+    expect(draws(2011)).toEqual([0.33547770720906556, 0.08574463287368417, 5, 551, true, "b", undefined]);
+    expect(draws(-1)).toEqual(draws(4294967295));
+    expect(draws(2.5)).toEqual([0.7342509443406016, 0.32499843230471015, 2, 537, false, "b", undefined]);
   });
 
   it("[GEN.PATHS] the options roots and steps limit the roots and the length of the paths", () => {
