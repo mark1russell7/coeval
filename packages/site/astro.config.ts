@@ -36,6 +36,7 @@ export default defineConfig({
           label: "Learn, one glyph at a time",
           items: [
             "learn/documents",
+            "learn/syntax",
             "learn/kinds",
             "learn/ladder",
             "learn/evaluation",
