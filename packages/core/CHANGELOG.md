@@ -10,6 +10,7 @@ MINOR: before `1.0.0`, a breaking change increases MINOR. The type `Tier` gets t
 
 - **A third tier: the stepper (D158).** `stepper(machine, document, context, options)` evaluates with an explicit stack of data, from a CPS transformation and a defunctionalization of the reference. `stepperStart` and `stepperNext` give one step at a time, and each `Configuration` goes through JSON. The new exports are `stepper`, `stepperStart`, `stepperNext`, `Configuration`, `Frame` and `StepperOptions`.
 - **The tier `stepper` of `agree`.** The option `tiers` of `agree` takes `"stepper"`, and the new option `profile` gives its formula profile. The tier is not a default tier.
+- **Declared reads of extensions (K54, D154).** The new optional field `extReads` of a formula profile names the roots that each extension reads. Such an extension then counts as pure in the facts.
 
 ## 0.25.1
 
