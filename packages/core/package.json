@@ -57,5 +57,8 @@
       },
       "./package.json": "./package.json"
     }
+  },
+  "dependencies": {
+    "@mark1russell7/collections": "^0.9.11"
   }
 }

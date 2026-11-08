@@ -195,6 +195,10 @@ importers:
         version: 7.0.2
 
   packages/core:
+    dependencies:
+      '@mark1russell7/collections':
+        specifier: ^0.9.11
+        version: 0.9.11
     devDependencies:
       '@mark1russell7/cue':
         specifier: ^2.1.1
@@ -854,6 +858,10 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
+  '@mark1russell7/collections@0.9.11':
+    resolution: {integrity: sha512-3TG8Thm1dAa5yNfsSe3g2z/KI+tzEAuuiIaRTIQs7eH1EZqWCoAqZ5llWFhGUjRl9b6y7Z266qfllAguIJ9eew==}
+    engines: {node: '>=22.12'}
+
   '@mark1russell7/conventions@0.38.1':
     resolution: {integrity: sha512-dwx/vii02hjaGvB96IrgvXZjM/Ri46FAhNZQoCgoOSbeXYHVD1A1YPG/eXvZJ5geehJwf0WM05aUPAzggntnOA==}
     engines: {node: '>=22'}
@@ -863,6 +871,10 @@ packages:
     resolution: {integrity: sha512-0/L9nQwGqUTCLTnUPtYKJ/cvXTr/gJWFWASUzGUjKyj3LxNpYgAplLuTPNQe0g4kjcM+9JAb/D/IfYwBGvM/mA==}
     engines: {node: '>=22'}
     hasBin: true
+
+  '@mark1russell7/optional@1.2.0':
+    resolution: {integrity: sha512-vS5jF21WC/VApRv4p8afRZahcMl9cuNp03LxbVngY9nYkzq+S7Oit6ksySt2baML+tp46UF60sxnHxn1jlwtTg==}
+    engines: {node: '>=22.12'}
 
   '@mark1russell7/rigor-bench@0.2.29':
     resolution: {integrity: sha512-lWsyf5bLz3u1jJWCgF2xiAShPu9pcLSK7zBmKKvj89rtfFCgsg7B9HLX3TBzOnirmpslWdeOCGD947PzRq/Skg==}
@@ -3117,11 +3129,17 @@ snapshots:
     dependencies:
       '@mark1russell7/conventions': 0.38.1
 
+  '@mark1russell7/collections@0.9.11':
+    dependencies:
+      '@mark1russell7/optional': 1.2.0
+
   '@mark1russell7/conventions@0.38.1':
     dependencies:
       yaml: 2.9.1
 
   '@mark1russell7/cue@2.1.1': {}
+
+  '@mark1russell7/optional@1.2.0': {}
 
   '@mark1russell7/rigor-bench@0.2.29(esbuild@0.28.2)':
     dependencies:
