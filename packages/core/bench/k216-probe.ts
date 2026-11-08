@@ -1,7 +1,7 @@
 /**
- * The probe of K216 (not for main), version 3. It times the case "the same tree, with a list of reads" in new
+ * The probe of K216 (not for main), version 4. It times the case "the same tree, with a list of reads" in new
  * processes, as the speed bench does: one base process calibrates the calls, and each timed child runs the warmup and
- * the samples of that count. The arms are the base, the head, and five copies of the head that each undo one change of K216.
+ * the samples of that count. The arms are the base, the head, the old allValues, and two copies with a split allValues.
  */
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -42,13 +42,14 @@ const ALL_VALUES = [
   "  if (first === undefined) return { values: results.map((result) => (result.ok ? result.value : null)) };\n  if (errors.length === 1) return { error: first };\n  // WORK.LIMIT: after the limit each counted part fails, and the code of the limit stays the code of the result.\n  const stopped = errors.find((result) => !result.ok && result.error.code === \"#WORK!\");\n  return { error: stopped ?? fail(\"#ARGS\", `${errors.length} parts failed.`) };\n",
   "  if (first !== undefined && errors.length === 1) return { error: first };\n  if (errors.length > 1) return { error: fail(\"#ARGS\", `${errors.length} parts failed.`) };\n  return { values: results.map((result) => (result.ok ? result.value : null)) };\n",
 ] as const;
+const HEAD_TAIL = ALL_VALUES[1] + "}\n";
+const PARTS_FAILED = "\nfunction partsFailed(errors: readonly Result[]): Result {\n  const stopped = errors.find((result) => !result.ok && result.error.code === \"#WORK!\");\n  return stopped ?? fail(\"#ARGS\", `${errors.length} parts failed.`);\n}\n";
+const SPLIT = "  if (first === undefined) return { values: results.map((result) => (result.ok ? result.value : null)) };\n  return { error: errors.length === 1 ? first : partsFailed(errors) };\n}\n" + PARTS_FAILED;
+const SPLIT_OLD = "  if (first !== undefined && errors.length === 1) return { error: first };\n  if (errors.length > 1) return { error: partsFailed(errors) };\n  return { values: results.map((result) => (result.ok ? result.value : null)) };\n}\n" + PARTS_FAILED;
 const VARIANTS: Record<string, readonly (readonly [string, string, string])[]> = {
-  nonodespend: [["stdlib.ts", NODE_SPEND, ""]],
-  nofnspend: [["formula.ts", FN_SPEND, ""]],
-  noending: [ENDING],
-  nojsonspend: JSON_SPEND,
   oldallvalues: [ALL_VALUES],
-  allfive: [["stdlib.ts", NODE_SPEND, ""], ["formula.ts", FN_SPEND, ""], ENDING, ...JSON_SPEND, ALL_VALUES],
+  split: [["stdlib.ts", HEAD_TAIL, SPLIT]],
+  splitold: [["stdlib.ts", HEAD_TAIL, SPLIT_OLD]],
 };
 
 const files: Record<string, string> = {
