@@ -5359,3 +5359,16 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** A pass for a row with no read. A no read then shows as a pass. A wider A/A band for the flip. The flip then examines a gate that is not the gate of the job `ladder`.
 
+## D190 (2026-11-08): `allValues` tests the errors before the values
+
+**Context.** K216. The Speed gate held #263, because the case "the same tree, with a list of reads" took 1.6 times the time of the base on CI. Four probes looked for the cause:
+
+- Probe 2 (run 42509189430): without the Maglev tier of V8, the head took 0.93 times the time of the base. The field `work` from the start and a nested session with no `top` changed nothing.
+- Probe 3 (run 42510167201): one copy of the head for each change. Only the old `allValues` closed the gap, with 1.09 and 0.92 times the base. The head took 1.32 and 1.37 times the base.
+- Probe 4 (run 42512042192): a function `partsFailed` for more than one error, in two orders. With the values first, the head took 1.40 and 1.21 times the base. With the errors first, it took 0.98 and 1.01 times the base.
+
+**Decision.** `allValues` tests the errors first and gives the values last, as before K216. The function `partsFailed` gives the error of more than one part. It keeps the code `#WORK!` of the limit (WORK.LIMIT).
+
+**Why.** The order of the tests decides the time in the Maglev tier, and the size of the function does not. The probes measured this order, but they do not show the cause in V8. The result of each case stays the same.
+
+**Alternatives.** An accepted record of the slowdown (D117). A record keeps a cost that a small change removes. A bench case without Maglev. The gate then does not measure the code that the hosts run.
