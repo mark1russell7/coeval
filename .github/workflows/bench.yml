@@ -154,6 +154,8 @@ jobs:
     outputs:
       state: ${{ steps.merge.outputs.state }}
       reason: ${{ steps.merge.outputs.reason }}
+      gate: ${{ steps.merge.outputs.gate }}
+      gate_outcome: ${{ steps.merge.outputs.gate_outcome }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The script imports the bench core @mark1russell7/rigor-bench (D114), thus the job installs the packages.
@@ -207,12 +209,15 @@ jobs:
         with:
           node-version: 26
       # An empty state is red, so a crash cannot pass by writing nothing. A held slower case with no record is red (K239).
+      # The line of the report-only gate shows here, and a gate outcome other than pass gives a warning (K225, D181).
       - name: Read the state of the verdict (K235, D167)
         if: needs.changes.outputs.match == 'true'
         run: node packages/core/bench/speed-read.ts
         env:
           STATE: ${{ needs.verdict.outputs.state }}
           REASON: ${{ needs.verdict.outputs.reason }}
+          GATE: ${{ needs.verdict.outputs.gate }}
+          GATE_OUTCOME: ${{ needs.verdict.outputs.gate_outcome }}
       - uses: mark1russell7/template/.github/actions/gate-summary@e077054e0f2ebb8441e4bc525b56cf2acc2afb6f # main
         if: always()
         with:
