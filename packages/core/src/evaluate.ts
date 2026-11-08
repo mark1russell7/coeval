@@ -1833,6 +1833,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   const envelope = read.declared ? undefined : doc;
   const meta0: Meta = c.traced ? { path: place.map(String), doc, declared: read.declared, answer: c.noAnswer, side: "derive" } : NO_META;
   if (depth > c.maxDepth) return failing(c, meta0, place, "#DEPTH!", `The nesting is deeper than ${c.maxDepth} documents.`);
+  if (depth < 0) return failing(c, meta0, place, "#DEPTH!", "A depth is not below zero.");
 
   let meta = meta0;
   let name: string | undefined;
