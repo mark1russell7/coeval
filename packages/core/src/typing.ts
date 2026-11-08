@@ -1,7 +1,7 @@
 import { type Envelope, type Key, isRecord, typeName } from "./doc.ts";
 import type { Machine } from "./evaluate.ts";
 import type { DocVisit, Issue, WorldIssue } from "./static.ts";
-import { type ValueType, domainOf, fits, isUnknown, typeIssues, typeText } from "./types.ts";
+import { type Domain, type Proof, type ValueType, domainOf, fits, isPrecise, isUnknown, narrowType, typeIssues, typeText } from "./types.ts";
 import { type Kind, type Shape, eachKind, kindAt } from "./world.ts";
 
 /*
@@ -58,6 +58,27 @@ export interface TypeInput {
    * @returns The type.
    */
   contract(type: unknown, what: string): ValueType;
+  /**
+   * This function gives the path that a part reads, from the rule `reads` of the part (STATIC.OCCURRENCE).
+   *
+   * @param path - The path of the part in the value.
+   * @returns The path of the read, or `undefined` for each other part.
+   */
+  readOf(path: readonly Key[]): readonly string[] | undefined;
+  /**
+   * This function gives what the result of a part proves. Only a rule with `usesProofs` gets this, for a part that the
+   * check typed before.
+   *
+   * @param path - The path of the part in the value.
+   * @returns The proofs of the part.
+   */
+  provenBy(path: readonly Key[]): Proven;
+}
+
+/** What a test proves of its paths: `yes` when the test is true, and `no` when it is false (STATIC.OCCURRENCE). */
+export interface Proven {
+  readonly yes: readonly Proof[];
+  readonly no: readonly Proof[];
 }
 
 /** What a type rule tells for one part: the type that the part must have, and the types of the names of the part. */
@@ -73,6 +94,10 @@ export interface PartType {
    * Each other root keeps its type. The parts of an evaluator without a rule get `unknown` for each of these roots.
    */
   readonly roots?: Omit<RootTypes, "names">;
+  /** The proofs that hold in the part (STATIC.OCCURRENCE). They narrow the names and the roots of the part. */
+  readonly narrow?: readonly Proof[];
+  /** `true` when the proofs of `narrow` also hold in each later part. */
+  readonly keep?: boolean;
 }
 
 /**
@@ -82,7 +107,7 @@ export interface PartType {
  *
  * The host keeps the types true: each root of the context holds a member of its type. A host thing, or a machine
  * with `adopt`, keeps each step true too. The context binds each name of `names`, thus the option `names` of `check`
- * lists it too.
+ * lists it too. A narrowing also needs one value for two reads of one path (STATIC.OCCURRENCE).
  */
 export interface RootTypes {
   /** The type of each name that the host binds. A name of the host without a type here has the type `unknown`. */
@@ -116,6 +141,8 @@ export interface TypeProblem {
  * (TYPE.RULE).
  */
 export interface TypeRule {
+  /** `true` when the document reads a value from outside the document. The check then has no proof of its type (PLAN.GUARD-BOUNDARY). */
+  readonly read?: true;
   /**
    * This function tells the type that a part must have, and the types of the names for the part. The check asks it
    * before it types the part. The parts that give the names of a rule `keysAt` come first.
@@ -142,6 +169,24 @@ export interface TypeRule {
    * @returns The value types that the rule reads, and the problems that the rule finds in its declarations.
    */
   readonly declared?: () => readonly Declared[];
+  /** The field of the value that the check types before each other part. A branch then reads the proofs of its test. */
+  readonly first?: string;
+  /** `true` when the rule reads `provenBy`. The check asks the rule `proves` only of a part of such a rule. */
+  readonly usesProofs?: boolean;
+  /**
+   * This function gives the path that the document reads. A path with a computed step is not such a path.
+   *
+   * @param input - The document.
+   * @returns The path, or `undefined`.
+   */
+  readonly reads?: (input: TypeInput) => readonly string[] | undefined;
+  /**
+   * This function gives what the result of the document proves (STATIC.OCCURRENCE).
+   *
+   * @param input - The document and its parts.
+   * @returns The proofs of a true result and of a false result.
+   */
+  readonly proves?: (input: TypeInput) => Proven;
 }
 
 /**
@@ -174,6 +219,33 @@ export interface Typed {
   readonly type: ValueType;
   /** The type that the position of the document needs, when it needs one. */
   readonly expected?: ValueType;
+  /** `true` when the rule of the document tells a read of a value that comes from outside the document. */
+  readonly read?: true;
+}
+
+/** A place where a promise of the types holds only with a test at run time (PLAN.GUARD). */
+export interface Boundary {
+  /** The keys from the root document to the document. */
+  readonly place: readonly Key[];
+  /** The type that the value of the place must have. */
+  readonly type: ValueType;
+}
+
+/**
+ * This function gives the boundaries of a check. A part with an imprecise type at a position that needs a type is a
+ * boundary. A read of a known type is a boundary too, because the check trusts the root types (PLAN.GUARD-BOUNDARY).
+ *
+ * @param typing - The places of a check of types.
+ * @param domains - The domains of the machine.
+ * @returns The boundaries, in the order of the document.
+ */
+export function boundariesOf(typing: { readonly places: readonly Typed[] }, domains?: Readonly<Record<string, Domain>>): readonly Boundary[] {
+  const found: Boundary[] = [];
+  for (const item of typing.places) {
+    if (item.expected !== undefined && item.expected !== "unknown" && !isPrecise(item.type, domains)) found.push({ place: item.place, type: item.expected });
+    else if (item.read === true && item.type !== "unknown") found.push({ place: item.place, type: item.type });
+  }
+  return found;
 }
 
 /** One document that the walk of a check visited, with what the pass of types needs. The package does not export it. */
@@ -190,6 +262,9 @@ export interface TypeNode {
   /** `true` when the check found an issue at this document. Then its type is `unknown`. */
   marked: boolean;
 }
+
+/** The result of a test that proves nothing. */
+const NO_PROOFS: Proven = { yes: [], no: [] };
 
 /** The result of the pass of types. */
 export interface TypePass {
@@ -226,8 +301,11 @@ interface Frame {
   next: number;
   readonly typed: Map<string, ValueType>;
   readonly needs: readonly Need[];
-  readonly names: ReadonlyMap<string, ValueType>;
-  readonly roots: Roots;
+  /** The types of the names for the parts. A part with `keep` changes them for the later parts. */
+  names: ReadonlyMap<string, ValueType>;
+  roots: Roots;
+  /** The proofs of the typed parts, for a rule with `usesProofs`. */
+  proven: Map<string, Proven> | undefined;
 }
 
 function pathKey(path: readonly Key[]): string {
@@ -238,12 +316,16 @@ function pathKey(path: readonly Key[]): string {
 export function ruleOf(machine: Machine, name: string | undefined): TypeRule | undefined {
   if (name === undefined || (machine.runners !== undefined && Object.hasOwn(machine.runners, name))) return undefined;
   const evaluator = Object.hasOwn(machine.evaluators, name) ? machine.evaluators[name] : undefined;
-  const rule = typeof evaluator === "object" && evaluator !== null ? (evaluator as { readonly type?: unknown }).type : undefined;
+  const rule = (typeof evaluator === "object" && evaluator !== null) || typeof evaluator === "function" ? (evaluator as { readonly type?: unknown }).type : undefined;
   return typeof rule === "object" && rule !== null && typeof (rule as TypeRule).synth === "function" ? (rule as TypeRule) : undefined;
 }
 
-/** This function gives the order of the parts of a document: first the parts that give the names of a rule `keysAt`. */
-function orderOf(node: TypeNode, nodes: readonly TypeNode[]): readonly number[] {
+/** This function gives the order of the parts of a document. The part `first` of the rule comes first, or else the parts that give the names of a rule `keysAt`. */
+function orderOf(node: TypeNode, nodes: readonly TypeNode[], first: string | undefined): readonly number[] {
+  if (first !== undefined) {
+    const isFirst = (index: number): boolean => String((nodes[index] as TypeNode).visit.slot[0]) === first;
+    return [...node.children.filter(isFirst), ...node.children.filter((index) => !isFirst(index))];
+  }
   const sources = (node.visit.kind?.scope ?? []).flatMap((rule) => ("keysAt" in rule.names ? [rule.names.keysAt] : []));
   if (sources.length === 0 || node.children.length < 2) return node.children;
   const gives = (index: number): boolean => {
@@ -269,7 +351,7 @@ function message(error: unknown): string {
  * @param rootTypes - The types of the roots and of the names of the host.
  * @returns The type of the root, the type issues in the order of the document, and the type of each document.
  */
-export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: string, expect: ValueType | undefined, rootTypes: RootTypes = {}): TypePass {
+export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: string, expect: ValueType | undefined, rootTypes: RootTypes = {}, hasEffect: (node: TypeNode) => boolean = () => false): TypePass {
   if (nodes.length === 0) return { type: "unknown", issues: [], places: [] };
   const domains = machine.domains;
   const contracts = verb === "eval";
@@ -277,6 +359,28 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
   const types = new Array<ValueType>(nodes.length);
   const needed = new Array<ValueType | undefined>(nodes.length);
   const seen = new Set<unknown>();
+  const inputs = new Array<TypeInput>(nodes.length);
+  let changes: boolean | undefined;
+
+  // A document with an effect can change a root between two reads, thus only its names narrow (STATIC.OCCURRENCE-EFFECT).
+  const rootsChange = (): boolean => (changes ??= nodes.some(hasEffect));
+
+  const narrowed = (names: ReadonlyMap<string, ValueType>, roots: Roots, proofs: readonly Proof[]): { readonly names: ReadonlyMap<string, ValueType>; readonly roots: Roots } => {
+    let nextNames = names;
+    let nextRoots = roots;
+    for (const proof of proofs) {
+      const head = proof.path[0];
+      if (head === "names") {
+        const name = proof.path[1];
+        if (name === undefined) continue;
+        if (nextNames === names) nextNames = new Map(names);
+        (nextNames as Map<string, ValueType>).set(name, narrowType(nextNames.get(name) ?? "unknown", proof, 2, domains));
+      } else if ((head === "self" || head === "world" || head === "event") && !rootsChange()) {
+        nextRoots = { ...nextRoots, [head]: narrowType(nextRoots[head], proof, 1, domains) };
+      }
+    }
+    return { names: nextNames, roots: nextRoots };
+  };
 
   const issueAt = (index: number, problem: TypeProblem): void => {
     const visit = (nodes[index] as TypeNode).visit;
@@ -316,8 +420,18 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
       nameType: (name) => names.get(name),
       rootType: (root) => (root === "caps" ? CAPS_TYPE : root === "self" || root === "world" || root === "event" ? roots[root] : "unknown"),
       contract: (type, what) => contract(index, type, what),
+      readOf: (path) => {
+        const key = pathKey(path);
+        const part = node.children.find((child) => pathKey((nodes[child] as TypeNode).visit.slot) === key);
+        const read = part === undefined ? undefined : ruleOf(machine, (nodes[part] as TypeNode).evaluator)?.reads;
+        return read === undefined || (nodes[part as number] as TypeNode).marked ? undefined : read(inputs[part as number] as TypeInput);
+      },
+      provenBy: (path) => frame.proven?.get(pathKey(path)) ?? NO_PROOFS,
     };
-    return { index, rule: node.marked ? undefined : ruleOf(machine, node.evaluator), input, order: orderOf(node, nodes), next: 0, typed, needs, names, roots };
+    inputs[index] = input;
+    const rule = node.marked ? undefined : ruleOf(machine, node.evaluator);
+    const frame: Frame = { index, rule, input, order: orderOf(node, nodes, rule?.first), next: 0, typed, needs, names, roots, proven: undefined };
+    return frame;
   };
 
   const ruleFailed = (frame: Frame, error: unknown): void => {
@@ -362,6 +476,16 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
       if (contracts && node.expect !== undefined) need(contract(child, node.expect, `expected type of the ${what}`), what);
       if (part.expect !== undefined) need(part.expect, part.what ?? what);
       let names = frame.names;
+      let kept = frame.roots;
+      if (part.narrow !== undefined && part.narrow.length > 0) {
+        const after = narrowed(names, kept, part.narrow);
+        names = after.names;
+        kept = after.roots;
+        if (part.keep === true) {
+          frame.names = names;
+          frame.roots = kept;
+        }
+      }
       if (node.bound.length > 0) {
         // Each name that the scope rules bind hides the name around it. A name without a type from the rule gets `unknown`.
         const copy = new Map(names);
@@ -369,7 +493,7 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
         names = copy;
       }
       // No contract tells how an evaluator changes the roots, thus only a rule keeps their types for its parts (TYPE.ROOTS).
-      let roots = frame.rule === undefined ? UNKNOWN_ROOTS : frame.roots;
+      let roots = frame.rule === undefined ? UNKNOWN_ROOTS : kept;
       const changes = part.roots;
       if (typeof changes === "object" && changes !== null) {
         const copy: Record<(typeof CHANGING)[number], ValueType> = { ...roots };
@@ -403,12 +527,23 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
     }
     types[frame.index] = type;
     needed[frame.index] = frame.needs.length === 0 ? undefined : (frame.needs[frame.needs.length - 1] as Need).type;
-    stack[stack.length - 1]?.typed.set(pathKey(node.visit.slot), type);
+    const parent = stack[stack.length - 1];
+    if (parent === undefined) continue;
+    const key = pathKey(node.visit.slot);
+    parent.typed.set(key, type);
+    if (parent.rule?.usesProofs === true && frame.rule?.proves !== undefined) {
+      try {
+        (parent.proven ??= new Map()).set(key, frame.rule.proves(frame.input));
+      } catch (error) {
+        ruleFailed(frame, error);
+      }
+    }
   }
 
   const places = nodes.map((node, index) => {
     const want = needed[index];
-    const entry = { type: types[index] ?? "unknown", ...(want === undefined ? {} : { expected: want }) } as Typed;
+    const read = !node.marked && ruleOf(machine, node.evaluator)?.read === true;
+    const entry = { type: types[index] ?? "unknown", ...(want === undefined ? {} : { expected: want }), ...(read ? { read } : {}) } as Typed;
     // The keys of a place are made only when a reader asks for them, as a visit does.
     Object.defineProperty(entry, "place", { enumerable: true, get: () => node.visit.place });
     Object.defineProperty(entry, "at", { enumerable: true, get: () => node.visit.at });

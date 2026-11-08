@@ -15,9 +15,10 @@ import {
   fail,
   ok,
   planner,
+  resolveCompiled,
 } from "./evaluate.ts";
 import { Failure } from "./errors.ts";
-import { type Cap, type HostThing, type Thing, type Walker, THING, isHostThing, valueOfThing } from "./deref.ts";
+import { type Cap, type HostThing, type Thing, type Walker, THING, compilePath, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
 import {
   type AttributeDeclaration,
@@ -192,7 +193,8 @@ export const STD_WORLD: World = {
  * A literal in a place that takes a document gets its data envelope (K159, D65). Such a place is a part of `if`,
  * `list`, `seq` or `pure`, the value of `write`, or the whole text. The document after a header name is such a place
  * too. Thus `list(1, "a")` evaluates to `[1, "a"]`. The forms `add`, `multiply` and `greater` write an operator document that its operator
- * does not write, for example `add(5)` (K163).
+ * does not write, for example `add(5)` (K163). The field `with` of `handle` is a field of data, thus each clause is a
+ * record between braces in a list between brackets (D177).
  *
  * A host with more kinds spreads this profile and adds its forms to `calls.forms`. `STD_SYNTAX` stays the profile of
  * the formula kit.
@@ -223,6 +225,8 @@ export const WORLD_SYNTAX: SyntaxProfile = /* @__PURE__ */ Object.freeze({
       { name: "tree.named", kind: "tree.named", args: "named", fields: ["name", "in"] },
       { name: "tree.at", kind: "tree.at", args: "named", fields: ["attr", "args"] },
       { name: "tree.quote", kind: "tree.quote", args: "literal" },
+      // The clauses are data with documents in it, for example handle(with: [{op: "log", do: payload + 1}], body: log(2)) (D177).
+      { name: "handle", kind: "handle", args: "named", fields: ["with", "return", "body"], data: ["with"], wrap: ["return", "body"] },
       // An operator document with fewer terms than its operator takes, for example add(5) (K163, D65).
       { name: "add", kind: "add" },
       { name: "multiply", kind: "multiply" },
@@ -286,12 +290,19 @@ export const STD_EVALUATORS: Readonly<Record<string, Evaluator>> = {
     const [a, b] = values as readonly number[];
     return ok((a ?? 0) > (b ?? 0));
   },
-  "ref.resolve": ({ data, resolve }) => {
-    if (!Array.isArray(data) || data.length === 0) {
-      return fail("#VALUE!", "The value of ref is a path: a list that starts with a root, for example [\"names\", \"a\"].");
-    }
-    const found = resolve(data as readonly Json[]);
-    return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
+  // The path is data of the document, thus it compiles one time for the machine of the plan (PLAN.PATH-STD, D133).
+  "ref.resolve": {
+    compile: ({ data, machine }) => {
+      if (!Array.isArray(data) || data.length === 0) {
+        const bad = fail("#VALUE!", "The value of ref is a path: a list that starts with a root, for example [\"names\", \"a\"].");
+        return () => bad;
+      }
+      const path = compilePath(machine, data);
+      return (ctx, rt) => {
+        const found = resolveCompiled(rt, ctx, path);
+        return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
+      };
+    },
   },
   "tree.node": (input) => treeNode(input, undefined),
 };
@@ -835,6 +846,7 @@ function leaderOnHost(n: LoopNode, key: string, rule: CircularRule & { readonly 
 /**
  * This function gives an attribute of a node with circular attributes, or an attribute in an open fixed point (D113).
  * The memo and the marks of the node do not hold the attribute. An open fixed point does not use the cells of the host.
+ * With the cells of a host, only a circular attribute comes here outside a fixed point. A plain attribute takes its cell.
  */
 function circularRead(n: LoopNode, key: string): Result | undefined {
   const rule = circularRule(n.tree, key);
@@ -1221,7 +1233,8 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
           const text = attributeText(key, type, place);
           if (marks.has(key)) return busyAt(state, key);
           if (tree === undefined && up?.tree === undefined && !parts.some((item) => item.key === key)) return undefined;
-          if (circular || openPoint !== undefined) return circularRead(state, key);
+          // Outside a fixed point, a plain attribute of a node with a circular attribute also takes the cell of the host.
+          if (openPoint !== undefined || (circular && circularRule(tree, key) !== undefined)) return circularRead(state, key);
           marks.set(key, BUSY);
           demands.push({ cells: marks, key, text });
           let thrown: unknown = NOT_THROWN;

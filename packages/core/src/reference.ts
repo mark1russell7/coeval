@@ -1337,10 +1337,21 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath
 };
 
 /**
- * The definitions of the reference for the evaluators of the standard machine that need their own reading. The
- * reference uses them for the standard evaluators, also without the option `definitions`. It holds `tree.node`.
+ * The definition of the standard evaluator `ref.resolve` (REF.RESOLVE, D133). It resolves the steps of the path at each
+ * evaluation. The plan compiles the same path one time.
  */
-export const STD_DEFINITIONS: Definitions = { evaluators: { "tree.node": treeDefinition } };
+const refDefinition: EvalFn = ({ data, resolve: walk }) => {
+  if (!Array.isArray(data) || data.length === 0) return fail("#VALUE!", 'The value of ref is a path: a list that starts with a root, for example ["names", "a"].');
+  const found = walk(data as readonly Json[]);
+  return found.ok ? ok(valueOfThing(found.thing)) : fail(found.code, found.reason);
+};
+
+/**
+ * The definitions of the reference for the evaluators of the standard machine that need their own reading. The
+ * reference uses them for the standard evaluators, also without the option `definitions`. It holds `tree.node` and
+ * `ref.resolve`. A host that wraps `ref.resolve` wraps this function, because the standard evaluator is compiled.
+ */
+export const STD_DEFINITIONS: Definitions = { evaluators: { "tree.node": treeDefinition, "ref.resolve": refDefinition } };
 
 /* The definitions of the formula kit: one function evaluator for each construct, written from docs/SPEC.md. */
 
