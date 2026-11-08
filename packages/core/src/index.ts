@@ -348,6 +348,6 @@ export {
   replayer,
 } from "./replay.ts";
 export { type GenerateOptions, type Random, generate, random, typesOf } from "./generate.ts";
-export { type Domain, type DomainCodec, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";
-export { type Boundary, type Declared, type PartType, type RootTypes, type TypeInput, type TypeProblem, type TypeRule, type Typed, CAPS_TYPE, boundariesOf } from "./typing.ts";
+export { type Domain, type DomainCodec, type Proof, type TypeIssue, type ValueType, STD_DOMAINS, fits, join, member, typeIssues, typeText } from "./types.ts";
+export { type Boundary, type Declared, type PartType, type Proven, type RootTypes, type TypeInput, type TypeProblem, type TypeRule, type Typed, CAPS_TYPE, boundariesOf } from "./typing.ts";
 export { type SampleOptions, type TypeReading, typeFromSamples, typeFromSchema } from "./providers.ts";
