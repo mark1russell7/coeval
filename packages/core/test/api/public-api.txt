@@ -53,6 +53,7 @@ type CompiledEvaluator: build/index.d.ts#CompiledEvaluator
 type CompiledPart: build/index.d.ts#CompiledPart
 type CompiledPath: build/index.d.ts#CompiledPath
 type CompiledRunner: build/index.d.ts#CompiledRunner
+type Configuration: build/index.d.ts#Configuration
 type ConformOptions: build/index.d.ts#ConformOptions
 type ConformProbe: build/index.d.ts#ConformProbe
 type Construct: build/index.d.ts#Construct
@@ -91,6 +92,7 @@ type Failed: build/index.d.ts#Failed
 Failure: build/index.d.ts#Failure
 type Finding: build/index.d.ts#Finding
 type FormulaProfile: build/index.d.ts#FormulaProfile
+type Frame: build/index.d.ts#Frame
 GENERATION_LIMIT: build/index.d.ts#GENERATION_LIMIT
 type GenerateOptions: build/index.d.ts#GenerateOptions
 type Give: build/index.d.ts#Give
@@ -223,6 +225,7 @@ type StepReason: build/index.d.ts#StepReason
 type StepRefusal: build/index.d.ts#StepRefusal
 type StepSpec: build/index.d.ts#StepSpec
 type StepWalk: build/index.d.ts#StepWalk
+type StepperOptions: build/index.d.ts#StepperOptions
 type Steps: build/index.d.ts#Steps
 type StopSignal: build/index.d.ts#StopSignal
 type Stored: build/index.d.ts#Stored
@@ -407,6 +410,9 @@ splitParts: build/index.d.ts#splitParts
 stepLadder: build/index.d.ts#stepLadder
 stepOf: build/index.d.ts#stepOf
 stepRank: build/index.d.ts#stepRank
+stepper: build/index.d.ts#stepper
+stepperNext: build/index.d.ts#stepperNext
+stepperStart: build/index.d.ts#stepperStart
 stored: build/index.d.ts#stored
 syntaxFormat: build/index.d.ts#syntaxFormat
 tag: build/index.d.ts#tag
@@ -438,6 +444,7 @@ interface AgreeOptions {
   readonly verb?: string;
   readonly definitions?: Definitions;
   readonly tiers?: readonly Exclude<Tier, "other">[];
+  readonly profile?: FormulaProfile;
   readonly other?: (doc: unknown, context: Context, input: TierInput) => Result | TierResult;
   readonly perform?: Perform;
   readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
@@ -782,6 +789,22 @@ interface CompiledRunner {
   readonly compileRun: (input: CompileInput) => RunCode;
 }
 
+### build/index.d.ts#Configuration
+type Configuration = (Shared & {
+  readonly mode: "evaluate";
+  readonly value: unknown;
+  readonly declared?: string | undefined;
+  readonly depth: number;
+  readonly address: boolean;
+  readonly ctx: Context;
+}) | (Shared & {
+  readonly mode: "resume";
+  readonly result: Result;
+}) | (Shared & {
+  readonly mode: "done";
+  readonly result: Result;
+});
+
 ### build/index.d.ts#ConformOptions
 interface ConformOptions {
   readonly verb?: string;
@@ -1100,6 +1123,18 @@ interface FormulaProfile {
   readonly volatile?: readonly string[];
   readonly sigs?: Readonly<Record<string, Signature | readonly Signature[]>> | ((name: string) => Signature | readonly Signature[] | undefined);
 }
+
+### build/index.d.ts#Frame
+type Frame = ValuesFrame | LetFrame | CallFrame | IfFrame | LogicFrame | {
+  readonly f: "tail";
+  at: readonly Key[];
+} | {
+  readonly f: "return";
+  readonly place: readonly Key[];
+} | {
+  readonly f: "base";
+  readonly place: readonly Key[];
+};
 
 ### build/index.d.ts#GENERATION_LIMIT
 export declare const GENERATION_LIMIT = 64;
@@ -2058,6 +2093,16 @@ interface StepWalk<N> {
   readonly children: (node: N) => Iterable<readonly [StepKey, N]>;
 }
 
+### build/index.d.ts#StepperOptions
+interface StepperOptions {
+  readonly declaredType?: string;
+  readonly verb?: string;
+  readonly profile?: FormulaProfile;
+  readonly definitions?: Definitions;
+  readonly effects?: Effect[];
+  readonly perform?: Perform;
+}
+
 ### build/index.d.ts#Steps
 type Steps = Generator<Promise<unknown>, Result, unknown>;
 
@@ -2195,7 +2240,7 @@ export declare const THING: unique symbol;
 type Thing = unknown;
 
 ### build/index.d.ts#Tier
-type Tier = "reference" | "traced" | "again" | "folds" | "fixed" | "other";
+type Tier = "reference" | "traced" | "again" | "folds" | "fixed" | "stepper" | "other";
 
 ### build/index.d.ts#TierInput
 interface TierInput {
@@ -2857,6 +2902,15 @@ export declare function stepOf<N, S extends string>(ladder: StepLadder<S>, walk:
 
 ### build/index.d.ts#stepRank
 export declare function stepRank<S extends string>(ladder: StepLadder<S>, step: S): number;
+
+### build/index.d.ts#stepper
+export declare function stepper(machine: Machine, doc: unknown, context?: Context, options?: StepperOptions): Result;
+
+### build/index.d.ts#stepperNext
+export declare function stepperNext(machine: Machine, configuration: Configuration, options?: StepperOptions): Configuration;
+
+### build/index.d.ts#stepperStart
+export declare function stepperStart(machine: Machine, doc: unknown, context?: Context, options?: StepperOptions): Configuration;
 
 ### build/index.d.ts#stored
 export declare function stored(value: unknown, header: readonly string[]): Stored | undefined;

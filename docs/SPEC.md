@@ -256,6 +256,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | AGREE.EFFECTS | Two tiers agree only when they cause the same effects in the same order, with the same kinds, places and payloads. The host also sees the same calls. |
 | AGREE.TIER | A language gives `agree` its second tier as a function. `agree` names the first tier that disagrees with the plan, and the reason. |
 | AGREE.LEAN | The Lean model in `proofs/` gives the result of the plan for each generated document of the formula kit: the value, or the code of the error. The workflow `lean.yml` runs it. |
+| AGREE.STEPPER | The tier `stepper` of `agree` gives the result of the plan for each generated document of the formula kit, with the effects. It is not a default tier, and `agree` takes the profile in its option `profile`. |
 | AGREE.MOCK | `agree` gives its mock `perform` to each tier, also to the second tier of a language. Thus the tiers agree on documents with effects. When two tiers record the address or the outcome of an effect, these agree too. |
 | AGREE.MUTANT | The harness finds a tier that changes the order of the parts, or that evaluates a branch that the reference does not evaluate. |
 | RESULT.SAME | `sameResult` tells if two results are the same for an early cutoff. Two values compare by the rules of `docEquals`, thus each object that is not a list or a plain record is the same only as itself. `-0` is not `0`, and `NaN` is `NaN`. A rule of the host answers first for two values (D20). |
@@ -690,6 +691,22 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | CONFORM.PROFILE-SIGNATURE | An operation that gives a value outside the result of a signature that its arguments match breaks `typed`. The value is the value after the hook `check`. A throw, an error and a bad type get no finding. |
 | CONFORM.PROFILE-EXT | An extension that gives a value outside its entry in `extTypes` breaks `typed`. The data comes from the fixed list and from the option `values`. |
 | CONFORM.PROFILE-FORM | A function `ext`, `lazy`, `check`, `omit`, `missing` or `combine` that gives another form than its type breaks `result`. A throw gets no finding here (E-THROW). |
+
+## The stepper
+
+| ID | Rule |
+| --- | --- |
+| STEPPER.FORMULA | `stepper` gives the result of `reference` for each construct of the formula kit, with the place of each error. |
+| STEPPER.SPLIT | The stepper reads each shape itself. It gives the parts, the data and the reason of each error of `partsOf`. |
+| STEPPER.LOOKUP | The stepper reads the lookup itself. It gives the kind of `lookupKind` through aliases, namespaces and fallbacks. |
+| STEPPER.PATH | The stepper walks a path itself. It gives the value or the error of `resolve` for keys, references, cycles, deref code and walkers. |
+| STEPPER.CLOSURE | A closure is data in a configuration. Host code gets a function, and a call of that function starts a nested stepper. |
+| STEPPER.LIMIT | The applications of functions have the limit of `reference`: the count of the active applications, with a nested stepper too. |
+| STEPPER.PROFILE | An exception of a rule of the profile gives the error of `reference`, with the name of the evaluator of the document. |
+| STEPPER.EFFECT | An effect of a host evaluator has the capability test, the address, the mock and the outcome of `reference`. A runner gives `#NOEVAL`. |
+| STEPPER.DEEP | A list nested 100000 times evaluates, because the stepper does not use the stack of the host for the nesting. The limit `maxDepth` stays. |
+| STEPPER.DATA | A configuration of a pure document of the formula kit survives `JSON.stringify` and `JSON.parse` at each step, and the run gives the same result. |
+| STEPPER.PURE | `stepperNext` leaves its configuration as it is. A host can step one configuration twice, and it gets equal configurations. |
 
 ## The calculus
 
