@@ -1,0 +1,9 @@
+[
+  {
+    "case": "PLAN.TOTAL a record of 20 literals, without folds",
+    "head": "128e5cca4de4",
+    "cost": "+2.3 % in run 1 (cannot decide, noise +0.0 %) and +2.9 % in run 2 (slower, noise -0.0 %): Speed run 42449368240, arms base 088d7b0f9ec7 head 128e5cca4de4 in both runs. The pooled verdict reads slower.",
+    "reason": "The cost is small, with one sign in both runs, and its source is unread. The case times only plan.evaluate of a record of literals, with no guards. Without guards, K28 gives the plan the same code as before: guardOf stops at an undefined c.guards, and the code of each literal stays the code of PLAN.TOTAL. The other changes are type rules (read of formula.ref, boundariesOf) and agreeTypes, and the case calls none of them. evaluate.ts now imports member and typeText of types.ts as values. This is the second hold of this case on a change off its timed path (K26, 311.json). The K225 A/A series reads the rate of false blocks of each case.",
+    "owner": "coeval session (K28)"
+  }
+]

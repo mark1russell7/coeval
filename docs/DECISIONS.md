@@ -4912,6 +4912,33 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 - A `#VALUE!` of `call` is not in the table. The body of a closure can give the same code, and a value that is not a function already breaks the clause `value`.
 - A `#N/A` of a closed record stays with TYPE.NO-STEP.
 
+## D149 (2026-11-04): a guard is data from a check, and `prepare` reads it
+
+**Context.** R5 P7 asks for a test at each boundary of `unknown`, and at each read from a typed root. A store with a wrong schema then gives an error at the read, not a wrong value far away. A plan without the option keeps its speed.
+
+**Decision.**
+
+- `boundariesOf(typing, domains)` gives a list of places with types. The list is plain data, thus a host can examine it, keep it and filter it.
+- The option `guards` of `prepare`, `evaluate` and `run` takes that list. The default is no list.
+- A rule with `read` tells that a value comes from outside the document. The formula kit sets it on `ref`.
+- The test sits inside the code of the part, and inside the record of a trace. The trace thus shows the error at the boundary.
+- A part with a test is not a total part, thus it gets a place and a catch.
+- `agreeTypes` with `guards: true` evaluates with the boundaries of its own check.
+
+**Alternatives.**
+
+- An option `guards` that holds the root types, with a check inside `prepare`. `evaluate.ts` then imports the check, and each plan pays for a second walk. A host with a list pays once.
+- A new evaluator around each boundary. The trace then gets one more document, and each place moves.
+
+**Why.** A check already knows each position where its promise needs a test. A list of places keeps the check and the plan apart, and the compiled code changes only for a plan with a list.
+
+**Limits.**
+
+- A read of a name that `let` binds is a boundary too, because a rule does not see the scope of its root. The test is true there, and it takes time.
+- A test of a deep record walks the whole value at each read.
+- A list from a check with a different `declaredType` can name places that the plan does not have. Such an entry has no effect.
+- The extensions and the operations stay trusted. Only a value from a read or from an imprecise part gets a test.
+
 ## D150 (2026-11-04): an evaluator that is a function can hold a type rule
 
 **Context.** C14 shows the types of the cards on the site. The standard evaluators are functions and have no rules, thus each card of the site has the type `unknown`.
@@ -4950,7 +4977,6 @@ The second tier has its own frames, as D15 asks. `agreeRun` compares the results
 **Alternatives.** Turn the Holm read into the gate at once. The owner of the gate rules on a count of false blocks first, thus the read starts as a report, as D163 did for `notSlowerVerdict`.
 
 **Limits.** The read covers the cases of one verdict. The rows of different runs are not independent, thus a rate over runs needs the count of branches too.
-
 
 
 ## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
@@ -5093,6 +5119,21 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** The further pairs of a dispatch (D179) stay in the log of the job `verdict`. They are for the A/A series, not for a pull request.
 
+## D182 (2026-11-08): a block of the report-only ladder gate gives a warning on the pull request
+
+**Context.** K225 and D181. The ladder gate of `Measure` (D164) is report only. A block exits with the code 3, and the step keeps the job green. The line of the block was only in the log and the summary of the job. A green check with a hidden block is a silent pass.
+
+**Decision.**
+
+- With `LADDER_ANNOTATE=1`, the mode `merge` of `ladder.ts` prints a warning annotation with the gate line on a block.
+- Only the step "Pool the five runs" sets `LADDER_ANNOTATE`. The flip rows block on purpose, thus they give no annotation.
+- The flip step checks the warning text of each block row, and no warning on the pass row.
+- The flip step reads the warnings inside a `stop-commands` window. Thus the runner makes no annotation from them.
+
+**Why.** The warning tells the reader of the pull request that the ladder gate found a slope over its bound. The check stays green while the gate is report only.
+
+**Limits.** The line "Under that size: no read" gives the smallest slope that the gate can find. It is a size, not a case with no read, thus it gives no warning.
+
 ## D183 (2026-11-08): on a mixed CPU pair, the hold of Speed takes a verdict only when the two jobs agree
 
 **Context.** K225. The first head of #312 got a hold on one case on a mixed CPU pair, an AMD EPYC 7763 and an Intel Xeon Platinum 8370C. Each job alone said "cannot decide", at +0.5 % and +0.8 %. The pool of the 24 rounds said "slower". The change of the head has no path into the timed code, and the later heads read "same" on one CPU model. Thus the hold was false.
@@ -5110,5 +5151,6 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** A stratified bootstrap draws the rounds inside each job and then joins the estimates of the jobs, with a test that they agree. It is the general form, and it goes to the shared bench core. A second alternative gives no read for each case on each mixed pair. It removes the verdicts that both jobs agree on.
 
 **Limits.** A slowdown that only one CPU model reads gives no read, not a hold. The warning shows it on the pull request.
+
 
 

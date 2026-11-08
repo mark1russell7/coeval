@@ -110,6 +110,29 @@ export async function replayRun(text: string, log: ReplayLog): Promise<JournalRu
   return { rows: [...rows, ...rest], result: out.result, calls: 0, log };
 }
 
+/** A replay, with the change and the recording that it answers. */
+export interface KeptReplay {
+  /** The id of the change of the document. */
+  readonly change: string;
+  /** The recording that gave the log of the replay. */
+  readonly recorded: JournalRun;
+  /** The facts of the replay. */
+  readonly run: JournalRun;
+}
+
+/**
+ * This function gives the replay that the diagram shows. A replay of another change or of another recording is old,
+ * thus the diagram shows no replay until the new one comes.
+ *
+ * @param kept - The last replay that came, or undefined.
+ * @param change - The id of the change that the diagram shows.
+ * @param recorded - The recording that the diagram shows.
+ * @returns The facts of the replay, or undefined.
+ */
+export function shownReplay(kept: KeptReplay | undefined, change: string, recorded: JournalRun | undefined): JournalRun | undefined {
+  return kept !== undefined && kept.change === change && kept.recorded === recorded ? kept.run : undefined;
+}
+
 /**
  * This function writes a log as JSON, as a host stores it.
  *

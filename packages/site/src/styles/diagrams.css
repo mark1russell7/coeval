@@ -561,7 +561,9 @@
   color: var(--color-ink-muted);
 }
 
+/* A box that scrolls sideways also has the class scroll-cue of @mark1russell7/site-pages: its content fades at an edge with more content. */
 .ce-scroll {
+  --scroll-cue-bg: var(--color-surface);
   overflow-x: auto;
 }
 

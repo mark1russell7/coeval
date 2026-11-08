@@ -452,6 +452,9 @@ describe("the syntax kit", () => {
     // A record with the key type is a document, thus print writes it as a document.
     expect(print(nested, { type: "f", value: { a: [op("add", 1, 2)] } })).toEqual(ok("f([add(1, 2)])"));
     expect(issue(nested, 'f({type: "x"})')).toEqual({ offset: 3, length: 4, message: "A record of data has no key type, because the key type makes a document." });
+    // A record with the key type that is not a document has no text, because the parser refuses its text.
+    const typed = print(nested, { type: "f", value: { a: [{ type: "x", extra: 1 }] } });
+    expect(typed).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
     expect(print(WORLD_SYNTAX, { type: "handle", value: { with: [{ op: "log", do: Number.NaN }], body: t("a") } })).toMatchObject({ ok: false, error: { place: ["with", 0, "do"] } });
     // An issue names the bracket or the brace that is missing, and recovery reads past each bracket.
     expect(issue(nested, "f([1, 2)")).toMatchObject({ message: 'A "," or a closing bracket is missing.' });

@@ -133,7 +133,7 @@ export default function ContextDiagram() {
 
       <div className="ce-stage" style={{ borderTop: "1px solid var(--color-rule)" }}>
         <p className="ce-panel-title">All six constructs. Select a row to see it above.</p>
-        <div className="ce-scroll">
+        <div className="ce-scroll scroll-cue">
           <table className="ce-matrix">
             <thead>
               <tr>

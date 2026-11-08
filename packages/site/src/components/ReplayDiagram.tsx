@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { resultText } from "../lib/effects.ts";
-import { DOCUMENT_CHANGES, RECORDED_TEXT, countingHost, logJson, recordRun, replayRun, type JournalRow, type JournalRun } from "../lib/replay.ts";
+import { DOCUMENT_CHANGES, RECORDED_TEXT, countingHost, logJson, recordRun, replayRun, shownReplay, type JournalRow, type JournalRun, type KeptReplay } from "../lib/replay.ts";
 
 const WIDTH = 372;
 const ROW_H = 74;
@@ -101,7 +101,7 @@ function stateText(row: JournalRow): string {
 export default function ReplayDiagram() {
   const host = useRef(countingHost());
   const [recorded, setRecorded] = useState<JournalRun | undefined>(undefined);
-  const [replayed, setReplayed] = useState<JournalRun | undefined>(undefined);
+  const [kept, setKept] = useState<KeptReplay | undefined>(undefined);
   const [mode, setMode] = useState<Mode>("record");
   const [changeId, setChangeId] = useState("same");
   const [step, setStep] = useState(3);
@@ -121,7 +121,7 @@ export default function ReplayDiagram() {
     if (recorded === undefined || change === undefined) return undefined;
     let live = true;
     void replayRun(change.text, recorded.log).then((next) => {
-      if (live) setReplayed(next);
+      if (live) setKept({ change: change.id, recorded, run: next });
     });
     return () => {
       live = false;
@@ -134,6 +134,8 @@ export default function ReplayDiagram() {
     setStep(0);
   };
 
+  // A replay of the last change or of the last recording does not show until the new replay comes.
+  const replayed = shownReplay(kept, changeId, recorded);
   const out = mode === "record" ? recorded : replayed;
   const total = out?.rows.length ?? 0;
   const failed = out !== undefined && !out.result.ok;
@@ -185,7 +187,7 @@ export default function ReplayDiagram() {
               </span>
             </div>
 
-            <div className="ce-scroll">
+            <div className="ce-scroll scroll-cue">
               <table className="ce-matrix" style={{ marginTop: "var(--space-4)" }}>
                 <thead>
                   <tr>

@@ -1,8 +1,9 @@
 import { type Key, docEquals, equalWith } from "./doc.ts";
 import { type Context, isHostThing } from "./deref.ts";
-import { type EvalError, type Result, isStackOverflow, thrown } from "./errors.ts";
+import { type EvalError, type Result, describe, isStackOverflow, thrown } from "./errors.ts";
 import { type CheckOptions, typeCheck } from "./static.ts";
 import { isPrecise, member, typeText } from "./types.ts";
+import { boundariesOf } from "./typing.ts";
 import { type Effect, type Machine, type Perform, type Read, type TraceNode, JOURNAL, evaluate, makeContext, prepare, run, sharedCopy } from "./evaluate.ts";
 import { Held, isClosure } from "./formula.ts";
 import { type Definitions, reference, referenceRun } from "./reference.ts";
@@ -394,6 +395,15 @@ function resolutions(reads: readonly Read[]): readonly Read[] {
   return reads.filter((read) => read.free && read.kept !== true);
 }
 
+/** This function gives the text of a value of a trace. It does not throw for a bigint or a record with a cycle. */
+function valueText(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? describe(value);
+  } catch {
+    return describe(value);
+  }
+}
+
 function pathText(path: readonly unknown[] | undefined): string {
   if (path === undefined) return "no read";
   try {
@@ -558,6 +568,12 @@ export type TypeAgreement =
       readonly reason: string;
     };
 
+/** The options of `agreeTypes`: the options of `check`, and `guards`. */
+export interface AgreeTypesOptions extends CheckOptions {
+  /** `true`: the evaluation tests each boundary (PLAN.GUARD). The rule then holds for each context. The default is `false`. */
+  readonly guards?: boolean;
+}
+
 /** The type errors of the kernel, by the evaluator that gives them (STATIC.TYPES-AGREE). */
 const TYPE_ERRORS: Readonly<Record<string, string>> = {
   "formula.op": "#NAME?",
@@ -578,16 +594,18 @@ const TYPE_ERRORS: Readonly<Record<string, string>> = {
  * @param machine - The world and the code of the evaluators, with their type rules.
  * @param doc - The document.
  * @param context - The context. Its roots are members of the root types.
- * @param options - The options of `check`, with the root types.
+ * @param options - The options of `check`, with the root types, and `guards`.
  * @returns The agreement, or the first place that breaks it.
  */
-export function agreeTypes(machine: Machine, doc: unknown, context: Context = makeContext(), options: CheckOptions = {}): TypeAgreement {
+export function agreeTypes(machine: Machine, doc: unknown, context: Context = makeContext(), options: AgreeTypesOptions = {}): TypeAgreement {
   const typing = typeCheck(machine, doc, options);
   if (typing.issues.length > 0) return { ok: true, checked: false, values: 0 };
   const keyOf = (path: readonly unknown[]): string => JSON.stringify(path.map(String));
   const places = new Map(typing.places.map((item) => [keyOf(item.place), item]));
   const domains = machine.domains;
-  const stack: TraceNode[] = [evaluate(machine, doc, context, options.declaredType).trace];
+  const guards = options.guards === true ? boundariesOf(typing, domains) : undefined;
+  const given = { ...(options.declaredType === undefined ? {} : { declaredType: options.declaredType }), ...(guards === undefined ? {} : { guards }) };
+  const stack: TraceNode[] = [evaluate(machine, doc, context, given).trace];
   const nodes: TraceNode[] = [];
   while (stack.length > 0) {
     const node = stack.pop() as TraceNode;
@@ -615,9 +633,9 @@ export function agreeTypes(machine: Machine, doc: unknown, context: Context = ma
     }
     const value = node.result.value;
     values += 1;
-    if (!member(value, place.type, domains)) return { ok: false, clause: "value", place: at, reason: `The value ${JSON.stringify(value)} is not a member of ${typeText(place.type)}.` };
+    if (!member(value, place.type, domains)) return { ok: false, clause: "value", place: at, reason: `The value ${valueText(value)} is not a member of ${typeText(place.type)}.` };
     if (place.expected !== undefined && !member(value, place.expected, domains)) {
-      return { ok: false, clause: "argument", place: at, reason: `The value ${JSON.stringify(value)} is not a member of the needed type ${typeText(place.expected)}.` };
+      return { ok: false, clause: "argument", place: at, reason: `The value ${valueText(value)} is not a member of the needed type ${typeText(place.expected)}.` };
     }
   }
   return { ok: true, checked: true, values };
