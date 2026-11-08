@@ -978,7 +978,7 @@ A member of a domain, for example a time, had no shared document at all.
 
 **Why.** Each language writes the same value as the same document, also a member of a domain (D12). Documents of several languages can then mix. The codec lives next to the test `is` of the domain, thus one table describes a base type.
 
-**Limits.** Two domains with codecs that both hold a value give the document of the first name. D109 changes this rule: the lower domain comes first. A language keeps one codec for each value. The check of the codec laws is a property test of the language, not of the kernel.
+**Limits.** Two domains with codecs that both hold a value give the document of the first name. D109 changes this rule: the lower domain comes first. A language keeps one codec for each value. `codecLaws` examines the codec laws at this time (K141, D130).
 
 ## D41 (2026-10-25): one syntax kit reads and writes the text of each language with a profile, and its printer is the default of the verb `format`
 
@@ -1639,7 +1639,7 @@ The risk of R1 is a stale plan: an old value without an error. The design calls 
 
 - The own entries have no text in each profile.
 - The reason for a name without a bind symbol is new: "This syntax has no text for the name of a document." Before, a name and an own entry gave the same reason.
-- A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check.
+- A pattern of references can read the first key of a form name, for example `A1.x`. K146 holds that check (D140).
 - A choice has no text, because K158 has no text for a data envelope. A tree has no text, because K160 has no form for a record kind.
 
 ## D63 (2026-10-28): a call form names the way its arguments make the value, and a step of a path in parentheses is a document
@@ -2883,6 +2883,8 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 
 **Changed expected values.** No result of the kernel changes. The tests lose their time limits. The limit of PLAN.LEAN goes from 600 to 395 bytes, and WORLD.LAWS gets exact counts.
 
+**Correction (2026-11-05).** D161 replaces this limit. It is 401.1 bytes, from 99 jobs.
+
 **Since D104.** The limit of PLAN.LEAN applies only in the job `measure`, the job that measured it. The job `checks` applies no limit of PLAN.LEAN.
 
 ## D96 (2026-11-02): a seeded property test splits its corpus into parts of a fixed size, and CI checks the share of the timeout
@@ -3378,6 +3380,8 @@ The behavior changes for a caller only with the new field. A check with types th
 **Public types.** None.
 
 **Changed expected values.** None. The limit stays at 395 bytes, and the counts of WORLD.LAWS stay the same.
+
+**Correction (2026-11-05).** This decision made the job `measure` the only gate of the limit, and a pipe in that job hid each failed test. So the limit of 395 bytes was not enforced from 2026-11-02 to 2026-11-05. See D161.
 
 **Limits.**
 
@@ -3930,7 +3934,7 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 
 **Why.** The rule of the gate limits is the worst of 5 or more CI jobs plus their spread, with the runs beside it. A fixed margin had no source. The limits of each family keep a quiet family strict, and they give a noisy family a wider margin.
 
-**End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again.
+**End of the interim rule.** Until this decision, a "slower" of a case under 10 µs with an A/A over 0.5 % did not block a merge. With the limits of D117, each pooled "slower" blocks again. Since 2026-11-05 (K232, D166), a pooled "slower" does not block when all arm hashes of the complete runs are equal. Such a reading is noise of the method.
 
 **A suspect case (rigor #48).** 12 of the 16 deciding A/A verdicts between jobs come from one case: `factsOf` of a tree with an equation. That is a bias of one case between jobs, and the run-level test of rigor #30 does not find it. Thus the verdicts of that case are suspect until rigor #48 lands. The caps of plan and tree are near 30 % because one noisy job gives each of them. rigor #48 replays the records of the 90 days.
 
@@ -3943,6 +3947,7 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 **Alternatives.** A field in the envelope document can declare the effects of its own entry. But a document cannot vouch for code of the host. The language that has the code knows its effects. A second hook can give the effects. But the hook `facts` already describes the code of a name, with its reads and its purity.
 
 **Why.** An answer without the field changes nothing, thus each old hook keeps its results. An empty list in an answer removes the effects of the contract, because the hook describes the code of its name. Another verb than `eval` keeps the table `verbEffects` of the kind (D49).
+
 ## D119 (2026-11-03): a kind declares in `drives` the parts that its runner evaluates without a wait
 
 **Context.** K65, from K19. A compiled runner can evaluate a part with its code, and that code does not wait. The check of the waits assumed that a runner passes each wait of its parts through. Since K110, such a part fails in a run only when it really waits. But `check` did not find that failure, and `conform` refused each such runner (C6).
@@ -4084,3 +4089,883 @@ A finding has the form of each other finding. The obligation is `parallel`, and 
 **Limits.** The seeded orders are a sample. With four or more waits at one time, a fault of one rare order can stay hidden. A shot that `failFast` stopped gets only the checks of one shot. A difference in the resolutions alone gets no finding.
 
 **Changed expected values.** `conforms` reports code that passed before: each runner whose result, parts or effects change with the order of the waits of `all`. A runner under `all` also gets another record in a run, because each item starts before the first wait settles. Thus a part after a failed part can start with `failFast`, as in the kernel. No evaluator or runner of the standard library or the formula kit uses `all`, thus no result of `conforms` for them changes. No existing test of `conforms` changes. The new tests are in `conform.test.ts`.
+
+## D129 (2026-11-03): a language compiles its own paths with `compilePath`, and reads them with `resolveCompiled`
+
+**Context.** K75, from K12 (R1 P2). D29 kept `compilePath` inside the package, because a language that resolves a compiled path itself skips the list of reads. Thus only the formula kit compiled its paths, and each other language resolved its static paths at each evaluation. D13 lets a language keep a second tier, and that tier needs the same read at a lower cost. The kernel already has the route. `resolveCompiled` gives a compiled path to the runtime of the kernel, and the steps to each other runtime. The design calls are the exports, the form of the route and the agreement that the tests pin.
+
+**Decision.** The package exports the functions `compilePath(nav, path)` and `resolveCompiled(rt, ctx, compiled)` and the type `CompiledPath`, with the signatures that the kernel uses (PLAN.PATH-EXPORT). `Runtime` gets no new member. An evaluator calls `compilePath` in its `compile`, with the field `machine` of its input. Its code calls `resolveCompiled` with the context and the runtime that it gets. A compiled runner does the same in `compileRun`. No code of the kernel changes, thus `Session.read`, `resolveCompiled` and the formula kit stay as they are. Only doc comments change. A read through this route records what `Runtime.resolve` records with the same steps (PLAN.PATH-READS). A small language in `paths.test.ts` pins this without the formula kit. Its kind `read` has an interpreter and a second tier. Over 26 documents in 2 contexts, the two give the same value, error, reason, place, list of reads and host calls. The tests compare the plan, the traced evaluation, the run and the reference, also through `agree` and `agreeRun`. A runtime of a host that does not know compiled paths gets the steps through `resolve` (PLAN.PATH-ROUTE). The runtime of a fold refuses a read of a free name. The compiled path keeps the list that `compilePath` gets, thus the host must not change that list. The member `resolve` of a compiled path stays in the type, and its doc comment tells that it records no read.
+
+**Alternatives.** A new optional member of `Runtime`. A runtime that wraps another runtime then must forward the member, and `resolveCompiled` must test for it. The function already chooses the route without help from the host. A compiled path as an argument of `Runtime.resolve`: D29 rejected it. A type `CompiledPath` without the member `resolve`. The export `resolve` already gives a language a read without the list, thus a smaller type closes no gap. A tier outside an evaluation has no runtime, and it needs the member. A copy of the list in `compilePath`. The list of reads then does not hold the list of the document (PLAN.PATH), and the code of the formula kit changes. A new function that gives a `Result` from a read. A language has its own rules for a value that a path reaches, as the formula kit has for a held error. Thus `valueOfThing` and `fail` stay the parts of that step.
+
+**Why.** D29 refused the export only because no route recorded the reads for a language. `resolveCompiled` gives that route, and it ends in the same `Session.read` as `Runtime.resolve`. Thus the two can differ only in the step function, and PLAN.PATH-SAME already compares that. A mutant of the test language calls the member `resolve` of the compiled path, and three tests fail. Thus the tests find a tier that skips the route. The change adds exports and no code on a path of the bench, thus the code of each bench case stays the same.
+
+## D130 (2026-11-03): `codecLaws` examines the laws of the codec of one domain
+
+**Context.** K141, from K140. D40 states that `decode(encode(v))` equals `v` and that `encode` gives JSON, and D12 needs one document for each value. No code of the kernel examined these laws. The limits of D40 left them to a property test of each language. A codec that breaks a law fails only when a document reaches another language or a golden file. No domain of `STD_DOMAINS` has a codec. Thus the codecs of the repository are the domains of the tests, and `encodeValue` with `decodeValue`.
+
+**Decision.** `codecLaws(machine, name, options)` examines the codec of one domain and gives a list of `CodecFinding` (CODEC.LAWS). The function has the shape of `conforms`: a machine, a name and options. A correct codec gives an empty list, and a name without a codec throws. A finding has the form of `Finding`: `obligation`, `reason` and `probe`. Only the first member that breaks a law gives its finding. The probe holds `domain`, `value` and `data`. The machine can be only its domains, thus a language can test one codec with `{ domains: { own } }`. The new module `codec-laws.ts` holds the function. `conforms` does not start it, thus `conform.ts` does not change.
+
+The laws are `samples`, `encode`, `json`, `stable`, `decode` and `roundtrip`, in this order. The law `samples` gives a finding when the check has no member, because an empty check proves nothing (CODEC.SAMPLES). The law `encode` gives a finding when `encode` throws for a member. The law `json` asks that `JSON.parse(JSON.stringify(data))` gives equal data by DOC.EQUALS (CODEC.JSON). The law `stable` asks for equal data from a second `encode` of the member, and from an `encode` of the decoded member (CODEC.STABLE). The law `decode` sends the JSON copy of the data through `decodeDomain`, the path of an evaluation of `ext.domain` (CODEC.DECODE). The law `roundtrip` compares the decoded member with the member by `sameValue` and the option `equal` (CODEC.ROUNDTRIP).
+
+The members come from `membersOf`. A domain with a list `values` gives that list. Each other domain gets the option `samples`, a fixed list of edge values and the lists `samples` of the domains. A value outside the domain gets no test. The edge values are `NaN`, `-0`, the infinities, the limits of the numbers, empty and odd texts, and large integers of the host. They also hold empty containers, containers with such numbers or `undefined`, two dates, a `Map` and a `Set`. The list is fixed, thus the check needs no seed.
+
+No codec of the repository breaks a law (CODEC.STD), thus no behaviour changes. The check does not compare pairs of members, and it does not start `encodeValue`. A member that JSON writes gets the laws here, but its document in a term comes from JSON (D40). D130 replaces the sentence of D40 that keeps the laws out of the kernel.
+
+**Alternatives.** A new check in `conforms`. Its probe holds a document, part results and capabilities, and a codec has none of these. A codec-only signature `codecLaws(codec, samples)`. It cannot test a decoded value against the domain and its parents, and it cannot filter the edge values. A check of each domain of a machine in one call. A host then gives one rule of equality to all domains, and a mistake in a name stays silent. A new field `Domain.equal`. It needs a new rule in `mergeMachines`, and the rule `equal` of `agree` and `conforms` already does this work. Seeded random members. The kernel has no generator of host values, and the fixed list finds the same edges in each run. A check of `JSON.stringify` only. A value that JSON changes in silence, for example `NaN` or `-0`, then passes.
+
+**Why.** One function gives each language the same laws and the same edge values. A language keeps only its samples and its rule of equality. The law `decode` uses the JSON copy, because a document reaches a reader only as JSON. The law `stable` tests the decoded member too, because a coarse rule `equal` can hide a member with two documents. The check runs only in a test of a language, thus no path of an evaluation changes.
+
+## D131 (2026-11-03): `checkCycles` gives the certain cycles of a schedule as issues before a run
+
+**Context.** S2d, from S2. D33 finds the certain cycles of a graph, but a host gave `schedule.graph()` to `cycles`, filtered the answer and made its own message. The function `check` takes one document, thus it does not know a schedule. D107 gave `check` the certain cycles of a tree. A schedule had no such answer.
+
+**Decision.** The new export `checkCycles(target)` takes a schedule, or another object with a function `graph`, and it gives a list of `CycleIssue` (SCHED.CYCLE-ISSUES). It reads only `graph()`, thus it evaluates no node. A `CycleIssue` is an `Issue` with the code `#CYCLE!` and a new field `nodes`. Each certain cycle of `cycles` gives one issue. The list `nodes` is sorted by name, as the record of the root `world` sorts the nodes. The issues are sorted by their first nodes (SCHED.CYCLE-ORDER). The first node gives the place `[id]`, its key under the root `world`, and the reason of `cycleOf`. A node that reads itself gives an issue with one node. An empty schedule gives an empty list.
+
+"Certain" has the meaning of D33: the eager edges with a target close the cycle. A possible cycle gives no issue, as in D107, because a run can skip its lazy read (SCHED.CYCLE-CERTAIN). A certain cycle inside a possible cycle gives an issue with only its own nodes. A host that needs the possible cycles calls `cycles`.
+
+The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-AGREES). An eager read occurs in each evaluation in which each document around it gives a value (FACTS.LAZY). Thus a value at a node of the cycle needs a value at the next node, and the cycle closes. The result can be another error, because a read can fail before it reaches the cycle (D33). A node can also get the `#CYCLE!` of another node at a place, because the first failed read stops its document. The issues are not complete: a run that takes a lazy read gives `#CYCLE!` with no issue.
+
+**Alternatives.** A method of `Schedule`. Each user of `schedule` then bundles the analysis of `graph.ts`, and an object that a host types as `Schedule` fails to compile. An option of `check` that takes a schedule. Then `check` gets a second form of input, and `static.ts` depends on the schedule. An issue for each node of a cycle. A ring of 100000 nodes then gives 100000 issues for one fault. The order of the graph for `nodes`. The order then depends on the order of the `set` calls, and a host that compares two answers finds a false change. An issue for a possible cycle with a second severity. `Issue` has no severity, and D107 refuses such a false positive. A cache of the answer for each structure epoch. The map of `graph()` already stays for an epoch, and a host calls `checkCycles` only when it needs the answer.
+
+**Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
+
+## D136 (2026-11-03): a kept read of the node in evaluation closes no cycle
+
+**Context.** K217, from D56 and D57. A closure keeps a read of each whole root when its path meets a reference (READS.KEPT). That read resolves the root, and a root that holds a reference follows the reference. In a schedule, the reference can reach the root `world`, and the step demands a node.
+
+When that node is the reader, the demand meets the node in evaluation, and the schedule closes a cycle. Thus a closure at a node whose `self` refers to that node gave `#CYCLE!`. The evaluation did not ask for the read, and a run has no such cycle. The evaluation from scratch of `agreeSchedule` gives the closure, because it records no reads. The contexts of SCHED.ONE-MEANING hold no reference, thus the test did not find it.
+
+The same read occurs at the root `event`, in the verification of a kept read, and for a kind that sets another `self`.
+
+**Decision.**
+
+- `HostThing` gets the optional function `keeping(read)`. The kernel calls this function of the root `world` around each kept read that resolves its path, at the record and in `verifyReads`.
+- `keeping` of a schedule notes the length of its stack. A demand of the node on top of the stack, at that length, is the kept read of the node in evaluation. It gives the same error as before, and it adds no mark for the cycle check (SCHED.OWN-NODE).
+- Each other demand stays as it is. A kept read still demands another node, and a nested demand has a longer stack. Thus each read of that evaluation counts, and a true cycle there gives `#CYCLE!`.
+- A read of the evaluation goes outside `keeping`, thus it closes the cycle with the same error.
+- No list of reads changes, also for this node. Its kept read of the root reaches the error of the node (SCHED.OWN-NODE-READS).
+- The reference and a plan without a list of reads do not change, because they keep no reads. A host thing without `keeping` does not change.
+
+**Alternatives.**
+
+- A kept read that does not demand, with a walk through the reference by `known`, as D57 does for a path. This removes each false cycle of this class. But a kept read of another node then reaches another thing, and that node stops its evaluation. Thus the reads of other documents change.
+- A kept read that stops at the reference. The reference stays the same while its target changes, thus a change gives a stale value (D56, Rejected).
+- No kept read of the node itself. This also gives the value, but the list of reads changes, and the rule of the list gets a second case.
+- A new option of `resolve` for a kept read. Each step of a resolution then carries the option, for one host. The function `keeping` adds no work to a resolution.
+- An undo of the marks after the kept read. The kernel does not know the marks of a schedule, and the schedule does not know which read of a list is kept.
+- A kept demand that drops each node that it evaluated, when one of them reads a node in evaluation below it. This removes the false cycle of the Limits. D143 does it.
+
+**Limits.**
+
+- D143 removes the false cycle of a kept read that reaches its node through another node.
+- Only the root `world` gets `keeping`. A host thing at another root that follows reads gets no call.
+- A closure at such a node keeps each whole root. Thus each change of data evaluates it again (READS.KEPT).
+
+**Why.** The kept read of the node itself adds nothing to the invalidation of the node. That read reaches the value of the node, and a pure document gives that value from its other reads (FACTS.PURE). When each other read stays the same, the evaluation gives the same value. A document that really reads the value makes a read of the evaluation, and that read closes the true cycle. Thus the error in the list hides no change, and each other read verifies as before.
+
+The list of reads stays exact, thus each other document keeps its reads, its demands and its order of evaluations. The test SCHED.OWN-NODE-AGREES compares generated documents with the evaluation from scratch, over changes of data, edits and new machines. Four changes of the code each fail these tests. These are no rule, a rule at each depth, a rule for each node in evaluation, and a verification outside `keeping`.
+
+Each kept read that resolves its path costs one call and one `finally`. A read of a node in evaluation costs one compare. A document without a kept read does no new work.
+
+## D160 (2026-11-05): a parameter property becomes a plain field first in its class
+
+The update of the shared config turns on the TypeScript option `erasableSyntaxOnly` (K224). The option refuses a parameter property, thus each one becomes a field and an assignment. The option stays on.
+
+**The form.**
+
+- Each field goes first in its class, in the order of the parameters, with the modifiers and the doc comment of the parameter.
+- The first lines of the constructor assign the fields, in the same order.
+
+**Why this form.** The config sets the target `esnext`, thus class fields use define semantics. The tool esbuild emits a parameter property as a field ahead of the other fields of the class, and the field starts as `undefined`. A plain field in the first place gives the same emitted code.
+
+A `declare` field is not the same. It emits no field, so the object gets its properties in another order. An object with another order can have another hidden class, and a speed run can see that.
+
+**How we examined it.** For each changed file, esbuild emitted the code of the old and the new source. The comparison moved each constructor to the top of its class and removed the doc comments. All 20 files gave the same text. A copy of the source with no installed config also gets define semantics from esbuild. Thus the two arms of a speed run use the same setting.
+
+**SemVer.** No export, signature or enum changes, and the declarations of `Held` keep their members. This work needs no version of its own.
+
+## D161 (2026-11-05): a failed test of the measure step turns it red, and the limit of PLAN.LEAN comes from 99 jobs
+
+**Context.** K228. The step of PLAN.LEAN in `measure.yml` pipes its test run into `tee`, and it has no key `shell`. GitHub then starts the step with `bash -e` and no pipefail, thus the exit code of the test run is lost. D104 made this job the only gate of the limit. So the limit of 395 bytes was not enforced from K211 (2026-11-02) to this decision. Each statement that the limit held in that time is wrong.
+
+**The read.** The read uses the logs of each job `measure` of 20 runs, from 41832320878 to 41977634472 (2026-11-04 and 2026-11-05). It starts no new job.
+
+- There are 99 jobs, and each one concluded `success`.
+- 8 jobs have a failed test, and 6 of the 20 runs have such a job. The failed test of each job is PLAN.LEAN, with 395.6 to 396.1 bytes.
+- The other 91 jobs read 391.1 to 394.6 bytes.
+- One head gives 392.4, 393.3 and 395.8 bytes in run 41971426548, thus a change of code does not explain the two levels.
+
+**Decision.**
+
+- The step has `shell: bash`, which has pipefail. A failed test turns the step red.
+- The limit is the worst value plus the spread: 396.1 + 5.0 = 401.1 bytes. The owner of the gate accepted this one limit with this formula, up to 405 bytes.
+- The step prints the CPU model of the runner, ahead of the pipe.
+
+**What this limit gives up.** The limit goes up by 6.1 bytes, and most jobs read approximately 393 bytes. So a change that adds up to approximately 8 bytes to a plan does not turn most jobs red. The measure has two levels, and the top level hides this cost. K229 examines the cause, and it ends with a limit for each cause or a measure with one level.
+
+**What we did not find.** The logs do not name the CPU model, thus this read cannot test the CPU model as the cause. All jobs have Node 26.13.0. The region and the runner image do not separate the levels: the 8 jobs are in 6 regions and 3 images.
+
+**Limit of the claim.** No flip test shows yet that this step turns red. K227 adds it, by 2026-11-12.
+
+**Changed expected values.** The limit of PLAN.LEAN goes from 395 to 401.1 bytes. No result of the kernel changes.
+
+**SemVer.** No export changes. This work needs no version of its own.
+
+**Correction (2026-11-06).** The cause of the two levels is code of the JIT in the window of the measure. The CPU model, the region and the image are not the cause. See D170.
+
+## D170 (2026-11-06): the second level of PLAN.LEAN is code of the JIT, and the measure also reads the data spaces of the heap
+
+**Context.** K229, from D161. 91 of 99 jobs read 391.1 to 394.6 bytes, and 8 jobs read 395.6 to 396.1 bytes. A measure with two levels hides a small cost. Since K227, each job prints its CPU model, runner image, kernel, Node version and setting of transparent huge pages.
+
+**The read.**
+
+- The logs of the 58 jobs `measure` of 12 runs, from 2026-11-05 11:14Z to 2026-11-06 03:00Z, give two levels again. 50 jobs read 391.2 to 394.6 bytes, and 8 jobs read 395.8 to 395.9 bytes.
+- No column explains the levels. The kernel, the Node version and the setting of huge pages have one value in all jobs. The top level occurs on 4 CPU models and on both runner images.
+- 6 of the 12 runs give both levels with one head. The matrix index of the 8 jobs has no pattern.
+- A local read splits the heap by space with `getHeapSpaceStatistics`. In 48 new processes, `heapUsed` gave 373.6 to 376.1 bytes for each plan.
+- Each high value of `heapUsed` came with 12 KB more in the code space and 7 to 10 KB more in the trusted space. These spaces hold the code of the JIT and its metadata, not plans.
+- The other spaces, the data spaces, gave 374.9 to 375.3 bytes in all 48 processes.
+
+So the top level is code that the JIT makes in the window of the measure, in some processes only.
+
+**Decision.**
+
+- The test also reads the data spaces: each space of the heap except the code space and the trusted space. The line `MEASURE` gives `bytes` and `data`.
+- The limit stays on `bytes` (401.1) until the jobs `measure` give 20 or more values of `data`. Then the limit moves to `data`, as the worst value plus the spread, with the run ids and the CPU models. K229 ends with that change.
+- A flip fixture of that change keeps one more array of 1 KB for each document. The data limit fails with it.
+- The line keeps `bytes` after the change, so a growth of the code stays visible. It gates nothing.
+- If the range of `data` in CI is more than 1.0 byte, the limit does not move until a new read.
+
+**What this gives.** A measure with one level can have a limit near its values. Then a small cost of a plan turns the gate red.
+
+**Limit of the claim.** The local read used Node 24, and CI uses Node 26. The values of `data` in CI decide the limit.
+
+**SemVer.** Only a test changes. This work needs no version of its own.
+
+**Since D171 (2026-11-07).** The limit reads `data`. 50 jobs gave a range of 0.7 byte, and the limit is 393.4 bytes.
+
+## D171 (2026-11-07): the limit of PLAN.LEAN reads the data spaces, and it is 393.4 bytes
+
+**Context.** K229, from D170. D170 kept the limit on `bytes` until the jobs `measure` gave 20 or more values of `data`.
+
+**The read.**
+
+- 50 jobs `measure` of 10 runs gave `data`, from 2026-11-06 03:45Z to 2026-11-07 14:22Z. The runs are 42158439505, 42174310419, 42180483956, 42185610540, 42185980459, 42186004072, 42205973145, 42210082061, 42218426879 and 42381192156. The flip rows are not in the count.
+- `data` gave 392.0 to 392.7 bytes, a range of 0.7 byte. Thus the condition of D170, a range of at most 1.0 byte, holds.
+- `bytes` of the same jobs gave 391.5 to 396.2 bytes, a range of 4.7 bytes.
+- The 5 jobs with `bytes` over 395 gave `data` 392.5 to 392.7 bytes, and the other 45 jobs gave at most 392.4 bytes. So the code of the JIT also leaves approximately 0.3 byte in the data spaces. This is the top of the range, and the limit includes it.
+- The jobs ran on 5 CPU models: AMD EPYC 7763 (18 jobs), 9V45 (12), 9V74 (12), Intel Xeon Platinum 8370C (6) and 8573C (2).
+
+**Decision.**
+
+- The limit reads `data`. It is the worst value plus the spread: 392.7 + 0.7 = 393.4 bytes. The old limit of `bytes` was 401.1 bytes, so the gate is 7.7 bytes nearer to the values.
+- The line `MEASURE` keeps `bytes` beside `data`. It gates nothing.
+- The flip row `flip` adds 20 bytes to `data`. The lowest value is 392.0 bytes, so each job passes the limit with it.
+- A second flip row `retain` makes each plan keep an array of 1 KB. This is a true retained cost, and the data spaces see it, thus the step turns red. Both rows have `fault: true`, and the next step passes only if the step is red with the text of the PLAN.LEAN assertion.
+
+**Limit of the claim.** The limit holds for these 5 CPU models and Node v26.13.0. A new CPU model or Node version can give other values. Then a red job without a change of the core is a new read, and the limit moves only with its run ids.
+
+**SemVer.** Only a test and a workflow change. This work needs no version of its own.
+
+## D162 (2026-11-05): the flip test of PLAN.LEAN is a matrix row of the same job
+
+**Context.** K227, first part. D161 gave the step of PLAN.LEAN a working exit code, and no run had shown that the step turns red.
+
+**Decision.**
+
+- The matrix of the job `measure` has one more row, `flip`, with `inject: "20"`. It runs the same step, so a change of the step, its shell or its limit also changes the flip.
+- The test adds `COEVAL_MEASURE_INJECT` to the value that the limit reads. The line `MEASURE` keeps the true value, so the row is also a sixth true value for K229.
+- Only the flip row has `continue-on-error` on that step. Its next step passes only if the outcome of the step is `failure` and the log has the text of the PLAN.LEAN assertion. So a failure of another kind is no flip, and the job goes red.
+- The 5 plain jobs of the same run are the copy with no fault.
+
+**Why 20 bytes.** The lowest value of D161 is 391.1 bytes, and the limit is 401.1. So approximately 10 bytes is the smallest injection that passes the limit in each of the 99 jobs. 20 bytes leaves the same margin again if the values go lower.
+
+**Limit of the claim.** The flip shows that the step turns red for a value over the limit. It does not show that a real cost of 8 bytes on a plan goes red. D161 tells why that cost stays under the limit in most jobs.
+
+**Changed expected values.** The job `measure` has 6 rows. No result of the kernel changes.
+
+**SemVer.** No export changes. This work needs no version of its own.
+
+## D163 (2026-11-05): the gate `notSlowerVerdict` runs as report only beside the pooled verdict
+
+**Context.** K225. The pooled verdict gives `same`, `faster`, `slower` or `cannot decide`, and the merge rule of this repository blocks only on `slower`. So a case with `cannot decide` counts as a pass. K121 read 13 of 16 cases so. `@mark1russell7/rigor-bench` 0.2.15 adds `notSlowerVerdict`, a gate that gives `pass`, `block` or `no read`.
+
+**Decision.**
+
+- The script `merge.ts` prints the gate of the two runs under the pooled verdict. Nothing reads its result, so it blocks nothing.
+- The margin of each case is the margin of its family (D117). The gate uses the 3 looks of the bench core, so its level is the level of a gate that takes more rounds.
+- `bench.yml` gets the inputs `rounds` and `jobs`, for the control run of this item.
+- The check `Speed OK` and `continue-on-error` do not change.
+
+**Limit of the claim.** This work shows the gate in each log. It does not show that the gate is fit to block. Three results are still open: the control run, the count of false blocks, and the flip test in CI. The unit test pins only that an injected 10 % gives a block on records.
+
+**What this version does not see.** The names of the cases come from the records of the candidate. So a case that is absent from the candidate does not appear in the gate. `rigor-bench` 0.2.16 adds the option `expected` for this.
+
+**SemVer.** No export of the package changes. The dependencies are for the bench, and they are development dependencies.
+
+## D164 (2026-11-05): the ladder starts on a change of the kernel, and a flip job shows that its gate can block
+
+**Context.** K227. The ladder prints a verdict for STATIC.LINEAR, and nothing reads it. The jobs started only when the workflow, `ladder.ts` or `mode.ts` changed. So a pull request that made a walk quadratic did not start the ladder. Of the last 100 Measure runs, 9 pooled a verdict, and no run in that set changed the kernel.
+
+**Decision.**
+
+- A third filter starts the jobs of the ladder: the kernel, `ladder.ts`, the lock file and the workflow. The jobs of `mode` keep their filter. One job takes approximately 1 minute.
+- The mode `merge` prints one line of the gate. A time verdict other than `linear`, a memory verdict other than `at most linear` or no counted run is a block. With `LADDER_BLOCK=1`, a block gives the exit code 3.
+- The job `ladder-verdict` accepts the exit code 3, so the gate is report only. Another failure of that step turns the job red. To make the gate block, a later pull request removes `|| test $? -eq 3`.
+- `LADDER_INJECT=s` makes a walk with a true slope of `s`. Each call walks more levels, so the levels of one call grow as `n^s`, on the time and on the memory. The count of calls does not change. No document is deeper than its rung.
+- **The job `ladder-flip` holds the code of the verdict and its exit code.** It runs on each change of the kernel, on one runner, at 10 rounds. It reads the slopes 2, 1.3 and 1, and the gate must read block, block and pass. Each block names each walk and each verdict. This job does not hold the size, because one runner at 10 rounds is not the setting of the plain gate.
+- **The workflow `ladder-plain` holds the printed size.** It runs each week on its own minute, and on each change of the code of the gate. It has the setting of the plain gate: 5 runners, 30 rounds, the plain repeats. It reads a slope of 1.25 and a linear walk. A slope of 1.25 is over the sizes stated below. If that slope does not give a block, the printed size is wrong, and the owner of the gate reads that result.
+- The check `Measure OK` reads this workflow, and it skips the workflow when the code of the gate does not change. A change of the gate that breaks this flip does not merge, because a weekly read comes after the merge. The weekly run covers a change of the lock file.
+- A dispatch of this workflow can name another slope in the input `fault`. The weekly run and the call from `measure` use 1.25.
+- The job checks the reasons of a block. A slope over the memory limit of 1.2 must give the reasons of time and of memory. At a smaller slope, the job must find the reasons of time and no reason of memory. So a block on the wrong reason turns it red.
+- The filter of this flip is a second step of the job `ladder-changes`, because each further job waits in the queue again. Each pull request gets no further job.
+- The line of the gate gives the smallest slope that gives a block, from the spread of its own runs. The time verdict blocks at the lower of `1 + half` and `1.2 - half`, where `half` is half of the 90 % interval. The memory verdict blocks at `1.2 - half`. Under that size, the gate has no read.
+- **The size, stated before the first read.** The past 9 runs read `half` from 0.075 to 0.116 on time, so the plain gate sees a time slope of at most 1.12. The memory interval is narrow, so the plain gate sees a memory slope of at most 1.20. A slope of 1.05 is under this size, and a pass does not exclude it.
+- The five plain runs are also a copy with no fault. Their line of the gate reads `pass`.
+
+**First read.** In the CI run 42003078738, the linear walk read `pass`. The gate printed 1.07 on time and 1.19 on memory, and these sizes are in the stated sizes. The slope of 1.25 read a block on each walk and each verdict. Its time slope read 1.277 and its memory slope read 1.238, so the fault is near its stated slope, and not equal to it. The read of the fault printed 1.06 on time for `walk`, so the printed size moves between reads.
+
+**Limit of the claim.** The flips test the slopes 2, 1.3, 1.25 and 1. They do not test a slope between the printed size and 1.25. So the result is a block at a slope of 1.25 at the plain setting, and the printed size stays a figure of the formula. One dispatch reads a slope of 1.12, and that read tests only the time, because the memory limit is 1.2. If that read does not give a block, the stated size moves up to the size that a read showed. The size shown on memory is 1.25, and the stated 1.20 is not shown. Before this gate can block, a read near a memory slope of 1.20 must show that size. The limit of the upper end stays 1.2 (D97). Past runs read 0 blocks of 9, on pull requests with no change of the kernel. With so few rows, the rule of three gives a rate of up to 33 % false blocks. This count is too small for a ruling. The new filter gives more rows with each change of the kernel.
+
+**Since D166 (2026-11-07).** The kernel filter of the ladder also reads `packages/core/package.json`, `packages/core/tsconfig.json` and `pnpm-workspace.yaml`. The two filters of the ladder use the same pin of the action as the other filters.
+
+**SemVer.** No export of the package changes.
+
+## D166 (2026-11-05): the filters of the gates read the lock file, and a slower reading holds a merge only when the arm hashes differ
+
+**Context.** K225 read a gap in the filter of Speed. The list had no lock file, so a dependency update skipped the gate and `Speed OK` passed. A run with both arms from one install does not read a slowdown from a dependency. The two arms differ only by the file of the kernel. K225 also read slower on 2 of 17 rows with equal code, on 2 of 7 branches (range 8 % to 64 %).
+
+**Decision.**
+
+- The filter of Speed adds `pnpm-lock.yaml`, `packages/core/package.json`, `packages/core/tsconfig.json` and `pnpm-workspace.yaml`.
+- The two filters of Measure add the same files. The filter of the jobs at the head also adds each bench file that `mode.ts` reaches.
+- A step in each filter job gives the rules of the pinned action a list of files. The lock file reads true, a docs file reads false, and the lock file reads false for a list with no lock line.
+- Each Speed job records the hash of the bundle of each arm, with `cases.ts`. The script `merge.ts` prints the hashes and the line `Hold (D117)`.
+- A slower reading does not hold a merge only when each run is complete and all hashes of the two jobs are equal. A list of files has no part in this reading.
+- Changed by D173 (K239): under a hold, `Speed OK` is red, unless a record in `bench/accepted` accepts each slower case on that head.
+- Each such row goes in the A/A table with the mark "equal by construction". A count keeps those rows apart from the rows with equal code on other pull requests.
+
+**Rejected.**
+
+- A skip of the bench on equal code. Equal-code runs are the only cheap read of the false-block rate, and K225 has its control run to come.
+- A rule that a change only to the pins of two actions does not count. A pin of an action can change what a gate does.
+
+**Limits.**
+
+- Until D173, the hold was a reading, and no code line blocked the merge. A merge of L1a (#297) went in under a hold, and K238 followed. D173 ends this limit.
+- Under `continue-on-error`, `needs.<job>.result` reads `success` for a failed job (run 42034457935). So a short or absent run left `Speed OK` green. D167 ends this.
+- The base arm has no install. Its `tsconfig.json` names a base file that it cannot find, and esbuild continues. So the two arms do not build under the same settings. The hashes were equal in a read of this layout, but a real kernel change can show a difference from this cause. K234 gives both arms one resolved tsconfig.
+- A new version of Node 26 changes the runs with no change of a file, so no filter sees it. K229 reads the Node version.
+- The hash reads the name of the folder that holds `index.ts`, because esbuild names a namespace object after it. Both real arms use the name `src`. A different name reads as different arms, so it holds a merge and lifts no hold.
+- K233 holds the read of a dependency slowdown.
+
+## D167 (2026-11-05): a crash, a short run or a missing arm turns Speed OK red
+
+**Context.** The jobs `bench` and `verdict` had `continue-on-error` at the level of the job. Run 42034457935 reads `needs.<job>.result` as `success` for a failed job under this setting, and `gate-summary` ends `success` over it. So a crashed bench gave a green check on each merge.
+
+**Decision.**
+
+- A fault says nothing about noise, so it needs no limit study. A crash, a short run, a missing arm, no cases or different results turns `Speed OK` red at once, with the reason in its log.
+- The jobs `bench` and `verdict` lose the setting.
+- The job `verdict` writes the outputs `state` and `reason`. The state is `same`, `slower`, `no read` or `different results`. The script `speed-read.ts` gives the answer of the check, and an empty or unknown state is red.
+- A slower case and a `cannot decide` case stay report only until the flip of `Speed OK`.
+
+**Count of false blocks.** The count covers the 317 runs that started a bench in the 11.4 days of the list. Of these, 30 stopped because a new push cancelled them. Of the other 287, 5 had a fault, and this is 1.7 %.
+
+- Three are the time limit of the job, on 3 heads of one branch.
+- Two are different results, on 2 heads of one branch. The branch changed the result of the case on purpose, and its next head changed the case (K236). So these two are true reds, and no fault of determinism.
+- None is a fault of a runner, so this decision adds no retry.
+
+One run of the 379 gave a server error, and the count does not read it.
+
+**Different results.** The ruling names a crash, a short run and a missing arm. This decision adds different results, because such a case has no time reading. It has its own state and its own count, because it is a finding and not an absent read. On equal arms it is a fault of determinism. On different arms, a changed result can explain it, and the reason says which. 
+
+**A result that changes on purpose.** Such a pull request goes red. Until K237 lands, the only path is a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads this. So the pull request text names each such case, with its old and new result. K237 adds a stated acceptance that the verdict prints. D169 is this acceptance.
+
+**History.** Each green `Speed OK` before this merge says nothing about a crash, because a crash also gave green.
+
+## D168 (2026-11-05): both arms of Speed build under one resolved tsconfig
+
+**Context.** The base arm has no install, so its `tsconfig.json` cannot find the file that it extends. The tool esbuild only warns, and the head arm finds that file. So on a real kernel change the arms can differ because of the settings, and the reading blames the kernel.
+
+**Decision.** The function `bundle` gives esbuild the `tsconfig.json` of the head for both arms. A warning that a base file is missing stops the bundle. A test reads three things. A `tsconfig.json` beside a copy of the kernel has no effect. A changed setting changes the hash. A file that does not resolve stops the bundle.
+
+**Limits.** A pull request that changes `tsconfig.json` builds both arms under the new file. So Speed does not read the cost of that change. This is the same limit as a dependency in D166.
+
+## D165 (2026-11-05): the share gate reads the parts of a split test as one group, first as a report
+
+**Context.** K231. K230 split a test under the rule of D96. The largest share went from 0.602 to 0.078, and the split saved no time. Any slow test can pass the gate in the same way. A real cost can then hide behind a split.
+
+**Decision.**
+
+- The function `groupsOf` of `vitest.share.ts` reads the parts of each split test as one group. A part has a name that ends in the name that `corpus` gives.
+- Each group has its total time, its number of parts and its share of the timeout of one part. It also has its fraction of the time of all tests of the run.
+- In CI, the reporter prints each group in the log. This step is a report, and it does not fail a run.
+- The limit of a group and its flip test come in a second step, by 2026-11-12. That limit comes from 5 or more CI runs, with the run ids and the formula beside it.
+- D174 gives that step. The group report is a gate since D174.
+- That step also states the meaning of the limit. A larger corpus is a fair reason for a larger share, so one limit in timeouts for all groups does not fit.
+
+**Rejected.**
+
+- A limit in this step. The log of a past run has no time for a part under 300 ms. It also has no time for all tests. So no past run gives the numbers.
+- A limit of the share of one part, multiplied by the number of parts. Each part already passes that limit, so it adds no check.
+
+**Why.** The share of a test finds a test that grows toward its timeout. It does not tell the cost of a corpus. The group gives that cost, and the fraction removes most of the speed of the runner.
+
+## D169 (2026-11-06): a row of `changed-results.json` accepts a result that changes on purpose, and the fresh runner times the case
+
+**Context.** K237, from D167. Two copies with different results in a case do not do the same work, so `Speed OK` goes red. A pull request that changes a result on purpose then had one path: a change of the case, as D69 did. That change removes a result from what the case compares, and no gate reads it. Each bench has this question, so the rule went to `@mark1russell7/rigor-bench` 0.2.23 first (`resultRows`, `resultVerdict`).
+
+**Decision.**
+
+- A row of `packages/core/bench/changed-results.json` names the case, the result hash of the base, the result hash of the head, and a reason. The function `resultHash` of `merge.ts` gives each hash: the first 16 hexadecimal digits of the SHA-256 of the result text. The run and the rows use this one function.
+- `paths.ts` reads the rows of the base and of the head, each from its own tree, and gives them to `resultVerdict`. A base without the file has no rows.
+- A new row of the exact hashes accepts the change. The fresh runner then times the case as each other case, with head and A/A pairs and its time verdict. The table marks the case "accepted change", and the log prints the line of the row.
+- A change with no row, a spent row or a row of other hashes is refused. The case gets no time, and the run fails with the line of `resultVerdict`. A refused line with no row gives the row to add.
+- A row of the base is spent and accepts nothing. A new row is a fault of the run when it accepts no change, or when the run has no such case. `merge.ts` adds it to the faults, so `Speed OK` goes red.
+- The run record keeps the verdict of the rows (`results`). `merge.ts` prints its lines one time under "Changed results (K237)".
+
+**The flip.** `bench/changed.test.ts` makes a head kernel whose `context` reads the name `x` one higher. So `FORMULA.SPEED formula` gives 5 and not 4. A real run with a new row of the two hashes passes, and the fresh runner times the case with different arm hashes. With no row, a spent row or a row of another head, the run fails and times nothing. A new row on equal results is a fault.
+
+**What does not change.** The rule reads results only, so an accepted change buys no time reading. The mode run `mode.ts` keeps its own read of different results, because it compares two modes of one copy.
+
+## D135 (2026-11-03): the option `selfOf` gives each node of a schedule its own `self`, nodes with one document share one plan, and a new `self` is a change of data
+
+**Context.** S1f, from S1 (D31). A schedule gave each node the one context of the host. One formula at each cell of a grid then needed the data of the cell in its document. Thus each cell had its own document, and each document compiled its own plan. `durable` keeps a plan for each document object and a result for each key, and its `evaluate` takes a context for each key (D30). Only the schedule gave a host no way to use this.
+
+**Decision.** The new option `selfOf(id, host)` of `schedule` gives the `self` of a node (SCHED.NODE-CONTEXT). The schedule starts the function for each evaluation or verification of a node, and for each run of a node. Thus it starts at most one time for a demanded node in a data epoch. It gets the name of the node and the context of the host, without the nodes at the root `world`. The value `undefined` keeps the `self` of the host. A node gets a copy of the context of the epoch with its `self`. The copy keeps the grant and each other root.
+
+- **One plan.** A plan, a facts object and a list of edges stay for each document object (SCHED.NODE-PLAN). Thus nodes with one document share them, and `durable` needs no change. The value, the reads and the place on a cycle stay for each node.
+- **A change.** A new `self` is a change of data (SCHED.NODE-STALE). The host tells it with `changeData`, and it has no epoch of its own. Each demanded node then verifies its reads with its new `self`. A node that reads no changed field keeps its result, and a new `self` object with equal data changes no read.
+- **Static facts.** `factsOf`, `edgesOf` and `graph()` read only the document. A read of `self` is a read of the data of the host, thus it is not an edge, and `NodeInfo` does not change.
+- **Cycles.** A cycle is a cycle of nodes, not of documents (SCHED.NODE-CYCLE). A reference in a `self` can lead a read to another node, and the reads of the evaluation show it. The demand then gives `#CYCLE!` by D31, in each order of demands.
+- **Runs.** A run gets the `self` of its node, and the `event` of the run as before.
+- **Closures.** A closure keeps the `self` of the node that made it, also in the evaluation of a reader. A reference in the value of a node resolves in the context of its reader (DEREF.COLLAPSE). Thus a root `self` there is the `self` of the reader.
+- **The harness.** `agreeSchedule` gets the option `selves`, and the model gives each node its `self` (SCHED.NODE-AGREES).
+
+A host without the option keeps each behaviour. Each node then uses the one context of the epoch, with no copy, and each evaluation of a node pays one test for `undefined`.
+
+**Alternatives.** An option of `set`. A `set` is a change of the structure, thus a new `self` then rebuilds the graph, or it needs a second method. The schedule then also keeps a table that the host already has.
+
+A new method for the `self` of one node, with a mark for that node. A reader of the node has its value in the epoch, thus such a change needs a new data epoch too. D31 has no push of dirty marks, and only S3 can use them.
+
+A function that gives a whole context. Capabilities for each node can widen a grant, and `event` belongs to a run. A host puts each field of a cell into `self`, thus the names of each node have no first need. Another option can add them.
+
+Edges for each node from the references in its `self`. The facts then need a walk of the data of each `self` in each epoch, and that is the open item S1d.
+
+A closure of `fn` with the cell as an argument. Such a host gets one plan, but the reads of a node then do not show the fields of its cell.
+
+**Limits.**
+
+- One plan needs one document object. Equal documents in new objects compile one time each (PLAN.CACHE).
+- No edge shows a read through a reference in a `self`. Thus a demand of the deep end of a long column uses the stack of the host for each cell. Such a demand fails at 2000 cells. A host that demands the cells in the order of the rows gets each value.
+- A new `self` of one cell verifies each demanded node, as each change of data does.
+- `selfOf` gives the same data for a node in one data epoch. This is the promise of DURABLE.REUSE. `context` of a schedule keeps the `self` of the host.
+- A closure with a kept read that meets a reference keeps each whole root (READS.KEPT). A `self` that is itself a reference to its own node closes no cycle since D136 (K217). The `self` of a host context gives the same answer. The limit of D136 stays: a `self` that reaches its node through another node still closes a false `#CYCLE!` (K218).
+
+**Why.** The function adds no state to the schedule. The host keeps its cells, and a change of many cells is one change of data. The verification of D26 already compares what a read reaches in a new context, thus a node gets its own invalidation with no new rule. The test SCHED.NODE-PLAN counts 1000 cells of one formula with one compilation and one facts object. The test SCHED.NODE-AGREES compares each answer with a model from scratch, and it finds an engine that keeps an old `self`.
+
+## D137 (2026-11-03): `conforms` examines walkers, the code of a `deref` and the functions of a formula profile
+
+**Context.** K121, from K92 (D36). `conforms` threw for the name of a walker and for the name of the code of a `deref`. It examined `formula.op` and `formula.ext` only for the types in the option `types`. Thus the laws of this code stayed text. Each check below tests a law that the docs state. Four laws need a reading, and this entry records them.
+
+**Decision.** The name selects the code. An evaluator and a runner keep their place. Without the option `verb`, each other name selects its walker, and then its `deref`. The option `verb` with the value `step` or `deref` selects that code by force. A finding has the form of each other finding. Its probe also holds the new field `here` for a walker, or the new field `key` for a `deref`.
+
+A walker gets its input from the probes, as R-WALKER gives it. The things are three linked host things, a document, `undefined` and the values of the palette. The option `things` adds more. The steps of the probe use the ladder and `adopt`. The checks of a walker are these:
+
+- `result` (CONFORM.WALKER-RESULT): the answer has the form of `WalkResult`, and a failure code starts with `#` (the type `ErrorCode`).
+- `local` (CONFORM.WALKER-LOCAL): the same input gives the same outcome and the same steps in a later call (EVAL.DETERMINISTIC). A volatile kind gets no such test (FACTS.VOLATILE).
+- `ladder` (CONFORM.WALKER-LADDER): a step on a host thing goes through `deref` and `has` of the input (R-WALKER).
+- `hops` (CONFORM.WALKER-HOPS): each `visit` tells a key that the walk followed and the thing that the key reached (the type `WalkInput`). The walk stays the same without `visit` (DEREF.HOPS).
+- `C4` (CONFORM.WALKER-PURE): the walker of a pure kind gives the same walk with other values in the roots (FACTS.VERB).
+- `typed` (CONFORM.WALKER-TYPE): each thing that the walker reaches is a member of the type of its rule (TYPE.WALKER). The probes ask the rule for the type `unknown` and for the plain type of the thing before the step.
+
+The code of a `deref` gets each probe document with each probe key. Its checks are `result` (CONFORM.DEREF-RESULT), `local` (CONFORM.DEREF-LOCAL) and `has` (CONFORM.DEREF-HAS). This code gets no context, thus C1 and the roots do not apply to it.
+
+The default types of `formula.op` and `formula.ext` hold each operation and each extension that the tables of the profile list, except a volatile name (CONFORM.PROFILE-NAMES). Thus C3, C4, C8, `local` and `agree` see the code of each named function. Two checks call the functions directly:
+
+- `typed` (CONFORM.PROFILE-SIGNATURE, CONFORM.PROFILE-EXT): an operation gives a member of the result of each signature that its arguments match, after the hook `check`. An extension gives a member of its entry in `extTypes`. This is the text of `FormulaProfile`.
+- `result` (CONFORM.PROFILE-FORM): `ext`, `lazy`, `check`, `omit`, `missing` and `combine` give the form of their types.
+
+The first reading is the law of a throw. An evaluator has E-THROW, and R-WALKER has no premise for a throw. A plain throw of a walker or a `deref` leaves `resolve` and drops its hops, thus it is a finding of `result`. A `Failure` is the error channel that the walker of `tree.at` uses, thus it gets no finding.
+
+The second reading is the law of the ladder. R-WALKER gives the walker the step `adopt∘step`. A direct read of a host thing skips `adopt`. A probe node records each read outside the input, and that read is a finding. The field `type` of a host thing is not a step, thus `nearest` stays correct.
+
+The third reading is the law of `has`. The type `DerefCode` tells that `has` gives `true` when the document has the field. The kernel asks it only after an `undefined`. The check reads the text: a key that the code answers needs `true`.
+
+The fourth reading is the widening of a context, which K121 names. `WalkInput` has no call that takes a context, and it has no effect and no wait. Thus a write to the context is the only channel. The probe context is frozen, and that write throws. The throw is a finding of `result`.
+
+**Alternatives.** A function next to `conforms` for each form of code. D86 and D94 rejected that form, because a host then has two lists of findings. A walk through `resolve` with a step document. That walk hides a stray `visit` and a direct read, and a plain throw ends the whole probe. A law against a throw of an operation, a lazy operation, an extension or `check`. The kit catches each of these and gives an error (E-THROW), and an existing test throws from an operation on purpose. A proxy that records each read of the context. C4 sees a read through other values in the roots, and a proxy changes what a walker gets. A generator of random arguments for a signature. Each list of arguments here comes from the fixed palette, thus each finding repeats.
+
+**Limits.** Each check is a sample of the probes, thus a fault outside the probes stays hidden.
+
+- The probe of a signature takes at most 64 lists of arguments. A longer product keeps the first 64.
+- Only the probe nodes record a direct read. A host thing of the option `things` gets no such test.
+- A `sigs` or `ops` that is a function lists no names. Give the types in the option `types`.
+- The default step of a world and each kind under `defaults` need the option `types`.
+- Code in sloppy mode writes to a frozen context without a throw, and that write gets no finding.
+- A write to the data of a step or to a document gets no finding when the result stays the same.
+- Hidden state that changes outside a call gets no finding. An extension that counts the names stays as D47 tells.
+
+**Why.** Each law has a line in the docs or a reading in this entry, and a host can see the source of a finding. The check keeps the standard machine as its main guard: each walker of `STD_MACHINE` and each evaluator of the kit give no finding. Each law has a planted fault in a test. `conforms` runs in no hot path, thus the evaluation of a program stays the same.
+
+**Changed expected values.** `conforms` gives a list for a name that threw before. A host that uses the default types also gets probes of each named function. Each of these can give a finding for code that passed before. `Obligation` has five new members, and `ConformProbe` and `ConformOptions` have new optional fields. An evaluation gives the same results.
+
+## D139 (2026-11-03): after an overflow of the stack, a walk with its own stack finds each cycle of real reads, and a chain with no cycle keeps its `#DEPTH!`
+
+**Context.** S2c, from S2a and the limits of D33. A demand uses the stack of the host for each node that it enters. The demands ahead do not help on a ring, because each of them enters the ring again. On Node.js 24, a ring of 2000 nodes gave `#DEPTH!` with the reason of the evaluator `formula.ref`. D31 gives each node of a cycle `#CYCLE!`. A ring of nodes that catch the error was worse: each node gave the value of its catch, from the depth of the overflow.
+
+The same overflow showed two more faults. A compilation near the limit of the stack gave a plan that fails, and `durable` kept that plan for the document. Then a later evaluation at a shallow depth failed too. The cleanup in `visit` called a function near the limit, and that call failed at times. Then a node stayed open, and its reader found two nodes in its component. A lazy chain with no cycle gave a false `#CYCLE!` in 1 of 400 runs, in a local measure. The test SCHED.LONG-CHAIN had a comment about this result.
+
+**Decision.**
+
+- **The trigger.** `thrown` counts each stack overflow that it changes into `#DEPTH!`, and the internal function `overflowCount` gives the count. A demand of the host compares the count before and after `visit`. A document that catches the error cannot hide the overflow from this count.
+- A demand of the host with an overflow makes a walk, and each later demand of the host in that data epoch walks too. An earlier `#DEPTH!` can stop a read before the cycle (SCHED.DEEP-CYCLE-REAL).
+- A nested demand does no new work. A demand of the host reads one number two times and one field of the epoch. Thus a document with no overflow pays only that.
+- **The walk.** The walk starts at the node of the demand, and it uses the lists of `visit` as its own stack. It evaluates one node at a time, through the plan of the node and a root `world` of its own.
+- A read of a node with a result of the walk gives that result. A read of a node on the stack of the walk gives `#CYCLE!`, as in `visit`. A read of a node on the run side gives `#REF!`.
+- A read of each other node stops the evaluation. The walk enters that node and finishes it. Then the reader evaluates again, and its read finds the result.
+- The links of the algorithm of Tarjan stay the links of `visit`. Thus a walk gives each order of demands the components of D31, also when a document catches the error.
+- After the first stop, each read of the evaluation stops too. Such a read does not happen in a real evaluation.
+- **Certain means real.** Each link of a walk is a read that an evaluation really made. A static edge makes no cycle, thus the rule of D33 stays: a read can fail or be skipped before it occurs.
+- **The results.** A walk that reaches no cycle changes nothing, thus a chain keeps its `#DEPTH!`. A walk that reaches a cycle gives each node that it entered its error, and it drops the durable result of each such node.
+- A node of that walk with a value evaluates again at its next demand. Its value can hold the root `world` of the walk, and that root does not answer a host.
+- **The bound.** Each evaluation of a walk enters a new node or finishes a node. Thus the walks of one data epoch do at most `2V` evaluations for `V` entered nodes. The count of the reads of a node does not change this bound (SCHED.DEEP-CYCLE-BOUND).
+- One evaluation of a walk costs one evaluation of a node. It keeps no trace and no list of reads. A node evaluates again at most one time after a walk, thus an epoch adds at most `3V` evaluations.
+- The memory is one result and one entry in each list for each entered node, thus `O(V)`. The results stay until the data epoch changes. `V` is at most the count of the nodes that the real reads reach.
+- **The coverage.** The check is in `demand`, thus `read`, `run`, the host thing at the root `world` and the record of the root all reach it. A plan, a traced plan, a run and the reference reach it through the root `world`. The walk itself evaluates in the plain plan tier (SCHED.DEEP-CYCLE-ENTRY).
+- **The two faults.** `durable` does not keep a plan when the count of the overflows changed during its compilation. The cleanup in `visit` is a loop with no call of a function of the module.
+
+**Alternatives.**
+
+- `cycles` over the static edges after an overflow. It costs less, but SCHED.DEEP-CYCLE-REAL has a certain ring of edges with a node that fails before its read, and D33 refuses this answer.
+- A test of the result of `visit` for `#DEPTH!`. A document that catches the error then hides the overflow, and a ring of `ifError` nodes keeps its wrong value.
+- A limit of depth in `visit` that starts the walk before an overflow. That adds a compare to each demand, and a lazy chain that fits the stack also pays for a walk.
+- A demand with its own stack in place of the stack of the host. A plan evaluates a read inside its code, thus such a demand needs a stop at each read of each document. That is the walk, on the path of each document.
+- Values of the walk for the host. That solves S2b too, but such a value can hold the root of the walk, and S2b has its own decision about evaluations that repeat.
+- Each result of the walk in place of each memo after a cycle. A closure from the walk then reaches a host, and SCHED.DEEP-CYCLE-REAL finds it.
+
+**Why.** The work runs only after the limit fires, thus the Speed gate has no new work on the path of a demand. D33 rejected a restart because each node evaluates at most one time in a data epoch (SCHED.DEMAND). A walk gives no node a value, thus that rule stays for each value that a host gets.
+
+The harness SCHED.DEEP-CYCLE-AGREES throws one overflow at each demand of a generated graph. Each node with `#CYCLE!` in the plain demand gives the same error after a walk, and no other node gives `#CYCLE!`. Thirteen mutants of the walk, the trigger, the results and the cache all fail the tests. After the change of the cleanup, 900 runs of a lazy chain gave no false `#CYCLE!`.
+
+**Limits.**
+
+- A walk evaluates a node again, and `counts` does not count this evaluation. A document that is not pure can read other nodes in the walk.
+- A chain with no cycle keeps the result of the first pass. A node that catches an overflow in such a chain keeps the value of its catch (S2b).
+- The evaluation from scratch of `agreeSchedule` uses the stack of the host for each node. It gives `#DEPTH!` for a ring longer than the stack, thus such a graph is out of its range. Its generated graphs have five nodes.
+- The count of the overflows is one number for the process. An overflow in an unrelated evaluation inside a demand starts a walk, and the bound stays the same.
+
+## D138 (2026-11-03): `parse` gives each issue of a text in its field `issues`, and recovery reads only a text whose brackets and quotes close
+
+**Context.** K144, from C15. `parse` stopped at the first issue, thus an editor saw one fault at each read. The field `issues` of a failed answer is a list, and it held one item. Recovery has two risks. One fault can make a cascade of false issues, and recovery code can slow the read of a valid text.
+
+**Decision.** The field `issues` of a failed answer holds each issue, in the order of the offsets (SYNTAX.ISSUES-ALL). The type `ParseResult` does not change. The new export `MAX_SYNTAX_ISSUES` is the bound, and its value is `20` (SYNTAX.ISSUES-BOUND).
+
+- Two reads. The first read is the parser of before. Only its first issue starts the class `Recovery`, which reads the text again from the start. Thus a valid text runs no recovery code.
+- The first read gives the first item of `issues`, and recovery only adds items after it. Thus a host that reads `issues[0]` gets the same offset, length and message (SYNTAX.ISSUES-FIRST).
+- A gate. Recovery starts only when each quote closes and each bracket closes in its order. Each other bad text keeps its one issue, because its synchronising tokens are not sure.
+- Synchronising tokens come from the profile (SYNTAX.ISSUES-SYNC). They are `calls.separator`, the closer `)`, and the closer `}` when the profile has `constructs.record` or `constructs.let`. The scan skips each quoted text and each inner bracket.
+- A fault in a list moves to the next separator or to the closer of the list. A fault in a group moves to the closer of the group. A bad escape stays in its text, and the read continues after the escape.
+- A fault outside each bracket has no synchronising token, thus the read ends there.
+- Four rules stop a cascade (SYNTAX.ISSUES-CASCADE). The offsets rise, thus `if(1 2)` gets no issue for its count of arguments. The first token after a synchronising token gets no issue, thus `list(,)` gives one issue.
+- The third rule is for a colon in a list. A colon tells that the name of a form has a fault, thus recovery skips the other items of that list.
+- The fourth rule is for a separator in a group. It tells that a function has a fault, thus the fault also ends the item around the group.
+- The end. The scan only moves forward, and the list consumes each synchronising token. The depth stays under `maxDepth`, thus each input ends. An error of a host in a later text ends the read, and the answer keeps the issues so far.
+
+**Alternatives.** A new export `parseAll`. It gives two entries for one job, and a host must change its code to see more. The field `issues` is already a list, and a reader of `issues[0]` sees no change. A new field `more` next to `issues` has the same fault.
+
+Recovery inside the first read. A stack of open brackets or a `try` around each item is on the hot path, and the Speed gate permits no slower case. A read of each item of a list alone, as a small text. Such a read loses the keys and the forms around the item. A resume at the next operator. A scan cannot find an operator safely, because `-` is also inside `2e-3`. A closer that recovery adds for a missing bracket. The text `f(1, (2, 3)` does not tell which bracket is missing.
+
+**Why.** The gate, the rising offsets and the silent first token keep each later issue away from the reach of a fault. A generated test damages printed documents of eight profiles. It reads 38842 bad texts, and the largest count of issues is 5. Of 10501 texts with one fault, each cascade comes from a fault in a quote mark. A digest of each first issue equals the digest from the parser before this decision.
+
+**Limits.** A bad text costs two reads. A text with an open bracket or an open quote gives one issue. A missing closer thus hides each later issue until the host corrects it.
+
+Recovery prefers a missed issue to a false issue. The first token after a synchronising token gets no issue, thus `{a 1, b 2, c 3}` gives one issue. A fault outside brackets ends the read, thus `1 2 + (3 4)` gives one issue.
+
+A fault in a quote mark can pair with a mark inside another text. Then the gate passes, and later issues can be false. This occurred in 9 of the 10501 texts, and each of the 9 holds a text with all three marks. A pattern of a profile that holds a closer can give a false issue at the end of the text.
+
+## D140 (2026-11-03): `checkSyntax` reports the faults of a syntax profile, and each finding is a small document that breaks the law
+
+**Context.** K146, from C15. `compileProfile` refuses many clashes with a `TypeError`, and it stops at the first one. Other faults pass it. With `+` at the precedence `1` and `*` at `1.5`, the document `add(a, mul(b, c))` prints `a + b * c`, and that text reads `mul(add(a, b), c)`. A host finds such a fault only when a document fails. The law of the kit is that `parse(print(doc))` gives `doc` (SYNTAX.ROUNDTRIP).
+
+**Decision.** The new export `checkSyntax(profile)` gives a list of `SyntaxFinding` with `code`, `place` and `reason` (SYNTAX.PROFILE-CHECK). The list has at most one finding for each code and place. The function uses the law as its oracle.
+
+- The function writes and reads small documents. It has one for each operator and one for each ordered pair of operators. It also has one for each root, form, name of `calls.ops` and construct. A `flat` operator also has documents with three terms.
+- A finding is a document that does not come back, thus it is not a style opinion. Each test plants a fault and shows the failure of the law without `checkSyntax`.
+- A literal word is the one exception. The function compares the text of the word with the literal, because `print` writes that text.
+- The separator has a control. The function writes a document with the separator of the profile and with a neutral separator. A document that only the neutral separator keeps blames the separator. These documents use `ops: true`, thus the probe does not depend on the operations of the profile.
+- A pattern that reads the start of a failing text takes the finding, with the code `pattern`, because `parse` tries patterns first.
+- A small `maxDepth` is a limit of the host, thus each probe uses the default limit.
+- A `TypeError` of `compileProfile` becomes one finding `invalid` with an empty place.
+
+The codes are `invalid`, `operator`, `grouping`, `longest-match`, `word`, `root`, `pattern`, `form`, `call`, `separator` and `construct`.
+
+The parser settles these candidates, and each one has no finding (SYNTAX.PROFILE-CHECK-SETTLED):
+
+- `-` as prefix and infix, and `!` as prefix and postfix, because the place of the token settles them.
+- `<` with `<=` and `<-`, because longest match reads them and the printer writes spaces around an infix operator.
+- An infix word `in` with `let`, because `in` has its meaning only after the closing brace.
+- A form name that a pattern matches, for example `LOG10(x)`, because a pattern does not read a name before `(`.
+- An infix `:` in a record, and a bind `=` with `==`, because a key reads first and a longer symbol wins.
+- Two spellings of one kind, a separator `, ` with a trailing space, and a prefix `;` with the separator `;;`.
+- A word literal `let`, because `let` starts a form only before a brace.
+
+**Alternatives.** A part of `check` has the wrong input. `check` takes a machine and a document, and a profile is a separate value that a site reads without code (D41). `checkWorld` is the model: a separate function with its own finding form. A static list of rules is a second copy of the grammar, and it drifts from the parser. An early separator rule was static, and a generated run showed gaps at the backtick, the quote and the closing brace. The control replaced that rule. A check in `compileProfile` adds a cost to the first `parse`, and it changes which profiles throw.
+
+**Why.** The oracle is the law, thus the check and the grammar agree on each document that the check writes. The standard profiles give no finding, and that test guards against a false report (SYNTAX.PROFILE-CHECK-CLEAN). A generated test guards the other direction: a generated profile with no finding keeps the law over generated documents (SYNTAX.PROFILE-CHECK-LAW). A local run of 60000 profiles gave 11083 profiles with no finding. These profiles gave no miss in 60 documents for each one. `parse` and `print` do not change, and only a host calls the check, thus the Speed gate stays 0 slower by design.
+
+**Limits.**
+
+- An empty list tells that the small documents come back. It does not prove the law for each document.
+- The function examines pairs of operators. Three postfix operators and one longer symbol, for example `!`, `!!` and `!!!`, can pass.
+- A profile with `ops: true` permits each name, thus the function probes only one dotted name, and only when the profile has field steps. Without field steps, `print` writes no dotted call (D142).
+- The probes use the names `probe__` and `m.p`, and the keys `x` and `y`. A word operator with one of these names gives a finding, and the host does not use that text.
+- A separator counts as used when the profile has any call or construct, also when each form takes one argument.
+- A `read` or a `write` function of a pattern is code of the host. An error of such a function leaves `checkSyntax` with no change.
+
+## D141 (2026-11-04): a call form with the field `domain` is the text of a domain value
+
+**Context.** K143, from C15. D40 gives a value that JSON cannot write the document `ext.domain`, with the name of its domain and its data. The syntax kit of D41 has no text for such a document, thus `print` refuses each date of a language.
+
+**Decision.** `SyntaxForm` gets the optional field `domain`.
+
+- A form with `args: "literal"` and `kind: "ext.domain"` needs the field. The form `{ name: "date", kind: "ext.domain", args: "literal", domain: "date" }` reads `date("2026-01-02")` (SYNTAX.FORM-DOMAIN).
+- The value of the document is `{ domain: "date", data: "2026-01-02" }`, the form of D40.
+- `print` tries each form of the kind, thus a profile has one form for each domain. A domain without a form has no text (SYNTAX.FORM-DOMAIN-NONE).
+- Each other form with the field throws when the profile compiles (SYNTAX.FORM-DOMAIN-CHECK).
+- The syntax does not read the data. The codec of the machine reads it at evaluation, and it gives each error (SYNTAX.FORM-DOMAIN-VALUE).
+
+**Alternatives.**
+
+- Codecs in the profile. `parse` then runs code of a host and gives values, not documents. A profile is data (D41), thus this breaks that rule.
+- A new literal mark, for example `#date "2026-01-02"`. Each language then needs a new token, and the form of D63 already has the text.
+- A table `literals.domains`. It holds the same four facts as a form, and it needs its own rules for names and clashes.
+
+**Limits.**
+
+- Only data that a literal writes has a text. Data that is a record or a list has no text at this time (SYNTAX.FORM-DOMAIN-NONE).
+- `parse` accepts data that the codec refuses. `check` does not read the data either, thus the error comes at evaluation.
+- A form of a domain and an operation with one name follow the rule of forms: the form wins.
+
+**Why.** A form already has a name, one literal, its text and its place in `print`. One optional field adds the two facts that differ, and `parse` stays free of code of a host. `parse` of `print` holds for each literal data, and the codec keeps one definition of each domain.
+
+## D142 (2026-11-04): `print` gives no dotted call without field steps
+
+**Context.** K219, from the Limits of D140. With `ops: true` and `fields: false`, `print` wrote `m.p(1)`. `parse` reads a dot as a field step, thus it refused that text.
+
+**Decision.** `print` gives an error for such a document (SYNTAX.CALL-DOTTED). A plain call name does not change.
+
+**Alternatives.**
+
+- A finding of `checkSyntax` on the profile. The profile is good: `ops: true` with no field steps has a clear meaning. The document has no text, and that is what `print` tells for each other document.
+- A dotted call in `parse` without field steps. A name then needs a new token rule, for a form that no language asks for.
+
+**Limits.** A name with dots in a list `ops` gets the finding `call` of `checkSyntax`, because that entry has no text.
+
+**Why.** `parse` of `print` holds for each text that `print` writes. The change removes one text that no `parse` read, thus it is a fix.
+
+## D143 (2026-11-04): a kept read that meets a node in evaluation below it closes no cycle
+
+**Context.** K218, from the Limits of D136. A closure at `f` has a `self` that refers to `g`, and a document of `g` reads `f`. The kept read of `f` demands `g`, and `g` meets `f` in evaluation. Thus both nodes gave `#CYCLE!`. The evaluation of `f` did not ask for that read, and a run has no such cycle.
+
+**Decision.**
+
+- In a kept read, a demand of a node in evaluation below that read gives the same error as before. It adds no mark for the cycle check (SCHED.KEPT-BELOW).
+- At the end of such a kept read, the schedule drops the nodes that finished in it. It removes their values of the epoch and their entries of the store. A real demand then evaluates them again.
+- A read of an evaluation goes outside `keeping`, thus a true cycle gives `#CYCLE!`. A cycle between nodes that a kept read evaluates also stays, because these nodes are above the read.
+
+**Alternatives.**
+
+- A store that keeps no entry of the reader. D136 expected this need. A test of each part found no case for it. `verifyReads` asks `known` for a kept read, and `known` has no value for a node that is not finished. Thus the list fails, and the node evaluates again.
+- A kept read that does not demand. D136 has the reason against it.
+
+**Limits.**
+
+- The nodes of such a kept read evaluate two times in an epoch.
+- D145 removes the false cycle of a kept read that reaches a true cycle.
+- The false cycle of a kept read at a root other than `world` stays, because only `world` gets `keeping` (D136).
+
+**Why.** D31 gives each value of an epoch one meaning. The dropped values do not break that rule, because only the nodes of the kept read saw them, and the schedule drops these nodes too. A node goes from `#CYCLE!` to the value of the run, thus no working result changes.
+
+## D144 (2026-11-04): the demands of a long chain get no change for memory
+
+**Context.** K116, from K105. SCHED.LONG-CHAIN needed approximately 550 MB in its worker, and its schedule kept approximately 120 MB of it. Since K207, that test has 2000 nodes, thus that peak is gone. The study still measures the demands of a chain of 100000 nodes.
+
+**Measure.** The script `bench/chain-memory.ts` measures a chain of 100000 nodes. The workflow `chain-memory.yml` started it on 3 runners of CI with Node.js 26.13.0, on three models of CPU (run 42409463169). The three runs give the same allocation, garbage and kept memory to 0.1 %. Only the peak of the heap differs between the runs.
+
+| Step | Allocated | Garbage | Peak of the heap | Heap after a full collection |
+| --- | ---: | ---: | ---: | ---: |
+| `set` of each node | 43 MB | 23 MB | 36 to 43 MB | 20 MB |
+| The first `read` | 895 MB | 779 MB | 209 to 224 MB | 135 MB |
+| `changeData` and a `read` | 223 MB | 223 MB | 230 MB | 135 MB |
+
+The schedule keeps 1418 bytes for each node. The steps make 10757 bytes of garbage for each node, 7.6 times the kept memory. The peak of the heap is 230 MB.
+
+The sampling heap profiler counts 1143 to 1150 MB, with the objects that a collection frees. The largest sources are these, as a share of the samples in the three runs:
+
+- 12.7 to 12.8 %: a function without a name in `durable.ts`.
+- 10.6 to 10.8 %: `resolveFully` in `deref.ts`.
+- 9.5 to 9.7 %: `resolve` in `deref.ts`.
+- 9.4 to 9.6 %: `partsOf` in `parts.ts`.
+- 9.0 to 9.2 %: `Map.prototype.delete`.
+
+The loader of tsx gives no line numbers, thus the study names a function and its file only.
+
+The first study of 2026-11-04 was one local run with Node.js 24.21.0 on Windows. It gave a peak of 283 MB and approximately 829 MB allocated. The CI runs use another version of V8 and a later kernel, thus this record does not compare the two sets of numbers.
+
+**Decision.** No code changes. No source is more than 13 % of the samples. A schedule keeps approximately 1.4 KB for each node after a collection.
+
+**Alternatives.**
+
+- Arrays in place of the small maps of `visit`. `Map.prototype.delete` is 9 % of the samples, thus this change removes at most that share. The study does not show that the peak goes down with it. The code of Tarjan then gets a second form of each mark.
+- A smaller plan of a reference. K105 did that work, and the live size stays near its result.
+
+**Limits.**
+
+- The study is not a gate. A later change of the kernel can change each number. `chain-memory.yml` starts the study again on a change of its script, or by a dispatch.
+- The profiler gives the self size of each function, not its callers. Thus the study does not tell which function calls `Map.prototype.delete`.
+- The numbers are of one version of Node.js. Another version of V8 gives other sizes.
+
+**Why.** The claim of K116 was about the peak of a test, and that peak is gone. A change to `visit` adds risk to the code of the cycle check for each host. It needs a need that a host measures.
+
+## D145 (2026-11-04): a kept read that reaches a true cycle joins no component
+
+**Context.** K220, from the Limits of D143. The nodes `a` and `b` read each other. The fallback of `a` reads `c`, a closure with a `self` that refers to `x`. The node `x` reads `b`. The kept read of `c` demands `x`, and `b` is a finished node of an open component. Thus the marks of the cycle check reached `x` and `c`, and both gave a false `#CYCLE!`.
+
+**Decision.**
+
+- In a kept read, a read of a finished node of an open component adds no mark when that node started below the read (SCHED.KEPT-OPEN).
+- Such a read counts as a meeting of D143. The schedule drops the nodes of the kept read, and a real demand evaluates them again.
+- Thus a node with a real read from the cycle stays on the cycle in each order. A node without one stays outside it.
+- The drop no longer tests for an open component. No node of a kept read can stay in an open component, because no mark goes below the read.
+
+**Alternatives.**
+
+- No mark and no drop. A test shows that the value of a node then depends on the order of demands, and that breaks D31.
+- A mark only at the reader of the kept read. The node `x` then still gives a false `#CYCLE!`.
+
+**Limits.** The nodes of such a kept read evaluate two times in an epoch. The restore of the start of an outer kept read has no test. Without it, a nested read gives the same values, with one more evaluation.
+
+**Why.** A path of a real cycle has only reads that an evaluation asks for. A kept read is not such a read, thus no mark goes through it. The drop keeps D31, because no value of a kept read reaches a node outside it.
+
+## D146 (2026-11-04): a handler is a frame in the context, and a clause is a capability that the kernel gives
+
+**Context.** R2 P5 proposes a kind `handle` with clauses that run in place, and L1a takes it up. D27 left room for a rule `grant`. R2 names two risks: D10 lists five roots, and CAP.NARROW changes its wording.
+
+**Decision.**
+
+- The standard kind `handle` has the fields `with`, `body` and an optional `return`. Each item of `with` has `op` and one of `do` and `abort`.
+- A frame is a field of a context under a private symbol, as the grant is. It is not a root, thus D10 stays true.
+- A clause is a capability. The new rule `grant` of `Kind.caps` gives the body each kind of the clauses, and the kernel writes that grant (`RunPart.handled`).
+- The kernel asks the capabilities first and the frames second. Thus `mask`, `only` and the narrowing of an evaluator stop a handled effect with no new code (HANDLE.NARROW).
+- A frame ends with its body. An effect from a context that left the body gives `#CAP!`, and a frame of another evaluation counts as ended (HANDLE.ENDED).
+- A handled effect is not an effect of the host. It is not in the list of effects, in a log or in a replay. The effects of a clause are, at the place of the clause.
+- An abort sets the result in the frame, and the effect gives a failure that stops the body. `handle` then gives that result.
+
+**Alternatives.**
+
+- Frames before capabilities. A handled effect then needs no grant. But an effect in `pure` under `handle` gets a clause, and each narrowing needs a second filter for the frames.
+- A frame in `caps`. That changes the type `Cap`, and R2 rejects it.
+- A clause that keeps working after the capability check of its frame ends, as a deep handler in a language with closures does. The capability of that clause then reaches the host through a closure that left the body. The refusal is the safe side.
+- An abort as an error value with a token. A runner that treats an error as data then changes the result of `handle`. A field of the frame does not.
+
+**Why.** A frame that is also a capability needs one rule for the run and one for the check. `check` reads `grant` from the contract, thus it accepts a handled effect with no knowledge of `handle`. `effectsOf` keeps the list of handled kinds on each visit, and CAP.EFFECTS-SOUND stays true, because a handled effect does not reach the host.
+
+The second tier has its own frames, as D15 asks. `agreeRun` compares the results and the addresses.
+
+**Limits.**
+
+- Clauses run in place. A clause cannot resume and then work on the rest of the body. R2 P5 calls that general resumption, and it changes `Steps`.
+- A clause sees the payload but not the kind. A clause for a namespace cannot forward the exact effect.
+- After an abort, a runner that treats an error as data can go on with its next step. Each effect of that step happens, and `handle` still gives the result of the abort. Under `all`, the other items go on unless the host sets `failFast`.
+- `check` does not report a clause with both `do` and `abort`. A run gives `#VALUE!` (HANDLE.VALUE).
+- `factsOf` still lists a handled effect, because its facts read each declaration. That list is an upper bound.
+- A kind that declares `grant` and gives no clauses passes `check`, and its run gives `#CAP!`.
+- A `handle` in a context of an earlier evaluation has no capability, thus its clauses answer nothing, and an effect gives `#CAP!`.
+- `WORLD_SYNTAX` has no text for `handle`. Each clause is a record of data, and the profile has no text for a list of records. SYNTAX.WORLD pins this reason, and L1c gives the text.
+
+## D172 (2026-11-07): each arm of Speed builds with the esbuild of its own lock file
+
+**Context.** Speed bundles each arm with esbuild (K101). Before this decision, both arms built with the esbuild of the head. A pull request with a new version of esbuild then gave two arms of one bundler. Speed did not read what that version does to the kernel (K232, D166). The first read of K233 found that the patch releases of esbuild 0.28 give equal bytes for the kernel, and that 0.27.7 gives other bytes.
+
+**Decision.**
+
+- The bench job reads the version of esbuild that each lock file gives to `packages/core` (`bench/esbuild.ts`). Only a plain version of SemVer goes to a command.
+- When the two versions differ, the job installs the version of the base in a temporary folder. `paths.ts` builds the base arm with it, and the head arm with the esbuild of the head.
+- In that case, `paths.ts` also builds the base with the esbuild of the head, and prints the two hashes of the base. Equal hashes show that the new version gives the same code. Different hashes make the table a time read of the new version, with the old bundle as the base arm.
+- When the versions are equal, `paths.ts` prints one line with the version, and builds as before.
+
+**Alternatives.**
+
+- A job that builds the kernel with the last 3 versions of esbuild. That job reads versions that no pull request changes, and it gives no paired time read of the change.
+- A time read of each version of each dependency. Only the bundler changes the code that an arm runs. The other dependencies of the bench measure, and the A/A pair reads their noise.
+
+**Limits.**
+
+- The A/A pair has two processes of the old bundle. It gives no noise of the new bundle.
+- An arm hash of the base that differs between the two versions holds a slower reading (D166). The hold is correct, because the arms then run different code.
+
+**Why.** A gate holds each gain only when it reads each change that the arms run. A new version of esbuild changes the code of the arms, and Speed reads it as a change from this decision on.
+
+## D173 (2026-11-07): a hold turns `Speed OK` red, unless a record of the pull request accepts each slower case
+
+**Context.** K239, from K238. D166 made a hold a reading: `Speed OK` stayed green, and only a person who read the line `Hold (D117)` kept a merge back. L1a (#297) merged under a hold. Its verdict read `factsOf a tree with an equation` slower in both runs, by 16.4 % and 14.6 %, on different arms. The release of that version followed, and K238 found the cost after the release. A person who reads a line is not a gate.
+
+**Decision.**
+
+- A slower case under a hold gives the state `held`, and `Speed OK` is red.
+- A record in the folder `packages/core/bench/accepted` accepts one slower case. A file is a list of records, and its name is the number of the pull request, for example `301.json`.
+- A record has five fields of text: `case`, `head`, `cost`, `reason` and `owner`. The field `head` holds 12 to 64 characters of the hash of the head arm, as the line `Arms (K232)` prints it.
+- A record accepts a case only when it has the name of the case, and the head arm of each run starts with its hash. When each slower case has such a record, the state is `accepted`. `Speed OK` is green, and its line names each record with its cost, its owner and its reason.
+- A file that is not a list of correct records is a fault, and the state is `no read`. Thus a record with an empty field stops the run.
+- A slower case on equal arms stays report only, as D166 says. Such a reading is noise of the method, and it needs no record.
+
+**Why a hash of the head.** A record on `main` must not accept a later change. The next change of the kernel gives another hash of the head arm, thus the record accepts nothing more. The file stays on `main` as the trail of the cost, and a score can read it. A merge of `main` with a change of the kernel also changes the hash, thus the record names the code that the run measured.
+
+**Alternatives.**
+
+- A label on the pull request. A label leaves no trail in the tree, and a label of an earlier head stays on a later head.
+- A record with the number of the pull request and no hash. A dispatch has no pull request, and a record stays valid after a change of the code.
+
+**Limits.**
+
+- The record reads the hash of the head arm only. A change of the base with the same head gives the same hash, and the record still accepts the case. The cost on the new base is then not read.
+- The folder of the records is in the tree of the head. A pull request can thus accept its own cost. The owner, the cost and the reason are in the diff, and the review of the pull request reads them.
+- The tests start the real script of the verdict with a folder of records from `BENCH_ACCEPTED`. They cover no hold, a hold with a record, and a hold with no record. A CI run of a real hold with a record is still to come.
+
+**Why.** A gate holds each gain only when it is code. A record is the cheap path for a hold from noise on different arms, and it leaves a trail for a score.
+
+## D174 (2026-11-07): a group of parts above 0.0359 of the test time fails a run of all tests
+
+**Context.** K231, the second step of D165. The reporter printed each group of split parts, as a report only. A split lowers the share of each part and saves no time, thus a slow test passed the gate of D96 after a split.
+
+**The measure.** The fraction of a group is its total time, divided by the time of all tests of the same run. Five CI runs of all tests on 2026-11-07 printed 29 groups each: 42396929367, 42397725803, 42397768621, 42399231485 and 42399576673. The share in timeouts of the top group went from 0.304 to 0.568. Its fraction went only from 0.0219 to 0.0289. Thus the fraction removes most of the speed of the runner, and the share in timeouts does not.
+
+**Decision.**
+
+- `GROUP_LIMIT` is 0.0359. It is the worst fraction of the five runs plus the largest spread of one group between the runs: 0.0289 + 0.0070. The run ids and the formula are beside the constant.
+- In CI, a group above the limit fails the run with a line `::error::` that names the group. This line tells the two fixes: a smaller corpus, or a new limit from 5 CI runs.
+- The limit applies only to a run of all tests. A run with a filter of files or of names has another total, thus it only prints its groups. Two CI jobs run such a filter: the nightly job of `agree.yml` and the step of `measure.yml`.
+- The flip test runs the real reporter with a fake run of Vitest. Two parts of 400 ms in 10 000 ms of tests fail the run. The same times with a filter pass.
+
+**The meaning of the limit.** No group of parts costs more of the run than the worst group of today, plus its spread. The limit holds the cost of each corpus at the level of today. A larger corpus on purpose is a fair reason for a larger share, as D165 says. Such a change measures a new limit from 5 CI runs in its pull request, and the diff shows the cost.
+
+**Alternatives.**
+
+- A limit in timeouts for each group, for example `FAIL` of D96. The top group already reads 0.568 on a slow runner, so it fails with no change of code.
+- A limit for each group by its name. A rename of a test then needs a new limit, and a new group has no limit.
+
+**Limits.**
+
+- The five runs ran on one day, on the runners of that day. A runner with another CPU model can give another fraction. A false fail then gets a new measure, not a larger margin by hand.
+- The test of a run of all tests compares the count of test files with the count that Vitest finds. A CI run of all tests shows the line `No group used more than` in its log. The first CI run of this change is the first such read.
+- The limit does not find the test of K230 as it is today, because that group is the top group of the five runs. It finds each growth above that level.
+
+**Why.** A gate holds each gain only when it is code. The fraction is a share of a time in its own run, thus a slow runner does not move it much.
+
+## D175 (2026-11-07): the tree kit is complete, and each open question of R3 has an answer
+
+**Context.** L2, from R3. L2a to L2i gave the nine proposals of R3 (D16, D42, D106, D107, D108, D113, D122, D124, D126). The seven open questions of R3 had no record of their answers, thus L2 stayed open.
+
+**Decision.** L2 is done. This record gives the answer to each open question of R3.
+
+1. **Structural steps.** A node reserves only the steps `parent` and `type` (D16). `index` and `prev` are names of an equation of `down`, not steps (D42). `next` follows the same rule. Thus a record keeps each other field name.
+2. **Inherited reads.** The two forms stay, and they read two attributes. `["self", "width"]` reads the attribute of the node through the ladder of D42. `["self", "parent", "width"]` reads the attribute of the parent. A declaration `copy` makes the first form fall back to the second when no nearer rung answers (TREE.COPY).
+3. **Rungs.** The kernel keeps its trace. `attributeTrace` of the tree kit gives the rungs (TREE.RUNGS, D42).
+4. **Declarations.** Each declaration is in the contract `tree` of its kind, not in the spec of a kit (D42, D14).
+5. **Circularity.** A declared circular attribute evaluates to a fixed point, and each other cycle gives `#CYCLE!` (D113).
+6. **A store of named nodes.** The schedule of D31 keeps named nodes without the rungs of a tree. It uses the same analysis `graph.ts` as the graph of attribute instances (D107). Thus the two layers share one cycle finder.
+7. **A tree space.** Coeval gives no space. A space is a host: its things and its walkers (DEREF.HOST, D10). The test `positions.test.ts` gives a space of rows in this form. A tree space with a zipper is the work of the language that uses it, on the same interface.
+
+**Alternatives.** Keep L2 open until a language asks for a tree space. That gives no work to coeval, thus the item only blocks the view of the roadmap.
+
+**Limits.** The answers 6 and 7 tell what coeval gives. A language that uses coeval can still find a gap. Then that gap gets its own item.
+
+**Why.** Each item finishes with a record of its result. A reader of R3 finds the answer to each question in one place.
+
+## D151 (2026-11-04): the playground reads its editors from the contracts, and an empty position holds a site kind `hole`
+
+**Context.** C11, from R6 P6. The panel of the playground named its kinds in code. It had an input for `number`, a menu of each world entry and a table of new documents. A new document needed a value, thus a reader could not leave a position empty.
+
+**Decision.** The function `editorOf` gives the editor of a kind from `Kind.parts` alone. A data shape gives an input. A record shape gives one row for each field, with a mark for each necessary field. A position lists only the kinds of its `term` shape (SHAPE.KINDS). The function `emptyDoc` gives a new document from the contract, and each necessary position holds a hole. The evaluator of `hole` gives the error value `#HOLE`, and the kernel adds its place. The function `namesAt` reads the names of a reference editor from `walk`.
+
+**Alternatives.** A kind `hole` in `STD_WORLD`. A hole is a state of an editor, and a host without an editor has no use for it. Thus the kernel does not change.
+
+**Why.** Each fact of the editor was already in a contract, except the shapes of the data kinds. The standard world gives `number`, `text` and `bool` no `parts`, so `SITE_WORLD` adds them. It also adds the fields of `write` and the necessary fields of `if`. A check reads these shapes in the same way as other contracts. An error value keeps each state of an edit evaluable, as in Hazelnut.
+
+**Limits.** A kind with no contract has no input, and "Edit the JSON" stays its editor. A reference keeps a small rule of its own, because its value is a path and no shape tells that. An edit does not check the type of a position against the kind that it lists. The field `of` declares the type of a bare value, and only `kinds` limits a term.
+
+## D152 (2026-11-04): `mapDocs` changes the documents of a document from the root to the parts
+
+**Context.** K222. The static kit has `walk`, which only reads, and `mapRefs`, which changes only free references. A host that changes each step of a document kept its own recursion. That recursion named its step kinds and kept its own limit of depth.
+
+**Decision.** The function `mapDocs(world, doc, change, options)` runs on `walk` (STATIC.MAPDOCS). The function `change` reads each visit from the root to the parts and gives one of four answers. The answer `undefined` keeps the document and goes into its parts. The answer `"skip"` keeps the document and stops. The answer `{ to }` replaces the document and stops. The answer `{ to, into: true }` replaces it and goes into the parts of the old document.
+
+**Why.** A visit already has the kind, the parent, the slot and the declared type of a position. Thus the host decides which kinds are steps, and the kernel names none. The order and the stop come from `walk`, thus a deep document needs no second stack and no second limit. A document deeper than `maxDepth` gets its change, and the kernel gives `#DEPTH!` at its evaluation.
+
+**Alternatives.** A map from the parts to the root. The function then reads a part that it changed, but it cannot stop at a node before it goes in. The request needs the stop.
+
+**Limits.** The function reads only the original documents. A new document is not walked. With `into: true`, the new document must keep the path of each part. Each change copies the path from the root, thus `c` changes at depth `d` take `O(c d)` time.
+
+## D153 (2026-11-04): `ifRunner` gives an `if` with the truth of a host
+
+**Context.** K221. The runner `control.if` can wait for the host, but it accepts only a boolean test. The `if` of the formula kit reads the function `truthy` of a profile, but it is an evaluator, and an evaluator cannot wait. A host with its own truth and steps that wait kept a copy of the runner.
+
+**Decision.** The function `ifRunner(truth)` gives the runner, and `control.if` is `ifRunner` of the boolean truth (RUN.IF-TRUTH). A host passes `profile.truthy` and names the runner in `machine.runners`. A document selects it with `own`.
+
+**Why.** One body holds the three failures and the order of the parts, thus a host has no copy of them. The parameter has the type of `FormulaProfile.truthy`.
+
+**Alternatives.** A runner for `formula.if` in each formula machine. A runner wins over an evaluator of the same name. Thus each formula `if` then pays for a generator, and the bench refuses a slower read. A formula `if` holds no effect, so it has no need to wait.
+
+**Limits.** A bare value in a part stays a literal of the kit. A missing `then` stays an error of `check`. A host that reads older documents keeps these two rewrites, and `mapDocs` (D152) is the place for them.
+
+## D177 (2026-11-07): a field of data gives `handle` a text in `WORLD_SYNTAX`
+
+**Context.** L1c. The kind `handle` (D146) keeps its clauses in `with`, a list of records of data. Each record has the data `op` and the document `do` or `abort`. A profile had text only for documents, thus SYNTAX.WORLD pinned a reason for `handle`.
+
+**Decision.**
+
+- The new field `data` of `SyntaxForm` names the fields that take data with documents in it (SYNTAX.DATA-FIELD).
+- In such a field, brackets read a list and braces read a record. A literal stays its data, and each other text is a document.
+- A record of data has no key `type`, because that key makes a document. `print` writes a record that is an envelope as a document.
+- `WORLD_SYNTAX` has the form `handle` with the arguments `named`, the field of data `with`, and `wrap` on `return` and `body`.
+- The text `handle(with: [{op: "log", do: payload}], body: log("a"))` reads to the document of D146, and `print` writes the same text.
+- A form with data needs fields. A name of `data` is a field, and it is not in `wrap`. No operator of such a profile starts with a bracket or a brace.
+- The new generator `handlers` of SYNTAX.ISSUES-GENERATED writes lists and records in `with`. SYNTAX.ROUNDTRIP and the damage check read its texts.
+- The damage check ignores the quote marks in an escape. A fault between a backslash and its quote mark is thus a quote cascade (D138, Limits).
+
+**Alternatives.**
+
+- A form for each clause, for example `do(log, payload)`. A clause is not a document, thus such a form needs a kind that the world does not have.
+- Brackets and braces in each place of each profile. That takes symbols from each profile and changes the meaning of each text with braces under `constructs.record`.
+- A literal in a field of data with its envelope. Then `op: "log"` becomes a document, and `handle` refuses it.
+
+**Why.** The rule is general: each kind with a list or a record of data gets a text from one field of its form. The parser, the printer and recovery read the same rule, thus SYNTAX.ROUNDTRIP holds for each such kind.
+
+**Limits.**
+
+- A literal in a clause body needs its form, for example `do: number(7)`. A bare literal in `do` is data, and the kernel refuses it with `#PART?`.
+- Brackets and braces are fixed. A profile cannot pick other symbols for a field of data.
+
+## D178 (2026-11-08): each new document of the structured editor has a text
+
+**Context.** C17b. The structured editor (C11, D151) and the text pane (C17, D61) show one document. A test of each kind of the menu found seven new documents with no text in `SITE_SYNTAX`. Thus a reader saw an empty text pane after such an edit.
+
+**Decision.**
+
+- A field with a list or a map shape gets an empty list or map, and not a hole. Thus `handle` starts as `handle(with: [], body: hole())`.
+- The function `emptyDoc` takes a profile. A list gets one hole for each argument that the call form needs, thus `log` starts as `log(hole())`.
+- A new path starts at the root `self`, because the root `names` alone has no text.
+- The menu of a position leaves out a step of a path: a kind with the verb `step` and no verb `eval`, for example `nearest`.
+- A test prints each new document of the menu and reads it back. The site probe reads the text pane after an edit of the tree.
+
+**Alternatives.**
+
+- A least count on the list shape of a contract. The kernel has none, and the call form already holds the count.
+- A text for a bare `names`. The text `names` reads as the name `names`, so such a text needs new syntax.
+
+**Why.** The editor and the text pane agree on each new document, thus each state of an edit has a text (SYNTAX.ROUNDTRIP).
+
+**Limits.** A field with a record shape still starts as a hole. A step of a path stays inside the path of a reference, and the path input edits it.

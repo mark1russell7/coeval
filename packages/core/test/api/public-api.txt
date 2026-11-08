@@ -1,0 +1,2807 @@
+# The public API of @mark1russell7/coeval
+#
+# The names of each entry of the exports field, and the declaration of each name, without comments
+# and private members. The command `api-report check` compares this file with the built .d.ts files.
+# To accept a change of the API, start the build, then `api-report update`, and review the diff.
+
+## . (build/index.d.ts): names
+
+ATTRIBUTE_RUNGS: build/index.d.ts#ATTRIBUTE_RUNGS
+type AgreeOptions: build/index.d.ts#AgreeOptions
+type AgreeRunOptions: build/index.d.ts#AgreeRunOptions
+type AgreeScheduleOptions: build/index.d.ts#AgreeScheduleOptions
+type Agreement: build/index.d.ts#Agreement
+type Alias: build/index.d.ts#Alias
+type AllOptions: build/index.d.ts#AllOptions
+type Answer: build/index.d.ts#Answer
+type AskOptions: build/index.d.ts#AskOptions
+type AtArgs: build/index.d.ts#AtArgs
+type AtEquation: build/index.d.ts#AtEquation
+type AtRule: build/index.d.ts#AtRule
+type AttributeAnswer: build/index.d.ts#AttributeAnswer
+type AttributeCell: build/index.d.ts#AttributeCell
+type AttributeCycle: build/index.d.ts#AttributeCycle
+type AttributeDeclaration: build/index.d.ts#AttributeDeclaration
+type AttributeEdge: build/index.d.ts#AttributeEdge
+type AttributeGraph: build/index.d.ts#AttributeGraph
+type AttributeGraphOptions: build/index.d.ts#AttributeGraphOptions
+type AttributeRung: build/index.d.ts#AttributeRung
+type AttributeTrace: build/index.d.ts#AttributeTrace
+type AttributeVertex: build/index.d.ts#AttributeVertex
+CAPS_TYPE: build/index.d.ts#CAPS_TYPE
+CIRCULAR_LIMIT: build/index.d.ts#CIRCULAR_LIMIT
+CONSTRUCTS: build/index.d.ts#CONSTRUCTS
+type Cap: build/index.d.ts#Cap
+type CapsRule: build/index.d.ts#CapsRule
+type CheckOptions: build/index.d.ts#CheckOptions
+type CircularDeclaration: build/index.d.ts#CircularDeclaration
+type CircularRule: build/index.d.ts#CircularRule
+type Classification: build/index.d.ts#Classification
+type Clause: build/index.d.ts#Clause
+type Closure: build/index.d.ts#Closure
+type Code: build/index.d.ts#Code
+type CodecFinding: build/index.d.ts#CodecFinding
+type CodecLaw: build/index.d.ts#CodecLaw
+type CodecLawsOptions: build/index.d.ts#CodecLawsOptions
+type CodecProbe: build/index.d.ts#CodecProbe
+type CollectDeclaration: build/index.d.ts#CollectDeclaration
+type CollectRule: build/index.d.ts#CollectRule
+type CompileInput: build/index.d.ts#CompileInput
+type CompiledEvaluator: build/index.d.ts#CompiledEvaluator
+type CompiledPart: build/index.d.ts#CompiledPart
+type CompiledPath: build/index.d.ts#CompiledPath
+type CompiledRunner: build/index.d.ts#CompiledRunner
+type ConformOptions: build/index.d.ts#ConformOptions
+type ConformProbe: build/index.d.ts#ConformProbe
+type Construct: build/index.d.ts#Construct
+type Context: build/index.d.ts#Context
+type ContextPart: build/index.d.ts#Part
+type CycleIssue: build/index.d.ts#CycleIssue
+type Declared: build/index.d.ts#Declared
+type Definitions: build/index.d.ts#Definitions
+type DerefCode: build/index.d.ts#DerefCode
+type DocChange: build/index.d.ts#DocChange
+type DocFacts: build/index.d.ts#DocFacts
+type DocParts: build/index.d.ts#DocParts
+type DocVisit: build/index.d.ts#DocVisit
+type Domain: build/index.d.ts#Domain
+type DomainCodec: build/index.d.ts#DomainCodec
+type DomainExtension: build/index.d.ts#DomainExtension
+type Durable: build/index.d.ts#Durable
+type DurableCounts: build/index.d.ts#DurableCounts
+type DurableOptions: build/index.d.ts#DurableOptions
+ENVELOPE_KEYS: build/index.d.ts#ENVELOPE_KEYS
+type Edge: build/index.d.ts#Edge
+type Effect: build/index.d.ts#Effect
+type EffectsOptions: build/index.d.ts#EffectsOptions
+type Envelope: build/index.d.ts#Envelope
+type Epochs: build/index.d.ts#Epochs
+type ErrorCode: build/index.d.ts#ErrorCode
+type EvalError: build/index.d.ts#EvalError
+type EvalFn: build/index.d.ts#EvalFn
+type EvalInput: build/index.d.ts#EvalInput
+type EvalOptions: build/index.d.ts#EvalOptions
+type EvaluateOptions: build/index.d.ts#EvaluateOptions
+type Evaluator: build/index.d.ts#Evaluator
+type ExtFn: build/index.d.ts#ExtFn
+type FactsOptions: build/index.d.ts#FactsOptions
+type Failed: build/index.d.ts#Failed
+Failure: build/index.d.ts#Failure
+type Finding: build/index.d.ts#Finding
+type FormulaProfile: build/index.d.ts#FormulaProfile
+GENERATION_LIMIT: build/index.d.ts#GENERATION_LIMIT
+type GenerateOptions: build/index.d.ts#GenerateOptions
+type Give: build/index.d.ts#Give
+type GraphCycle: build/index.d.ts#GraphCycle
+type GraphEdge: build/index.d.ts#GraphEdge
+type GraphNode: build/index.d.ts#GraphNode
+type GraphOptions: build/index.d.ts#GraphOptions
+type Header: build/index.d.ts#Header
+Held: build/index.d.ts#Held
+type Hop: build/index.d.ts#Hop
+type HopBy: build/index.d.ts#HopBy
+type HostThing: build/index.d.ts#HostThing
+type Issue: build/index.d.ts#Issue
+JOURNAL: build/index.d.ts#JOURNAL
+type Journal: build/index.d.ts#Journal
+type Json: build/index.d.ts#Json
+type JsonRecord: build/index.d.ts#JsonRecord
+type KernelCode: build/index.d.ts#KernelCode
+type Key: build/index.d.ts#Key
+type Kind: build/index.d.ts#Kind
+type KindFacts: build/index.d.ts#KindFacts
+type KindSource: build/index.d.ts#KindSource
+type LazyOp: build/index.d.ts#LazyOp
+type LazyRule: build/index.d.ts#LazyRule
+type Lookup: build/index.d.ts#Lookup
+MAX_SYNTAX_ISSUES: build/index.d.ts#MAX_SYNTAX_ISSUES
+type Machine: build/index.d.ts#Machine
+type MachinePart: build/index.d.ts#MachinePart
+type MergeConflict: build/index.d.ts#MergeConflict
+MergeError: build/index.d.ts#MergeError
+type MergePath: build/index.d.ts#MergePath
+type NamesSource: build/index.d.ts#NamesSource
+type Namespace: build/index.d.ts#Namespace
+type Navigator: build/index.d.ts#Navigator
+type NearestOptions: build/index.d.ts#NearestOptions
+type NodeEdge: build/index.d.ts#NodeEdge
+type NodeGraph: build/index.d.ts#NodeGraph
+type NodeInfo: build/index.d.ts#NodeInfo
+type NodeRunOptions: build/index.d.ts#NodeRunOptions
+type Obligation: build/index.d.ts#Obligation
+type OpFn: build/index.d.ts#OpFn
+type OrderProblem: build/index.d.ts#OrderProblem
+type Outcome: build/index.d.ts#Outcome
+PARTS: build/index.d.ts#PARTS
+PART_INFO: build/index.d.ts#PART_INFO
+type ParseResult: build/index.d.ts#ParseResult
+type Part: build/index.d.ts#Part$1
+type PartInfo: build/index.d.ts#PartInfo
+type PartShape: build/index.d.ts#Shape
+type PartSlot: build/index.d.ts#PartSlot
+type PartType: build/index.d.ts#PartType
+type PartsSpec: build/index.d.ts#PartsSpec
+type Perform: build/index.d.ts#Perform
+type Plan: build/index.d.ts#Plan
+type PlanRunOptions: build/index.d.ts#PlanRunOptions
+type PrepareOptions: build/index.d.ts#PrepareOptions
+type PrintOptions: build/index.d.ts#PrintOptions
+ROOTS: build/index.d.ts#ROOTS
+RUNGS: build/index.d.ts#RUNGS
+type Random: build/index.d.ts#Random
+type Read: build/index.d.ts#Read
+type ReadPrints: build/index.d.ts#ReadPrints
+type ReadsCheck: build/index.d.ts#ReadsCheck
+type Recorder: build/index.d.ts#Recorder
+type RefUse: build/index.d.ts#RefUse
+type ReferenceOptions: build/index.d.ts#ReferenceOptions
+type ReferenceRunOptions: build/index.d.ts#ReferenceRunOptions
+type ReplayCausePartsJson: build/index.d.ts#ReplayCausePartsJson
+type ReplayEntry: build/index.d.ts#ReplayEntry
+type ReplayEntryJson: build/index.d.ts#ReplayEntryJson
+type ReplayErrorJson: build/index.d.ts#ReplayErrorJson
+type ReplayExceptionJson: build/index.d.ts#ReplayExceptionJson
+type ReplayLog: build/index.d.ts#ReplayLog
+type ReplayLogJson: build/index.d.ts#ReplayLogJson
+type ReplayOptions: build/index.d.ts#ReplayOptions
+type ReplayPartJson: build/index.d.ts#ReplayPartJson
+type ReplayPartsJson: build/index.d.ts#ReplayPartsJson
+type ReplayResultJson: build/index.d.ts#ReplayResultJson
+type ReplaySettle: build/index.d.ts#ReplaySettle
+type Resolution: build/index.d.ts#Resolution
+type ResolveCode: build/index.d.ts#ResolveCode
+type ResolveOptions: build/index.d.ts#ResolveOptions
+type Result: build/index.d.ts#Result
+type Root: build/index.d.ts#Root
+type RootTypes: build/index.d.ts#RootTypes
+type Run: build/index.d.ts#Run
+type RunCode: build/index.d.ts#RunCode
+type RunFn: build/index.d.ts#RunFn
+type RunInput: build/index.d.ts#RunInput
+type RunOptions: build/index.d.ts#RunOptions
+type RunPart: build/index.d.ts#RunPart
+type Rung: build/index.d.ts#Rung
+type Runner: build/index.d.ts#Runner
+type Runtime: build/index.d.ts#Runtime
+STD_CAPS: build/index.d.ts#STD_CAPS
+STD_DEFINITIONS: build/index.d.ts#STD_DEFINITIONS
+STD_DOMAINS: build/index.d.ts#STD_DOMAINS
+STD_EVALUATORS: build/index.d.ts#STD_EVALUATORS
+STD_EXT: build/index.d.ts#STD_EXT
+STD_MACHINE: build/index.d.ts#STD_MACHINE
+STD_RUNNERS: build/index.d.ts#STD_RUNNERS
+STD_SYNTAX: build/index.d.ts#STD_SYNTAX
+STD_WALKERS: build/index.d.ts#STD_WALKERS
+STD_WORLD: build/index.d.ts#STD_WORLD
+type SampleOptions: build/index.d.ts#SampleOptions
+type Schedule: build/index.d.ts#Schedule
+type ScheduleAgreement: build/index.d.ts#ScheduleAgreement
+type ScheduleAgreementCounts: build/index.d.ts#ScheduleAgreementCounts
+type ScheduleCounts: build/index.d.ts#ScheduleCounts
+type ScheduleEngine: build/index.d.ts#ScheduleEngine
+type ScheduleEngineFactory: build/index.d.ts#ScheduleEngineFactory
+type ScheduleEngineStart: build/index.d.ts#ScheduleEngineStart
+type ScheduleOptions: build/index.d.ts#ScheduleOptions
+type ScopeRule: build/index.d.ts#ScopeRule
+type Shape: build/index.d.ts#Shape$1
+type Side: build/index.d.ts#Side
+type Signature: build/index.d.ts#Signature
+type Split: build/index.d.ts#Split
+type StaticRead: build/index.d.ts#StaticRead
+type Step: build/index.d.ts#Step
+type StepKey: build/index.d.ts#StepKey
+type StepLadder: build/index.d.ts#StepLadder
+type StepNeed: build/index.d.ts#StepNeed
+type StepReason: build/index.d.ts#StepReason
+type StepRefusal: build/index.d.ts#StepRefusal
+type StepSpec: build/index.d.ts#StepSpec
+type StepWalk: build/index.d.ts#StepWalk
+type Steps: build/index.d.ts#Steps
+type StopSignal: build/index.d.ts#StopSignal
+type Stored: build/index.d.ts#Stored
+type SyntaxAssoc: build/index.d.ts#SyntaxAssoc
+type SyntaxCalls: build/index.d.ts#SyntaxCalls
+type SyntaxConstructs: build/index.d.ts#SyntaxConstructs
+type SyntaxEnvelopes: build/index.d.ts#SyntaxEnvelopes
+type SyntaxFinding: build/index.d.ts#SyntaxFinding
+type SyntaxFindingCode: build/index.d.ts#SyntaxFindingCode
+type SyntaxFixity: build/index.d.ts#SyntaxFixity
+type SyntaxForm: build/index.d.ts#SyntaxForm
+type SyntaxFormArgs: build/index.d.ts#SyntaxFormArgs
+type SyntaxHeader: build/index.d.ts#SyntaxHeader
+type SyntaxIssue: build/index.d.ts#SyntaxIssue
+type SyntaxLiterals: build/index.d.ts#SyntaxLiterals
+type SyntaxOperator: build/index.d.ts#SyntaxOperator
+type SyntaxProfile: build/index.d.ts#SyntaxProfile
+type SyntaxRefPattern: build/index.d.ts#SyntaxRefPattern
+type SyntaxRefs: build/index.d.ts#SyntaxRefs
+THING: build/index.d.ts#THING
+type Thing: build/index.d.ts#Thing
+type Tier: build/index.d.ts#Tier
+type TierInput: build/index.d.ts#TierInput
+type TierResult: build/index.d.ts#TierResult
+type TraceNode: build/index.d.ts#TraceNode
+type TreeContract: build/index.d.ts#TreeContract
+type TreeOptions: build/index.d.ts#TreeOptions
+type TypeInput: build/index.d.ts#TypeInput
+type TypeIssue: build/index.d.ts#TypeIssue
+type TypeProblem: build/index.d.ts#TypeProblem
+type TypeReading: build/index.d.ts#TypeReading
+type TypeRef: build/index.d.ts#TypeRef
+type TypeRule: build/index.d.ts#TypeRule
+type Typed: build/index.d.ts#Typed
+type Typing: build/index.d.ts#Typing
+type Use: build/index.d.ts#Use
+type ValueType: build/index.d.ts#ValueType
+type VerbEffects: build/index.d.ts#VerbEffects
+type VerifyOptions: build/index.d.ts#VerifyOptions
+WORLD_SYNTAX: build/index.d.ts#WORLD_SYNTAX
+type WalkInput: build/index.d.ts#WalkInput
+type WalkOptions: build/index.d.ts#WalkOptions
+type WalkProblem: build/index.d.ts#WalkProblem
+type WalkResult: build/index.d.ts#WalkResult
+type WalkTypeInput: build/index.d.ts#WalkTypeInput
+type Walker: build/index.d.ts#Walker
+type World: build/index.d.ts#World
+type WorldEntry: build/index.d.ts#WorldEntry
+type WorldIssue: build/index.d.ts#WorldIssue
+type WorldOptions: build/index.d.ts#WorldOptions
+type WorldPart: build/index.d.ts#WorldPart
+agree: build/index.d.ts#agree
+agreeRun: build/index.d.ts#agreeRun
+agreeSchedule: build/index.d.ts#agreeSchedule
+argsKey: build/index.d.ts#argsKey
+ask: build/index.d.ts#ask
+atArgsOf: build/index.d.ts#atArgsOf
+atRuleOf: build/index.d.ts#atRuleOf
+attributeGraph: build/index.d.ts#attributeGraph
+attributeTrace: build/index.d.ts#attributeTrace
+attributeVertexId: build/index.d.ts#attributeVertexId
+capKeys: build/index.d.ts#capKeys
+check: build/index.d.ts#check
+checkCycles: build/index.d.ts#checkCycles
+checkLatent: build/index.d.ts#checkLatent
+checkStep: build/index.d.ts#checkStep
+checkSteps: build/index.d.ts#checkSteps
+checkSyntax: build/index.d.ts#checkSyntax
+checkWorld: build/index.d.ts#checkWorld
+circularOf: build/index.d.ts#circularOf
+classify: build/index.d.ts#classify
+codecLaws: build/index.d.ts#codecLaws
+collectOf: build/index.d.ts#collectOf
+compilePath: build/index.d.ts#compilePath
+components: build/index.d.ts#components
+conforms: build/index.d.ts#conforms
+context: build/index.d.ts#context
+cycles: build/index.d.ts#cycles
+dataEdges: build/index.d.ts#dataEdges
+decodeDomain: build/index.d.ts#decodeDomain
+decodeLog: build/index.d.ts#decodeLog
+decodeValue: build/index.d.ts#decodeValue
+derefStep: build/index.d.ts#derefStep
+describe: build/index.d.ts#describe
+docEquals: build/index.d.ts#docEquals
+documentKey: build/index.d.ts#documentKey
+durable: build/index.d.ts#durable
+edgesOf: build/index.d.ts#edgesOf
+effectEdges: build/index.d.ts#effectEdges
+effectsOf: build/index.d.ts#effectsOf
+effectsOfVerb: build/index.d.ts#effectsOfVerb
+encodeLog: build/index.d.ts#encodeLog
+encodeValue: build/index.d.ts#encodeValue
+entriesAsJson: build/index.d.ts#entriesAsJson
+equationType: build/index.d.ts#equationType
+evaluate: build/index.d.ts#evaluate
+extendDomain: build/index.d.ts#extendDomain
+factsOf: build/index.d.ts#factsOf
+fail: build/index.d.ts#fail
+failures: build/index.d.ts#failures
+field: build/index.d.ts#field
+fits: build/index.d.ts#fits
+flatten: build/index.d.ts#flatten
+formulaDefinitions: build/index.d.ts#formulaDefinitions
+formulaEvaluators: build/index.d.ts#formulaEvaluators
+formulaFacts: build/index.d.ts#formulaFacts
+formulaKinds: build/index.d.ts#formulaKinds
+formulaKnown: build/index.d.ts#formulaKnown
+formulaMachine: build/index.d.ts#formulaMachine
+fromJson: build/index.d.ts#fromJson
+generate: build/index.d.ts#generate
+heights: build/index.d.ts#heights
+ifRunner: build/index.d.ts#ifRunner
+intersectCaps: build/index.d.ts#intersectCaps
+isAlias: build/index.d.ts#isAlias
+isAllowedOrder: build/index.d.ts#isAllowedOrder
+isClosure: build/index.d.ts#isClosure
+isEnvelope: build/index.d.ts#isEnvelope
+isHostThing: build/index.d.ts#isHostThing
+isKey: build/index.d.ts#isKey
+isKind: build/index.d.ts#isKind
+isNamespace: build/index.d.ts#isNamespace
+isRecord: build/index.d.ts#isRecord
+isRef: build/index.d.ts#isRef
+isStackOverflow: build/index.d.ts#isStackOverflow
+isStep: build/index.d.ts#isStep
+isTypeRef: build/index.d.ts#isTypeRef
+join: build/index.d.ts#join
+jsTruthy: build/index.d.ts#jsTruthy
+kindDocument: build/index.d.ts#kindDocument
+kindNamed: build/index.d.ts#kindNamed
+kindOf: build/index.d.ts#kindOf
+layers: build/index.d.ts#layers
+looksLikeKind: build/index.d.ts#looksLikeKind
+lookupKind: build/index.d.ts#lookupKind
+makeContext: build/index.d.ts#makeContext
+mapDocs: build/index.d.ts#mapDocs
+mapRefs: build/index.d.ts#mapRefs
+member: build/index.d.ts#member
+mergeMachines: build/index.d.ts#mergeMachines
+mergeWorlds: build/index.d.ts#mergeWorlds
+narrow: build/index.d.ts#narrow
+nearestWalker: build/index.d.ts#nearestWalker
+necessary: build/index.d.ts#necessary
+nodeAt: build/index.d.ts#nodeAt
+nodeLayers: build/index.d.ts#nodeLayers
+ok: build/index.d.ts#ok
+parse: build/index.d.ts#parse
+partCaps: build/index.d.ts#partCaps
+partGrants: build/index.d.ts#partGrants
+partsOf: build/index.d.ts#partsOf
+pathMatches: build/index.d.ts#pathMatches
+permits: build/index.d.ts#permits
+placeOf: build/index.d.ts#placeOf
+placed: build/index.d.ts#placed
+planner: build/index.d.ts#planner
+prepare: build/index.d.ts#prepare
+print: build/index.d.ts#print
+printReads: build/index.d.ts#printReads
+random: build/index.d.ts#random
+recorder: build/index.d.ts#recorder
+ref: build/index.d.ts#ref
+reference: build/index.d.ts#reference
+referenceRun: build/index.d.ts#referenceRun
+refsOf: build/index.d.ts#refsOf
+replayer: build/index.d.ts#replayer
+resolve: build/index.d.ts#resolve
+resolveCompiled: build/index.d.ts#resolveCompiled
+restrictMachine: build/index.d.ts#restrictMachine
+restrictWorld: build/index.d.ts#restrictWorld
+run: build/index.d.ts#run
+sameResult: build/index.d.ts#sameResult
+sameValue: build/index.d.ts#sameValue
+schedule: build/index.d.ts#schedule
+splitParts: build/index.d.ts#splitParts
+stepLadder: build/index.d.ts#stepLadder
+stepOf: build/index.d.ts#stepOf
+stepRank: build/index.d.ts#stepRank
+stored: build/index.d.ts#stored
+syntaxFormat: build/index.d.ts#syntaxFormat
+tag: build/index.d.ts#tag
+thrown: build/index.d.ts#thrown
+toJson: build/index.d.ts#toJson
+treeNodeEvaluator: build/index.d.ts#treeNodeEvaluator
+typeCheck: build/index.d.ts#typeCheck
+typeFromSamples: build/index.d.ts#typeFromSamples
+typeFromSchema: build/index.d.ts#typeFromSchema
+typeIssues: build/index.d.ts#typeIssues
+typeName: build/index.d.ts#typeName
+typePath: build/index.d.ts#typePath
+typeText: build/index.d.ts#typeText
+typed: build/index.d.ts#typed
+typesOf: build/index.d.ts#typesOf
+valueOfThing: build/index.d.ts#valueOfThing
+verifyReads: build/index.d.ts#verifyReads
+walk: build/index.d.ts#walk
+worldThing: build/index.d.ts#worldThing
+
+## Declarations
+
+### build/index.d.ts#ATTRIBUTE_RUNGS
+export declare const ATTRIBUTE_RUNGS: readonly AttributeRung[];
+
+### build/index.d.ts#AgreeOptions
+interface AgreeOptions {
+  readonly declaredType?: string;
+  readonly verb?: string;
+  readonly definitions?: Definitions;
+  readonly tiers?: readonly Exclude<Tier, "other">[];
+  readonly other?: (doc: unknown, context: Context, input: TierInput) => Result | TierResult;
+  readonly perform?: Perform;
+  readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
+  readonly strict?: boolean;
+  readonly observe?: () => unknown;
+}
+
+### build/index.d.ts#AgreeRunOptions
+interface AgreeRunOptions extends Omit<AgreeOptions, "other" | "perform"> {
+  readonly perform?: Perform;
+}
+
+### build/index.d.ts#AgreeScheduleOptions
+interface AgreeScheduleOptions {
+  readonly machines?: readonly Machine[];
+  readonly declaredType?: string;
+  readonly generate?: Omit<GenerateOptions, "seed" | "names">;
+  readonly value?: (rng: Random) => unknown;
+  readonly wire?: (rng: Random, node: () => Json) => unknown;
+  readonly wired?: number;
+  readonly runs?: boolean;
+  readonly nodes?: readonly string[];
+  readonly names?: readonly string[];
+  readonly values?: readonly unknown[];
+  readonly contexts?: readonly Context[];
+  readonly selves?: readonly unknown[];
+  readonly count?: number;
+  readonly steps?: number;
+  readonly seed?: number;
+  readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
+}
+
+### build/index.d.ts#Agreement
+type Agreement = {
+  readonly ok: true;
+  readonly result: Result;
+  readonly effects: readonly Effect[];
+  readonly reads?: readonly Read[];
+} | {
+  readonly ok: false;
+  readonly tier: Tier;
+  readonly plan: Result;
+  readonly other: Result;
+  readonly reason: string;
+};
+
+### build/index.d.ts#Alias
+type Alias = {
+  readonly type: "ref";
+  readonly value: readonly Json[];
+};
+
+### build/index.d.ts#AllOptions
+interface AllOptions {
+  readonly concurrency?: number;
+  readonly failFast?: boolean;
+}
+
+### build/index.d.ts#Answer
+interface Answer {
+  readonly verb: string;
+  readonly evaluator?: string;
+  readonly rung?: Rung;
+  readonly error?: "unknown-kind" | "no-answer";
+  readonly steps: readonly Step[];
+}
+
+### build/index.d.ts#AskOptions
+interface AskOptions {
+  readonly declaredType?: string;
+}
+
+### build/index.d.ts#AtArgs
+type AtArgs = {
+  readonly ok: true;
+  readonly names: Readonly<Record<string, Json>>;
+  readonly key: string;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+};
+
+### build/index.d.ts#AtEquation
+interface AtEquation {
+  readonly params: readonly string[];
+  readonly equation: Json;
+}
+
+### build/index.d.ts#AtRule
+type AtRule = {
+  readonly ok: true;
+  readonly params: readonly string[];
+  readonly equation: Json;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+};
+
+### build/index.d.ts#AttributeAnswer
+interface AttributeAnswer {
+  readonly result: Result | undefined;
+  readonly by: AttributeRung | undefined;
+}
+
+### build/index.d.ts#AttributeCell
+type AttributeCell = (place: readonly Key[], attribute: string, compute: () => AttributeAnswer) => AttributeAnswer;
+
+### build/index.d.ts#AttributeCycle
+interface AttributeCycle {
+  readonly vertices: readonly string[];
+  readonly certain: boolean;
+  readonly circular?: true;
+}
+
+### build/index.d.ts#AttributeDeclaration
+interface AttributeDeclaration {
+  readonly copy?: boolean;
+  readonly fold?: {
+    readonly unit: Json;
+    readonly combine: Json;
+  };
+  readonly default?: Json;
+  readonly circular?: CircularDeclaration;
+  readonly collect?: CollectDeclaration;
+  readonly higher?: Json;
+}
+
+### build/index.d.ts#AttributeEdge
+interface AttributeEdge {
+  readonly from: string | undefined;
+  readonly to: string;
+  readonly lazy: boolean;
+  readonly place: readonly Key[];
+}
+
+### build/index.d.ts#AttributeGraph
+interface AttributeGraph {
+  readonly vertices: ReadonlyMap<string, AttributeVertex>;
+  readonly edges: readonly AttributeEdge[];
+  readonly graph: NodeGraph<string>;
+  readonly unknown: readonly AttributeEdge[];
+  readonly cycles: readonly AttributeCycle[];
+}
+
+### build/index.d.ts#AttributeGraphOptions
+interface AttributeGraphOptions {
+  readonly declaredType?: string;
+}
+
+### build/index.d.ts#AttributeRung
+type AttributeRung = "own" | "kind" | "parent" | "copy" | "default" | "forward";
+
+### build/index.d.ts#AttributeTrace
+interface AttributeTrace {
+  readonly attribute: string;
+  readonly rungs: readonly AttributeRung[];
+  readonly by?: AttributeRung;
+}
+
+### build/index.d.ts#AttributeVertex
+interface AttributeVertex {
+  readonly id: string;
+  readonly place: readonly Key[];
+  readonly attribute: string;
+  readonly type: string;
+  readonly circular?: true;
+  readonly args?: Readonly<Record<string, Json>>;
+}
+
+### build/index.d.ts#CAPS_TYPE
+export declare const CAPS_TYPE: ValueType;
+
+### build/index.d.ts#CIRCULAR_LIMIT
+export declare const CIRCULAR_LIMIT = 100;
+
+### build/index.d.ts#CONSTRUCTS
+export declare const CONSTRUCTS: readonly Construct[];
+
+### build/index.d.ts#Cap
+type Cap = string | readonly Key[];
+
+### build/index.d.ts#CapsRule
+type CapsRule = {
+  readonly rule: "same";
+  readonly in?: readonly (readonly Key[])[];
+} | {
+  readonly rule: "mask";
+  readonly in?: readonly (readonly Key[])[];
+} | {
+  readonly rule: "only";
+  readonly caps: readonly Cap[];
+  readonly in?: readonly (readonly Key[])[];
+} | {
+  readonly rule: "grant";
+  readonly from: readonly Key[];
+  readonly in?: readonly (readonly Key[])[];
+};
+
+### build/index.d.ts#CheckOptions
+interface CheckOptions {
+  readonly declaredType?: string;
+  readonly names?: readonly string[] | "any";
+  readonly caps?: readonly Cap[];
+  readonly verb?: string;
+  readonly types?: boolean;
+  readonly expect?: ValueType;
+  readonly run?: boolean;
+  readonly rootTypes?: RootTypes;
+}
+
+### build/index.d.ts#CircularDeclaration
+interface CircularDeclaration {
+  readonly start: Json;
+  readonly limit?: number;
+}
+
+### build/index.d.ts#CircularRule
+type CircularRule = {
+  readonly ok: true;
+  readonly start: Json;
+  readonly limit: number;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+};
+
+### build/index.d.ts#Classification
+interface Classification {
+  readonly kind?: string;
+  readonly candidates: readonly string[];
+  readonly error?: "no-match" | "ambiguous";
+}
+
+### build/index.d.ts#Clause
+interface Clause {
+  readonly op: Cap;
+  answer(payload: unknown): Steps;
+}
+
+### build/index.d.ts#Closure
+type Closure = ((...args: readonly unknown[]) => unknown) & {
+  readonly [CLOSURE]: {
+    readonly params: readonly string[];
+  };
+};
+
+### build/index.d.ts#Code
+type Code = (ctx: Context, rt: Runtime) => Result;
+
+### build/index.d.ts#CodecFinding
+interface CodecFinding {
+  readonly obligation: CodecLaw;
+  readonly reason: string;
+  readonly probe: CodecProbe;
+}
+
+### build/index.d.ts#CodecLaw
+type CodecLaw = "samples" | "encode" | "json" | "stable" | "decode" | "roundtrip";
+
+### build/index.d.ts#CodecLawsOptions
+interface CodecLawsOptions {
+  readonly samples?: readonly unknown[];
+  readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
+}
+
+### build/index.d.ts#CodecProbe
+interface CodecProbe {
+  readonly domain: string;
+  readonly value: unknown;
+  readonly data?: unknown;
+}
+
+### build/index.d.ts#CollectDeclaration
+type CollectDeclaration = {
+  readonly unit: Json;
+  readonly combine: Json;
+} | "names";
+
+### build/index.d.ts#CollectRule
+type CollectRule = {
+  readonly ok: true;
+  readonly names: true;
+} | {
+  readonly ok: true;
+  readonly names: false;
+  readonly unit: Json;
+  readonly combine: Json;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+};
+
+### build/index.d.ts#CompileInput
+interface CompileInput {
+  readonly kind: string;
+  readonly typePath: readonly Key[];
+  readonly doc: Envelope;
+  readonly value: unknown;
+  readonly data: Json;
+  readonly parts: readonly CompiledPart[];
+  readonly place: readonly Key[];
+  readonly machine: Machine;
+  fill(items: readonly unknown[]): unknown;
+  readonly address?: boolean;
+}
+
+### build/index.d.ts#CompiledEvaluator
+interface CompiledEvaluator {
+  readonly compile: (input: CompileInput) => Code;
+  readonly type?: TypeRule;
+}
+
+### build/index.d.ts#CompiledPart
+interface CompiledPart {
+  readonly key: string;
+  readonly path: readonly Key[];
+  readonly name?: string;
+  readonly code: Code;
+  readonly run: RunCode;
+}
+
+### build/index.d.ts#CompiledPath
+interface CompiledPath {
+  readonly path: readonly unknown[];
+  readonly nav: Navigator;
+  resolve(ctx: Context): Resolution;
+}
+
+### build/index.d.ts#CompiledRunner
+interface CompiledRunner {
+  readonly compileRun: (input: CompileInput) => RunCode;
+}
+
+### build/index.d.ts#ConformOptions
+interface ConformOptions {
+  readonly verb?: string;
+  readonly types?: readonly TypeRef[];
+  readonly values?: Readonly<Record<string, readonly Json[]>>;
+  readonly results?: readonly Result[];
+  readonly definitions?: Definitions;
+  readonly things?: readonly unknown[];
+  readonly caps?: readonly Cap[];
+  readonly names?: Readonly<Record<string, unknown>>;
+  readonly seed?: number;
+  readonly runs?: number;
+  readonly perform?: Perform;
+  readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
+}
+
+### build/index.d.ts#ConformProbe
+interface ConformProbe {
+  readonly type: string;
+  readonly doc: Envelope;
+  readonly results: Readonly<Record<string, Result>>;
+  readonly waits: readonly string[];
+  readonly caps: readonly Cap[];
+  readonly running: boolean;
+  readonly here?: unknown;
+  readonly key?: Key;
+}
+
+### build/index.d.ts#Construct
+interface Construct {
+  readonly id: string;
+  readonly title: string;
+  readonly side: Side;
+  readonly summary: string;
+  readonly example: Envelope;
+  readonly uses: Readonly<Record<Part, Use>>;
+}
+
+### build/index.d.ts#Context
+interface Context {
+  readonly self: Thing;
+  readonly names: Readonly<Record<string, unknown>>;
+  readonly world: Thing;
+  readonly event: Thing;
+  readonly caps: readonly Cap[];
+}
+
+### build/index.d.ts#CycleIssue
+interface CycleIssue extends Issue {
+  readonly code: "#CYCLE!";
+  readonly nodes: readonly string[];
+}
+
+### build/index.d.ts#Declared
+type Declared = {
+  readonly at: readonly Key[];
+  readonly type: unknown;
+  readonly what: string;
+} | {
+  readonly at: readonly Key[];
+  readonly problem: string;
+};
+
+### build/index.d.ts#Definitions
+interface Definitions {
+  readonly evaluators?: Readonly<Record<string, EvalFn>>;
+  readonly runners?: Readonly<Record<string, RunFn>>;
+}
+
+### build/index.d.ts#DerefCode
+interface DerefCode {
+  (doc: Envelope, key: Key): Thing | undefined;
+  readonly has?: (doc: Envelope, key: Key) => boolean;
+}
+
+### build/index.d.ts#DocChange
+type DocChange = undefined | "skip" | {
+  readonly to: unknown;
+  readonly into?: boolean;
+};
+
+### build/index.d.ts#DocFacts
+interface DocFacts {
+  readonly reads: readonly StaticRead[];
+  readonly side: Side;
+  readonly effects: readonly string[];
+  readonly pure: boolean;
+  readonly volatile: boolean;
+  readonly size: number;
+}
+
+### build/index.d.ts#DocParts
+type DocParts = {
+  readonly ok: true;
+  readonly doc: Envelope;
+  readonly declared: boolean;
+  readonly kind: Kind | undefined;
+  readonly typePath: readonly Key[] | undefined;
+  readonly split: Split;
+} | {
+  readonly ok: false;
+  readonly code: "#PART?";
+  readonly reason: string;
+};
+
+### build/index.d.ts#DocVisit
+interface DocVisit {
+  readonly place: readonly Key[];
+  readonly at: readonly Key[];
+  readonly parent?: DocVisit | undefined;
+  readonly slot: readonly Key[];
+  readonly doc: Envelope;
+  readonly declared: boolean;
+  readonly kind?: Kind | undefined;
+  readonly typePath?: readonly Key[] | undefined;
+  readonly depth: number;
+  readonly names: ReadonlySet<string>;
+  readonly later: ReadonlySet<string>;
+  readonly address?: true | undefined;
+  readonly caps?: readonly Cap[] | undefined;
+  readonly handled?: readonly Cap[] | undefined;
+}
+
+### build/index.d.ts#Domain
+interface Domain {
+  readonly is: (value: unknown) => boolean;
+  readonly under?: readonly string[];
+  readonly summary?: string;
+  readonly steps?: Readonly<Record<string, ValueType>>;
+  readonly codec?: DomainCodec;
+  readonly values?: readonly unknown[];
+  readonly samples?: readonly unknown[];
+  readonly covers?: readonly (readonly string[])[];
+}
+
+### build/index.d.ts#DomainCodec
+interface DomainCodec {
+  readonly encode: (value: unknown) => Json;
+  readonly decode: (data: Json) => unknown;
+}
+
+### build/index.d.ts#DomainExtension
+interface DomainExtension {
+  readonly under?: readonly string[];
+  readonly steps?: Readonly<Record<string, ValueType>>;
+  readonly covers?: readonly (readonly string[])[];
+}
+
+### build/index.d.ts#Durable
+interface Durable {
+  readonly machine: Machine;
+  readonly epochs: Epochs;
+  readonly counts: DurableCounts;
+  plan(doc: unknown): Plan;
+  facts(doc: unknown): DocFacts;
+  evaluate(key: unknown, doc: unknown, context: Context): Result;
+  changeData(): void;
+  changeStructure(machine?: Machine): void;
+  forget(key: unknown): void;
+}
+
+### build/index.d.ts#DurableCounts
+interface DurableCounts {
+  readonly compiles: number;
+  readonly facts: number;
+  readonly evaluations: number;
+  readonly verifications: number;
+  readonly reuses: number;
+}
+
+### build/index.d.ts#DurableOptions
+interface DurableOptions {
+  readonly declaredType?: string;
+  readonly verb?: string;
+  readonly volatile?: FactsOptions["volatile"];
+  readonly equal?: VerifyOptions["equal"];
+  readonly inPlace?: true | PrintOptions;
+}
+
+### build/index.d.ts#ENVELOPE_KEYS
+export declare const ENVELOPE_KEYS: readonly ["type", "value", "name", "own"];
+
+### build/index.d.ts#Edge
+type Edge = readonly [before: string, after: string];
+
+### build/index.d.ts#Effect
+interface Effect {
+  readonly index: number;
+  readonly kind: string;
+  readonly path: readonly Key[];
+  readonly payload: unknown;
+  readonly node: number;
+  readonly at: number;
+  readonly place: readonly Key[];
+  readonly context: Context;
+  readonly address?: string;
+  readonly outcome?: Result;
+}
+
+### build/index.d.ts#EffectsOptions
+interface EffectsOptions {
+  readonly declaredType?: string;
+  readonly caps?: readonly Cap[];
+}
+
+### build/index.d.ts#Envelope
+type Envelope = {
+  readonly type: TypeRef;
+  readonly value: Json;
+  readonly name?: string;
+  readonly own?: Readonly<Record<string, string>>;
+};
+
+### build/index.d.ts#Epochs
+interface Epochs {
+  readonly structure: number;
+  readonly data: number;
+}
+
+### build/index.d.ts#ErrorCode
+type ErrorCode = KernelCode | `#${string}`;
+
+### build/index.d.ts#EvalError
+interface EvalError {
+  readonly code: ErrorCode;
+  readonly reason: string;
+  readonly place?: readonly Key[];
+  readonly cause?: unknown;
+}
+
+### build/index.d.ts#EvalFn
+type EvalFn = (input: EvalInput) => Result;
+
+### build/index.d.ts#EvalInput
+interface EvalInput {
+  readonly kind: string;
+  readonly typePath: readonly Key[];
+  readonly doc: Envelope;
+  readonly value: unknown;
+  readonly data: Json;
+  readonly parts: readonly Part$1[];
+  readonly context: Context;
+  readonly place: readonly Key[];
+  readonly machine?: Machine;
+  readonly address?: boolean;
+  resolve(path: readonly unknown[], options?: ResolveOptions): Resolution;
+  effect(kind: Cap, payload: unknown): Result;
+  fill(items: readonly unknown[]): unknown;
+}
+
+### build/index.d.ts#EvalOptions
+interface EvalOptions {
+  readonly effects?: Effect[];
+  readonly perform?: Perform;
+  readonly reads?: Read[];
+}
+
+### build/index.d.ts#EvaluateOptions
+interface EvaluateOptions {
+  readonly declaredType?: string;
+  readonly verb?: string;
+  readonly perform?: Perform;
+  readonly reads?: Read[];
+}
+
+### build/index.d.ts#Evaluator
+type Evaluator = EvalFn | CompiledEvaluator;
+
+### build/index.d.ts#ExtFn
+type ExtFn = (data: Json, context: Context, domains?: Readonly<Record<string, Domain>>) => Result;
+
+### build/index.d.ts#FactsOptions
+interface FactsOptions {
+  readonly declaredType?: string;
+  readonly verb?: string;
+  readonly volatile?: (read: StaticRead) => boolean;
+}
+
+### build/index.d.ts#Failed
+type Failed = {
+  readonly ok: false;
+  readonly error: EvalError;
+};
+
+### build/index.d.ts#Failure
+export declare class Failure extends Error {
+  readonly error: EvalError;
+  constructor(error: EvalError);
+}
+
+### build/index.d.ts#Finding
+interface Finding {
+  readonly obligation: Obligation;
+  readonly reason: string;
+  readonly probe: ConformProbe;
+}
+
+### build/index.d.ts#FormulaProfile
+interface FormulaProfile {
+  readonly ops?: Readonly<Record<string, OpFn>> | ((name: string) => OpFn | undefined);
+  readonly lazy?: Readonly<Record<string, LazyOp>>;
+  readonly ext?: Readonly<Record<string, ExtFn>>;
+  readonly extTypes?: Readonly<Record<string, ValueType>>;
+  readonly truthy?: (value: unknown) => boolean | undefined;
+  readonly truthType?: ValueType;
+  readonly otherwise?: unknown;
+  readonly logic?: "boolean" | "value";
+  readonly omit?: (error: EvalError) => boolean;
+  readonly missing?: (value: unknown) => boolean;
+  readonly check?: (value: unknown, op: string) => Result | undefined;
+  readonly combine?: (errors: readonly EvalError[]) => EvalError;
+  readonly pure?: true | readonly string[];
+  readonly pureExt?: readonly string[];
+  readonly volatile?: readonly string[];
+  readonly sigs?: Readonly<Record<string, Signature | readonly Signature[]>> | ((name: string) => Signature | readonly Signature[] | undefined);
+}
+
+### build/index.d.ts#GENERATION_LIMIT
+export declare const GENERATION_LIMIT = 64;
+
+### build/index.d.ts#GenerateOptions
+interface GenerateOptions {
+  readonly seed: number;
+  readonly types?: readonly (readonly Key[])[];
+  readonly declaredType?: string;
+  readonly names?: readonly string[];
+  readonly maxDepth?: number;
+  readonly maxSize?: number;
+  readonly malformed?: number;
+  readonly data?: (type: readonly Key[], random: Random) => Json | undefined;
+  readonly hints?: (type: readonly Key[], path: readonly Key[]) => readonly (readonly Key[])[] | undefined;
+  readonly own?: readonly string[];
+  readonly keys?: readonly Key[];
+  readonly roots?: readonly Root[];
+  readonly steps?: number;
+}
+
+### build/index.d.ts#Give
+type Give = "same" | "extends" | "moves" | "narrows" | "sets" | "none";
+
+### build/index.d.ts#GraphCycle
+interface GraphCycle<Id> {
+  readonly nodes: readonly Id[];
+  readonly certain: boolean;
+}
+
+### build/index.d.ts#GraphEdge
+interface GraphEdge<Id> {
+  readonly to: Id | undefined;
+  readonly lazy: boolean;
+}
+
+### build/index.d.ts#GraphNode
+interface GraphNode<Id> {
+  readonly edges: readonly GraphEdge<Id>[];
+  readonly side?: Side;
+}
+
+### build/index.d.ts#GraphOptions
+interface GraphOptions {
+  readonly eager?: boolean;
+}
+
+### build/index.d.ts#Header
+interface Header {
+  readonly type?: TypeRef;
+  readonly own?: Readonly<Record<string, string>>;
+}
+
+### build/index.d.ts#Held
+export declare class Held {
+  readonly error: EvalError;
+  constructor(error: EvalError);
+}
+
+### build/index.d.ts#Hop
+interface Hop {
+  readonly step: Json;
+  readonly thing: Thing;
+  readonly by: HopBy;
+}
+
+### build/index.d.ts#HopBy
+type HopBy = "root" | "own" | "kind" | "default" | "step" | "collapse";
+
+### build/index.d.ts#HostThing
+interface HostThing {
+  readonly [THING]: true;
+  readonly label: string;
+  deref(key: Key): Thing | undefined;
+  has?(key: Key): boolean;
+  toJson(): unknown;
+  resolve?(keys: readonly Key[]): {
+    readonly thing: Thing;
+  } | undefined;
+  known?(key: Key): {
+    readonly thing: Thing;
+  } | undefined;
+  keeping?<T>(read: () => T): T;
+}
+
+### build/index.d.ts#Issue
+interface Issue {
+  readonly code: ErrorCode;
+  readonly place: readonly Key[];
+  readonly reason: string;
+  readonly at?: readonly Key[];
+  readonly expected?: ValueType;
+  readonly found?: ValueType;
+}
+
+### build/index.d.ts#JOURNAL
+export declare const JOURNAL: unique symbol;
+
+### build/index.d.ts#Journal
+interface Journal {
+  readonly settled?: (all: string, item: number) => void;
+  readonly next?: (all: string, waiting: readonly number[], before?: number) => number | undefined;
+}
+
+### build/index.d.ts#Json
+type Json = null | boolean | number | string | readonly Json[] | {
+  readonly [key: string]: Json;
+};
+
+### build/index.d.ts#JsonRecord
+type JsonRecord = {
+  readonly [key: string]: Json;
+};
+
+### build/index.d.ts#KernelCode
+type KernelCode = "#KIND?" | "#NOEVAL" | "#PART?" | "#NAME?" | "#REF!" | "#N/A" | "#CYCLE!" | "#STEP?" | "#VALUE!" | "#NUM!" | "#ARGS" | "#CAP!" | "#CALC!" | "#DEPTH!" | "#ABORT" | "#REPLAY!" | "#TYPE!";
+
+### build/index.d.ts#Key
+type Key = string | number;
+
+### build/index.d.ts#Kind
+interface Kind extends KindFacts {
+  readonly verbs: Readonly<Record<string, string>>;
+  readonly parts?: Shape;
+  readonly scope?: readonly ScopeRule[];
+  readonly caps?: readonly CapsRule[];
+  readonly side?: Side;
+  readonly effects?: "type" | readonly string[];
+  readonly verbEffects?: VerbEffects;
+  readonly result?: ValueType;
+  readonly tree?: TreeContract;
+  readonly summary?: string;
+}
+
+### build/index.d.ts#KindFacts
+interface KindFacts {
+  readonly pure?: boolean;
+  readonly volatile?: boolean;
+  readonly lazy?: readonly LazyRule[];
+  readonly reads?: readonly Root[];
+  readonly effects?: "type" | readonly string[];
+  readonly drives?: readonly LazyRule[];
+}
+
+### build/index.d.ts#KindSource
+type KindSource = "document" | "container";
+
+### build/index.d.ts#LazyOp
+type LazyOp = (args: readonly (() => Result)[]) => Result;
+
+### build/index.d.ts#LazyRule
+interface LazyRule {
+  readonly in?: readonly (readonly Key[])[];
+  readonly after?: number;
+}
+
+### build/index.d.ts#Lookup
+type Lookup = {
+  readonly ok: true;
+  readonly kind: Kind;
+  readonly path: readonly Key[];
+  readonly aliases: number;
+} | {
+  readonly ok: false;
+  readonly reason: "unknown" | "cycle" | "too-long" | "not-a-kind" | "computed";
+  readonly path: readonly Key[];
+};
+
+### build/index.d.ts#MAX_SYNTAX_ISSUES
+export declare const MAX_SYNTAX_ISSUES = 20;
+
+### build/index.d.ts#Machine
+interface Machine extends Navigator {
+  readonly evaluators: Readonly<Record<string, Evaluator>>;
+  readonly runners?: Readonly<Record<string, Runner>>;
+  readonly maxDepth?: number;
+  readonly permits?: (caps: readonly Cap[], kind: readonly Key[], context: Context) => boolean;
+  readonly known?: (path: readonly Key[], evaluator: string) => true | string;
+  readonly domains?: Readonly<Record<string, Domain>>;
+  readonly facts?: (path: readonly Key[], code: string) => KindFacts | undefined;
+}
+
+### build/index.d.ts#MachinePart
+interface MachinePart extends Omit<Partial<Machine>, "world"> {
+  readonly world?: WorldPart;
+  readonly replaces?: readonly MergePath[];
+}
+
+### build/index.d.ts#MergeConflict
+interface MergeConflict {
+  readonly path: MergePath;
+  readonly parts: readonly [number, number];
+  readonly reason: string;
+}
+
+### build/index.d.ts#MergeError
+export declare class MergeError extends Error {
+  readonly conflicts: readonly MergeConflict[];
+  constructor(conflicts: readonly MergeConflict[]);
+}
+
+### build/index.d.ts#MergePath
+type MergePath = readonly Key[];
+
+### build/index.d.ts#NamesSource
+type NamesSource = {
+  readonly fixed: readonly string[];
+} | {
+  readonly keysAt: readonly Key[];
+} | {
+  readonly listAt: readonly Key[];
+} | {
+  readonly textAt: readonly Key[];
+  readonly otherwise?: string;
+} | {
+  readonly headers: true;
+};
+
+### build/index.d.ts#Namespace
+interface Namespace {
+  readonly kinds: Readonly<Record<string, WorldEntry>>;
+  readonly fallback?: Kind;
+}
+
+### build/index.d.ts#Navigator
+interface Navigator {
+  readonly world: World;
+  readonly derefs?: Readonly<Record<string, DerefCode>>;
+  readonly walkers?: Readonly<Record<string, Walker>>;
+  readonly plain?: boolean;
+  readonly roots?: readonly Root[];
+  readonly adopt?: (value: unknown) => Thing;
+}
+
+### build/index.d.ts#NearestOptions
+interface NearestOptions {
+  readonly matches?: (node: Thing, wanted: Json | undefined) => boolean;
+  readonly maxHops?: number;
+  readonly eachStep?: boolean;
+}
+
+### build/index.d.ts#NodeEdge
+interface NodeEdge {
+  readonly to: string | undefined;
+  readonly field: readonly Key[];
+  readonly lazy: boolean;
+  readonly read: StaticRead;
+}
+
+### build/index.d.ts#NodeGraph
+type NodeGraph<Id> = ReadonlyMap<Id, GraphNode<Id>>;
+
+### build/index.d.ts#NodeInfo
+interface NodeInfo {
+  readonly id: string;
+  readonly doc: unknown;
+  readonly facts: DocFacts;
+  readonly side: Side;
+  readonly edges: readonly NodeEdge[];
+}
+
+### build/index.d.ts#NodeRunOptions
+interface NodeRunOptions {
+  readonly event?: Thing;
+  readonly perform?: Perform;
+  readonly signal?: StopSignal;
+}
+
+### build/index.d.ts#Obligation
+type Obligation = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "local" | "agree" | "parallel" | "truth" | "cover" | "result" | "ladder" | "hops" | "has" | "typed";
+
+### build/index.d.ts#OpFn
+type OpFn = (...args: never[]) => unknown;
+
+### build/index.d.ts#OrderProblem
+interface OrderProblem {
+  readonly step: string;
+  readonly reads: string;
+  readonly problem: "unknown-name" | "read-before-defined";
+}
+
+### build/index.d.ts#Outcome
+type Outcome = "answers" | "no-entry" | "skipped" | "unknown-kind";
+
+### build/index.d.ts#PARTS
+export declare const PARTS: readonly ["self", "names", "world", "event", "caps"];
+
+### build/index.d.ts#PART_INFO
+export declare const PART_INFO: readonly PartInfo[];
+
+### build/index.d.ts#ParseResult
+type ParseResult = {
+  readonly ok: true;
+  readonly doc: Json;
+} | {
+  readonly ok: false;
+  readonly issues: readonly SyntaxIssue[];
+};
+
+### build/index.d.ts#Part
+type Part = (typeof PARTS)[number];
+
+### build/index.d.ts#Part$1
+interface Part$1 {
+  readonly key: string;
+  readonly path: readonly Key[];
+  readonly name?: string;
+  evaluate(context?: Context): Result;
+}
+
+### build/index.d.ts#PartInfo
+interface PartInfo {
+  readonly part: Part;
+  readonly title: string;
+  readonly reaches: string;
+  readonly direction: string;
+}
+
+### build/index.d.ts#PartSlot
+interface PartSlot {
+  readonly path: readonly Key[];
+  readonly key: string;
+  readonly item: Json;
+  readonly of?: string;
+  readonly address?: true;
+  readonly expect?: ValueType;
+}
+
+### build/index.d.ts#PartType
+interface PartType {
+  readonly expect?: ValueType;
+  readonly what?: string;
+  readonly names?: Readonly<Record<string, ValueType>>;
+  readonly roots?: Omit<RootTypes, "names">;
+}
+
+### build/index.d.ts#PartsSpec
+type PartsSpec = Shape;
+
+### build/index.d.ts#Perform
+type Perform = (effect: Effect) => unknown;
+
+### build/index.d.ts#Plan
+interface Plan {
+  readonly machine: Machine;
+  readonly traced: boolean;
+  readonly root: CompiledPart;
+  evaluate(context?: Context, options?: EvalOptions): Result;
+  run(context?: Context, options?: PlanRunOptions): Promise<Result>;
+}
+
+### build/index.d.ts#PlanRunOptions
+interface PlanRunOptions {
+  readonly perform?: Perform;
+  readonly signal?: StopSignal;
+  readonly reads?: Read[];
+}
+
+### build/index.d.ts#PrepareOptions
+interface PrepareOptions {
+  readonly declaredType?: string;
+  readonly trace?: boolean;
+  readonly verb?: string;
+  readonly fold?: boolean;
+  readonly fixed?: {
+    readonly names?: Readonly<Record<string, unknown>>;
+  };
+}
+
+### build/index.d.ts#PrintOptions
+interface PrintOptions {
+  readonly limit?: number;
+  readonly stamp?: (value: object) => unknown;
+}
+
+### build/index.d.ts#ROOTS
+export declare const ROOTS: readonly ["self", "names", "world", "event", "caps"];
+
+### build/index.d.ts#RUNGS
+export declare const RUNGS: readonly ["own", "kind", "default"];
+
+### build/index.d.ts#Random
+interface Random {
+  next(): number;
+  int(below: number): number;
+  chance(p: number): boolean;
+  pick<T>(items: readonly T[]): T;
+}
+
+### build/index.d.ts#Read
+interface Read {
+  readonly path: readonly unknown[];
+  readonly reached: Result;
+  readonly free: boolean;
+  readonly kept?: true;
+  readonly hops?: readonly Hop[];
+}
+
+### build/index.d.ts#ReadPrints
+interface ReadPrints {
+  readonly prints: readonly (readonly unknown[] | undefined)[];
+  readonly options: PrintOptions;
+}
+
+### build/index.d.ts#ReadsCheck
+type ReadsCheck = {
+  readonly same: true;
+} | {
+  readonly same: false;
+  readonly index: number;
+  readonly read: Read;
+  readonly now: Result;
+  readonly inPlace?: true;
+};
+
+### build/index.d.ts#Recorder
+interface Recorder {
+  readonly perform: Perform;
+  log(): ReplayLog;
+}
+
+### build/index.d.ts#RefUse
+interface RefUse {
+  readonly visit: DocVisit;
+  readonly place: readonly Key[];
+  readonly at: readonly Key[];
+  readonly path: readonly Json[];
+  readonly root: string;
+  readonly free: boolean;
+  readonly address: boolean;
+}
+
+### build/index.d.ts#ReferenceOptions
+interface ReferenceOptions {
+  readonly declaredType?: string;
+  readonly definitions?: Definitions;
+  readonly effects?: Effect[];
+  readonly perform?: Perform;
+  readonly verb?: string;
+  readonly reads?: Read[];
+}
+
+### build/index.d.ts#ReferenceRunOptions
+interface ReferenceRunOptions extends ReferenceOptions {
+  readonly perform?: Perform;
+  readonly signal?: StopSignal;
+}
+
+### build/index.d.ts#ReplayCausePartsJson
+type ReplayCausePartsJson = readonly ReplayPartsJson[] | {
+  readonly record: Readonly<Record<string, ReplayPartsJson>>;
+} | {
+  readonly share: number;
+};
+
+### build/index.d.ts#ReplayEntry
+interface ReplayEntry {
+  readonly address: string;
+  readonly kind: string;
+  readonly payload: unknown;
+  readonly outcome?: Result;
+  readonly waited: boolean;
+}
+
+### build/index.d.ts#ReplayEntryJson
+interface ReplayEntryJson {
+  readonly address: string;
+  readonly kind: string;
+  readonly payload: Json;
+  readonly outcome?: ReplayResultJson;
+  readonly waited: boolean;
+}
+
+### build/index.d.ts#ReplayErrorJson
+interface ReplayErrorJson {
+  readonly code: ErrorCode;
+  readonly reason: string;
+  readonly place?: readonly Key[];
+  readonly cause?: Json;
+  readonly exception?: ReplayExceptionJson;
+  readonly causeParts?: ReplayCausePartsJson;
+  readonly dropped?: readonly string[];
+}
+
+### build/index.d.ts#ReplayExceptionJson
+interface ReplayExceptionJson {
+  readonly name: string;
+  readonly message: string;
+  readonly fields?: Readonly<Record<string, Json>>;
+  readonly parts?: Readonly<Record<string, ReplayPartsJson>>;
+  readonly dropped?: readonly string[];
+  readonly hidden?: Readonly<Record<string, ReplayPartsJson>>;
+  readonly cause?: Json;
+  readonly exception?: ReplayExceptionJson;
+  readonly loop?: number;
+  readonly causeParts?: ReplayCausePartsJson;
+}
+
+### build/index.d.ts#ReplayLog
+interface ReplayLog {
+  readonly effects: readonly ReplayEntry[];
+  readonly settles: readonly ReplaySettle[];
+}
+
+### build/index.d.ts#ReplayLogJson
+interface ReplayLogJson {
+  readonly version: 1;
+  readonly effects: readonly ReplayEntryJson[];
+  readonly settles: readonly ReplaySettle[];
+}
+
+### build/index.d.ts#ReplayOptions
+interface ReplayOptions {
+  readonly wait?: boolean;
+  readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
+}
+
+### build/index.d.ts#ReplayPartJson
+type ReplayPartJson = {
+  readonly value: Json;
+} | {
+  readonly exception: ReplayExceptionJson;
+} | {
+  readonly loop: number;
+} | {
+  readonly record: Readonly<Record<string, ReplayPartsJson>>;
+} | {
+  readonly share: number;
+} | {
+  readonly dropped: true;
+};
+
+### build/index.d.ts#ReplayPartsJson
+type ReplayPartsJson = ReplayPartJson | readonly ReplayPartsJson[];
+
+### build/index.d.ts#ReplayResultJson
+type ReplayResultJson = {
+  readonly ok: true;
+  readonly value: Json;
+} | {
+  readonly ok: false;
+  readonly error: ReplayErrorJson;
+};
+
+### build/index.d.ts#ReplaySettle
+interface ReplaySettle {
+  readonly all: string;
+  readonly item: number;
+}
+
+### build/index.d.ts#Resolution
+type Resolution = {
+  readonly ok: true;
+  readonly thing: Thing;
+  readonly hops: readonly Hop[];
+} | {
+  readonly ok: false;
+  readonly code: ResolveCode | ErrorCode;
+  readonly reason: string;
+  readonly hops: readonly Hop[];
+};
+
+### build/index.d.ts#ResolveCode
+type ResolveCode = "#REF!" | "#NAME?" | "#N/A" | "#CYCLE!" | "#STEP?";
+
+### build/index.d.ts#ResolveOptions
+interface ResolveOptions {
+  readonly hops?: boolean;
+}
+
+### build/index.d.ts#Result
+type Result<V = unknown> = {
+  readonly ok: true;
+  readonly value: V;
+} | {
+  readonly ok: false;
+  readonly error: EvalError;
+};
+
+### build/index.d.ts#Root
+type Root = (typeof ROOTS)[number];
+
+### build/index.d.ts#RootTypes
+interface RootTypes {
+  readonly names?: Readonly<Record<string, ValueType>>;
+  readonly self?: ValueType;
+  readonly world?: ValueType;
+  readonly event?: ValueType;
+}
+
+### build/index.d.ts#Run
+interface Run {
+  readonly result: Result;
+  readonly trace: TraceNode;
+  readonly effects: readonly Effect[];
+  readonly time: number;
+}
+
+### build/index.d.ts#RunCode
+type RunCode = (ctx: Context, rt: Runtime) => Steps;
+
+### build/index.d.ts#RunFn
+type RunFn = (input: RunInput) => Steps;
+
+### build/index.d.ts#RunInput
+interface RunInput {
+  readonly kind: string;
+  readonly typePath: readonly Key[];
+  readonly doc: Envelope;
+  readonly value: unknown;
+  readonly data: Json;
+  readonly parts: readonly RunPart[];
+  readonly context: Context;
+  readonly place: readonly Key[];
+  readonly machine?: Machine;
+  resolve(path: readonly unknown[], options?: ResolveOptions): Resolution;
+  effect(kind: Cap, payload: unknown): Steps;
+  all(parts: readonly RunPart[], options?: AllOptions): Generator<Promise<unknown>, readonly Result[], unknown>;
+  fill(items: readonly unknown[]): unknown;
+}
+
+### build/index.d.ts#RunOptions
+interface RunOptions extends PlanRunOptions {
+  readonly declaredType?: string;
+  readonly verb?: string;
+}
+
+### build/index.d.ts#RunPart
+interface RunPart {
+  readonly key: string;
+  readonly path: readonly Key[];
+  readonly name?: string;
+  evaluate(context?: Context): Steps;
+  handled?(clauses: readonly Clause[]): Steps;
+}
+
+### build/index.d.ts#Rung
+type Rung = (typeof RUNGS)[number];
+
+### build/index.d.ts#Runner
+type Runner = RunFn | CompiledRunner;
+
+### build/index.d.ts#Runtime
+interface Runtime {
+  readonly machine: Machine;
+  readonly running: boolean;
+  resolve(ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution;
+  effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result;
+  runEffect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps;
+  all(list: readonly (() => Steps)[], options?: AllOptions): Generator<Promise<unknown>, readonly Result[], unknown>;
+  keepsContext?(context?: Context, reads?: () => readonly StaticRead[] | undefined): void;
+}
+
+### build/index.d.ts#STD_CAPS
+export declare const STD_CAPS: readonly string[];
+
+### build/index.d.ts#STD_DEFINITIONS
+export declare const STD_DEFINITIONS: Definitions;
+
+### build/index.d.ts#STD_DOMAINS
+export declare const STD_DOMAINS: Readonly<Record<string, Domain>>;
+
+### build/index.d.ts#STD_EVALUATORS
+export declare const STD_EVALUATORS: Readonly<Record<string, Evaluator>>;
+
+### build/index.d.ts#STD_EXT
+export declare const STD_EXT: Readonly<Record<string, ExtFn>>;
+
+### build/index.d.ts#STD_MACHINE
+export declare const STD_MACHINE: Machine;
+
+### build/index.d.ts#STD_RUNNERS
+export declare const STD_RUNNERS: Readonly<Record<string, Runner>>;
+
+### build/index.d.ts#STD_SYNTAX
+export declare const STD_SYNTAX: SyntaxProfile;
+
+### build/index.d.ts#STD_WALKERS
+export declare const STD_WALKERS: Readonly<Record<string, Walker>>;
+
+### build/index.d.ts#STD_WORLD
+export declare const STD_WORLD: World;
+
+### build/index.d.ts#SampleOptions
+interface SampleOptions {
+  readonly closed?: boolean;
+}
+
+### build/index.d.ts#Schedule
+interface Schedule {
+  readonly epochs: Epochs;
+  readonly counts: ScheduleCounts;
+  readonly context: Context;
+  graph(): ReadonlyMap<string, NodeInfo>;
+  read(id: string): Result;
+  set(id: string, doc: unknown): void;
+  remove(id: string): boolean;
+  changeData(context?: Context): void;
+  changeMachine(machine: Machine): void;
+  run(id: string, options?: NodeRunOptions): Promise<Result>;
+}
+
+### build/index.d.ts#ScheduleAgreement
+type ScheduleAgreement = {
+  readonly ok: true;
+  readonly counts: ScheduleAgreementCounts;
+} | {
+  readonly ok: false;
+  readonly seed: number;
+  readonly step: number;
+  readonly node: string;
+  readonly engine: Result;
+  readonly scratch: Result;
+  readonly docs: ReadonlyMap<string, unknown>;
+  readonly context: Context;
+  readonly machine: Machine;
+  readonly reason: string;
+  readonly counts: ScheduleAgreementCounts;
+};
+
+### build/index.d.ts#ScheduleAgreementCounts
+interface ScheduleAgreementCounts {
+  readonly reads: number;
+  readonly compared: number;
+  readonly unrepeatable: number;
+  readonly values: number;
+  readonly cycles: number;
+  readonly runs: number;
+  readonly data: number;
+  readonly empty: number;
+  readonly edits: number;
+  readonly additions: number;
+  readonly removes: number;
+  readonly same: number;
+  readonly machines: number;
+  readonly selves: number;
+  readonly shared: number;
+}
+
+### build/index.d.ts#ScheduleCounts
+interface ScheduleCounts extends DurableCounts {
+  readonly ahead: number;
+}
+
+### build/index.d.ts#ScheduleEngine
+interface ScheduleEngine {
+  set(id: string, doc: unknown): void;
+  remove(id: string): unknown;
+  changeData(context: Context): void;
+  changeMachine?(machine: Machine): void;
+  read(id: string): Result;
+}
+
+### build/index.d.ts#ScheduleEngineFactory
+type ScheduleEngineFactory = (machine: Machine, start: ScheduleEngineStart) => ScheduleEngine;
+
+### build/index.d.ts#ScheduleEngineStart
+interface ScheduleEngineStart {
+  readonly context: Context;
+  readonly declaredType?: string;
+  readonly selfOf?: (id: string, host: Context) => unknown;
+}
+
+### build/index.d.ts#ScheduleOptions
+interface ScheduleOptions extends DurableOptions {
+  readonly context?: Context;
+  readonly selfOf?: (id: string, host: Context) => Thing;
+}
+
+### build/index.d.ts#ScopeRule
+interface ScopeRule {
+  readonly names: NamesSource;
+  readonly in: readonly (readonly Key[])[];
+  readonly sequential?: boolean;
+}
+
+### build/index.d.ts#Shape
+type Shape = {
+  readonly shape: "none";
+} | {
+  readonly shape: "term";
+  readonly of?: string;
+  readonly address?: boolean;
+  readonly kinds?: readonly (readonly Key[])[];
+  readonly expect?: ValueType;
+} | {
+  readonly shape: "list";
+  readonly of?: string;
+  readonly item?: Shape;
+  readonly distinct?: boolean;
+  readonly expect?: ValueType;
+} | {
+  readonly shape: "map";
+  readonly of?: string;
+  readonly item?: Shape;
+  readonly expect?: ValueType;
+} | {
+  readonly shape: "record";
+  readonly fields: readonly string[] | Readonly<Record<string, Shape>>;
+  readonly of?: string;
+  readonly required?: readonly string[];
+  readonly rest?: Shape;
+  readonly closed?: boolean;
+  readonly expect?: ValueType;
+} | {
+  readonly shape: "deep";
+  readonly of?: string;
+  readonly expect?: ValueType;
+} | {
+  readonly shape: "text";
+} | {
+  readonly shape: "number";
+  readonly whole?: boolean;
+  readonly min?: number;
+  readonly max?: number;
+} | {
+  readonly shape: "one";
+  readonly values: readonly Json[];
+};
+
+### build/index.d.ts#Shape$1
+interface Shape$1 {
+  readonly name: string;
+  readonly fields: readonly string[];
+  readonly kind: string;
+}
+
+### build/index.d.ts#Side
+type Side = "derive" | "run";
+
+### build/index.d.ts#Signature
+interface Signature {
+  readonly params: readonly ValueType[];
+  readonly rest?: ValueType;
+  readonly to: ValueType;
+}
+
+### build/index.d.ts#Split
+type Split = {
+  readonly ok: true;
+  readonly parts: readonly PartSlot[];
+  readonly data: Json;
+  fill<P>(handles: readonly P[]): unknown;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+  readonly at: readonly Key[];
+};
+
+### build/index.d.ts#StaticRead
+interface StaticRead {
+  readonly root: Root;
+  readonly keys: readonly Key[];
+  readonly exact: boolean;
+  readonly lazy: boolean;
+  readonly address: boolean;
+  readonly path: readonly Json[];
+  readonly place: readonly Key[];
+  readonly at: readonly Key[];
+}
+
+### build/index.d.ts#Step
+interface Step {
+  readonly rung: Rung;
+  readonly outcome: Outcome;
+  readonly evaluator?: string;
+  readonly kind?: string;
+  readonly source?: KindSource;
+}
+
+### build/index.d.ts#StepKey
+type StepKey = string | number;
+
+### build/index.d.ts#StepLadder
+interface StepLadder<S extends string = string> {
+  readonly steps: readonly S[];
+  readonly constructs: Readonly<Record<string, S>>;
+}
+
+### build/index.d.ts#StepNeed
+interface StepNeed<N, S extends string = string> {
+  readonly step: S;
+  readonly reason?: StepReason<N, S>;
+}
+
+### build/index.d.ts#StepReason
+interface StepReason<N, S extends string = string> {
+  readonly construct: string;
+  readonly step: S;
+  readonly path: readonly StepKey[];
+  readonly node: N;
+}
+
+### build/index.d.ts#StepRefusal
+interface StepRefusal<N, S extends string = string> {
+  readonly needed: S;
+  readonly maxStep: S;
+  readonly reason?: StepReason<N, S>;
+  readonly message: string;
+}
+
+### build/index.d.ts#StepSpec
+interface StepSpec {
+  readonly id: string;
+  readonly reads: readonly string[];
+  readonly effect: boolean;
+}
+
+### build/index.d.ts#StepWalk
+interface StepWalk<N> {
+  readonly construct: (node: N) => string | undefined;
+  readonly children: (node: N) => Iterable<readonly [StepKey, N]>;
+}
+
+### build/index.d.ts#Steps
+type Steps = Generator<Promise<unknown>, Result, unknown>;
+
+### build/index.d.ts#StopSignal
+interface StopSignal {
+  readonly aborted: boolean;
+  readonly reason?: unknown;
+  addEventListener(type: "abort", listener: () => void, options?: {
+    readonly once?: boolean;
+  }): void;
+}
+
+### build/index.d.ts#Stored
+interface Stored {
+  readonly envelope: Envelope;
+  readonly header: Readonly<Record<string, Json>>;
+}
+
+### build/index.d.ts#SyntaxAssoc
+type SyntaxAssoc = "left" | "right" | "none" | "flat";
+
+### build/index.d.ts#SyntaxCalls
+interface SyntaxCalls {
+  readonly ops?: boolean | readonly string[];
+  readonly forms?: readonly SyntaxForm[];
+  readonly separator?: string;
+}
+
+### build/index.d.ts#SyntaxConstructs
+interface SyntaxConstructs {
+  readonly record?: string;
+  readonly let?: string;
+  readonly fn?: string;
+  readonly call?: string;
+}
+
+### build/index.d.ts#SyntaxEnvelopes
+interface SyntaxEnvelopes {
+  readonly number?: string;
+  readonly text?: string;
+  readonly bool?: string;
+}
+
+### build/index.d.ts#SyntaxFinding
+interface SyntaxFinding {
+  readonly code: SyntaxFindingCode;
+  readonly place: readonly Key[];
+  readonly reason: string;
+}
+
+### build/index.d.ts#SyntaxFindingCode
+type SyntaxFindingCode = "invalid" | "operator" | "grouping" | "longest-match" | "word" | "root" | "pattern" | "form" | "call" | "separator" | "construct";
+
+### build/index.d.ts#SyntaxFixity
+type SyntaxFixity = "prefix" | "infix" | "postfix";
+
+### build/index.d.ts#SyntaxForm
+interface SyntaxForm {
+  readonly name: string;
+  readonly kind: string;
+  readonly fields?: readonly string[];
+  readonly min?: number;
+  readonly args?: SyntaxFormArgs;
+  readonly wrap?: boolean | readonly string[];
+  readonly data?: readonly string[];
+  readonly domain?: string;
+}
+
+### build/index.d.ts#SyntaxFormArgs
+type SyntaxFormArgs = "list" | "fields" | "named" | "literal";
+
+### build/index.d.ts#SyntaxHeader
+interface SyntaxHeader {
+  readonly bind?: string;
+}
+
+### build/index.d.ts#SyntaxIssue
+interface SyntaxIssue {
+  readonly offset: number;
+  readonly length: number;
+  readonly message: string;
+}
+
+### build/index.d.ts#SyntaxLiterals
+interface SyntaxLiterals {
+  readonly numbers?: boolean;
+  readonly signed?: boolean;
+  readonly strings?: false | {
+    readonly quote?: "\"" | "'";
+    readonly escape?: "backslash" | "double";
+  };
+  readonly words?: Readonly<Record<string, unknown>>;
+  readonly envelopes?: SyntaxEnvelopes;
+}
+
+### build/index.d.ts#SyntaxOperator
+interface SyntaxOperator {
+  readonly symbol: string;
+  readonly fixity: SyntaxFixity;
+  readonly prec: number;
+  readonly assoc?: SyntaxAssoc;
+  readonly kind: string;
+}
+
+### build/index.d.ts#SyntaxProfile
+interface SyntaxProfile {
+  readonly operators?: readonly SyntaxOperator[];
+  readonly literals?: SyntaxLiterals;
+  readonly refs?: SyntaxRefs;
+  readonly calls?: SyntaxCalls;
+  readonly header?: SyntaxHeader;
+  readonly constructs?: SyntaxConstructs;
+  readonly maxDepth?: number;
+}
+
+### build/index.d.ts#SyntaxRefPattern
+interface SyntaxRefPattern {
+  readonly pattern: RegExp;
+  readonly read: (text: string) => readonly Key[];
+  readonly write: (path: readonly unknown[]) => string | undefined;
+}
+
+### build/index.d.ts#SyntaxRefs
+interface SyntaxRefs {
+  readonly bare?: string;
+  readonly roots?: readonly string[];
+  readonly fields?: boolean;
+  readonly patterns?: readonly SyntaxRefPattern[];
+}
+
+### build/index.d.ts#THING
+export declare const THING: unique symbol;
+
+### build/index.d.ts#Thing
+type Thing = unknown;
+
+### build/index.d.ts#Tier
+type Tier = "reference" | "traced" | "again" | "folds" | "fixed" | "other";
+
+### build/index.d.ts#TierInput
+interface TierInput {
+  readonly perform?: Perform;
+  readonly verb?: string;
+}
+
+### build/index.d.ts#TierResult
+interface TierResult {
+  readonly result: Result;
+  readonly effects?: readonly Effect[];
+}
+
+### build/index.d.ts#TraceNode
+interface TraceNode {
+  readonly id: number;
+  readonly path: readonly string[];
+  readonly doc: Envelope;
+  readonly declared: boolean;
+  readonly answer: Answer;
+  readonly side: Side;
+  readonly names: readonly string[];
+  readonly scope: Readonly<Record<string, unknown>>;
+  readonly caps: readonly Cap[];
+  readonly self: string;
+  readonly enter: number;
+  readonly exit: number;
+  readonly result: Result;
+  readonly children: readonly TraceNode[];
+  readonly effects: readonly number[];
+}
+
+### build/index.d.ts#TreeContract
+interface TreeContract {
+  readonly equations?: Readonly<Record<string, Json>>;
+  readonly down?: Readonly<Record<string, Json>>;
+  readonly attributes?: Readonly<Record<string, AttributeDeclaration>>;
+  readonly contributes?: Readonly<Record<string, Json>>;
+  readonly at?: Readonly<Record<string, AtEquation>>;
+  readonly forwards?: string;
+}
+
+### build/index.d.ts#TreeOptions
+interface TreeOptions {
+  readonly cell?: AttributeCell;
+}
+
+### build/index.d.ts#TypeInput
+interface TypeInput {
+  readonly typePath: readonly Key[];
+  readonly doc: Envelope;
+  readonly expected: ValueType;
+  readonly paths: readonly (readonly Key[])[];
+  readonly address: boolean;
+  readonly machine: Machine;
+  typeOf(path: readonly Key[]): ValueType;
+  nameType(name: string): ValueType | undefined;
+  rootType(root: string): ValueType;
+  contract(type: unknown, what: string): ValueType;
+}
+
+### build/index.d.ts#TypeIssue
+interface TypeIssue {
+  readonly at: readonly Key[];
+  readonly reason: string;
+}
+
+### build/index.d.ts#TypeProblem
+interface TypeProblem {
+  readonly path?: readonly Key[];
+  readonly reason: string;
+  readonly expected?: ValueType;
+  readonly found?: ValueType;
+}
+
+### build/index.d.ts#TypeReading
+interface TypeReading {
+  readonly type: ValueType;
+  readonly issues: readonly TypeIssue[];
+}
+
+### build/index.d.ts#TypeRef
+type TypeRef = string | readonly Key[] | {
+  readonly type: "ref";
+  readonly value: readonly Json[];
+};
+
+### build/index.d.ts#TypeRule
+interface TypeRule {
+  readonly part?: (input: TypeInput, path: readonly Key[]) => PartType;
+  readonly synth: (input: TypeInput, report: (problem: TypeProblem) => void) => ValueType;
+  readonly declared?: () => readonly Declared[];
+}
+
+### build/index.d.ts#Typed
+interface Typed {
+  readonly place: readonly Key[];
+  readonly at: readonly Key[];
+  readonly type: ValueType;
+  readonly expected?: ValueType;
+}
+
+### build/index.d.ts#Typing
+interface Typing {
+  readonly type: ValueType;
+  readonly issues: readonly Issue[];
+  readonly places: readonly Typed[];
+}
+
+### build/index.d.ts#Use
+interface Use {
+  readonly reads: boolean;
+  readonly gives: Give;
+  readonly note: string;
+}
+
+### build/index.d.ts#ValueType
+type ValueType = string | {
+  readonly list: ValueType;
+} | {
+  readonly record: Readonly<Record<string, ValueType>>;
+  readonly optional?: readonly string[];
+  readonly closed?: boolean;
+} | {
+  readonly fn: readonly ValueType[];
+  readonly to: ValueType;
+} | {
+  readonly union: readonly ValueType[];
+} | {
+  readonly one: readonly Json[];
+};
+
+### build/index.d.ts#VerbEffects
+type VerbEffects = Readonly<Record<string, "type" | readonly string[]>> & {
+  readonly eval?: never;
+};
+
+### build/index.d.ts#VerifyOptions
+interface VerifyOptions {
+  readonly equal?: (a: unknown, b: unknown) => boolean | undefined;
+  readonly prints?: ReadPrints;
+}
+
+### build/index.d.ts#WORLD_SYNTAX
+export declare const WORLD_SYNTAX: SyntaxProfile;
+
+### build/index.d.ts#WalkInput
+interface WalkInput {
+  readonly data: Json;
+  readonly here: Thing;
+  readonly context: Context;
+  deref(thing: Thing, key: Key): Thing | undefined;
+  has?(thing: Thing, key: Key): boolean;
+  readonly visit?: (key: Key, thing: Thing) => void;
+}
+
+### build/index.d.ts#WalkOptions
+interface WalkOptions {
+  readonly declaredType?: string;
+  readonly names?: readonly string[];
+  readonly caps?: readonly Cap[];
+  readonly problem?: (problem: WalkProblem) => void;
+}
+
+### build/index.d.ts#WalkProblem
+interface WalkProblem {
+  readonly place: readonly Key[];
+  readonly at: readonly Key[];
+  readonly code: "#PART?" | "#VALUE!";
+  readonly reason: string;
+}
+
+### build/index.d.ts#WalkResult
+type WalkResult = {
+  readonly ok: true;
+  readonly thing: Thing;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+  readonly code?: ErrorCode;
+};
+
+### build/index.d.ts#WalkTypeInput
+interface WalkTypeInput {
+  readonly data: Json;
+  readonly here: ValueType;
+}
+
+### build/index.d.ts#Walker
+interface Walker {
+  (input: WalkInput): WalkResult;
+  readonly type?: (input: WalkTypeInput) => ValueType;
+}
+
+### build/index.d.ts#World
+interface World {
+  readonly kinds: Readonly<Record<string, WorldEntry>>;
+  readonly defaults: Readonly<Record<string, string>>;
+  readonly fallback?: Kind;
+}
+
+### build/index.d.ts#WorldEntry
+type WorldEntry = Kind | Namespace | Alias;
+
+### build/index.d.ts#WorldIssue
+interface WorldIssue {
+  readonly code: "#NOEVAL" | "#TYPE!";
+  readonly kind: readonly Key[];
+  readonly fallback?: true;
+  readonly verb: string;
+  readonly domain?: string;
+  readonly evaluator?: string;
+  readonly at?: readonly Key[];
+  readonly reason: string;
+}
+
+### build/index.d.ts#WorldOptions
+interface WorldOptions {
+  readonly types?: boolean;
+}
+
+### build/index.d.ts#WorldPart
+interface WorldPart {
+  readonly kinds?: Readonly<Record<string, WorldEntry>>;
+  readonly defaults?: Readonly<Record<string, string>>;
+  readonly fallback?: Kind;
+  readonly replaces?: readonly MergePath[];
+}
+
+### build/index.d.ts#agree
+export declare function agree(machine: Machine, doc: unknown, context?: Context, options?: AgreeOptions): Agreement;
+
+### build/index.d.ts#agreeRun
+export declare function agreeRun(machine: Machine, doc: unknown, context?: Context, options?: AgreeRunOptions): Promise<Agreement>;
+
+### build/index.d.ts#agreeSchedule
+export declare function agreeSchedule(engine: ScheduleEngineFactory, options?: AgreeScheduleOptions): ScheduleAgreement;
+
+### build/index.d.ts#argsKey
+export declare function argsKey(value: unknown): string | undefined;
+
+### build/index.d.ts#ask
+export declare function ask(world: World, doc: Header, verb: string, options?: AskOptions): Answer;
+
+### build/index.d.ts#atArgsOf
+export declare function atArgsOf(params: readonly string[], args: unknown): AtArgs;
+
+### build/index.d.ts#atRuleOf
+export declare function atRuleOf(declared: unknown): AtRule;
+
+### build/index.d.ts#attributeGraph
+export declare function attributeGraph(machine: Machine, doc: unknown, options?: AttributeGraphOptions): AttributeGraph;
+
+### build/index.d.ts#attributeTrace
+export declare function attributeTrace(node: Thing, attribute: string): AttributeTrace | undefined;
+
+### build/index.d.ts#attributeVertexId
+export declare function attributeVertexId(place: readonly Key[], attribute: string): string;
+
+### build/index.d.ts#capKeys
+export declare function capKeys(kind: Cap): readonly string[];
+
+### build/index.d.ts#check
+export declare function check(machine: Machine, doc: unknown, options?: CheckOptions): readonly Issue[];
+
+### build/index.d.ts#checkCycles
+export declare function checkCycles(target: {
+  graph(): NodeGraph<string>;
+}): readonly CycleIssue[];
+
+### build/index.d.ts#checkLatent
+export declare function checkLatent(machine: Machine, declared: readonly Cap[], body: unknown, options?: Omit<EffectsOptions, "caps">): readonly Issue[];
+
+### build/index.d.ts#checkStep
+export declare function checkStep<N, S extends string>(ladder: StepLadder<S>, need: StepNeed<N, S>, maxStep: S): StepRefusal<N, S> | undefined;
+
+### build/index.d.ts#checkSteps
+export declare function checkSteps(steps: readonly StepSpec[]): readonly OrderProblem[];
+
+### build/index.d.ts#checkSyntax
+export declare function checkSyntax(profile: SyntaxProfile): readonly SyntaxFinding[];
+
+### build/index.d.ts#checkWorld
+export declare function checkWorld(machine: Machine, verbs: readonly string[], options?: WorldOptions): readonly WorldIssue[];
+
+### build/index.d.ts#circularOf
+export declare function circularOf(declared: unknown): CircularRule;
+
+### build/index.d.ts#classify
+export declare function classify(shapes: readonly Shape$1[], value: Json): Classification;
+
+### build/index.d.ts#codecLaws
+export declare function codecLaws(machine: Pick<Machine, "domains">, name: string, options?: CodecLawsOptions): readonly CodecFinding[];
+
+### build/index.d.ts#collectOf
+export declare function collectOf(declared: unknown): CollectRule;
+
+### build/index.d.ts#compilePath
+export declare function compilePath(nav: Navigator, path: readonly unknown[]): CompiledPath;
+
+### build/index.d.ts#components
+export declare function components<Id>(graph: NodeGraph<Id>, options?: GraphOptions): readonly (readonly Id[])[];
+
+### build/index.d.ts#conforms
+export declare function conforms(machine: Machine, name: string, options?: ConformOptions): readonly Finding[];
+
+### build/index.d.ts#context
+export declare function context(parts?: Partial<Context>): Context;
+
+### build/index.d.ts#cycles
+export declare function cycles<Id>(graph: NodeGraph<Id>): readonly GraphCycle<Id>[];
+
+### build/index.d.ts#dataEdges
+export declare function dataEdges(steps: readonly StepSpec[]): readonly Edge[];
+
+### build/index.d.ts#decodeDomain
+export declare function decodeDomain(data: Json, domains: Domains): Result;
+
+### build/index.d.ts#decodeLog
+export declare function decodeLog(machine: Pick<Machine, "domains">, data: unknown): Result<ReplayLog>;
+
+### build/index.d.ts#decodeValue
+export declare function decodeValue(machine: Machine, doc: unknown): Result;
+
+### build/index.d.ts#derefStep
+export declare function derefStep(nav: Navigator, thing: Thing, key: Key): {
+  readonly thing: Thing;
+  readonly by: HopBy;
+} | undefined;
+
+### build/index.d.ts#describe
+export declare function describe(value: unknown): string;
+
+### build/index.d.ts#docEquals
+export declare function docEquals(a: unknown, b: unknown): boolean;
+
+### build/index.d.ts#documentKey
+export declare function documentKey(doc: unknown): string | undefined;
+
+### build/index.d.ts#durable
+export declare function durable(machine: Machine, options?: DurableOptions): Durable;
+
+### build/index.d.ts#edgesOf
+export declare function edgesOf(facts: DocFacts): readonly NodeEdge[];
+
+### build/index.d.ts#effectEdges
+export declare function effectEdges(steps: readonly StepSpec[]): readonly Edge[];
+
+### build/index.d.ts#effectsOf
+export declare function effectsOf(machine: Machine, doc: unknown, options?: EffectsOptions): readonly string[];
+
+### build/index.d.ts#effectsOfVerb
+export declare function effectsOfVerb(kind: Kind, verb: string): "type" | readonly string[] | undefined;
+
+### build/index.d.ts#encodeLog
+export declare function encodeLog(machine: Pick<Machine, "domains">, log: ReplayLog): ReplayLogJson;
+
+### build/index.d.ts#encodeValue
+export declare function encodeValue(machine: Pick<Machine, "domains">, value: unknown): Json;
+
+### build/index.d.ts#entriesAsJson
+export declare function entriesAsJson(entries: Readonly<Record<string, WorldEntry>>): Json;
+
+### build/index.d.ts#equationType
+export declare function equationType(kind: Kind): string | undefined;
+
+### build/index.d.ts#evaluate
+export declare function evaluate(machine: Machine, doc: unknown, context?: Context, options?: string | EvaluateOptions): Run;
+
+### build/index.d.ts#extendDomain
+export declare function extendDomain(name: string, more: DomainExtension): (prev: Machine) => MachinePart;
+
+### build/index.d.ts#factsOf
+export declare function factsOf(machine: Machine, doc: unknown, options?: FactsOptions): DocFacts;
+
+### build/index.d.ts#fail
+export declare function fail(code: ErrorCode, reason: string, more?: {
+  readonly place?: readonly Key[];
+  readonly cause?: unknown;
+}): Failed;
+
+### build/index.d.ts#failures
+export declare function failures(trace: TraceNode): readonly EvalError[];
+
+### build/index.d.ts#field
+export declare function field(record: JsonRecord, key: string): Json | undefined;
+
+### build/index.d.ts#fits
+export declare function fits(found: ValueType, expected: ValueType, domains?: Readonly<Record<string, Domain>>): boolean;
+
+### build/index.d.ts#flatten
+export declare function flatten(trace: TraceNode): readonly TraceNode[];
+
+### build/index.d.ts#formulaDefinitions
+export declare function formulaDefinitions(profile?: FormulaProfile): Definitions;
+
+### build/index.d.ts#formulaEvaluators
+export declare function formulaEvaluators(profile?: FormulaProfile): Readonly<Record<string, Evaluator>>;
+
+### build/index.d.ts#formulaFacts
+export declare function formulaFacts(profile?: FormulaProfile): (path: readonly Key[], code: string) => KindFacts | undefined;
+
+### build/index.d.ts#formulaKinds
+export declare function formulaKinds(): Readonly<Record<string, WorldEntry>>;
+
+### build/index.d.ts#formulaKnown
+export declare function formulaKnown(profile?: FormulaProfile): (path: readonly Key[], evaluator: string) => true | string;
+
+### build/index.d.ts#formulaMachine
+export declare function formulaMachine(profile?: FormulaProfile, more?: MachinePart): Machine;
+
+### build/index.d.ts#fromJson
+export declare function fromJson(value: unknown): Envelope | undefined;
+
+### build/index.d.ts#generate
+export declare function generate(world: World, options: GenerateOptions): unknown;
+
+### build/index.d.ts#heights
+export declare function heights<Id>(graph: NodeGraph<Id>, options?: GraphOptions): ReadonlyMap<Id, number>;
+
+### build/index.d.ts#ifRunner
+export declare function ifRunner(truth: (value: unknown) => boolean | undefined): Runner;
+
+### build/index.d.ts#intersectCaps
+export declare function intersectCaps(a: readonly Cap[], b: readonly Cap[]): readonly Cap[];
+
+### build/index.d.ts#isAlias
+export declare function isAlias(entry: WorldEntry | undefined): entry is Alias;
+
+### build/index.d.ts#isAllowedOrder
+export declare function isAllowedOrder(steps: readonly StepSpec[], order: readonly string[]): boolean;
+
+### build/index.d.ts#isClosure
+export declare function isClosure(value: unknown): value is Closure;
+
+### build/index.d.ts#isEnvelope
+export declare function isEnvelope(value: unknown): value is JsonRecord & Envelope;
+
+### build/index.d.ts#isHostThing
+export declare function isHostThing(thing: unknown): thing is HostThing;
+
+### build/index.d.ts#isKey
+export declare function isKey(value: unknown): value is Key;
+
+### build/index.d.ts#isKind
+export declare function isKind(entry: WorldEntry | undefined): entry is Kind;
+
+### build/index.d.ts#isNamespace
+export declare function isNamespace(entry: WorldEntry | undefined): entry is Namespace;
+
+### build/index.d.ts#isRecord
+export declare function isRecord(value: unknown): value is JsonRecord;
+
+### build/index.d.ts#isRef
+export declare function isRef(thing: unknown): thing is Envelope & {
+  readonly value: readonly Json[];
+};
+
+### build/index.d.ts#isStackOverflow
+export declare function isStackOverflow(error: unknown): boolean;
+
+### build/index.d.ts#isStep
+export declare function isStep<S extends string>(ladder: StepLadder<S>, value: unknown): value is S;
+
+### build/index.d.ts#isTypeRef
+export declare function isTypeRef(value: unknown): value is TypeRef;
+
+### build/index.d.ts#join
+export declare function join(a: ValueType, b: ValueType, domains?: Readonly<Record<string, Domain>>): ValueType;
+
+### build/index.d.ts#jsTruthy
+export declare function jsTruthy(value: unknown): boolean;
+
+### build/index.d.ts#kindDocument
+export declare function kindDocument(name: string, kind: Kind): Envelope;
+
+### build/index.d.ts#kindNamed
+export declare function kindNamed(world: World, name: TypeRef): Kind | undefined;
+
+### build/index.d.ts#kindOf
+export declare function kindOf(world: World, type: TypeRef): Kind | undefined;
+
+### build/index.d.ts#layers
+export declare function layers(steps: readonly StepSpec[]): readonly (readonly string[])[];
+
+### build/index.d.ts#looksLikeKind
+export declare function looksLikeKind(value: unknown): boolean;
+
+### build/index.d.ts#lookupKind
+export declare function lookupKind(world: World, type: TypeRef): Lookup;
+
+### build/index.d.ts#makeContext
+export declare function makeContext(names?: Readonly<Record<string, unknown>>, caps?: readonly Cap[], self?: Thing): Context;
+
+### build/index.d.ts#mapDocs
+export declare function mapDocs(world: World, doc: unknown, change: (visit: DocVisit) => DocChange, options?: WalkOptions): unknown;
+
+### build/index.d.ts#mapRefs
+export declare function mapRefs(world: World, doc: unknown, change: (use: RefUse) => unknown, options?: WalkOptions): unknown;
+
+### build/index.d.ts#member
+export declare function member(value: unknown, type: ValueType, domains?: Readonly<Record<string, Domain>>): boolean;
+
+### build/index.d.ts#mergeMachines
+export declare function mergeMachines(...parts: readonly (MachinePart | ((prev: Machine) => MachinePart))[]): Machine;
+
+### build/index.d.ts#mergeWorlds
+export declare function mergeWorlds(...parts: readonly (WorldPart | ((prev: World) => WorldPart))[]): World;
+
+### build/index.d.ts#narrow
+export declare function narrow(parent: Context, next: Context): Context;
+
+### build/index.d.ts#nearestWalker
+export declare function nearestWalker(options?: NearestOptions): Walker;
+
+### build/index.d.ts#necessary
+export declare function necessary<Id>(graph: NodeGraph<Id>, observed: Iterable<Id>, options?: GraphOptions): ReadonlySet<Id>;
+
+### build/index.d.ts#nodeAt
+export declare function nodeAt(trace: TraceNode, path: readonly Key[]): TraceNode | undefined;
+
+### build/index.d.ts#nodeLayers
+export declare function nodeLayers<Id>(graph: NodeGraph<Id>, options?: GraphOptions): readonly (readonly Id[])[];
+
+### build/index.d.ts#ok
+export declare function ok<V>(value: V): Result<V>;
+
+### build/index.d.ts#parse
+export declare function parse(profile: SyntaxProfile, text: string): ParseResult;
+
+### build/index.d.ts#partCaps
+export declare function partCaps(rules: readonly CapsRule[] | undefined, path: readonly Key[], caps: readonly Cap[]): readonly Cap[];
+
+### build/index.d.ts#partGrants
+export declare function partGrants(rules: readonly CapsRule[] | undefined, path: readonly Key[], value: unknown): readonly Cap[];
+
+### build/index.d.ts#partsOf
+export declare function partsOf(world: World, value: unknown, declaredType?: string): DocParts;
+
+### build/index.d.ts#pathMatches
+export declare function pathMatches(path: readonly Key[], pattern: readonly Key[]): boolean;
+
+### build/index.d.ts#permits
+export declare function permits(caps: readonly Cap[], kind: Cap): boolean;
+
+### build/index.d.ts#placeOf
+export declare function placeOf(thing: Thing): readonly Key[] | undefined;
+
+### build/index.d.ts#placed
+export declare function placed<V>(result: Result<V>, place: readonly Key[]): Result<V>;
+
+### build/index.d.ts#planner
+export declare function planner(machine: Machine, options?: PrepareOptions): (doc: unknown) => Plan;
+
+### build/index.d.ts#prepare
+export declare function prepare(machine: Machine, doc: unknown, options?: PrepareOptions): Plan;
+
+### build/index.d.ts#print
+export declare function print(profile: SyntaxProfile, doc: unknown): Result<string>;
+
+### build/index.d.ts#printReads
+export declare function printReads(reads: readonly Read[], options?: PrintOptions): ReadPrints;
+
+### build/index.d.ts#random
+export declare function random(seed: number): Random;
+
+### build/index.d.ts#recorder
+export declare function recorder(perform?: Perform): Recorder;
+
+### build/index.d.ts#ref
+export declare function ref(...path: readonly Json[]): Envelope;
+
+### build/index.d.ts#reference
+export declare function reference(machine: Machine, doc: unknown, context?: Context, options?: ReferenceOptions): Result;
+
+### build/index.d.ts#referenceRun
+export declare function referenceRun(machine: Machine, doc: unknown, context?: Context, options?: ReferenceRunOptions): Promise<Result>;
+
+### build/index.d.ts#refsOf
+export declare function refsOf(world: World, doc: unknown, options?: WalkOptions): readonly RefUse[];
+
+### build/index.d.ts#replayer
+export declare function replayer(log: ReplayLog, options?: ReplayOptions): Perform;
+
+### build/index.d.ts#resolve
+export declare function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution;
+
+### build/index.d.ts#resolveCompiled
+export declare function resolveCompiled(rt: Runtime, ctx: Context, compiled: CompiledPath): Resolution;
+
+### build/index.d.ts#restrictMachine
+export declare function restrictMachine(machine: Machine, paths: readonly MergePath[]): Machine;
+
+### build/index.d.ts#restrictWorld
+export declare function restrictWorld(world: World, paths: readonly MergePath[]): World;
+
+### build/index.d.ts#run
+export declare function run(machine: Machine, doc: unknown, context?: Context, options?: RunOptions): Promise<Run>;
+
+### build/index.d.ts#sameResult
+export declare function sameResult(a: Result<unknown>, b: Result<unknown>, equal?: (a: unknown, b: unknown) => boolean | undefined): boolean;
+
+### build/index.d.ts#sameValue
+export declare function sameValue(a: unknown, b: unknown, equal?: (a: unknown, b: unknown) => boolean | undefined): boolean;
+
+### build/index.d.ts#schedule
+export declare function schedule(machine: Machine, options?: ScheduleOptions): Schedule;
+
+### build/index.d.ts#splitParts
+export declare function splitParts(shape: Shape | undefined, value: Json): Split;
+
+### build/index.d.ts#stepLadder
+export declare function stepLadder<const S extends string>(steps: readonly S[], constructs: Readonly<Record<string, NoInfer<S>>>): StepLadder<S>;
+
+### build/index.d.ts#stepOf
+export declare function stepOf<N, S extends string>(ladder: StepLadder<S>, walk: StepWalk<N>, root: N): StepNeed<N, S>;
+
+### build/index.d.ts#stepRank
+export declare function stepRank<S extends string>(ladder: StepLadder<S>, step: S): number;
+
+### build/index.d.ts#stored
+export declare function stored(value: unknown, header: readonly string[]): Stored | undefined;
+
+### build/index.d.ts#syntaxFormat
+export declare function syntaxFormat(profile: SyntaxProfile): MachinePart;
+
+### build/index.d.ts#tag
+export declare function tag(value: Json, kind: string): Envelope;
+
+### build/index.d.ts#thrown
+export declare function thrown(error: unknown, who: string): Failed;
+
+### build/index.d.ts#toJson
+export declare function toJson(doc: Envelope): JsonRecord;
+
+### build/index.d.ts#treeNodeEvaluator
+export declare function treeNodeEvaluator(options?: TreeOptions): Evaluator;
+
+### build/index.d.ts#typeCheck
+export declare function typeCheck(machine: Machine, doc: unknown, options?: CheckOptions): Typing;
+
+### build/index.d.ts#typeFromSamples
+export declare function typeFromSamples(values: readonly unknown[], options?: SampleOptions): ValueType;
+
+### build/index.d.ts#typeFromSchema
+export declare function typeFromSchema(schema: unknown): TypeReading;
+
+### build/index.d.ts#typeIssues
+export declare function typeIssues(type: unknown, domains?: Readonly<Record<string, Domain>>): readonly TypeIssue[];
+
+### build/index.d.ts#typeName
+export declare function typeName(type: TypeRef): string;
+
+### build/index.d.ts#typePath
+export declare function typePath(type: TypeRef): readonly Key[] | undefined;
+
+### build/index.d.ts#typeText
+export declare function typeText(type: ValueType): string;
+
+### build/index.d.ts#typed
+export declare function typed(type: TypeRef, value: Json, header?: {
+  readonly name?: string;
+  readonly own?: Record<string, string>;
+}): Envelope;
+
+### build/index.d.ts#typesOf
+export declare function typesOf(world: World): readonly (readonly Key[])[];
+
+### build/index.d.ts#valueOfThing
+export declare function valueOfThing(thing: Thing): unknown;
+
+### build/index.d.ts#verifyReads
+export declare function verifyReads(target: Machine | Plan, reads: readonly Read[], context: Context, options?: VerifyOptions): ReadsCheck;
+
+### build/index.d.ts#walk
+export declare function walk(world: World, doc: unknown, visit: (visit: DocVisit) => void | "skip", options?: WalkOptions): void;
+
+### build/index.d.ts#worldThing
+export declare function worldThing(world: World): Json;

@@ -87,7 +87,8 @@ export interface Domain {
 /**
  * The codec of a domain: it writes a member of the domain as JSON, and it reads the JSON again (D40). Both functions
  * must be pure. `decode(encode(v))` must equal `v` by `sameValue` (EXT.ROUNDTRIP). The codec must give one JSON
- * value for each member, thus the same value has the same document in each language (D12).
+ * value for each member, thus the same value has the same document in each language (D12). `codecLaws` examines
+ * these laws for the members of the domain (D130).
  */
 export interface DomainCodec {
   /**

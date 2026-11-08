@@ -13,16 +13,28 @@
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "lint:ste": "ste-lint",
-    "check:conventions": "conventions check"
+    "check:conventions": "conventions check",
+    "check:api": "api-report check"
   },
   "devDependencies": {
-    "@mark1russell7/conventions": "^0.22.0",
-    "@mark1russell7/cue": "^1.0.2",
+    "@mark1russell7/api-report": "^0.4.1",
+    "@mark1russell7/conventions": "^0.35.0",
+    "@mark1russell7/cue": "^2.1.1",
     "@mark1russell7/ste-lint": "^0.1.1",
     "@mark1russell7/template-cli": "^0.1.0",
     "publint": "^0.3.25",
     "tsdown": "^0.23.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "conventions": {
+    "rules": {
+      "gate-trigger": {
+        "allow": [
+          "chain-memory.yml"
+        ],
+        "reason": "chain-memory.yml is a study and not a gate (K116, D144). No ruleset asks for its check."
+      }
+    }
   }
 }

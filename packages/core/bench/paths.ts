@@ -31,21 +31,34 @@
  * there than alone. Thus each case runs alone in its own processes. The fresh runner starts one case in each process,
  * thus `TOGETHER` must be empty (D114).
  *
+ * A result that changes on purpose (K237, D169). Two copies with different results in a case do not do the same work. So a
+ * difference stops the merge, unless a new row of `changed-results.json` accepts it. A row names the case and the
+ * `resultHash` of the result of each arm, and it gives a reason. The verdict `resultVerdict` of
+ * `@mark1russell7/rigor-bench` reads the rows of the base and of the head. A row of the base is spent and accepts nothing.
+ * A new row that accepts no change of the run is a fault. The fresh runner times an accepted case as each other case.
+ *
  * Each copy is an esbuild bundle without `keepNames`, as the bundler of a host makes it. The loader of tsx keeps the
  * name of each function, and that adds a call at each closure that the kernel makes.
+ *
+ * Each arm builds with the esbuild of its own lock file (K233, D172). `BENCH_BASE_ESBUILD` names a folder with the
+ * esbuild of the base, and the workflow sets it only when the two lock files give different versions. The script then
+ * also builds the base with the esbuild of the head, and prints the two hashes of the base. Equal hashes show that the
+ * new version gives the same code. Different hashes make the table a time read of the new version.
  */
-import { build, type Plugin } from "esbuild";
+import * as esbuild from "esbuild";
+import type { Plugin } from "esbuild";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve as resolveFile } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, resolve as resolveFile } from "node:path";
 import { fileURLToPath } from "node:url";
-import { caseRatios, type PairedTime } from "@mark1russell7/rigor-bench";
+import { caseRatios, resultRows, resultVerdict, type PairedTime, type ResultRow, type ResultRows, type ResultVerdict } from "@mark1russell7/rigor-bench";
 import { freshRun, type FreshArm, type FreshRecord } from "@mark1russell7/rigor-bench/fresh";
 import { median } from "@mark1russell7/rigor-statistics";
 import type { Measured } from "./cases.ts";
 import { limitsOf } from "./limits.ts";
-import { caseVerdict, fallbackMark, verdictRule, type BenchCase, type BenchMode, type BenchRun } from "./merge.ts";
+import { ACCEPTED, armHash, caseVerdict, fallbackMark, resultHash, verdictRule, type BenchCase, type BenchMode, type BenchRun } from "./merge.ts";
 import { SAMPLES, TARGET_MS, WARMUP } from "./settings.ts";
 
 /** The rounds. A local smoke test can make them small, for example `BENCH_ROUNDS=1 BENCH_SAMPLES=1`. */
@@ -76,9 +89,34 @@ export function groups(names: readonly string[]): number[][] {
 }
 
 const CASES_FILE = fileURLToPath(new URL("./cases.ts", import.meta.url));
+/** The one tsconfig of both arms. The base arm has no install, so its own file cannot find the file that it extends (K234). */
+const TSCONFIG = fileURLToPath(new URL("../tsconfig.json", import.meta.url));
 
-/** This function bundles the cases with one copy of the kernel. */
-export async function bundle(kernelFile: string, name: string, dir: string): Promise<string> {
+/** The name of the file of rows that accept a changed result (K237, D169). It is in the folder `bench` of each arm. */
+export const ROWS_FILE = "changed-results.json";
+
+/**
+ * This function gives the rows of an arm: the file `bench/changed-results.json` next to the folder of its `index.ts`.
+ * An arm without the file has no rows, as a base from before K237. A row with an empty field stops the read.
+ */
+export function rowsOf(kernelFile: string): ResultRow[] {
+  const file = join(dirname(resolveFile(kernelFile)), "..", "bench", ROWS_FILE);
+  return existsSync(file) ? resultRows(JSON.parse(readFileSync(file, "utf8"))) : [];
+}
+
+/** The part of esbuild that the bench uses: the build and the version. */
+export interface Bundler {
+  readonly build: typeof esbuild.build;
+  readonly version: string;
+}
+
+/** This function gives the esbuild in the folder `prefix`, which `npm install --prefix` made (K233). */
+export function bundlerIn(prefix: string): Bundler {
+  return createRequire(join(resolveFile(prefix), "package.json"))("esbuild") as Bundler;
+}
+
+/** This function bundles the cases with one copy of the kernel, under one tsconfig. A tsconfig that does not resolve stops it. */
+export async function bundle(kernelFile: string, name: string, dir: string, tsconfig: string = TSCONFIG, bundler: Bundler = esbuild): Promise<string> {
   const outfile = join(dir, `${name}.mjs`);
   const kernel = resolveFile(kernelFile);
   const copy: Plugin = {
@@ -87,7 +125,9 @@ export async function bundle(kernelFile: string, name: string, dir: string): Pro
       builder.onResolve({ filter: /^\.\.\/src\/index\.ts$/ }, (args) => (resolveFile(args.importer) === CASES_FILE ? { path: kernel } : undefined));
     },
   };
-  await build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", plugins: [copy] });
+  const { warnings } = await bundler.build({ entryPoints: [CASES_FILE], bundle: true, format: "esm", platform: "node", target: "node22", outfile, logLevel: "error", tsconfig, plugins: [copy] });
+  const unresolved = warnings.filter((warning) => warning.text.includes("Cannot find base config file"));
+  if (unresolved.length > 0) throw new Error(`The tsconfig of the arms does not resolve: ${unresolved.map((warning) => warning.text).join(" ")}`);
   return outfile;
 }
 
@@ -115,36 +155,77 @@ function paired(record: FreshRecord): PairedTime & { readonly job: string } {
   return { case: record.case, round: record.round, first: record.first, a: record.a, b: record.b, job: record.job };
 }
 
-async function main(): Promise<void> {
-  const [baseFile, headFile] = process.argv.slice(2);
-  if (baseFile === undefined || headFile === undefined) throw new Error("Give the index.ts of the base and of the head.");
+/** The input of one run of the bench. */
+export interface SpeedOptions {
+  readonly baseFile: string;
+  readonly headFile: string;
+  readonly rounds: number;
+  /** The name of the run, as `BENCH_RUN` gives it. */
+  readonly run: string;
+  /** Only these cases, in the order of `cases.ts`. A test uses a few cases. Without it, each case runs. */
+  readonly cases?: readonly string[];
+  /** The rows of the base and of the head. Without them, the run reads `changed-results.json` of each arm. */
+  readonly rows?: ResultRows;
+}
+
+/** The output of one run: the record that `merge.ts` reads, the lines of its table and the verdict of its results. */
+export interface SpeedOutput {
+  readonly record: BenchRun;
+  readonly lines: readonly string[];
+  readonly results: ResultVerdict;
+}
+
+/**
+ * This function runs the bench of the base and the head. A case with different results gets a time only when a new row
+ * accepts the change (K237, D169). A refused case gets no time, and the verdict `results` fails.
+ */
+export async function speedRun(options: SpeedOptions): Promise<SpeedOutput> {
+  const { baseFile, headFile, rounds, run } = options;
   if (TOGETHER.length > 0) throw new Error("The fresh runner starts one case in each process (D114). Thus TOGETHER must be empty.");
   const dir = mkdtempSync(join(tmpdir(), "coeval-bench-"));
-  const [baseCopy, headCopy] = [await bundle(baseFile, "base", dir), await bundle(headFile, "head", dir)];
+  const prefix = process.env["BENCH_BASE_ESBUILD"];
+  const baseBundler = prefix === undefined || prefix === "" ? esbuild : bundlerIn(prefix);
+  const [baseCopy, headCopy] = [await bundle(baseFile, "base", dir, TSCONFIG, baseBundler), await bundle(headFile, "head", dir)];
+  const arms = { base: armHash(readFileSync(baseCopy, "utf8")), head: armHash(readFileSync(headCopy, "utf8")) };
+  const esbuildLine =
+    baseBundler === esbuild
+      ? `Esbuild (K233): both arms build with esbuild ${esbuild.version}.`
+      : await (async () => {
+          const other = armHash(readFileSync(await bundle(baseFile, "base-new", dir), "utf8"));
+          const read = other === arms.base ? "equal: the new version gives the same code" : "different: the table reads the time of the new version";
+          return `Esbuild (K233): the base arm builds with esbuild ${baseBundler.version}, the head arm with ${esbuild.version}. The hash of the base is ${arms.base.slice(0, 12)} with ${baseBundler.version} and ${other.slice(0, 12)} with ${esbuild.version}, ${read}.`;
+        })();
+  console.log(esbuildLine);
   // A first process calibrates the calls of each sample, thus each copy does the same work. Its times do not count.
-  const first = measureCopy(baseCopy);
-  const counts = first.map((item) => item.calls);
+  const all = measureCopy(baseCopy);
+  const counts = all.map((item) => item.calls);
+  const absent = (options.cases ?? []).filter((name) => !all.some((item) => item.name === name));
+  if (absent.length > 0) throw new Error(`cases.ts does not have the cases ${absent.join(", ")}.`);
+  const first = options.cases === undefined ? all : all.filter((item) => options.cases?.includes(item.name) === true);
   const names = first.map((item) => item.name);
-  // A first process of the head gives its results. The fresh runner refuses a copy that changes its result in a case.
-  const heads = measureCopy(headCopy, counts);
-  const different = names.map((_, index) => {
-    const results = new Set([(first[index] as Measured).result, (heads[index] as Measured).result]);
-    return results.size === 1 ? undefined : [...results].join(" and ");
-  });
-  const run = process.env["BENCH_RUN"] ?? "1";
+  const indexes = names.map((name) => all.findIndex((item) => item.name === name));
+  // A first process of the head gives its results. The fresh runner times only the arms, and the verdict of the rows reads the results.
+  const heads = measureCopy(headCopy, counts, indexes);
+  const results = resultVerdict(
+    names.map((name, index) => ({ case: name, base: resultHash((first[index] as Measured).result), head: resultHash((heads[index] as Measured).result) })),
+    options.rows ?? { base: rowsOf(baseFile), head: rowsOf(headFile) },
+  );
+  const refused = new Set(results.cases.filter((item) => item.outcome === "refused").map((item) => item.case));
+  const accepted = new Map(results.cases.filter((item) => item.outcome === "accepted").map((item) => [item.case, item.line]));
+  const different = names.map((name, index) => (refused.has(name) ? `${(first[index] as Measured).result} and ${(heads[index] as Measured).result}` : undefined));
   const job = Number(run);
-  const same = names.filter((_, index) => different[index] === undefined);
+  const timed = names.filter((name) => !refused.has(name));
   const fresh =
-    same.length === 0
+    timed.length === 0
       ? undefined
       : await freshRun({
           base: arm("base", baseCopy),
           candidates: [arm("head", headCopy)],
-          cases: same,
-          rounds: ROUNDS,
-          roundOffset: Number.isInteger(job) && job >= 1 ? (job - 1) * ROUNDS : 0,
+          cases: timed,
+          rounds,
+          roundOffset: Number.isInteger(job) && job >= 1 ? (job - 1) * rounds : 0,
           job: run,
-          args: (name) => [String(names.indexOf(name)), String(counts[names.indexOf(name)])],
+          args: (name) => [String(all.findIndex((item) => item.name === name)), String(counts[all.findIndex((item) => item.name === name)])],
         });
   const pairs = { head: (fresh?.pairs["head"] ?? []).map(paired), aa: (fresh?.pairs["base~aa"] ?? []).map(paired) };
   // On Linux, Node reads the model of the CPU from /proc/cpuinfo.
@@ -153,8 +234,9 @@ async function main(): Promise<void> {
   const cases: BenchCase[] = [];
   const lines: string[] = [
     `Run ${run} on ${cpu}.`,
-    `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${ROUNDS} rounds. In each round, the fresh runner starts each arm of the pairs (base, head) and (base, base) in a new process.`,
-    `Each process gives ${WARMUP} warmup and ${SAMPLES} counted samples of ${TARGET_MS} ms for one case.`,
+    esbuildLine,
+    `Node ${process.version} with \`${FLAGS.join(" ")}\`, ${String(rounds)} rounds. In each round, the fresh runner starts each arm of the pairs (base, head) and (base, base) in a new process.`,
+    `Each process gives ${String(WARMUP)} warmup and ${String(SAMPLES)} counted samples of ${String(TARGET_MS)} ms for one case.`,
     "The change compares the head with the base of the same round. The noise (A/A) compares two processes of the base.",
     ...verdictRule(),
     "",
@@ -172,19 +254,30 @@ async function main(): Promise<void> {
     const [change, noise] = [caseRatios(head)[0]?.ratio ?? Number.NaN, caseRatios(aa)[0]?.ratio ?? Number.NaN];
     // The records keep the time of one call in milliseconds, and the table gives nanoseconds.
     const [baseNs, headNs] = [median(head.map((record) => record.a)) * 1e6, median(head.map((record) => record.b)) * 1e6];
-    cases.push({ name, baseNs, headNs, change: (change - 1) * 100, noise: (noise - 1) * 100, head, aa });
-    lines.push(`| ${name} | ${baseNs.toFixed(1)} | ${headNs.toFixed(1)} | ${percent(change)} | ${percent(noise)} | ${caseVerdict(head, aa, limitsOf(name).options).outcome}${fallbackMark(name)} |`);
+    const line = accepted.get(name);
+    cases.push({ name, baseNs, headNs, change: (change - 1) * 100, noise: (noise - 1) * 100, head, aa, ...(line === undefined ? {} : { accepted: line }) });
+    lines.push(
+      `| ${name} | ${baseNs.toFixed(1)} | ${headNs.toFixed(1)} | ${percent(change)} | ${percent(noise)} | ${caseVerdict(head, aa, limitsOf(name).options).outcome}${fallbackMark(name)}${line === undefined ? "" : ACCEPTED} |`,
+    );
   });
+  if (results.lines.length > 0) lines.push("", ...results.lines);
+  const faults = [...results.unused, ...results.absent].map((item) => item.line);
+  const record: BenchRun = { run, cpu, node: process.version, rounds, mode, arms, cases, results: { outcome: results.outcome, lines: results.lines, faults } };
+  return { record, lines, results };
+}
+
+async function main(): Promise<void> {
+  const [baseFile, headFile] = process.argv.slice(2);
+  if (baseFile === undefined || headFile === undefined) throw new Error("Give the index.ts of the base and of the head.");
+  const run = process.env["BENCH_RUN"] ?? "1";
+  const { record, lines, results } = await speedRun({ baseFile, headFile, rounds: ROUNDS, run });
   const text = lines.join("\n");
   console.log(text);
   const summary = process.env["GITHUB_STEP_SUMMARY"];
   if (summary !== undefined && summary !== "") appendFileSync(summary, `## The speed of plans and paths (run ${run})\n\n${text}\n`);
   const json = process.env["BENCH_JSON"];
-  if (json !== undefined && json !== "") {
-    const record: BenchRun = { run, cpu, node: process.version, rounds: ROUNDS, mode, cases };
-    writeFileSync(json, `${JSON.stringify(record, null, 2)}\n`);
-  }
-  if (different.some((results) => results !== undefined)) process.exitCode = 1;
+  if (json !== undefined && json !== "") writeFileSync(json, `${JSON.stringify(record, null, 2)}\n`);
+  if (results.outcome === "fail") process.exitCode = 1;
 }
 
 // The mode run `mode.ts` imports the functions of this file, and only a start of this file runs the bench.

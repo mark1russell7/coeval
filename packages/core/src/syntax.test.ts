@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { corpus } from "./corpus.test-support.ts";
 import {
   type Json,
   type Random,
+  type SyntaxForm,
+  type SyntaxIssue,
   type SyntaxProfile,
   STD_CAPS,
   STD_MACHINE,
@@ -9,6 +12,8 @@ import {
   STD_WORLD,
   WORLD_SYNTAX,
   type WorldEntry,
+  MAX_SYNTAX_ISSUES,
+  checkSyntax,
   docEquals,
   context,
   evaluate,
@@ -47,6 +52,11 @@ function text(profile: SyntaxProfile, value: unknown): string {
 function issue(profile: SyntaxProfile, source: string): unknown {
   const result = parse(profile, source);
   return result.ok ? result.doc : result.issues[0];
+}
+
+function issues(profile: SyntaxProfile, source: string): (readonly [number, string])[] {
+  const result = parse(profile, source);
+  return result.ok ? [] : result.issues.map((each) => [each.offset, each.message] as const);
 }
 
 /** A spreadsheet-like profile: A1 references, `&`, `^`, `<>`, a postfix `%` and `IF`. */
@@ -136,6 +146,18 @@ const NUMBERS: Readonly<Record<string, Json>> = {
 };
 
 describe("the syntax kit", () => {
+  it("[SYNTAX.CALL-DOTTED] without field steps, print gives no dotted call, and a plain call still comes back", () => {
+    const profile: SyntaxProfile = { refs: { fields: false } };
+    const doc = (...keys: readonly string[]): Json => ({ type: ["ops", ...keys], value: [1] });
+    expect(print(profile, doc("m", "p")).ok).toBe(false);
+    expect(print({ refs: { fields: false }, calls: { ops: ["m.p"] } }, doc("m", "p")).ok).toBe(false);
+    expect(parse(profile, "m.p(1)").ok).toBe(false);
+    expect(print(profile, doc("m"))).toEqual({ ok: true, value: "m(1)" });
+    expect(parse(profile, "m(1)")).toEqual({ ok: true, doc: doc("m") });
+    expect(print({}, doc("m", "p"))).toEqual({ ok: true, value: "m.p(1)" });
+    expect(parse({}, "m.p(1)")).toEqual({ ok: true, doc: doc("m", "p") });
+  });
+
   it("[SYNTAX.PARSE] parse reads a text of the standard profile into the documents of the formula kit", () => {
     expect(doc(STD_SYNTAX, "1 + 2 * 3")).toEqual(op("add", 1, op("mul", 2, 3)));
     expect(doc(STD_SYNTAX, "x - y - z")).toEqual(op("sub", op("sub", x, y), z));
@@ -375,7 +397,7 @@ describe("the syntax kit", () => {
     }
     expect(Object.keys(NO_TEXT)).toEqual([]);
     // The text of each kind reads to a document of that kind, and print writes the same text.
-    expect(Object.keys(WORLD_TEXTS).sort()).toEqual([...kinds].sort());
+    expect(Object.keys(WORLD_TEXTS).sort()).toEqual(kinds.filter((kind) => !Object.hasOwn(NO_TEXT, kind)).sort());
     for (const [kind, source] of Object.entries(WORLD_TEXTS)) {
       const read = doc(WORLD_SYNTAX, source);
       const type = (read as { type?: unknown }).type;
@@ -404,6 +426,51 @@ describe("the syntax kit", () => {
     expect(doc(host, "2 + 3")).toEqual({ type: "add", value: [2, 3] });
     expect(parse(WORLD_SYNTAX, 'card(title: text("a"))').ok).toBe(false);
     expect(issue(host, "max(1, 2)")).toMatchObject({ offset: 0 });
+  });
+
+  it("[SYNTAX.DATA-FIELD] a field of data reads lists and records with documents in them, and print writes them back", () => {
+    const run = (source: string): unknown => evaluate(STD_MACHINE, doc(WORLD_SYNTAX, source), makeContext({}, STD_CAPS)).result;
+    const t = (value: string): Json => ({ type: "text", value });
+    // A literal in a field of data stays its data, and each other text is a document.
+    const source = 'handle(with: [{op: "log", do: list(payload, "b")}], body: log("a"))';
+    expect(doc(WORLD_SYNTAX, source)).toEqual({
+      type: "handle",
+      value: { with: [{ op: "log", do: { type: "list", value: [ref("names", "payload"), t("b")] } }], body: { type: "log", value: ["a"] } },
+    });
+    expect(text(WORLD_SYNTAX, doc(WORLD_SYNTAX, source))).toBe(source);
+    expect(run(source)).toEqual(ok(["a", "b"]));
+    // A clause abort stops the body, and the clause return reads the result of the body.
+    expect(run('handle(with: [{op: ["log"], abort: text("stop")}], body: seq(log("a"), 5))')).toEqual(ok("stop"));
+    expect(run("handle(with: [], return: result * 2, body: 21)")).toEqual(ok(42));
+    // A list and a record of data nest, and they can be empty.
+    const nested: SyntaxProfile = { calls: { forms: [{ name: "f", kind: "f", fields: ["a"], data: ["a"] }] } };
+    expect(doc(nested, "f([[1, {}], {k: [true, null], `a b`: add(x, 1)}, []])")).toEqual({
+      type: "f",
+      value: { a: [[1, {}], { k: [true, null], "a b": op("add", ref("names", "x"), 1) }, []] },
+    });
+    for (const each of ["f([[1, {}], {k: [true, null], `a b`: add(x, 1)}, []])", "f({})", 'f(["a", -2])', "f(x)"]) expect(text(nested, doc(nested, each)), each).toBe(each);
+    // A record with the key type is a document, thus print writes it as a document.
+    expect(print(nested, { type: "f", value: { a: [op("add", 1, 2)] } })).toEqual(ok("f([add(1, 2)])"));
+    expect(issue(nested, 'f({type: "x"})')).toEqual({ offset: 3, length: 4, message: "A record of data has no key type, because the key type makes a document." });
+    expect(print(WORLD_SYNTAX, { type: "handle", value: { with: [{ op: "log", do: Number.NaN }], body: t("a") } })).toMatchObject({ ok: false, error: { place: ["with", 0, "do"] } });
+    // An issue names the bracket or the brace that is missing, and recovery reads past each bracket.
+    expect(issue(nested, "f([1, 2)")).toMatchObject({ message: 'A "," or a closing bracket is missing.' });
+    expect(issue(nested, "f({k: 1)")).toMatchObject({ message: 'A "," or a closing brace is missing.' });
+    expect(issue(nested, "f([")).toMatchObject({ message: "A term is missing at the end of the text." });
+    const many = parse(nested, "f([1 2, {k: 3 4}, 5])");
+    expect(many.ok ? [] : many.issues.map((each) => each.offset)).toEqual([5, 14]);
+    // A deep list of data stops at the depth of the profile.
+    expect(issue({ ...nested, maxDepth: 8 }, `f(${"[".repeat(9)}${"]".repeat(9)})`)).toMatchObject({ message: "The text is deeper than 8 levels." });
+    // A form with data needs fields, each name of data is a field, a field of data is not in wrap, and no operator starts with a bracket or a brace.
+    const form = (more: Omit<SyntaxForm, "name" | "kind">): SyntaxProfile => ({ calls: { forms: [{ name: "f", kind: "f", ...more }] } });
+    expect(() => parse(form({ data: ["a"] }), "1")).toThrow("takes data only with fields");
+    expect(() => parse(form({ fields: ["a"], data: ["b"] }), "1")).toThrow("has no field b for its data");
+    expect(() => parse(form({ fields: ["a"], data: ["a"], wrap: ["a"] }), "1")).toThrow("in wrap and in data");
+    expect(() => parse(form({ fields: ["a"], data: ["a"], wrap: true }), "1")).toThrow("in wrap and in data");
+    expect(() => parse({ ...nested, operators: [{ symbol: "[[", fixity: "prefix", prec: 1, kind: "g" }] }, "1")).toThrow("reads the text of a field of data");
+    expect(() => parse({ ...nested, operators: [{ symbol: "}", fixity: "postfix", prec: 1, kind: "g" }] }, "1")).toThrow("reads the text of a field of data");
+    expect(parse({ ...form({ fields: ["a"] }), operators: [{ symbol: "[[", fixity: "prefix", prec: 1, kind: "g" }] }, "[[1").ok).toBe(true);
+    expect(checkSyntax(nested)).toEqual([]);
   });
 
   it("[SYNTAX.ENVELOPE] a literal in a place that takes a document gets its data envelope, and STD_MACHINE evaluates it", () => {
@@ -658,6 +725,148 @@ describe("the syntax kit", () => {
     }
     expect(bad.slice(0, 3)).toEqual([]);
   });
+
+  it("[SYNTAX.ISSUES-ALL] parse gives each issue of a text in the order of the offsets", () => {
+    const list = 'A "," or a closing parenthesis is missing.';
+    const group = "A closing parenthesis is missing.";
+    expect(issues(STD_SYNTAX, "f(1 2, 3 4)")).toEqual([[4, list], [9, list]]);
+    expect(issues(STD_SYNTAX, "(1 2) + (3 4)")).toEqual([[3, group], [11, group]]);
+    expect(issues(STD_SYNTAX, "self.(1 2).x + g(3 4, $)").map(([offset]) => offset)).toEqual([8, 19]);
+    expect(issues(STD_SYNTAX, "(1 2) + 3 4")).toEqual([[3, group], [10, "The text continues after the expression."]]);
+    expect(issues(STD_SYNTAX, "{a 1, b: 2 3, c: (4 5)}")).toEqual([
+      [1, 'Each entry of the record is a key, a ":" and a document.'],
+      [11, 'A "," or a closing brace is missing.'],
+      [20, group],
+    ]);
+    expect(issues(RECORDS, "panel(width: 1 2, height: 3, depth: 4)")).toEqual([[15, list], [29, "The form panel has no field depth."]]);
+    expect(issues(STD_SYNTAX, "f(if(1), 2, if(3, 4, 5, 6))")).toEqual([[2, "The form if takes 2 to 3 arguments."], [12, "The form if takes 2 to 3 arguments."]]);
+    expect(issues(STD_SYNTAX, String.raw`"a\q" + "\w"`)).toEqual([[2, "The escape \\q is not valid."], [9, "The escape \\w is not valid."]]);
+    expect(issues(STD_SYNTAX, "x + ")).toEqual([[4, "A term is missing at the end of the text."]]);
+    expect(issues(STD_SYNTAX, "")).toEqual([[0, "The text is empty."]]);
+    expect(parse(STD_SYNTAX, "f(1, 2)").ok).toBe(true);
+  });
+
+  it("[SYNTAX.ISSUES-FIRST] the first issue of a text with more issues is the issue of the first read", () => {
+    expect(issue(STD_SYNTAX, "f(1 2, 3 4)")).toEqual({ offset: 4, length: 1, message: 'A "," or a closing parenthesis is missing.' });
+    expect(issue(STD_SYNTAX, "(1 2) + (3 4)")).toEqual({ offset: 3, length: 1, message: "A closing parenthesis is missing." });
+    expect(issue(STD_SYNTAX, "(x 1")).toEqual({ offset: 3, length: 1, message: "A closing parenthesis is missing." });
+    expect(issue(STD_SYNTAX, "{a 1, b: 2 3}")).toEqual({ offset: 1, length: 1, message: 'Each entry of the record is a key, a ":" and a document.' });
+    expect(issue(STD_SYNTAX, "if(1) + (2 3)")).toEqual({ offset: 0, length: 5, message: "The form if takes 2 to 3 arguments." });
+    expect(issue({ ...STD_SYNTAX, maxDepth: 2 }, "(((1)))")).toEqual({ offset: 2, length: 0, message: "The text is deeper than 2 levels." });
+  });
+
+  it("[SYNTAX.ISSUES-SYNC] recovery moves to a separator or a closer of the bracket of the fault", () => {
+    const places = (profile: SyntaxProfile, source: string): number[] => issues(profile, source).map(([offset]) => offset);
+    const semicolons: SyntaxProfile = { ...STD_SYNTAX, calls: { ...STD_SYNTAX.calls, separator: ";" } };
+    expect(places(semicolons, "f(1 2; 3 4)")).toEqual([4, 9]);
+    expect(places(semicolons, "f(1 2, 3 4)")).toEqual([4]);
+    expect(places(STD_SYNTAX, "f(1 g(2, 3) 4, 5 6)")).toEqual([4, 17]);
+    expect(places(STD_SYNTAX, "f(1 {a: 2, b: 3} 4, 5 6)")).toEqual([4, 22]);
+    expect(places(STD_SYNTAX, String.raw`f(1 "a\",b", 2 3)`)).toEqual([4, 15]);
+    expect(places(STD_SYNTAX, "f(1 `a,b`, 2 3)")).toEqual([4, 13]);
+    expect(places(SHEET, 'IF(1 "a"",b", 2 3)')).toEqual([5, 16]);
+    // Without a form of braces, a brace is no bracket of the profile.
+    expect(places(ALGEBRA, "min(1 { 2, 3 4)")).toEqual([6, 13]);
+    expect(places(ALGEBRA, "min(1 } 2, 3 4)")).toEqual([6, 13]);
+    // Each place outside brackets, and each text with an open quote or an open bracket, has no sure synchronising token.
+    expect(places(STD_SYNTAX, "1 2 + (3 4)")).toEqual([2]);
+    expect(places(STD_SYNTAX, "f(1 2, g(3 4)")).toEqual([4]);
+    expect(places(STD_SYNTAX, "(1 2}")).toEqual([3]);
+    expect(places(STD_SYNTAX, "(1 2))")).toEqual([3]);
+    expect(places(STD_SYNTAX, 'f(1 2, "a)')).toEqual([4]);
+    expect(places(STD_SYNTAX, "f(1 2, `a)")).toEqual([4]);
+  });
+
+  it("[SYNTAX.ISSUES-CASCADE] one fault gives one issue, and recovery adds no issue of its own", () => {
+    const count = (source: string, profile: SyntaxProfile = STD_SYNTAX): number => issues(profile, source).length;
+    // The removed text changes the count of the arguments, and the form does not report that count.
+    expect(count("if(1 2)")).toBe(1);
+    expect(count("text($)", RECORDS)).toBe(1);
+    // The token after a synchronising token is not an issue.
+    expect(count("list(,)")).toBe(1);
+    expect(count("{let:,true, b: 1}")).toBe(1);
+    expect(count("f((1 2) 3)")).toBe(1);
+    expect(count("{a 1, b 2, c 3}")).toBe(1);
+    // A colon tells that the name of a form has a fault, thus the arguments are not read.
+    expect(count("pael(width: 1, height: 2, children: 3)", RECORDS)).toBe(1);
+    // A separator in a group tells that a function has a fault, thus the rest of its item is not read.
+    expect(count("(x, y z) => 1")).toBe(1);
+    expect(count("(x, y) > (a, b) > c = 1")).toBe(1);
+    expect(issues(STD_SYNTAX, "f((x, y z) => 1, 2 3)").map(([offset]) => offset)).toEqual([4, 19]);
+  });
+
+  it("[SYNTAX.ISSUES-BOUND] parse gives at most MAX_SYNTAX_ISSUES issues, and each read ends", () => {
+    const many = `f(${Array.from({ length: 30 }, () => "1 2").join(", ")})`;
+    expect(issues(STD_SYNTAX, many)).toHaveLength(MAX_SYNTAX_ISSUES);
+    expect(issues(STD_SYNTAX, `"${"\\q".repeat(30)}" + (1 2)`)).toHaveLength(MAX_SYNTAX_ISSUES);
+    // An empty separator adds no step to a list, thus the guard of recovery ends the read.
+    const empty: SyntaxProfile = { calls: { separator: "" } };
+    for (const text of ["f(1)", "f(g(1), 2)", "f(", "(f(1))"]) expect(issues(empty, text).length).toBeGreaterThan(0);
+    // A fault inside a nesting keeps the count of the levels for the next item.
+    expect(issues({ ...STD_SYNTAX, maxDepth: 3 }, "f(g($), g($), g($), g($))")).toHaveLength(4);
+    // A nesting under the limit of the depth keeps each issue of the depth.
+    const deep = `${"(".repeat(4)}1${")".repeat(4)}`;
+    expect(issues({ ...STD_SYNTAX, maxDepth: 3 }, `f(${deep}, ${deep})`)).toHaveLength(2);
+    const closing: SyntaxProfile = {
+      refs: {
+        patterns: [
+          {
+            pattern: /<\)>|@[0-9]+/,
+            read: (cell) => {
+              if (cell === "@9") throw new Error("A host fault.");
+              return ["world", cell];
+            },
+            write: () => undefined,
+          },
+        ],
+      },
+    };
+    // A pattern can hide a closer from the brackets of the text, and recovery ends at the end of the text.
+    expect(issues(closing, "f(<)> 2, (1)").map(([offset]) => offset)).toEqual([6, 12]);
+    // An error of a host in a later text keeps the answer of a text that had an issue.
+    expect(issues(closing, "f(1 2, @9 3)").map(([offset]) => offset)).toEqual([4]);
+  });
+
+  // One test for each part of each generator, because one generator took 3.0 s on a slow runner (K230, D96). The parts
+  // give the same seeds in the same order as one loop, thus the last test reads the same pins.
+  describe.each(Object.entries(GENERATORS))("with the generator %s", (name, gen) => {
+    const seeds = corpus(2000, 500);
+    const summary = { texts: 0, most: 0, single: 0 };
+    const cascades: string[] = [];
+    const quoteCascades: string[] = [];
+    let digest = 2166136261;
+    for (const part of seeds.parts) {
+      it("[SYNTAX.ISSUES-GENERATED] a damaged text gives a first issue as before, rising offsets and no cascade, " + part.name, () => {
+        for (const index of part) {
+          const seed = index + 1;
+          const made = generateDoc(gen, random(seed), 0);
+          const printed = print(gen.profile, gen.envelopes === true ? withEnvelopes(gen.profile, made, true) : made);
+          if (!printed.ok) continue;
+          for (let faults = 1; faults <= 3; faults += 1) {
+            const bad = damaged(random(seed * 7 + faults), printed.value, faults);
+            const result = parse(gen.profile, bad);
+            if (result.ok) continue;
+            const first = result.issues[0] as SyntaxIssue;
+            digest = hashText(digest, `${String(first.offset)} ${String(first.length)} ${first.message}`);
+            const offsets = result.issues.map((each) => each.offset);
+            expect(offsets).toEqual([...new Set(offsets)].sort((x, y) => x - y));
+            summary.texts += 1;
+            summary.most = Math.max(summary.most, result.issues.length);
+            if (faults > 1) continue;
+            summary.single += 1;
+            if (result.issues.length > 1) (quoteMarks(bad) === quoteMarks(printed.value) ? cascades : quoteCascades).push(`${name} ${String(seed)}: ${bad}`);
+          }
+        }
+        expect(cascades.slice(0, 3)).toEqual([]);
+      });
+    }
+    it("[SYNTAX.ISSUES-GENERATED] the parts of a generator give the pinned summary and digest", () => {
+      expect(seeds.unfinished(), "parts that did not finish").toEqual([]);
+      // A fault in a quote mark can pair with a mark inside a text that holds each mark (D138, Limits). A digest comes
+      // from the parser before D138. A change to a generator or to `print` changes it.
+      expect({ ...summary, quoteCascades: quoteCascades.length, digest }).toEqual(GENERATED_PINS[name]);
+    });
+  });
 });
 
 /** This function evaluates a text of `STD_SYNTAX` with the formula kit. */
@@ -678,7 +887,7 @@ const OTHER_TEXT: Readonly<Record<string, string>> = {
   ref: "The reference syntax of the kit writes a path, for example self.parent.width.",
 };
 
-/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. The list is empty. */
+/** The kinds of `STD_WORLD` without a text in `WORLD_SYNTAX`, each with its reason. Since L1c (D177), each kind has a text. */
 const NO_TEXT: Readonly<Record<string, string>> = {};
 
 /** One text for each kind of `STD_WORLD`, in the profile `WORLD_SYNTAX`. */
@@ -704,6 +913,7 @@ const WORLD_TEXTS: Readonly<Record<string, string>> = {
   pure: 'pure(log("hello"))',
   log: 'log("start")',
   write: 'write("total", 2 + 3)',
+  handle: 'handle(with: [{op: "log", do: payload}, {op: ["write"], abort: text("no")}], return: list(result), body: log("a"))',
 };
 
 /** This function lists the kinds and the aliases of a world, with dots between the keys of a namespace. */
@@ -739,14 +949,36 @@ interface Generator {
 /** The names of the forms of `WORLD_SYNTAX` for an operator document with fewer or more terms (K163, D65). */
 const OPERATOR_FORMS: readonly string[] = ["add", "multiply", "greater"];
 
+/** The names of the forms of `WORLD_SYNTAX` after D64 that are not operator forms: `handle` has a text since D177. */
+const LATER_FORMS: readonly string[] = ["handle"];
+
 /**
- * `WORLD_SYNTAX` as D64 gave it: without the data envelopes of K159 and the forms of K163. The generator `world` keeps
+ * `WORLD_SYNTAX` as D64 gave it: without the data envelopes of K159 and the forms of K163 and D177. The generator `world` keeps
  * the documents that it gave before D65 with this profile.
  */
 const WORLD_D64: SyntaxProfile = {
   ...WORLD_SYNTAX,
   literals: {},
-  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name)) },
+  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => !OPERATOR_FORMS.includes(form.name) && !LATER_FORMS.includes(form.name)) },
+};
+
+/** `WORLD_SYNTAX` with the one form `handle`, thus many texts of the generator `handlers` have a field of data (D177). */
+const HANDLERS: SyntaxProfile = {
+  ...WORLD_SYNTAX,
+  calls: { ...WORLD_SYNTAX.calls, forms: (WORLD_SYNTAX.calls?.forms ?? []).filter((form) => form.name === "handle") },
+};
+
+/** The expected summary of [SYNTAX.ISSUES-GENERATED] for each generator. */
+const GENERATED_PINS: Readonly<Record<string, unknown>> = {
+  standard: { texts: 4586, most: 3, single: 1197, quoteCascades: 0, digest: 3920759258 },
+  constructs: { texts: 4896, most: 5, single: 1309, quoteCascades: 9, digest: 359370749 },
+  sheet: { texts: 4716, most: 3, single: 1271, quoteCascades: 0, digest: 1508490836 },
+  paths: { texts: 4728, most: 3, single: 1241, quoteCascades: 0, digest: 2906695574 },
+  algebra: { texts: 5114, most: 3, single: 1473, quoteCascades: 0, digest: 4265921408 },
+  records: { texts: 4823, most: 3, single: 1291, quoteCascades: 0, digest: 21554679 },
+  world: { texts: 5018, most: 3, single: 1388, quoteCascades: 0, digest: 215319946 },
+  envelopes: { texts: 5008, most: 3, single: 1372, quoteCascades: 0, digest: 1774173964 },
+  handlers: { texts: 5047, most: 3, single: 1433, quoteCascades: 1, digest: 3993650308 },
 };
 
 const GENERATORS: Readonly<Record<string, Generator>> = {
@@ -805,6 +1037,14 @@ const GENERATORS: Readonly<Record<string, Generator>> = {
     steps: true,
     envelopes: true,
   },
+  handlers: {
+    profile: HANDLERS,
+    leaves: [0, -3, 2.5, true, null, "", 'a"b', x, ref("self", "parent", "width"), ref("names", "payload")],
+    calls: [],
+    names: ["a", "a b"],
+    data: ["", 'a"b', 0, -3, true, null],
+    envelopes: true,
+  },
 };
 
 function kindType(kind: string): Json {
@@ -814,6 +1054,34 @@ function kindType(kind: string): Json {
 
 function pick<T>(rng: Random, items: readonly T[]): T {
   return items[rng.int(items.length)] as T;
+}
+
+const DAMAGE = ["(", ")", "{", "}", ",", ":", '"', "`", "\\", "$", " ", "+", "a", "1", "=", "."];
+
+/** This function makes faults in a text. Each fault removes, adds or replaces one character. */
+function damaged(rng: Random, source: string, faults: number): string {
+  let out = source;
+  for (let made = 0; made < faults; made += 1) {
+    const at = rng.int(Math.max(out.length, 1));
+    const kind = rng.int(3);
+    out = out.slice(0, at) + (kind === 0 ? "" : pick(rng, DAMAGE)) + out.slice(kind === 1 ? at : at + 1);
+  }
+  return out;
+}
+
+/**
+ * This function gives the quote marks of a text that are not in an escape. A fault that changes them can pair two
+ * quotes of different texts. An example is a fault between a backslash and its quote mark.
+ */
+function quoteMarks(source: string): string {
+  return source.replace(/\\[\s\S]/g, "").replace(/[^"`]/g, "");
+}
+
+/** This function adds a text to an FNV-1a hash. */
+function hashText(hash: number, source: string): number {
+  let out = hash;
+  for (let at = 0; at < source.length; at += 1) out = Math.imul(out ^ source.charCodeAt(at), 16777619) >>> 0;
+  return out;
 }
 
 /** This function builds a random document that the profile writes. Some documents get a header name. */
@@ -839,7 +1107,7 @@ function generateBare(gen: Generator, rng: Random, depth: number): Json {
   if (forms.length > 0 && (gen.calls.length === 0 || rng.int(2) === 0)) {
     const form = pick(rng, forms);
     if (form.args === "literal") return { type: kindType(form.kind), value: pick(rng, gen.data ?? [0]) };
-    if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? []) };
+    if (form.args === "named") return { type: kindType(form.kind), value: namedValue(gen, rng, depth, form.fields ?? gen.keys ?? [], form.data) };
     const fields = form.fields;
     const least = form.min ?? 0;
     if (fields === undefined) return { type: kindType(form.kind), value: terms(least + rng.int(4 - least)) };
@@ -864,14 +1132,32 @@ function constructDoc(gen: Generator, rng: Random, depth: number): Json {
 }
 
 /** This function builds the record of a form `named`: some of the keys, in a random order, each with a document. */
-function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly string[]): Json {
+function namedValue(gen: Generator, rng: Random, depth: number, keys: readonly string[], data: readonly string[] = []): Json {
   const value: Record<string, Json> = {};
   const left = [...keys];
   for (let count = rng.int(left.length + 1); count > 0; count -= 1) {
     const [key] = left.splice(rng.int(left.length), 1) as [string];
-    Object.defineProperty(value, key, { value: generateDoc(gen, rng, depth + 1), enumerable: true, writable: true, configurable: true });
+    const item = data.includes(key) ? dataValue(gen, rng, depth + 1) : generateDoc(gen, rng, depth + 1);
+    Object.defineProperty(value, key, { value: item, enumerable: true, writable: true, configurable: true });
   }
   return value;
+}
+
+/** This function builds the argument of a field of data (D177): a list, a record without the key `type`, or a document. */
+function dataValue(gen: Generator, rng: Random, depth: number): Json {
+  const choice = depth > 3 ? 0 : rng.int(3);
+  if (choice === 0) return generateDoc(gen, rng, depth);
+  const count = rng.int(3);
+  if (choice === 1) return Array.from({ length: count }, () => dataValue(gen, rng, depth + 1));
+  return Object.fromEntries(["op", "a b", "do"].slice(0, count).map((key) => [key, dataValue(gen, rng, depth + 1)]));
+}
+
+/** This function gives the documents in an argument of a field of data their envelopes. A literal in it stays its data (D177). */
+function dataEnvelopes(profile: SyntaxProfile, value: Json): Json {
+  if (Array.isArray(value)) return value.map((item) => dataEnvelopes(profile, item));
+  if (typeof value !== "object" || value === null) return value;
+  if (!Object.hasOwn(value, "type")) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, dataEnvelopes(profile, item)]));
+  return withEnvelopes(profile, value, false);
 }
 
 /**
@@ -898,7 +1184,9 @@ function withEnvelopes(profile: SyntaxProfile, made: Json, place: boolean): Json
   let next: Json | undefined = value;
   if (Array.isArray(value)) next = value.map((item, index) => withEnvelopes(profile, item, wraps(String(index))));
   else if (typeof value === "object" && value !== null) {
-    next = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withEnvelopes(profile, item, wraps(key))]));
+    next = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, form?.data?.includes(key) === true ? dataEnvelopes(profile, item) : withEnvelopes(profile, item, wraps(key))]),
+    );
   }
   return next === value ? made : { ...made, value: next as Json };
 }
@@ -909,3 +1197,17 @@ function stepRef(gen: Generator, rng: Random, depth: number): Json {
   const step = typeof made === "object" && made !== null && !Array.isArray(made) ? made : { type: "nearest", value: { type: "panel" } };
   return ref("self", "parent", step, ...(rng.int(2) === 0 ? ["width"] : []));
 }
+
+describe("the check of the standard profiles", () => {
+  it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the default, the standard and the world profile", () => {
+    expect(checkSyntax({})).toEqual([]);
+    expect(checkSyntax(STD_SYNTAX)).toEqual([]);
+    expect(checkSyntax(WORLD_SYNTAX)).toEqual([]);
+  });
+
+  for (const [name, gen] of Object.entries(GENERATORS)) {
+    it("[SYNTAX.PROFILE-CHECK-CLEAN] gives no finding for the profile of a generator: " + name, () => {
+      expect(checkSyntax(gen.profile)).toEqual([]);
+    });
+  }
+});

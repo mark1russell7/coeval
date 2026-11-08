@@ -752,6 +752,12 @@ The check `cover` examines the premise of TYPE.FITS-COVER (CONFORM.COVER, D94). 
 
 The check `parallel` examines the code of a runner under the rule ALL (CONFORM.PARALLEL, D128). The probe `all` keeps that rule. The result, the parts and the effects of a probe do not change with the order of the waits. The rule gives a stop by `failFast` to the order of the host, thus such a stop gets no comparison.
 
+The checks of a walker examine the rule R-WALKER (D137). The check `result` tests the form of the answer (CONFORM.WALKER-RESULT). The check `ladder` tests that a step on a host thing goes through the input (CONFORM.WALKER-LADDER). The check `hops` tests each `visit` (CONFORM.WALKER-HOPS). The checks `local`, `C4` and `typed` test EVAL.DETERMINISTIC, FACTS.VERB and TYPE.WALKER on the walker.
+
+The checks of the code of a `deref` are `result`, `local` and `has` (CONFORM.DEREF-RESULT, CONFORM.DEREF-LOCAL, CONFORM.DEREF-HAS). This code gets no context, thus C1 and the roots do not apply to it.
+
+The checks `typed` and `result` call the functions of a formula profile directly (CONFORM.PROFILE-SIGNATURE, CONFORM.PROFILE-EXT, CONFORM.PROFILE-FORM, D137). An operation keeps each signature, and an extension keeps its entry in `extTypes`. Each function gives the form of its type.
+
 ## Facts that SPEC did not state
 
 The work on the rules found six facts that the code has and `SPEC.md` did not state. Each one has a requirement ID in `SPEC.md` and a test in `semantics.test.ts`.
@@ -842,6 +848,6 @@ Why each law holds:
 
 - The reason and the cause of an error, the hops of a path, the trace and the list of reads.
 - The rules of `check`, of the types and of the facts. Each one is an abstract version of a rule of this page (R5).
-- The schedule and the durable cache. They evaluate documents by the judgment 4 (D30, D31).
+- The schedule and the durable cache. They evaluate documents by the judgment 4, each node with its own `self` when the host gives one (D30, D31, D135).
 - The kinds of the standard world other than the tree and `seq`. Their evaluators are host code, as each evaluator of a language is.
 - A body with more nested documents than the clock of `call` permits for each application. Its recursion can meet the stack of the host first, and each tier then stops at a different depth (VALUE.DEPTH, D125).

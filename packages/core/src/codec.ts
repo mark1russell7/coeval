@@ -12,8 +12,8 @@ import { type Domain, type DomainCodec, domainOf, lineOf, member } from "./types
 /** The domains of a machine, by their names. */
 type Domains = Readonly<Record<string, Domain>> | undefined;
 
-/** This function gives the codec of a domain, or `undefined` when the domain has no codec. */
-function codecOf(domain: Domain): DomainCodec | undefined {
+/** This function gives the codec of a domain, or `undefined` when the domain has no codec. The function is internal: `codecLaws` uses it too. */
+export function codecOf(domain: Domain): DomainCodec | undefined {
   const codec: unknown = domain.codec;
   if (typeof codec !== "object" || codec === null) return undefined;
   const { encode, decode } = codec as Partial<DomainCodec>;

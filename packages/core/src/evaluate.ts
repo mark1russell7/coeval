@@ -109,7 +109,7 @@ export function intersectCaps(a: readonly Cap[], b: readonly Cap[]): readonly Ca
 /** This function gives the capability rules of a kind that cover a part and change its capabilities. */
 function rulesFor(rules: readonly CapsRule[] | undefined, path: readonly Key[]): readonly CapsRule[] {
   if (rules === undefined || rules.length === 0) return NO_RULES;
-  const out = rules.filter((rule) => rule.rule !== "same" && (rule.in === undefined || rule.in.some((pattern) => pathMatches(path, pattern))));
+  const out = rules.filter((rule) => rule.rule !== "same" && rule.rule !== "grant" && (rule.in === undefined || rule.in.some((pattern) => pathMatches(path, pattern))));
   return out.length === 0 ? NO_RULES : out;
 }
 
@@ -134,6 +134,87 @@ function capsUnder(rules: readonly CapsRule[], caps: readonly Cap[]): readonly C
  */
 export function partCaps(rules: readonly CapsRule[] | undefined, path: readonly Key[], caps: readonly Cap[]): readonly Cap[] {
   return capsUnder(rulesFor(rules, path), caps);
+}
+
+/** This function collects the values at a path in a value. The key `"*"` steps into each item of a list. */
+function collectAt(value: unknown, path: readonly Key[], index: number, out: Cap[]): void {
+  if (index === path.length) {
+    if (typeof value === "string" || (Array.isArray(value) && value.every((key) => typeof key === "string" || typeof key === "number"))) out.push(value as Cap);
+    return;
+  }
+  const key = path[index] as Key;
+  if (key === "*") {
+    if (Array.isArray(value)) for (const item of value) collectAt(item, path, index + 1, out);
+    return;
+  }
+  if (typeof value === "object" && value !== null) collectAt((value as Record<Key, unknown>)[key], path, index + 1, out);
+}
+
+/**
+ * This function gives the capabilities that the rules `grant` of a kind give one part (CAP.GRANT). The check and the
+ * walk read them from the document. The kernel gets the same list from the clauses of the runner.
+ *
+ * @param rules - The capability rules of the kind (`Kind.caps`).
+ * @param path - The path of the part in the value of the document.
+ * @param value - The value of the document.
+ * @returns The capabilities that the rules add, or an empty list.
+ */
+export function partGrants(rules: readonly CapsRule[] | undefined, path: readonly Key[], value: unknown): readonly Cap[] {
+  if (rules === undefined) return NO_CAPS;
+  let out: Cap[] | undefined;
+  for (const rule of rules) {
+    if (rule.rule !== "grant" || (rule.in !== undefined && !rule.in.some((pattern) => pathMatches(path, pattern)))) continue;
+    collectAt(value, rule.from, 0, (out ??= []));
+  }
+  return out ?? NO_CAPS;
+}
+
+/**
+ * One clause of a handler (D146): the effects under `op` go to `answer` and not to the host. The clause runs in place,
+ * as a part of the effect that it answers. Its result is the result of that effect.
+ */
+export interface Clause {
+  /** The kind of the effects: the clause answers this kind and each kind under it (CAP.KEYS). */
+  readonly op: Cap;
+  /**
+   * This function answers one effect. It sees only the payload (HANDLE.SEALED).
+   *
+   * @param payload - The data of the effect.
+   * @returns The steps that give the result of the effect.
+   */
+  answer(payload: unknown): Steps;
+}
+
+/** The clauses of one active `handle`, and the frame around it. */
+interface Frame {
+  readonly clauses: readonly Clause[];
+  readonly outer: Frame | undefined;
+  /** The runtime of the evaluation that started the frame. A frame of another evaluation has ended. */
+  readonly owner: Runtime;
+  /** `true` after the body ends. A closure can leave the body with the context of the frame (HANDLE.ENDED). */
+  ended: boolean;
+}
+
+/**
+ * The key of the frame of a context. Like the grant, it stays through a spread of a context, and only the kernel writes
+ * it. It is not a root (D10): a document cannot read it (HANDLE.SEALED).
+ */
+const FRAME = /* @__PURE__ */ Symbol("coeval.frame");
+
+/** A context that can have a frame. */
+type Framed = Context & { readonly [FRAME]?: Frame };
+
+/** This function gives the frame of a context, when it has one. */
+function frameOf(ctx: Context): Frame | undefined {
+  return (ctx as Framed)[FRAME];
+}
+
+/** This function finds the frame and the clause that answer an effect. The innermost frame wins, then the first clause. */
+function clauseFor(start: Frame, keys: readonly Key[]): { readonly frame: Frame; readonly clause: Clause } | undefined {
+  for (let frame: Frame | undefined = start; frame !== undefined; frame = frame.outer) {
+    for (const clause of frame.clauses) if (permits([clause.op], keys)) return { frame, clause };
+  }
+  return undefined;
 }
 
 /**
@@ -669,6 +750,14 @@ export interface RunPart {
    * @returns The steps of the evaluation of the part.
    */
   evaluate(context?: Context): Steps;
+  /**
+   * This function evaluates the part under clauses that answer its effects (D146). The kernel sets it on each part of
+   * a kind with a rule `grant`. A part that a runner makes itself has none, and a compiled runner gets no such part.
+   *
+   * @param clauses - The clauses, in order. An effect goes to the first clause that names its kind.
+   * @returns The steps of the evaluation of the part.
+   */
+  handled?(clauses: readonly Clause[]): Steps;
 }
 
 /** The input of a runner: the input of an evaluator, with parts and effects that can wait. */
@@ -1005,8 +1094,23 @@ function keptPath(nav: Navigator, root: Context, path: readonly unknown[]): Kept
 }
 
 /**
+ * This function resolves the path of a kept read. A reference on the path can reach a node of a schedule, thus the
+ * resolution goes through `keeping` of the root `world` (SCHED.OWN-NODE).
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param ctx - The context.
+ * @param path - The path of the kept read.
+ * @returns What the path reaches.
+ */
+function readKept(nav: Navigator, ctx: Context, path: readonly unknown[]): Result {
+  const read = (): Result => readAgain(nav, ctx, path, false).reached;
+  const world = ctx.world;
+  return isHostThing(world) && world.keeping !== undefined ? world.keeping(read) : read();
+}
+
+/**
  * This function resolves the path of a kept read again, for `verifyReads` (SCHED.CLOSURE). It walks the path as
- * `keptPath` did. A host thing with `known` answers its step. A path without such a step resolves with `readAgain`.
+ * `keptPath` did. A host thing with `known` answers its step. A path without such a step resolves with `readKept`.
  *
  * @param nav - The world and the code of the evaluators.
  * @param ctx - The new context.
@@ -1018,7 +1122,7 @@ export function keptAgain(nav: Navigator, ctx: Context, path: readonly unknown[]
   let here = adopt(ctx[path[0] as Root]);
   let known = false;
   // Before a step of `known`, each other answer of the walk is the answer of `readAgain`, as before SCHED.CLOSURE.
-  const other = (): Result | undefined => (known ? undefined : readAgain(nav, ctx, path, false).reached);
+  const other = (): Result | undefined => (known ? undefined : readKept(nav, ctx, path));
   for (let index = 1; index < path.length; index += 1) {
     if (isHostThing(here)) {
       if (here.known === undefined) return other();
@@ -1049,6 +1153,22 @@ function readingOf(list: Read[] | undefined, root: Context): Reading | undefined
 
 /** This class holds the state of one evaluation or run: the machine, the effects, the clock and the trace. */
 class Session implements Runtime {
+  readonly machine: Machine;
+  /**
+   * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
+   * keeps its grant only in an evaluation of the same epoch.
+   */
+  readonly epoch: readonly Cap[];
+  readonly running: boolean;
+  readonly traced: boolean;
+  readonly perform: Perform | undefined;
+  readonly signal: StopSignal | undefined;
+  /**
+   * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
+   * shares the record of the evaluation around it (READS.EQUATION).
+   */
+  readonly reading: Reading | undefined;
+
   /** The list of the effects. It is made at the first effect, thus an evaluation without effects makes no list. */
   private list: Effect[] | undefined;
   tick = 0;
@@ -1067,23 +1187,22 @@ class Session implements Runtime {
   private scope: Scope | undefined;
 
   constructor(
-    readonly machine: Machine,
-    /**
-     * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
-     * keeps its grant only in an evaluation of the same epoch.
-     */
-    readonly epoch: readonly Cap[],
-    readonly running: boolean,
-    readonly traced: boolean,
-    readonly perform: Perform | undefined,
-    readonly signal: StopSignal | undefined,
+    machine: Machine,
+    epoch: readonly Cap[],
+    running: boolean,
+    traced: boolean,
+    perform: Perform | undefined,
+    signal: StopSignal | undefined,
     effects: Effect[] | undefined,
-    /**
-     * The record of the reads. Without it, a resolution records nothing. A nested evaluation of an equation of a tree
-     * shares the record of the evaluation around it (READS.EQUATION).
-     */
-    readonly reading: Reading | undefined = undefined,
+    reading: Reading | undefined = undefined,
   ) {
+    this.machine = machine;
+    this.epoch = epoch;
+    this.running = running;
+    this.traced = traced;
+    this.perform = perform;
+    this.signal = signal;
+    this.reading = reading;
     this.list = effects;
     this.holder = traced ? holderNode() : undefined;
     this.current = this.holder;
@@ -1185,7 +1304,7 @@ class Session implements Runtime {
     if (paths.has(text) || paths.has(JSON.stringify([root]))) return true;
     paths.add(text);
     if (path.length === 1 && root === "self") reading.self = true;
-    reading.list.push({ path, reached: walk.reached ?? readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+    reading.list.push({ path, reached: walk.reached ?? readKept(this.machine, reading.root, path), free: true, kept: true });
     return true;
   }
 
@@ -1197,7 +1316,7 @@ class Session implements Runtime {
     for (const root of roots) {
       if (root === "self") reading.self = true;
       const path = [root];
-      reading.list.push({ path, reached: readAgain(this.machine, reading.root, path, false).reached, free: true, kept: true });
+      reading.list.push({ path, reached: readKept(this.machine, reading.root, path), free: true, kept: true });
     }
   }
 
@@ -1258,14 +1377,35 @@ class Session implements Runtime {
     return (effect.outcome = fail("#CALC!", `The mock gave a promise for the effect ${effect.kind}, and an evaluation does not wait.`, { place }));
   }
 
+  /**
+   * This function finds the clause that answers an effect (D146). Without it, the effect goes on to the host. An effect
+   * without a capability gets no clause, thus `record` gives its `#CAP!` (HANDLE.NARROW). A clause of a frame that has
+   * ended gives `#CAP!`, because the capability came from that frame (HANDLE.ENDED).
+   */
+  private clauseOf(given: Context, start: Frame, kind: Cap, place: readonly Key[]): Clause | Result | undefined {
+    const ctx = inEpoch(given, this.epoch) ? granted(given) : ungranted(given, this.epoch);
+    const keys = typeof kind === "string" ? kind.split(".") : kind;
+    if (!this.permitted(ctx, keys)) return undefined;
+    const found = clauseFor(start, keys);
+    if (found === undefined) return undefined;
+    if (found.frame.ended || found.frame.owner !== this) return fail("#CAP!", `The handler of the effect ${keys.join(".")} has ended.`, { place });
+    return found.clause;
+  }
+
   effect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Result {
     const text = typeof kind === "string" ? kind : kind.join(".");
     if (this.running) return fail("#CALC!", `The effect ${text} needs a runner: in a run, the host does each effect.`, { place });
+    const frame = frameOf(ctx);
+    const clause = frame === undefined ? undefined : this.clauseOf(ctx, frame, kind, place);
+    if (clause !== undefined) return "ok" in clause ? clause : drive(clause.answer(payload), text);
     const made = this.record(ctx, kind, payload, place);
     return "ok" in made ? made : this.answer(made, place);
   }
 
   *runEffect(ctx: Context, kind: Cap, payload: unknown, place: readonly Key[]): Steps {
+    const frame = frameOf(ctx);
+    const clause = frame === undefined ? undefined : this.clauseOf(ctx, frame, kind, place);
+    if (clause !== undefined) return "ok" in clause ? clause : yield* clause.answer(payload);
     const made = this.record(ctx, kind, payload, place);
     if ("ok" in made) return made;
     const perform = this.perform;
@@ -1422,7 +1562,9 @@ class Session implements Runtime {
 
 /**
  * This function resolves a compiled path through a runtime (PLAN.PATH). The runtime of the kernel uses the compiled
- * path. Each other runtime gets the steps through `resolve`, thus a runtime that wraps another runtime sees each path.
+ * path. Each other runtime gets the steps through `resolve`, thus a runtime that wraps another runtime sees each path
+ * (PLAN.PATH-ROUTE). The result and the list of reads are the same as for `rt.resolve(ctx, compiled.path)`
+ * (PLAN.PATH-READS).
  *
  * @param rt - The runtime.
  * @param ctx - The context.
@@ -1739,7 +1881,7 @@ function compileNode(c: Compiler, value: unknown, place: readonly Key[], declare
   if (runner !== undefined) {
     let inner: RunCode;
     try {
-      inner = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill);
+      inner = isCompiledRunner(runner) ? runner.compileRun(input) : interpretRun(runner, input, split.fill, kind?.caps?.some((rule) => rule.rule === "grant") === true);
     } catch (error) {
       return failingWith(c, meta, placed(thrown(error, `the runner ${name}`), place));
     }
@@ -1831,6 +1973,7 @@ function freeOf(doc: Envelope, kind: Kind, slots: readonly PartSlot[], frees: re
 
 /** This class is the runtime of a fold. It reads only the names that the folded part binds, and it causes no effect. */
 class Probe implements Runtime {
+  readonly machine: Machine;
   readonly running = false;
   /** `true` after the part asked for something that a fold cannot give. */
   refused = false;
@@ -1842,7 +1985,8 @@ class Probe implements Runtime {
    */
   readonly root: Context;
 
-  constructor(readonly machine: Machine) {
+  constructor(machine: Machine) {
+    this.machine = machine;
     const refuse = (): void => {
       this.refused = true;
     };
@@ -2282,7 +2426,25 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
   };
 }
 
-function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown): RunCode {
+/**
+ * This function runs a part under a new frame (D146). The part gets the capabilities of the document and the kinds of
+ * the clauses (CAP.GRANT), with the grant of the kernel. A rule around an effect narrows them as it narrows any other
+ * capability (HANDLE.NARROW). The frame ends with the steps.
+ */
+function* handling(given: Context, clauses: readonly Clause[], rt: Runtime, run: (ctx: Context) => Steps): Steps {
+  const ctx = granted(given);
+  const frame: Frame = { clauses, outer: frameOf(ctx), owner: rt, ended: false };
+  const caps = [...ctx.caps];
+  for (const clause of clauses) if (!permits(caps, clause.op)) caps.push(clause.op);
+  const inner: Granted & Framed = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [FRAME]: frame };
+  try {
+    return yield* run(inner);
+  } finally {
+    frame.ended = true;
+  }
+}
+
+function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonly P[]) => unknown, grants: boolean): RunCode {
   const { kind, typePath, doc, data, place, machine } = input;
   const refill = input.fill;
   const compiled = input.parts;
@@ -2293,6 +2455,8 @@ function interpretRun(fn: RunFn, input: CompileInput, fill: <P>(handles: readonl
       path: part.path,
       ...(part.name === undefined ? {} : { name: part.name }),
       evaluate: (override?: Context) => part.run(override === undefined ? ctx : handed(ctx, override), rt),
+      // Only a kind with a rule grant pays for this function: most runners stay as fast as before.
+      ...(grants ? { handled: (clauses: readonly Clause[]) => handling(ctx, clauses, rt, (inner) => part.run(inner, rt)) } : {}),
     }));
     return fn({
       kind,

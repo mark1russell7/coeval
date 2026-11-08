@@ -15,6 +15,7 @@ import {
   evaluate,
   fail,
   generate,
+  ifRunner,
   makeContext,
   ok,
   permits,
@@ -110,6 +111,48 @@ describe("a run", () => {
     const out = await run(STD_MACHINE, doc, makeContext({}, STD_CAPS));
     expect(out.result).toEqual(evaluate(STD_MACHINE, doc, makeContext({}, STD_CAPS)).result);
     expect(out.result).toEqual({ ok: true, value: 3 });
+  });
+
+  describe("ifRunner", () => {
+    const loose = (value: unknown): boolean | undefined => (typeof value === "string" ? undefined : Boolean(value));
+    const machine: Machine = { ...STD_MACHINE, runners: { ...STD_MACHINE.runners, "host.if": ifRunner(loose) } };
+    const step = (value: Json): Json => ({ type: "if", value, own: { eval: "host.if" } });
+    const log: Json = { type: "log", value: ["x"] };
+    const context = () => makeContext({}, STD_CAPS);
+
+    it("[RUN.IF-TRUTH] reads the given truth and waits for the host in a branch", async () => {
+      const performed: string[] = [];
+      const perform = async (effect: Effect): Promise<unknown> => {
+        performed.push(effect.kind);
+        await new Promise((done) => setTimeout(done, 1));
+        return "done";
+      };
+      const out = await run(machine, step({ test: { type: "number", value: 1 }, then: log, else: { type: "number", value: 2 } }), context(), { perform });
+      expect(out.result).toEqual({ ok: true, value: "done" });
+      expect(performed).toEqual(["log"]);
+      const other = await run(machine, step({ test: { type: "number", value: 0 }, then: log, else: { type: "number", value: 2 } }), context(), { perform });
+      expect(other.result).toEqual({ ok: true, value: 2 });
+      expect(performed).toEqual(["log"]);
+    });
+
+    it("[RUN.IF-TRUTH] gives one result for each failure, in a run and in an evaluation", async () => {
+      const cases: readonly (readonly [Json, unknown])[] = [
+        [step({ then: 1 }), { ok: false, error: { code: "#VALUE!", reason: "if needs a test." } }],
+        [step({ test: { type: "ref", value: ["names", "nothing"] }, then: 1 }), { ok: false, error: { code: "#NAME?" } }],
+        [step({ test: { type: "text", value: "x" }, then: 1 }), { ok: false, error: { code: "#VALUE!", reason: "The test of if must give a truth value." } }],
+        [step({ test: { type: "number", value: 0 }, then: 1 }), { ok: true, value: null }],
+      ];
+      for (const [doc, want] of cases) {
+        expect((await run(machine, doc, context())).result).toMatchObject(want as object);
+        expect(evaluate(machine, doc, context()).result).toMatchObject(want as object);
+      }
+    });
+
+    it("[RUN.IF-TRUTH] keeps the truth of control.if: only a boolean", () => {
+      const doc: Json = { type: "if", value: { test: { type: "number", value: 1 }, then: 1 } };
+      expect(evaluate(STD_MACHINE, doc, context()).result).toMatchObject({ ok: false, error: { code: "#VALUE!", reason: "The test of if must give a truth value." } });
+      expect(evaluate(machine, step({ test: { type: "number", value: 1 }, then: { type: "number", value: 7 } }), context()).result).toEqual({ ok: true, value: 7 });
+    });
   });
 
   it("[RUN.NESTED-WAIT] refuses a step that waits inside a part that cannot wait", async () => {

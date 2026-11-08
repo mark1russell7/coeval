@@ -106,6 +106,7 @@ export {
 export { type StepKey, type StepLadder, type StepNeed, type StepReason, type StepRefusal, type StepWalk, checkStep, isStep, stepLadder, stepOf, stepRank } from "./steps.ts";
 export {
   type Cap,
+  type CompiledPath,
   type Context,
   type DerefCode,
   type Hop,
@@ -123,6 +124,7 @@ export {
   type Walker,
   ROOTS,
   THING,
+  compilePath,
   context,
   derefStep,
   isHostThing,
@@ -159,6 +161,7 @@ export {
   type RunFn,
   type RunInput,
   type RunOptions,
+  type Clause,
   type RunPart,
   type Runner,
   type Runtime,
@@ -175,9 +178,11 @@ export {
   narrow,
   nodeAt,
   partCaps,
+  partGrants,
   permits,
   planner,
   prepare,
+  resolveCompiled,
   run,
 } from "./evaluate.ts";
 export {
@@ -192,6 +197,7 @@ export {
   STD_EVALUATORS,
   STD_MACHINE,
   STD_RUNNERS,
+  ifRunner,
   STD_WALKERS,
   STD_WORLD,
   WORLD_SYNTAX,
@@ -222,6 +228,7 @@ export {
 } from "./context.ts";
 export {
   type CheckOptions,
+  type DocChange,
   type DocVisit,
   type Issue,
   type RefUse,
@@ -232,6 +239,7 @@ export {
   type WorldOptions,
   check,
   checkWorld,
+  mapDocs,
   mapRefs,
   refsOf,
   typeCheck,
@@ -257,12 +265,15 @@ export {
   jsTruthy,
 } from "./formula.ts";
 export { decodeDomain, decodeValue, encodeValue } from "./codec.ts";
+export { type CodecFinding, type CodecLaw, type CodecLawsOptions, type CodecProbe, codecLaws } from "./codec-laws.ts";
 export {
   type ParseResult,
   type SyntaxAssoc,
   type SyntaxCalls,
   type SyntaxConstructs,
   type SyntaxEnvelopes,
+  type SyntaxFinding,
+  type SyntaxFindingCode,
   type SyntaxFixity,
   type SyntaxForm,
   type SyntaxFormArgs,
@@ -273,7 +284,9 @@ export {
   type SyntaxProfile,
   type SyntaxRefPattern,
   type SyntaxRefs,
+  MAX_SYNTAX_ISSUES,
   STD_SYNTAX,
+  checkSyntax,
   parse,
   print,
   syntaxFormat,
@@ -285,12 +298,14 @@ export { sameResult } from "./same.ts";
 export { type PrintOptions, type ReadPrints, type ReadsCheck, type VerifyOptions, printReads, verifyReads } from "./reads.ts";
 export { type Durable, type DurableCounts, type DurableOptions, type Epochs, durable } from "./durable.ts";
 export {
+  type CycleIssue,
   type NodeEdge,
   type NodeInfo,
   type NodeRunOptions,
   type Schedule,
   type ScheduleCounts,
   type ScheduleOptions,
+  checkCycles,
   edgesOf,
   schedule,
 } from "./schedule.ts";

@@ -1,4 +1,4 @@
-import { type Json, type JsonRecord, type Key, isEnvelope, isRecord, typePath } from "./doc.ts";
+import { type Json, type JsonRecord, type Key, docEquals, isEnvelope, isRecord, typePath } from "./doc.ts";
 import { type Result, describe, fail, isStackOverflow, ok } from "./errors.ts";
 import type { EvalFn, Part } from "./evaluate.ts";
 import type { MachinePart } from "./merge.ts";
@@ -109,6 +109,18 @@ export interface SyntaxForm {
    * form `literal` takes no `wrap`, and a form `list` takes only `true`.
    */
   readonly wrap?: boolean | readonly string[];
+  /**
+   * The fields that take data with documents in it (L1c, D177), for example the clauses of `handle`. Such an
+   * argument is a list between brackets, a record between braces, or a document. A literal in it stays its data. A
+   * record of data has no key `type`. A name of `data` is a field of the form, and it is not in `wrap`.
+   */
+  readonly data?: readonly string[];
+  /**
+   * The name of a domain with a codec (K143, D141). A form `literal` of the kind `ext.domain` needs it. The text
+   * `date("2026-01-02")` then gives the value `{ domain: "date", data: "2026-01-02" }`. The syntax does not read the
+   * data: the codec of the machine reads it at evaluation. Each other form takes no `domain`.
+   */
+  readonly domain?: string;
 }
 
 /** The way that the arguments of a call form make the value of its document (D63). */
@@ -182,7 +194,13 @@ export interface SyntaxIssue {
   readonly message: string;
 }
 
-/** The result of `parse`: a document, or the problems of the text. */
+/**
+ * The most issues that `parse` gives for one text (D138). A person reads a list of this size, and a text with more
+ * issues needs another kind of help.
+ */
+export const MAX_SYNTAX_ISSUES = 20;
+
+/** The result of `parse`: a document, or the problems of the text in the order of their offsets (D138). */
 export type ParseResult = { readonly ok: true; readonly doc: Json } | { readonly ok: false; readonly issues: readonly SyntaxIssue[] };
 
 /**
@@ -242,6 +260,10 @@ interface Form {
   readonly min: number;
   /** The arguments that take a document: `true` for each, or the names of the fields. */
   readonly wrap: boolean | ReadonlySet<string>;
+  /** The domain of a form literal of `ext.domain` (D141). */
+  readonly domain: string | undefined;
+  /** The fields that take data with documents in it (D177). */
+  readonly data: ReadonlySet<string>;
 }
 
 /** The type of a data envelope, and its key for a comparison with the path of a type. */
@@ -285,6 +307,8 @@ interface Compiled {
   readonly reserved: ReadonlySet<string>;
   readonly opWords: ReadonlySet<string>;
   readonly maxDepth: number;
+  /** `true` when a form has a field of data (D177). Such a field reads brackets and braces. */
+  readonly brackets: boolean;
 }
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -370,6 +394,14 @@ function compileConstructs(given: SyntaxConstructs | undefined, ops: Pick<Compil
   return { constructs, constructKinds };
 }
 
+/** This function examines the field `domain` of a call form (D141). A form `literal` of `ext.domain` needs a name, and each other form refuses it. */
+function compileDomain(given: SyntaxForm, args: SyntaxFormArgs): string | undefined {
+  const writes = args === "literal" && given.kind === "ext.domain";
+  if (writes && (typeof given.domain !== "string" || given.domain === "")) throw new TypeError(`The call form "${given.name}" of ext.domain needs the name of its domain.`);
+  if (!writes && given.domain !== undefined) throw new TypeError(`The call form "${given.name}" takes no domain: only a form literal of ext.domain has one.`);
+  return given.domain;
+}
+
 /** This function examines the field `wrap` of a call form (K159). A name that is not a field of the form throws. */
 function compileWrap(given: SyntaxForm, args: SyntaxFormArgs): boolean | ReadonlySet<string> {
   const wrap = given.wrap;
@@ -384,6 +416,17 @@ function compileWrap(given: SyntaxForm, args: SyntaxFormArgs): boolean | Readonl
 }
 
 /** This function gives the types of the data envelopes of a profile (K159), or `undefined` without them. */
+/** This function examines the field `data` of a call form (D177). Each name is a field of the form, and no name is in `wrap`. */
+function compileData(given: SyntaxForm, wrap: boolean | ReadonlySet<string>): ReadonlySet<string> {
+  const data = given.data ?? [];
+  if (data.length > 0 && given.fields === undefined) throw new TypeError(`The call form "${given.name}" takes data only with fields.`);
+  for (const name of data) {
+    if (given.fields?.includes(name) !== true) throw new TypeError(`The call form "${given.name}" has no field ${name} for its data.`);
+    if (wrap === true || (wrap !== false && wrap.has(name))) throw new TypeError(`The call form "${given.name}" has the field ${name} in wrap and in data.`);
+  }
+  return new Set(data);
+}
+
 function compileEnvelopes(given: SyntaxEnvelopes | undefined): Compiled["envelopes"] {
   if (given === undefined) return undefined;
   const out: { number?: EnvelopeKind; text?: EnvelopeKind; bool?: EnvelopeKind } = {};
@@ -417,9 +460,15 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     if (!FORM_ARGS.includes(args)) throw new TypeError(`The call form "${given.name}" has the unknown arguments ${String(args)}.`);
     if ((args === "fields") !== (given.fields !== undefined) && args !== "named") throw new TypeError(`The call form "${given.name}" with the arguments ${args} ${args === "fields" ? "needs" : "takes no"} fields.`);
     if (given.min !== undefined && (args === "named" || args === "literal")) throw new TypeError(`The call form "${given.name}" with the arguments ${args} takes no min.`);
-    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0, wrap: compileWrap(given, args) };
+    const wrap = compileWrap(given, args);
+    const form: Form = { name: given.name, type, args, fields: given.fields, min: given.min ?? given.fields?.length ?? 0, wrap, domain: compileDomain(given, args), data: compileData(given, wrap) };
     forms.set(form.name, form);
     addTo(formsByKind, key, form);
+  }
+  // A field of data reads brackets and braces, thus no operator starts with one of them (D177).
+  const brackets = [...forms.values()].some((form) => form.data.size > 0);
+  for (const symbol of brackets ? [...ops.prefixSymbols, ...ops.binarySymbols] : []) {
+    if (/^[[\]{}]/.test(symbol)) throw new TypeError(`The operator "${symbol}" reads the text of a field of data.`);
   }
   const compiled: Compiled = {
     ...ops,
@@ -444,6 +493,7 @@ function compileProfile(profile: SyntaxProfile): Compiled {
     ...compileConstructs(profile.constructs, ops),
     reserved: new Set([...words.keys(), ...ops.opWords, ...roots]),
     maxDepth: profile.maxDepth ?? 256,
+    brackets,
   };
   compiledProfiles.set(profile, compiled);
   return compiled;
@@ -453,7 +503,11 @@ function compileProfile(profile: SyntaxProfile): Compiled {
 
 /** The stop of a parse. The parser throws it, and `parse` gives its issue. */
 class Stop {
-  constructor(readonly issue: SyntaxIssue) {}
+  readonly issue: SyntaxIssue;
+
+  constructor(issue: SyntaxIssue) {
+    this.issue = issue;
+  }
 }
 
 function literalDoc(value: unknown): Json {
@@ -495,13 +549,15 @@ function setOwn(target: Record<string, Json>, key: string, value: Json): void {
 const ESCAPES: Readonly<Record<string, string>> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
 
 class Parser {
-  private pos = 0;
-  private depth = 0;
+  protected readonly syn: Compiled;
+  protected readonly text: string;
+  protected pos = 0;
+  protected depth = 0;
 
-  constructor(
-    private readonly syn: Compiled,
-    private readonly text: string,
-  ) {}
+  constructor(syn: Compiled, text: string) {
+    this.syn = syn;
+    this.text = text;
+  }
 
   parse(): Json {
     this.skip();
@@ -517,11 +573,11 @@ class Parser {
     return this.pos;
   }
 
-  private stop(message: string, offset: number, length: number): never {
+  protected stop(message: string, offset: number, length: number): never {
     throw new Stop({ offset, length, message });
   }
 
-  private skip(): void {
+  protected skip(): void {
     while (this.pos < this.text.length && /\s/.test(this.text[this.pos] as string)) this.pos += 1;
   }
 
@@ -530,7 +586,7 @@ class Parser {
     return pattern.exec(this.text)?.[0];
   }
 
-  private tokenLength(): number {
+  protected tokenLength(): number {
     return (this.at(NAME_AT) ?? this.at(DIGITS_AT) ?? "x").length;
   }
 
@@ -538,7 +594,7 @@ class Parser {
    * This method reads an expression that can have a header name: `name = expr` (D62). The bind symbol of the profile
    * follows the name. A longer operator that starts with the symbol wins, for example `==` over `=`.
    */
-  private bound(): Json {
+  protected bound(): Json {
     const name = this.bindingName();
     if (name === undefined) return this.expr(0);
     this.skip();
@@ -700,7 +756,7 @@ class Parser {
     }
   }
 
-  private escape(): string {
+  protected escape(): string {
     const start = this.pos;
     const c = this.text[start + 1] ?? "";
     if (c === "u") {
@@ -773,14 +829,14 @@ class Parser {
     return { type, value: { bind, body: this.bound() } };
   }
 
-  private group(): Json {
+  protected group(): Json {
     const open = this.pos;
     this.pos += 1;
     const inner = this.bound();
     this.skip();
     if (this.text[this.pos] !== ")") {
       if (this.pos >= this.text.length) this.stop("A closing parenthesis is missing.", open, 1);
-      this.stop("A closing parenthesis is missing.", this.pos, this.tokenLength());
+      this.noEnd(")", false);
     }
     this.pos += 1;
     return inner;
@@ -874,10 +930,16 @@ class Parser {
     return { type: "ref", value: full };
   }
 
+  /** This method stops at a token where a group or a list must end. A list can also continue with its separator. */
+  protected noEnd(close: string, list: boolean): never {
+    const closer = closerName(close);
+    const before = list ? `"${this.syn.separator}" or a ` : "";
+    return this.stop(`A ${before}closing ${closer} is missing.`, this.pos, this.tokenLength());
+  }
+
   /** This method reads the arguments of a call in parentheses. `item` reads one argument. `close` ends the arguments. */
-  private argumentsOf<T>(item: () => T, close = ")"): T[] {
+  protected argumentsOf<T>(item: () => T, close = ")"): T[] {
     const open = this.pos;
-    const closer = close === ")" ? "parenthesis" : "brace";
     const args: T[] = [];
     this.pos += 1;
     this.skip();
@@ -896,17 +958,33 @@ class Parser {
         this.pos += 1;
         return args;
       }
-      if (this.pos >= this.text.length) this.stop(`A closing ${closer} is missing.`, open, 1);
-      this.stop(`A "${this.syn.separator}" or a closing ${closer} is missing.`, this.pos, this.tokenLength());
+      if (this.pos >= this.text.length) this.stop(`A closing ${closerName(close)} is missing.`, open, 1);
+      this.noEnd(close, true);
     }
   }
 
   /**
-   * This method reads the entries `key: expr` into a record: the arguments of a form `named` (SYNTAX.RECORD), or the
-   * entries between braces without a form (SYNTAX.RECORD-TEXT).
+   * This method reads the argument of a field of data (D177): a list between brackets, a record between braces, or a
+   * document. A literal in it stays its data.
    */
-  private entries(form: Form | undefined): Record<string, Json> {
-    const owner = form === undefined ? "record" : `form ${form.name}`;
+  private data(): Json {
+    this.skip();
+    const start = this.pos;
+    const c = this.text[start];
+    if (c !== "[" && c !== "{") return this.bound();
+    this.depth += 1;
+    if (this.depth > this.syn.maxDepth) this.stop(`The text is deeper than ${String(this.syn.maxDepth)} levels.`, start, 0);
+    const value = c === "[" ? this.argumentsOf(() => this.data(), "]") : this.entries(undefined, true);
+    this.depth -= 1;
+    return value;
+  }
+
+  /**
+   * This method reads the entries `key: expr` into a record. The record is the arguments of a form `named`
+   * (SYNTAX.RECORD), or the entries between braces (SYNTAX.RECORD-TEXT). It is also a record of data (D177).
+   */
+  private entries(form: Form | undefined, data = false): Record<string, Json> {
+    const owner = data ? "record of data" : form === undefined ? "record" : `form ${form.name}`;
     const value: Record<string, Json> = {};
     const entry = (): void => {
       this.skip();
@@ -918,9 +996,10 @@ class Parser {
         this.stop(`Each ${form === undefined ? "entry" : "argument"} of the ${owner} is a key, a ":" and a document.`, at, Math.max(end - at, this.tokenLength()));
       }
       if (form?.fields !== undefined && !form.fields.includes(key)) this.stop(`The form ${form.name} has no field ${key}.`, at, end - at);
+      if (data && key === "type") this.stop("A record of data has no key type, because the key type makes a document.", at, end - at);
       if (Object.hasOwn(value, key)) this.stop(`The ${owner} has the field ${key} two times.`, at, end - at);
       this.pos += 1;
-      const arg = this.bound();
+      const arg = data || form?.data.has(key) === true ? this.data() : this.bound();
       setOwn(value, key, form !== undefined && wraps(form, key) ? envelop(this.syn, arg) : arg);
     };
     this.argumentsOf(entry, form === undefined ? "}" : ")");
@@ -930,11 +1009,16 @@ class Parser {
   private call(name: string, start: number, nameLength: number): Json {
     const form = this.syn.forms.get(name);
     if (form?.args === "named") return opDoc(form, this.entries(form));
-    const args = this.argumentsOf(() => this.bound());
+    let index = 0;
+    const args = this.argumentsOf(() => {
+      const key = form?.fields?.[index];
+      index += 1;
+      return key !== undefined && form?.data.has(key) === true ? this.data() : this.bound();
+    });
     if (form?.args === "literal") {
       const [only] = args;
       if (args.length !== 1 || !isScalar(only)) this.stop(`The form ${name} takes one literal that JSON writes.`, start, this.pos - start);
-      return opDoc(form, only);
+      return opDoc(form, form.domain === undefined ? only : { domain: form.domain, data: only });
     }
     if (form !== undefined) {
       const most = form.fields?.length ?? Number.POSITIVE_INFINITY;
@@ -955,9 +1039,183 @@ class Parser {
   }
 }
 
+// === Recovery after the first issue (D138) ===
+
+/** The end of a recovery. The class `Recovery` throws it, and its method `run` catches it. */
+class End {}
+
+function hasBraces(syn: Compiled): boolean {
+  return syn.constructs.record !== undefined || syn.constructs.let !== undefined || syn.brackets;
+}
+
+/** This function gives the name of a closer in a message. */
+function closerName(close: string): string {
+  return close === ")" ? "parenthesis" : close === "]" ? "bracket" : "brace";
+}
+
+/** This function gives the closer of an opening bracket of a profile, or `undefined` for each other character. */
+function closerOf(syn: Compiled, c: string | undefined): string | undefined {
+  if (c === "(") return ")";
+  if (c === "[" && syn.brackets) return "]";
+  return c === "{" && hasBraces(syn) ? "}" : undefined;
+}
+
+function isCloser(syn: Compiled, c: string | undefined): boolean {
+  return c === ")" || (c === "]" && syn.brackets) || (c === "}" && hasBraces(syn));
+}
+
+/** This function gives the position after a quoted text at `at`, or after one other character. An open quote gives `Infinity`. */
+function pastToken(syn: Compiled, text: string, at: number): number {
+  const c = text[at];
+  if (c !== syn.quote && c !== "`") return at + 1;
+  for (let end = at + 1; end < text.length; end += 1) {
+    if (text[end] === "\\" && c === syn.quote && !syn.doubled) end += 1;
+    else if (text[end] === c) return end + 1;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+/** This function tells if each quote of a text closes, and each bracket closes in the order of the brackets. */
+function balanced(syn: Compiled, text: string): boolean {
+  const open: (string | undefined)[] = [];
+  let at = 0;
+  while (at < text.length) {
+    const c = text[at];
+    const closer = closerOf(syn, c);
+    if (closer !== undefined) open.push(closer);
+    else if (isCloser(syn, c) && open.pop() !== c) return false;
+    at = pastToken(syn, text, at);
+  }
+  return at === text.length && open.length === 0;
+}
+
+/**
+ * This parser reads a text again after its first issue and collects the later issues (SYNTAX.ISSUES-SYNC). A fault in
+ * a group or in a list moves the position to a synchronising token of that bracket. The first read has no part of
+ * this class, thus a valid text does not pay for it.
+ */
+class Recovery extends Parser {
+  private readonly issues: SyntaxIssue[];
+  /** The offset of the token after the last synchronising token. An issue at this token can be a result of the fault. */
+  private quiet = -1;
+
+  constructor(syn: Compiled, text: string, issues: SyntaxIssue[]) {
+    super(syn, text);
+    this.issues = issues;
+  }
+
+  /** This method reads the text and gives the issues. An error of a host in the later text ends the read. */
+  run(): readonly SyntaxIssue[] {
+    try {
+      this.parse();
+    } catch (error) {
+      if (error instanceof Stop) this.note(error.issue);
+    }
+    return this.issues;
+  }
+
+  /** An item at the offset of the item before tells that no step moved forward, thus the read ends (SYNTAX.ISSUES-BOUND). */
+  protected override argumentsOf<T>(item: () => T, close = ")"): T[] {
+    let last = -1;
+    return super.argumentsOf(() => {
+      if (this.pos === last) throw new End();
+      last = this.pos;
+      return this.attempt(item, close, true);
+    }, close);
+  }
+
+  protected override group(): Json {
+    this.pos += 1;
+    const inner = this.attempt(() => this.bound(), ")", false);
+    this.pos += 1;
+    return inner;
+  }
+
+  /** A bad escape stays inside its text, thus the read continues after the escape. */
+  protected override escape(): string {
+    try {
+      return super.escape();
+    } catch (error) {
+      this.note((error as Stop).issue);
+      this.pos += 2;
+      return "";
+    }
+  }
+
+  /**
+   * This method reads one item of a bracket. A fault moves to the next synchronising token, and the item is then `null`.
+   * A colon in a list tells that the name of a form has a fault, thus the method skips the other items of the list. A
+   * separator in a group tells that a function has a fault, thus the fault also ends the item around the group.
+   */
+  private attempt<T>(item: () => T, close: string, list: boolean): T {
+    const depth = this.depth;
+    try {
+      const made = item();
+      this.skip();
+      if (this.text[this.pos] !== close && !(list && this.atSeparator())) this.noEnd(close, list);
+      return made;
+    } catch (error) {
+      if (!(error instanceof Stop)) throw error;
+      this.depth = depth;
+      this.note(error.issue);
+      const tuple = !list && this.atSeparator();
+      this.sync(close, list && this.text[this.pos] !== ":");
+      if (tuple) {
+        this.pos += 1;
+        throw error;
+      }
+      return null as T;
+    }
+  }
+
+  private atSeparator(): boolean {
+    return this.text.startsWith(this.syn.separator, this.pos);
+  }
+
+  /**
+   * This method keeps a later issue (SYNTAX.ISSUES-CASCADE). The offsets rise, because an issue that starts at or before
+   * the last issue can come from the removed text. The count of the arguments of a form is an example. An issue at the
+   * first token after a synchronising token can come from the same fault, for example a comma inside a number.
+   */
+  private note(issue: SyntaxIssue): void {
+    const last = this.issues[this.issues.length - 1] as SyntaxIssue;
+    if (issue.offset > last.offset && issue.offset !== this.quiet && this.issues.length < MAX_SYNTAX_ISSUES) this.issues.push(issue);
+  }
+
+  /** This method moves to the closer `close` of the bracket, or to a separator of a list, and skips each inner bracket. */
+  private sync(close: string, list: boolean): void {
+    if (this.issues.length >= MAX_SYNTAX_ISSUES) throw new End();
+    let depth = 0;
+    while (this.pos < this.text.length) {
+      const at = this.pos;
+      const c = this.text[at];
+      if (depth === 0 && (c === close || (list && this.atSeparator()))) {
+        this.pos += c === close ? 1 : this.syn.separator.length;
+        this.skip();
+        this.quiet = this.pos;
+        this.pos = at;
+        return;
+      }
+      if (closerOf(this.syn, c) !== undefined) depth += 1;
+      else if (isCloser(this.syn, c)) depth -= 1;
+      this.pos = pastToken(this.syn, this.text, at);
+    }
+    throw new End();
+  }
+}
+
+/**
+ * This function gives each issue of a bad text, with the issue of the first read as the first issue (SYNTAX.ISSUES-FIRST).
+ * Open quotes or brackets make each synchronising token unsure, thus such a text keeps only the first issue.
+ */
+function issuesOf(syn: Compiled, text: string, first: SyntaxIssue): readonly SyntaxIssue[] {
+  return balanced(syn, text) ? new Recovery(syn, text, [first]).run() : [first];
+}
+
 /**
  * This function reads a text into a document with the rules of a profile (SYNTAX.PARSE). It does not throw for a
- * bad text. The issue gives the offset, the length and a message (SYNTAX.SPAN).
+ * bad text. Each issue gives the offset, the length and a message (SYNTAX.SPAN). The field `issues` gives at most
+ * `MAX_SYNTAX_ISSUES` issues (SYNTAX.ISSUES-ALL). A host that reads the first issue reads the first fault of the text.
  *
  * @param profile - The syntax profile.
  * @param text - The text.
@@ -965,11 +1223,12 @@ class Parser {
  * @throws {TypeError} The profile is not valid, for example an operator has two entries of the same place.
  */
 export function parse(profile: SyntaxProfile, text: string): ParseResult {
-  const parser = new Parser(compileProfile(profile), text);
+  const syn = compileProfile(profile);
+  const parser = new Parser(syn, text);
   try {
     return { ok: true, doc: parser.parse() };
   } catch (error) {
-    if (error instanceof Stop) return { ok: false, issues: [error.issue] };
+    if (error instanceof Stop) return { ok: false, issues: issuesOf(syn, text, error.issue) };
     if (isStackOverflow(error)) return { ok: false, issues: [{ offset: parser.position(), length: 0, message: "The text is too deep for the stack of the host." }] };
     throw error;
   }
@@ -986,7 +1245,7 @@ type SubText = (child: unknown, path: readonly Key[], wrapped?: boolean) => Resu
 type Shape =
   | { readonly tag: "text"; readonly text: string }
   | { readonly tag: "op"; readonly op: Op; readonly terms: readonly unknown[] }
-  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown, boolean?])[]; readonly named?: boolean }
+  | { readonly tag: "call"; readonly name: string; readonly args: readonly (readonly [Key, unknown, boolean?, boolean?])[]; readonly named?: boolean }
   | { readonly tag: "path"; readonly segments: readonly (string | readonly [Key, unknown])[] }
   | { readonly tag: "bind"; readonly name: string; readonly doc: unknown }
   | ConstructShape
@@ -1069,6 +1328,8 @@ function refShape(syn: Compiled, value: unknown): Shape {
 
 function callName(syn: Compiled, keys: readonly Key[]): string | undefined {
   if (keys.length === 0 || !keys.every((key) => typeof key === "string" && NAME.test(key))) return undefined;
+  // `parse` reads the dots of a call name as field steps, thus a profile without them has no such text (D142).
+  if (keys.length > 1 && !syn.fields) return undefined;
   const name = keys.join(".");
   if (syn.forms.has(name) || syn.opWords.has(keys[0] as string)) return undefined;
   return syn.ops === true || syn.ops.has(name) ? name : undefined;
@@ -1094,17 +1355,24 @@ function wrappedShape(syn: Compiled, doc: unknown): Shape | undefined {
   return literal.tag === "text" ? literal : undefined;
 }
 
+/** This function tells if a value of `ext.domain` is a record with this domain and its data, and no other key. */
+function holdsDomain(value: unknown, domain: string): boolean {
+  return isRecord(value) && value["domain"] === domain && Object.hasOwn(value, "data") && Object.keys(value).length === 2;
+}
+
 function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined {
   if (form.args === "literal") {
-    if (!isScalar(value)) return undefined;
-    const literal = literalShape(syn, value);
+    if (form.domain !== undefined && !holdsDomain(value, form.domain)) return undefined;
+    const data = form.domain === undefined ? value : (value as Readonly<Record<string, unknown>>)["data"];
+    if (!isScalar(data)) return undefined;
+    const literal = literalShape(syn, data);
     return literal.tag === "text" ? { tag: "text", text: `${form.name}(${literal.text})` } : undefined;
   }
   if (form.args === "named") {
     if (!isRecord(value)) return undefined;
     const keys = Object.keys(value);
     if (form.fields !== undefined && !keys.every((key) => form.fields?.includes(key) === true)) return undefined;
-    return { tag: "call", name: form.name, args: keys.map((key) => [key, value[key], wraps(form, key)] as const), named: true };
+    return { tag: "call", name: form.name, args: keys.map((key) => [key, value[key], wraps(form, key), form.data.has(key)] as const), named: true };
   }
   if (form.fields === undefined) {
     if (!Array.isArray(value) || value.length < form.min) return undefined;
@@ -1115,7 +1383,7 @@ function formShape(syn: Compiled, form: Form, value: unknown): Shape | undefined
   const count = Object.keys(value).length;
   const present = form.fields.slice(0, count);
   if (count < form.min || present.length < count || !present.every((key) => Object.hasOwn(value, key))) return undefined;
-  return { tag: "call", name: form.name, args: present.map((key) => [key, value[key], wraps(form, key)] as const) };
+  return { tag: "call", name: form.name, args: present.map((key) => [key, value[key], wraps(form, key), form.data.has(key)] as const) };
 }
 
 /** This function tells if a record has exactly these two keys. */
@@ -1235,6 +1503,19 @@ function bracesText(syn: Compiled, record: JsonRecord, path: readonly Key[], sub
   return ok(`{${texts.value.map((text, index) => `${keyText(keys[index] as string)}: ${text}`).join(`${syn.separator} `)}}`);
 }
 
+/**
+ * This function writes the argument of a field of data (D177): a list between brackets, or a record between braces.
+ * The function `sub` writes a literal and a document. A record that is an envelope is a document.
+ */
+function dataText(syn: Compiled, value: unknown, path: readonly Key[], sub: SubText): Result<string> {
+  const each: SubText = (child, at) => dataText(syn, child, at, sub);
+  if (Array.isArray(value)) {
+    const texts = partTexts(value.map((item, index) => [index, item] as const), path, each);
+    return texts.ok ? ok(`[${texts.value.join(`${syn.separator} `)}]`) : texts;
+  }
+  return isRecord(value) && !isEnvelope(value) ? bracesText(syn, value, path, each) : sub(value, path);
+}
+
 /** This function writes a construct form (K145). */
 function constructText(syn: Compiled, shape: ConstructShape, sub: SubText): Result<string> {
   if (shape.tag === "record") return bracesText(syn, shape.entries, [], sub);
@@ -1281,8 +1562,8 @@ function printNode(syn: Compiled, doc: unknown, sub: SubText): Result<string> {
     return ok(texts.join("."));
   }
   const texts: string[] = [];
-  for (const [key, arg, wrapped] of shape.args) {
-    const result = sub(arg, [key], wrapped);
+  for (const [key, arg, wrapped, data] of shape.args) {
+    const result = data === true ? dataText(syn, arg, [key], sub) : sub(arg, [key], wrapped);
     if (!result.ok) return result;
     texts.push(shape.named === true ? `${keyText(String(key))}: ${result.value}` : result.value);
   }
@@ -1343,4 +1624,211 @@ export function syntaxFormat(profile: SyntaxProfile): MachinePart {
     });
   };
   return { world: { defaults: { format: "syntax.format" } }, evaluators: { "syntax.format": code } };
+}
+
+// === The check of a profile ===
+
+/**
+ * The name of a finding of `checkSyntax` (D140). Each name holds a rule of the parser or the printer.
+ *
+ * - `invalid`: `parse` throws a `TypeError` for the profile. The reason is its message.
+ * - `operator`: the document of one operator does not come back. A negative precedence stops an infix operator,
+ *   because an expression starts at the precedence `0`. The kinds `ref`, `lit` and `ext.number` have their own text.
+ * - `grouping`: an operator with a second operator in a term does not come back. The parser reads a term from the
+ *   precedence plus `1`, and the printer compares precedences, thus a gap under `1` loses the tree. A postfix operator
+ *   at the precedence of a `right` infix operator loses it too.
+ * - `longest-match`: the printer writes two postfix operators without a space, and a longer symbol reads their text.
+ * - `word`: a word of `literals.words` does not read as its value. A word operator reads first, and a word that is
+ *   not a plain name has no token.
+ * - `root`: a root does not come back. A word operator reads first, and a literal word reads a root without steps.
+ * - `pattern`: a pattern of references reads a text that has another meaning, because the parser tries patterns first.
+ * - `form`: the document of a call form does not come back. A word operator reads first, the last form of a name
+ *   hides the others, and a `min` above the fields permits no text.
+ * - `call`: a name of `calls.ops` does not come back. A form of the name wins, a word operator reads first, and a name
+ *   with dots needs the field steps.
+ * - `separator`: the separator does not end an argument, and a neutral separator keeps the same document. An operator
+ *   reads first, the parser skips a space before it, or a name or a bracket at its start changes the term.
+ * - `construct`: the document of a construct form does not come back, for example two forms have one kind.
+ */
+export type SyntaxFindingCode = "invalid" | "operator" | "grouping" | "longest-match" | "word" | "root" | "pattern" | "form" | "call" | "separator" | "construct";
+
+/** One fault of a syntax profile: its name, its place in the profile and the reason (D140). */
+export interface SyntaxFinding {
+  /** The name of the fault. */
+  readonly code: SyntaxFindingCode;
+  /** The keys from the root of the profile to the entry, for example `["operators", 3]`. A default list has keys too. */
+  readonly place: readonly Key[];
+  /** The rule that the entry breaks, and the text that shows it. */
+  readonly reason: string;
+}
+
+/** The state of one check: the profile, its compiled form, a leaf document and the two functions that record a fault. */
+interface ProfileCheck {
+  readonly profile: SyntaxProfile;
+  readonly syn: Compiled;
+  readonly leaf: Json;
+  /** This function adds a finding. A pattern that reads the start of `text` takes the code and the place. */
+  readonly report: (code: SyntaxFindingCode, place: readonly Key[], text: string, reason: string) => void;
+  /** This function reports a document that breaks the law, and it tells if the law holds. `start` stands for a refused text. */
+  readonly keeps: (code: SyntaxFindingCode, place: readonly Key[], rule: string, doc: Json, start?: string) => boolean;
+}
+
+/** This function tells how a document breaks `parse(print(doc))`. It gives `undefined` when the document comes back. */
+function lawBreak(profile: SyntaxProfile, doc: Json): { readonly text: string | undefined; readonly why: string } | undefined {
+  const printed = print(profile, doc);
+  if (!printed.ok) return { text: undefined, why: printed.error.reason };
+  const text = printed.value;
+  const back = parse(profile, text);
+  if (back.ok) return docEquals(back.doc, doc) ? undefined : { text, why: `The text ${text} reads as ${JSON.stringify(back.doc)}.` };
+  return { text, why: `The text ${text} gives the issue: ${back.issues[0]?.message ?? ""}` };
+}
+
+/** This function gives the index of the first pattern that `parse` uses at the start of a text, or `-1`. */
+function patternAt(syn: Compiled, text: string): number {
+  return syn.patterns.findIndex(({ sticky }) => {
+    sticky.lastIndex = 0;
+    const match = sticky.exec(text)?.[0];
+    return match !== undefined && match !== "" && !/[A-Za-z0-9_$(]/.test(text[match.length] ?? "");
+  });
+}
+
+/** This function gives each small document of an operator with `term` in one term. A `flat` operator also has three terms. */
+function operatorDocs(op: Op, term: Json, leaf: Json): readonly Json[] {
+  if (op.fixity !== "infix") return [opDoc(op, [term])];
+  const pairs = [[term, leaf], [leaf, term]];
+  return (op.assoc === "flat" ? [...pairs, [term, leaf, leaf], [leaf, term, leaf]] : pairs).map((terms) => opDoc(op, terms));
+}
+
+/** This function gives the longer symbol that reads two postfix operators without a space, or `undefined`. */
+function gluedSymbol(syn: Compiled, outer: Op, inner: Op): string | undefined {
+  if (outer.word || inner.word || outer.fixity !== "postfix" || inner.fixity !== "postfix") return undefined;
+  const glued = inner.symbol + outer.symbol;
+  const read = syn.binarySymbols.find((symbol) => glued.startsWith(symbol));
+  return read === inner.symbol ? undefined : read;
+}
+
+function checkOperators({ profile, syn, leaf, keeps }: ProfileCheck): void {
+  const ops = (profile.operators ?? []).map((given) => (given.fixity === "prefix" ? syn.prefix : syn.binary).get(given.symbol) as Op);
+  const sound = ops.filter((op, index) => operatorDocs(op, leaf, leaf).every((doc) => keeps("operator", ["operators", index], `The operator ${op.symbol} does not come back.`, doc)));
+  for (const outer of sound) {
+    const place = ["operators", ops.indexOf(outer)];
+    for (const inner of sound) {
+      const glued = gluedSymbol(syn, outer, inner);
+      const code = glued === undefined ? "grouping" : "longest-match";
+      const rule = glued === undefined ? `The operator ${outer.symbol} with ${inner.symbol} in a term loses the tree.` : `The symbol ${glued} reads the postfix operators ${inner.symbol} and ${outer.symbol}.`;
+      for (const term of operatorDocs(inner, leaf, leaf)) for (const doc of operatorDocs(outer, term, leaf)) keeps(code, place, rule, doc);
+    }
+  }
+}
+
+function checkLiterals({ profile, syn, report }: ProfileCheck): void {
+  for (const [word, value] of syn.words) {
+    const back = parse(profile, word);
+    if (!back.ok || !docEquals(back.doc, envelop(syn, literalDoc(value)))) report("word", ["literals", "words", word], word, `The word ${word} does not read as its value.`);
+  }
+  for (const value of [0, -1, "a"]) {
+    const shape = literalShape(syn, value);
+    if (shape.tag === "text" && patternAt(syn, shape.text) >= 0) report("pattern", [], shape.text, `The literal ${shape.text} reads as a reference.`);
+  }
+}
+
+function checkRoots({ profile, syn, keeps }: ProfileCheck): void {
+  (profile.refs?.roots ?? DEFAULT_ROOTS).forEach((root, index) => {
+    for (const path of syn.fields ? [[root], [root, "x"]] : [[root]]) {
+      keeps("root", ["refs", "roots", index], `The root ${root} does not come back.`, { type: "ref", value: path }, path.join("."));
+    }
+  });
+}
+
+/** This function gives a value that a call form writes: the fewest arguments, and at least one. */
+function formValue(given: SyntaxForm, leaf: Json): Json {
+  const args = given.args ?? (given.fields === undefined ? "list" : "fields");
+  const least = Math.max(given.min ?? given.fields?.length ?? 0, 1);
+  if (args === "literal") return 1;
+  if (args === "list") return Array.from({ length: least }, () => leaf);
+  const keys = (given.fields ?? ["x"]).slice(0, args === "named" ? 1 : least);
+  return Object.fromEntries(keys.map((key) => [key, leaf]));
+}
+
+function checkCalls({ profile, syn, leaf, keeps }: ProfileCheck): void {
+  const calls = profile.calls ?? {};
+  (calls.forms ?? []).forEach((form, index) => {
+    keeps("form", ["calls", "forms", index], `The form ${form.name} does not come back.`, { type: typeOfKind(form.kind).type, value: formValue(form, leaf) });
+  });
+  // The dotted text of a call name needs the field steps. A profile with `ops: true` and no field steps has no dotted call.
+  if (syn.ops === true && syn.fields) keeps("call", ["calls", "ops"], "A call name with a dot does not come back.", { type: ["ops", "m", "p"], value: [leaf] });
+  if (typeof calls.ops === "boolean" || calls.ops === undefined) return;
+  calls.ops.forEach((name, index) => {
+    keeps("call", ["calls", "ops", index], `The call ${name} does not come back.`, { type: ["ops", ...name.split(".")], value: [leaf] });
+  });
+}
+
+/** This function writes two terms with the separator. It blames the separator only when a neutral separator keeps the document. */
+function checkSeparator({ profile, syn, leaf, report }: ProfileCheck): void {
+  if (syn.ops !== true && syn.ops.size === 0 && syn.forms.size === 0 && syn.constructKinds.size === 0) return;
+  const open: SyntaxProfile = { ...profile, calls: { ...profile.calls, ops: true } };
+  const neutral: SyntaxProfile = { ...profile, calls: { ...open.calls, separator: "\u0001" } };
+  const postfix = [...syn.binary.values()].filter((op) => op.fixity === "postfix").map((op) => opDoc(op, [leaf]));
+  const terms: Json[] = [leaf, { type: "ref", value: [syn.bare, "b c"] }, "a", 1, ...postfix];
+  const docs = terms.map((term): Json => ({ type: ["ops", "probe__"], value: [term, leaf] }));
+  const entries = { x: leaf, y: leaf };
+  const { record, let: bind } = syn.constructs;
+  if (record !== undefined) docs.push({ type: record, value: entries });
+  if (bind !== undefined) docs.push({ type: bind, value: { bind: entries, body: leaf } });
+  for (const doc of docs) {
+    const broken = lawBreak(neutral, doc) === undefined ? lawBreak(open, doc) : undefined;
+    if (broken !== undefined) report("separator", ["calls", "separator"], "", `The separator "${syn.separator}" does not end an argument. ${broken.why}`);
+  }
+}
+
+function checkConstructs({ syn, leaf, keeps }: ProfileCheck): void {
+  const entries = { x: leaf };
+  const values: Readonly<Record<keyof SyntaxConstructs, Json>> = { record: entries, let: { bind: entries, body: leaf }, fn: { params: ["x"], body: leaf }, call: { fn: leaf, args: [leaf] } };
+  for (const name of CONSTRUCTS) {
+    const type = syn.constructs[name];
+    if (type !== undefined) keeps("construct", ["constructs", name], `The form ${name} does not come back.`, { type, value: values[name] });
+  }
+}
+
+/**
+ * This function finds the faults of a syntax profile before a host uses it (SYNTAX.PROFILE-CHECK, D140). A fault is a
+ * document of an entry that breaks `parse(print(doc))`, or a text of an entry that reads another way. The function
+ * writes and reads one small document for each entry, for each pair of operators and for each root. Thus an empty list
+ * tells that these small documents come back. It does not prove the law for each document. `parse` and `print` do not
+ * call this function, thus it adds no cost to them.
+ *
+ * @param profile - The syntax profile.
+ * @returns At most one finding for each code and place, in the order of the operators, the literals, the references, the calls and the constructs.
+ * @throws An error of a `read` or a `write` function of a pattern.
+ */
+export function checkSyntax(profile: SyntaxProfile): readonly SyntaxFinding[] {
+  // A small `maxDepth` is a limit that the host chose, not a fault, thus each probe has the default limit.
+  const open: SyntaxProfile = { ...profile, maxDepth: 256 };
+  let syn: Compiled;
+  try {
+    syn = compileProfile(open);
+  } catch (error) {
+    if (error instanceof TypeError) return [{ code: "invalid", place: [], reason: error.message }];
+    throw error;
+  }
+  const found = new Map<string, SyntaxFinding>();
+  const report: ProfileCheck["report"] = (code, place, text, reason) => {
+    const index = patternAt(syn, text);
+    const finding: SyntaxFinding = index < 0 ? { code, place, reason } : { code: "pattern", place: ["refs", "patterns", index], reason: `The pattern reads the start of the text ${text}. ${reason}` };
+    const key = JSON.stringify([finding.code, finding.place]);
+    if (!found.has(key)) found.set(key, finding);
+  };
+  const keeps: ProfileCheck["keeps"] = (code, place, rule, doc, start = "") => {
+    const broken = lawBreak(open, doc);
+    if (broken !== undefined) report(code, place, broken.text ?? start, `${rule} ${broken.why}`);
+    return broken === undefined;
+  };
+  const check: ProfileCheck = { profile: open, syn, leaf: { type: "ref", value: [syn.bare, "a"] }, report, keeps };
+  checkOperators(check);
+  checkLiterals(check);
+  checkRoots(check);
+  checkCalls(check);
+  checkSeparator(check);
+  checkConstructs(check);
+  return [...found.values()];
 }
