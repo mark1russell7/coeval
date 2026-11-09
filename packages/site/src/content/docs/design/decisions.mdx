@@ -133,6 +133,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D130 | `codecLaws` examines the codec of one domain (K141). It tests sample and edge members for a throw, JSON, one document, a read through `decodeDomain` and the round trip. A finding has the form of `conforms`. |
 | D131 | The export `checkCycles` gives each certain cycle of a schedule as one issue with the code `#CYCLE!` (S2d). A possible cycle gives no issue. |
 | D133 | The standard evaluator `ref.resolve` compiles its path one time in `prepare`, and `STD_DEFINITIONS` gives the reference its definition (K77). The entry of `STD_EVALUATORS` is an object, thus a host wraps the definition. |
+| D134 | One evaluation has one count of work (K216). An application of a closure, a node from an equation and a second visit in the JSON of a tree add points. The point past `maxWork` gives `#WORK!` in each tier, and the default is 200000 points. |
 | D136 | A kept read that a reference leads to the node in evaluation closes no cycle (K217). Thus a closure at a node whose `self` refers to that node gives its value. Each list of reads stays the same. |
 | D160 | Each parameter property becomes a plain field first in its class, and the constructor assigns it first (K224). The emitted code stays the same, and the option `erasableSyntaxOnly` stays on. |
 | D161 | A failed test of the measure step turns it red. The limit of PLAN.LEAN was not enforced from K211 to this decision, and it failed in 8 of 99 jobs. The limit is 401.1 bytes, the worst of these jobs plus their spread. |
@@ -188,6 +189,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D189 | A row of the ladder flip whose run does not count measures a new run, up to 3. After 3 runs with no counted run, the row has no read, and the job fails (K247). |
 | D159 | The formula kit has a Lean model with a clock, and CI compares it with the plan on generated documents (K96). |
 | D158 | The stepper is a third tier: its stack is data, and it reads the lookup, the split and the paths itself (K95). |
+| D190 | `allValues` tests the errors before the values. With the values first, a bench case took 1.2 to 1.4 times the time in the Maglev tier of V8 (K216). |
 | D191 | The random numbers of the core come from `mulberry32` of `rigor-generators`, and the draws of the core keep their rules (K248). |
 | D194 | Theorems over the Lean model: the clock does not change a result, `eval` is deterministic, and `let` is compositional (K223). |
 
