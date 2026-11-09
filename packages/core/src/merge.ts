@@ -581,7 +581,7 @@ function checkHidden(m: Merger, draft: MachineDraft): void {
  * - A runner hides the evaluator of its name. Thus one part must give both, or the merge gives a conflict.
  * - The hooks `known` compose in the order of the parts. A hook does not answer for a name that a later part replaces.
  *   The hooks `facts` compose the same way, and the first answer that is not `undefined` wins.
- * - Each other field, for example `permits`, `adopt`, `roots`, `plain` or `maxDepth`, is one value. Two different
+ * - Each other field, for example `permits`, `adopt`, `roots`, `plain`, `maxDepth` or `maxWork`, is one value. Two different
  *   values are a conflict. An absent field has no value.
  *
  * A conflict stops the merge, unless the later part names its path in `replaces`. A part can be a function of the

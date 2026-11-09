@@ -2,6 +2,19 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.27.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. The type `KernelCode` gets the member `"#WORK!"`, and a host with an exhaustive `switch` over it must add the case. An evaluation with more than 200000 points of work gives `#WORK!`. No export goes.
+
+### New features
+
+- **A limit of work for one evaluation (D134).** Each application of a closure of `fn` counts one point. The field `maxWork` of a machine sets the limit, and the default is the new export `WORK_LIMIT`, 200000 points. The point past the limit gives `#WORK!`, with one code, place and reason in each tier.
+- **The count of work in a runtime and in compiled code.** A `Runtime` gets the optional field `nested` and the optional method `spend(points)`. A `CompiledEvaluator` gets the optional field `keeps`.
+
+### Changes
+
+- **The order of the tests in `allValues` (D190).** The function tests the errors of the parts before it gives their values. When more than one part fails, `#WORK!` stays the code of the result.
+
 ## 0.26.1
 
 PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes, and each seed gives the same numbers.

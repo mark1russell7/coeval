@@ -175,8 +175,8 @@ function setOwn(target: Record<string, unknown>, key: string, value: unknown): v
   else target[key] = value;
 }
 
-function compiled(compile: (input: CompileInput) => Code): CompiledEvaluator {
-  return { compile };
+function compiled(compile: (input: CompileInput) => Code, keeps?: true): CompiledEvaluator {
+  return keeps === undefined ? { compile } : { compile, keeps };
 }
 
 /** This function evaluates parts in order. It gives the value of each part, or the first error. */
@@ -756,7 +756,7 @@ function makeEvaluators(profile: FormulaProfile): Readonly<Record<string, Evalua
   for (const name of Object.keys(evaluators)) {
     const evaluator = evaluators[name] as CompiledEvaluator;
     const type = Object.hasOwn(types, name) ? types[name] : undefined;
-    const made = Object.freeze(type === undefined ? evaluator : { compile: evaluator.compile, type });
+    const made = Object.freeze(type === undefined ? evaluator : { ...evaluator, type });
     if (truth !== undefined && TRUTH_READERS.includes(name)) truthByCode.set(made, truth);
     if (PROFILE_READERS.includes(name)) readerByCode.set(made, { name, profile });
     out[name] = made;
@@ -1045,6 +1045,8 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
           // Each application counts one level on the runtime of its evaluation, and the count goes down after it (FORMULA.CALL-DEPTH).
           const level = (clock.applying ?? 0) + 1;
           if (level > limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
+          // WORK.LIMIT: an application is a place where work can multiply, thus each one counts one point (D134).
+          rt.spend?.(1);
           clock.applying = level;
           try {
             const scope: Record<string, unknown> = { ...ctx.names };
@@ -1059,7 +1061,8 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
         Object.defineProperty(closure, CLOSURE, { value: { params: names } });
         return ok(closure);
       };
-    }),
+      // A closure uses its runtime after the end of the evaluation (WORK.KEEPS).
+    }, true),
 
     "formula.call": compiled(({ value }) => {
       const record = partsOf(value);

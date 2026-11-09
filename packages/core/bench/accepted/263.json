@@ -1,0 +1,23 @@
+[
+  {
+    "case": "a reference into a host thing with resolve",
+    "head": "227e208dafd7",
+    "cost": "+0.6 % (noise -0.2 %) and +1.4 % (noise -0.3 %), slower in each job: Speed run 42504593514. +1.7 % (noise -0.2 %) and +1.3 % (noise +0.1 %), slower in each job: Speed run 42512924631. The case takes about 150 ns, thus the cost is about 2 ns for each evaluation.",
+    "reason": "The cost is small and steady, with one sign in four jobs. K216 adds the limit of work (WORK.LIMIT, D134): each evaluation of the reference tier gets a count of its work, three fields of the environment and an end mark in a finally block. Which of these parts gives the cost is unread. A limit of work needs a count for each evaluation, thus the cost stays with the feature. The other 15 cases are not slower, and D190 removed the cost of 64 % in the same tree, with a list of reads.",
+    "owner": "coeval session (K216)"
+  },
+  {
+    "case": "PLAN.PATH the same path, without the declaration",
+    "head": "227e208dafd7",
+    "cost": "-0.1 % and +1.9 %, +0.3 % and -0.0 %, +0.1 % and +1.1 %, +1.8 % and +2.6 %: Speed runs 42518609989, 42523715273, 42533464393 and 42538047431. Both jobs of the last run read slower on two CPU models. The case takes about 160 ns, thus the cost is about 3 ns.",
+    "reason": "The cost is small, and 13 of 16 jobs over four runs read it above zero. K216 adds the count of work (WORK.LIMIT, D134), and the plan marks the end of the count (WORK.KEEPS). Which part gives the cost is unread. A limit of work needs a count for each evaluation, thus the cost stays with the feature.",
+    "owner": "coeval session (K216)"
+  },
+  {
+    "case": "PLAN.FIXED a formula with a fixed name and a free name",
+    "head": "227e208dafd7",
+    "cost": "+0.9 % and +2.1 %, +0.2 % and -0.7 %, +0.5 % and +1.9 %, +1.6 % and +11.2 %: Speed runs 42518609989, 42523715273, 42533464393 and 42538047431. Both jobs of the last run read slower on two CPU models. The case takes about 115 ns, thus the cost is about 2 ns. The +11.2 % is one job, and the other jobs read at most +2.1 %.",
+    "reason": "The cost is small, and 13 of 16 jobs over four runs read it above zero. K216 adds the count of work (WORK.LIMIT, D134), and the plan marks the end of the count (WORK.KEEPS). Which part gives the cost is unread. A limit of work needs a count for each evaluation, thus the cost stays with the feature.",
+    "owner": "coeval session (K216)"
+  }
+]
