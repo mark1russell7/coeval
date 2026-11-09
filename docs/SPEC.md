@@ -73,6 +73,7 @@ The modes of composition come from Erdweg, Giarrusso and Rendel (2012), through 
 | COMPOSE.EXTEND-VERB | A part names the verbs that it owns in `verbs`, and it adds entries to the kinds of other parts in `extends`. A path as `replaces` names it finds the kind, at each depth, and a fallback kind too. The merge adds the entries after each part, thus the order of the parts does not change them. Two equal entries give one entry. The kind keeps each other field. The result of a merge has no `verbs` and no `extends`. |
 | COMPOSE.PIRACY | An entry of a verb that the part does not own, on a kind that the part does not give, is a conflict. A part that owns a verb of the kernel, two different parts that own one verb, two different evaluators for one verb of a kind, and an entry for a path without a kind are conflicts too. The mark `replaces` of the path of a conflict resolves it. |
 | COMPOSE.CONSERVATIVE | A merge without a conflict can add kinds, aliases, namespaces, code and the defaults of new verbs. Such a merge keeps the result and the effects of each document of the base. The document names no new kind and no new code, and it reads no entry of the world that the merge changes, for example the root `world`. A new key under a fallback of the base is new only for documents that do not name it. A property test examines generated documents of three machines. |
+| COMPOSE.BOUNDARY | A document of the kind `lang` holds the name of a language and a document in that language. The machine of that language evaluates the inner document, and only its result crosses. The inner document gets no names and no capabilities. An unknown language gives `#NAME?` (K38, D193). |
 
 ## Languages
 
@@ -262,7 +263,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | RESULT.SAME | `sameResult` tells if two results are the same for an early cutoff. Two values compare by the rules of `docEquals`, thus each object that is not a list or a plain record is the same only as itself. `-0` is not `0`, and `NaN` is `NaN`. A rule of the host answers first for two values (D20). |
 | RESULT.SAME-ERROR | For `sameResult`, two errors are the same when they have the same code, reason and place. The cause is not compared. A held error compares by the same rule. A value and an error are not the same. |
 | GEN.SEED | `generate` gives the same document for the same seed and options. Its random numbers come from `mulberry32` of `@mark1russell7/rigor-generators` (D191). |
-| GEN.CONTRACTS | Without malformed choices, a generated document follows the contracts of its kinds: the shapes, the declared types and the names in scope. `check` finds no problem in it. |
+| GEN.CONTRACTS | Without malformed choices, a generated document follows the contracts of its kinds: the shapes, the declared types and the names in scope. `check` finds no problem in it. An own entry goes only on a kind without scope rules, because other code binds none of their names (C7). |
 | GEN.MALFORMED | Malformed choices give unknown kinds, unknown names under a namespace with a fallback, values without their shape, bare values without a type, bad paths and names that nothing binds. |
 | GEN.REACH | The documents of the property test reach each kind of their world, and they give values and errors. |
 | GEN.PATHS | The option `roots` gives the roots of the paths, and the option `steps` gives their most steps. The defaults are each root and two steps. |
@@ -495,6 +496,7 @@ A host gives named documents to `schedule`. Each document is a node, and the roo
 | SCHED.DEEP-CYCLE-AGREES | For generated graphs with an overflow at each demand, each node gives the result of the plain demand: the same `#CYCLE!` on a cycle, and the same value or error elsewhere (S2b). |
 | SCHED.SIGNALS | A reference adapter in the tests gives the meaning of D31 on push-pull signals, and `agreeSchedule` finds no stale answer. A change evaluates only its readers, and an equal result stops at the cutoff. A plan keeps no value, thus the library sees each read. A fold reads nothing outside, and a host thing does not fix a name. With `adopt` each key is a signal read, and a thing with `resolve` answers a path with one read. |
 | GRAPH.SCC | `components` gives the strongly connected components of a graph of nodes, by the algorithm of Tarjan. Each component comes after each component that it reads. The walk has its own stack, thus a chain or a ring of 100000 nodes does not overflow. |
+| GRAPH.SCC-SAME | The analyses give the answers of the old copy of the search of Tarjan in the core on 600 seeded graphs. The search of the strongly connected components is `strongComponentsCompact` of `@mark1russell7/collections` (K249). |
 | GRAPH.ORDER | `heights` gives the order of a push schedule. A node that reads no node outside its component has the height 0. Each other node is one higher than the highest node that it reads outside its component. |
 | GRAPH.LAYERS | `nodeLayers` puts the nodes of each height in one layer, in linear time. Two nodes of one layer read each other only inside one component. Each layer keeps the order of the graph. |
 | GRAPH.NECESSARY | `necessary` gives each observed node, and each node with a path of edges from an observed node. A name that is not a node adds nothing. |
@@ -593,6 +595,7 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | WORK.HOST | An application of a closure by an operation of the host counts one point, as an application by `call` does. |
 | WORK.RUN | A run has the count and the error of an evaluation. `plan.run`, `run` and `referenceRun` give the same result. |
 | WORK.AFTER | A closure can leave its evaluation. After the end of the evaluation, each entry from the host starts a new count. Thus an application by the host stops only for its own work. |
+| WORK.AFTER-EQUATION | A call from the host keeps one count across each runtime of the evaluation. A node that an equation makes in the body of a kept closure adds to the count of the call, and it does not start a new count. The reference evaluates such a node with the machine of the evaluation that made the closure. |
 | WORK.KEEPS | A plan marks the end of its evaluation only if it holds a runner, an evaluator that is a function, or a compiled evaluator with the field `keeps`. Each other plan has the code of a plan without the count. |
 | WORK.PREPARE | `prepare` does no counted work. A fold stops at the first counted point, and a node is a counted point in a fold. Thus a recursion or a tree costs no time in `prepare`. |
 | WORK.HIGHER | A kind with `higher` attributes that generate two subtrees at each level gives `#WORK!`, because each generated node counts (WORK.NODE). |
@@ -720,10 +723,13 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | STEPPER.PATH | The stepper walks a path itself. It gives the value or the error of `resolve` for keys, references, cycles, deref code and walkers. |
 | STEPPER.CLOSURE | A closure is data in a configuration. Host code gets a function, and a call of that function starts a nested stepper. |
 | STEPPER.LIMIT | The applications of functions have the limit of `reference`: the count of the active applications, with a nested stepper too. |
+| STEPPER.WORK | The stepper counts one point for each application of a closure, by `call` or by an operation of the host. The point past `maxWork` gives the `#WORK!` of `reference`, at the same place. After the end, each call from the host starts a new count. A configuration from `stepperNext` holds the count. |
+| STEPPER.STD | A compiled evaluator of the standard machine gets the definition of `reference`, unless the option `definitions` gives another one. Thus the standard `ref` gives the result of `reference`. |
 | STEPPER.PROFILE | An exception of a rule of the profile gives the error of `reference`, with the name of the evaluator of the document. |
 | STEPPER.EFFECT | An effect of a host evaluator has the capability test, the address, the mock and the outcome of `reference`. A runner gives `#NOEVAL`. |
 | STEPPER.DEEP | A list nested 100000 times evaluates, because the stepper does not use the stack of the host for the nesting. The limit `maxDepth` stays. |
 | STEPPER.DATA | A configuration of a pure document of the formula kit survives `JSON.stringify` and `JSON.parse` at each step, and the run gives the same result. |
+| STEPPER.NEXT-STATE | Each call of `stepperNext` has a new program. Thus a configuration from it holds the count of work, the count of the effects at each place and the number of effects. Steps give each effect the address and the index of `stepper`, also through JSON. |
 | STEPPER.PURE | `stepperNext` leaves its configuration as it is. A host can step one configuration twice, and it gets equal configurations. |
 
 ## The calculus

@@ -1199,6 +1199,11 @@ class Session implements Runtime {
   declare work?: number;
   /** The count of the applications of closures that run at this time. `formula.fn` writes it (FORMULA.CALL-DEPTH). */
   declare applying?: number;
+  /**
+   * The count of the applications of closures that run at this time, on the root and on each runtime of an equation
+   * (WORK.AFTER). `formula.fn` writes it on the runtime of the root. The first application adds the field.
+   */
+  declare active?: number;
   readonly machine: Machine;
   /**
    * The epoch of the evaluation: the list of capabilities that the host gave the root (CAP.NARROW-KEPT). A context
@@ -1268,14 +1273,14 @@ class Session implements Runtime {
   /**
    * This function adds work to the count of the evaluation (WORK.LIMIT). One count is on the runtime of the root, thus
    * each equation of a tree adds to it. After the end of the evaluation, each entry from the host starts a new count
-   * (WORK.AFTER).
+   * (WORK.AFTER). An entry is a point with no application of a closure that runs, on any runtime of the evaluation.
    *
    * @param points - The work.
    * @throws {Failure} The error `#WORK!`, when the count is over the limit of the machine.
    */
   spend(points: number): void {
     const root = this.top ?? this;
-    const entry = root.top === root && (this.applying ?? 0) === 0;
+    const entry = root.top === root && (root.active ?? 0) === 0;
     const work = (entry ? 0 : (root.work ?? 0)) + points;
     root.work = work;
     const limit = this.machine.maxWork ?? WORK_LIMIT;

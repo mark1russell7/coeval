@@ -6,10 +6,12 @@ import {
   type MergeConflict,
   type WorldPart,
   MergeError,
+  boundary,
   compose,
   defineLanguage,
   docEquals,
   formulaMachine,
+  makeContext,
   ok,
   prepare,
 } from "./index.ts";
@@ -143,5 +145,42 @@ describe("the language format", () => {
     // Each conflict comes in one error.
     const both = defineLanguage({ name: "user", version: "1.0.0", requires: { x: "1.0.0", y: "1.0.0" } });
     expect(() => compose(both)).toThrow(/^The merge has 2 conflicts\./);
+  });
+});
+
+describe("the boundary kind lang", () => {
+  // In the inner language, the operation add multiplies. Thus each answer tells which machine evaluated a document.
+  const times = formulaMachine({ ops: { add: (a: number, b: number) => a * b } });
+  const SAY: WorldPart = { kinds: { say: { verbs: { eval: "say.log" } } } };
+  const saying = compose(defineLanguage({ name: "say", version: "1.0.0", world: SAY, code: { evaluators: { "say.log": ({ effect }) => effect("log", "hello") } } }));
+  const machine = compose(formula, boundary({ times, say: saying, formula: compose(formula) }));
+  const lang = (language: string, doc: unknown): unknown => ({ type: "lang", value: { language, doc } });
+  const add = (...parts: unknown[]): unknown => ({ type: ["ops", "add"], value: parts });
+
+  it("[COMPOSE.BOUNDARY] the machine of the named language evaluates the inner document, and its result crosses", () => {
+    expect(prepare(machine, add(lang("times", add(3, 4)), 1)).evaluate()).toEqual(ok(13));
+    expect(prepare(machine, add(lang("formula", add(3, 4)), 1)).evaluate()).toEqual(ok(8));
+    // One inner document object prepares one time, thus a second evaluation gives the same answer.
+    const doc = add(lang("times", add(2, 5)), lang("times", add(2, 5)));
+    expect(prepare(machine, doc).evaluate()).toEqual(ok(20));
+    expect(prepare(machine, doc).evaluate()).toEqual(ok(20));
+  });
+
+  it("[COMPOSE.BOUNDARY] the boundary is closed: no names and no capabilities cross into the inner document", () => {
+    const outer = makeContext({ x: 5 }, ["log"]);
+    const name = { type: "ref", value: ["names", "x"] };
+    expect(prepare(machine, add(name, 1)).evaluate(outer)).toEqual(ok(6));
+    expect(prepare(machine, lang("formula", add(name, 1))).evaluate(outer)).toMatchObject({ ok: false });
+    expect(prepare(machine, lang("say", { type: "say", value: null })).evaluate(outer)).toMatchObject({ ok: false, error: { code: "#CAP!" } });
+    // The inner machine evaluates the effect with the capability, thus only the boundary refuses it.
+    expect(prepare(saying, { type: "say", value: null }).evaluate(outer)).toEqual(ok("hello"));
+  });
+
+  it("[COMPOSE.BOUNDARY] an unknown language and a value of a wrong shape are error values", () => {
+    expect(prepare(machine, lang("other", 1)).evaluate()).toMatchObject({ ok: false, error: { code: "#NAME?" } });
+    expect(prepare(machine, lang("toString", 1)).evaluate()).toMatchObject({ ok: false, error: { code: "#NAME?" } });
+    expect(prepare(machine, { type: "lang", value: { doc: 1 } }).evaluate()).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
+    expect(prepare(machine, { type: "lang", value: { language: "times" } }).evaluate()).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
+    expect(boundary({}).data).toBe(boundary({ times }).data);
   });
 });

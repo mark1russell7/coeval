@@ -5439,6 +5439,34 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** Keep the copy as an accepted copy. The two copies then can differ after a fix in the home. Use the `random` of the home. Its `int` takes a minimum and a maximum, and its `pick([])` throws, thus the draws and the API of the core change. A subpath export in the home for its random module. The home then has two entries for one module, and the core still reads the field of the home.
 
+## D192 (2026-11-08): the search of strongly connected components comes from `collections`
+
+**Context.** K249. The core had its own copy of the search of Tarjan in `graph.ts`, with its own stack. The home of graphs is `@mark1russell7/collections`. Its version 0.9.11 adds `strongComponentsCompact(n, start, targets)` in the entry `@mark1russell7/collections/graph`.
+
+**Decision.**
+
+- The function `strong` of `graph.ts` uses `strongComponentsCompact` with the indexed form of the graph. The core keeps no copy of the search.
+- `components`, `heights`, `nodeLayers` and `cycles` keep their own rules of edges: lazy edges, edges without a target and sinks.
+- The test GRAPH.SCC-SAME pins the answers of the old copy on 600 seeded graphs, before the move (CA14).
+
+**Why.** Each thing has one home. The search of the home gives the same order. The deepest component is first, and the members of a component are in increasing order. The entry imports no other package and has no side effects, thus the bundle of the core stays pure.
+
+**Alternatives.** The copy in the core. Two copies then drift. The keyed form `stronglyConnectedComponents`. It needs a function for each node, and the indexed form of the core has arrays already.
+
+**Limits.** The core has its first runtime dependency. The search of the home checks its arguments, and this check walks each edge one more time.
+
+## D193 (2026-11-08): a part in another language is a document of the closed boundary kind `lang`
+
+**Context.** K38, R6 P8. A document can need a part in another language, as a module of another language in Racket. Today one machine serves each node of a document. Open question 4 of R6 asks if a document names its language. A header field changes D6, and a boundary kind does not.
+
+**Decision.** The function `boundary(machines)` gives a language with the kind `lang`. Its value is `{ language, doc }`. The host gives the machine of each name, and `compose` adds the boundary to a machine. The evaluator prepares the inner document with the named machine, one time for each document object. It evaluates the plan with `evaluateWithin`, thus the reads of the inner plan go in the record of the outer run. The boundary is closed. The inner document gets no names, no capabilities and no `self`. Only the result crosses. An unknown name gives `#NAME?`, and a value of another shape gives `#VALUE!`.
+
+**Why.** A kind needs no change to the envelope (D6), thus the answer to question 4 is a part, not a header. The root document names no language, because the host selects its machine. A closed boundary keeps each guarantee of the static kit inside one world. The outer `check` sees no effect of the inner document, because no capability crosses. The table of machines is code that the host gives, thus a document cannot bring a machine.
+
+**Alternatives.** A header field `language` on each envelope. This changes D6 and each reader of an envelope. An open boundary that passes the names and the capabilities. Then `check` and `factsOf` of the outer machine must read the inner world, and the static kit must change worlds at the boundary. A boundary that composes the inner language into the outer machine. Two worlds with one kind name then conflict, and the boundary has no purpose.
+
+**Limits.** The outer `check` does not enter the inner document, because the value of `lang` is data for the outer world. The host checks the inner document with its own machine. The kind is not `pure`, because an operation of the inner language can be volatile. The inner evaluation has its own depth and its own limit of work. A run cannot wait in an inner document. A part with a capability needs an open boundary, and no item asks for it today.
+
 ## D194 (2026-11-08): theorems over the Lean model: the clock, determinism and `let`
 
 **Context.** K223, after K96 (D159). The model had one theorem: a clock of zero stops an evaluation. A later proof needs the facts that the clock does not change a result and that `let` is compositional.
@@ -5457,6 +5485,18 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** One proof by cases over the old `eval`. Each case then repeats the unfolding of the envelope and of the kind. Theorems over the plan in TypeScript. TypeScript has no proofs, and the model is the reading in a language of proofs. A local `lake build` for each change of a proof. The proofs are checked in CI, like the model (D159).
 
 **Limits.** Determinism is true by construction, because `eval` is a function in Lean. The theorem of the clock covers the model only, not the plan. AGREE.LEAN connects the two on generated documents, not on all documents. The compositionality of `let` is the order of the bindings and the scope of the body. A theorem that a binding can change to another document with the same results is not in this slice.
+
+## D195 (2026-11-09): the generator gives no own entry to a kind with scope rules
+
+**Context.** The nightly run of One meaning on 2026-11-09 failed STATIC.AGREES at the seed 201003441. The document was a `handle` with the own entry `eval: math.add`. Its clause `return` read the name `result`. `check` gave no issue, and the run gave `#NAME?`.
+
+**Decision.** The generator gives an own entry only to a kind without scope rules. It keeps the random draws of the entry, thus each other document stays the same.
+
+**Why.** The names in scope follow the contract of the kind for each verb (VERB.CHECK). The code of a kind binds the names of its scope rules (C7), and that is an obligation of the author. The code `math.add` binds no name, thus the document broke a contract. GEN.CONTRACTS says that a generated document follows the contracts of its kinds. Thus the generator was wrong, not `check` or the plan.
+
+**Alternatives.** An exception in the harness for a name under an own entry. The harness then hides a broken contract, and other documents with it stay in the corpus. A check that the code of an own entry binds the names of the scope rules. `check` does not run code, and `conforms` (K92, D36) already examines an evaluator against a contract.
+
+**Limits.** The own entries of the harness are standard code only. A host that gives an own entry to a kind with scope rules still owns C7 for its code.
 
 ## D196 (2026-11-09): after an overflow, the schedule demands the nodes of the walk again, deepest first
 
@@ -5482,3 +5522,32 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 - The demands after a walk add at most one evaluation for each entered node. Thus a data epoch with an overflow does at most `4V` evaluations for `V` entered nodes, not `3V`.
 - A node of the overflowed demand that the walk does not enter evaluates again at its next demand. Only a read that the walk did not make reaches such a node, for example a read in the branch of a catch.
 - The demands after a walk use `visit`, thus an overflow in them starts no new walk. Each read of such a demand reaches a node that a walk finished, and the harness found no such overflow.
+
+## D197 (2026-11-09): the stepper and a kept closure keep the one count of work
+
+**Context.** K250, from a weekly review of 11-09 and D134. A test on main showed five faults:
+
+- The stepper counted no work. With `maxWork` 5, ten applications gave a value, and `reference` gave `#WORK!`.
+- The stepper found no definition of the compiled standard `ref.resolve`. Thus each `ref` of the standard machine gave `#NOEVAL`.
+- After the end of an evaluation, a node that an equation made in a kept closure started a new count. The runtime of the equation has its own count of applications, and that count was 0. Thus a recursion with a node at each call had no limit.
+- In the reference, the body of a kept closure evaluated with no state of the evaluation. Thus a node of a tree in the body gave `#NOEVAL`.
+- Each call of `stepperNext` started the counts of the effects again. Two effects at one place in two steps both got the address `#0`.
+
+**Decision.**
+
+- The stepper counts one point for each application of a closure, by `call` and by host code, after the clock of the depth. It uses `maxWork` of the machine and the error of D134. After the end, each call from the host starts a new count. A configuration from `stepperNext` holds the count in the field `work`. It also holds the count of the effects at each place and the number of effects (STEPPER.NEXT-STATE).
+- A compiled evaluator of the standard machine gets the definition of `reference` in the stepper too (STEPPER.STD).
+- The runtime of the root counts the applications that run on each runtime of the evaluation, in the field `active`. The plan and the reference start a new count only when this count is 0 (WORK.AFTER-EQUATION).
+- The body of a kept closure of the reference evaluates in the state of the evaluation that made the closure.
+
+**Why.** WORK.LIMIT is one count for each evaluation in each tier. Only an entry from the host starts a new count. An equation in a call of the host is not such an entry. The plan runs the body of a closure with the runtime that made it, and the reference does the same after this change.
+
+**Alternatives.**
+
+- The count of applications on the root, with the clock of the depth. An equation keeps its own clock of the depth (FORMULA.CALL-DEPTH), thus one shared clock changes `#DEPTH!`.
+- The count only in the program of the stepper. A host that steps one configuration at a time then has no limit.
+
+**Limits.**
+
+- The stepper does not evaluate the equations of a tree. Thus WORK.NODE has no test in the stepper.
+- A host call of a closure in the stepper also puts back the count of the applications of its start. Before, a failed call left a higher count.

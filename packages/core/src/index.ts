@@ -91,7 +91,7 @@ export {
   restrictMachine,
   restrictWorld,
 } from "./merge.ts";
-export { type Language, type LanguageCode, type LanguageDefinition, compose, defineLanguage } from "./language.ts";
+export { type Language, type LanguageCode, type LanguageDefinition, boundary, compose, defineLanguage } from "./language.ts";
 export {
   type Answer,
   type AskOptions,

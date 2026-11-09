@@ -139,7 +139,7 @@ export function isClosure(value: unknown): value is Closure {
  * The runtime of an evaluation with the clock of `call` (FORMULA.CALL-DEPTH, D125): the count of the applications of
  * closures that run at this time. The first application adds the field, thus an evaluation without one has no field.
  */
-type Clocked = Runtime & { applying?: number };
+type Clocked = Runtime & { applying?: number; active?: number; top?: Clocked | undefined };
 
 /**
  * The standard extensions: the values that JSON cannot write. `ext.domain` reads a member of a domain through the
@@ -1047,7 +1047,11 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
           if (level > limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
           // WORK.LIMIT: an application is a place where work can multiply, thus each one counts one point (D134).
           rt.spend?.(1);
+          // WORK.AFTER: the runtime of the root counts the applications of each runtime of the evaluation. An equation of
+          // a tree in the body has its own runtime, and its work does not start a new count.
+          const root = clock.top ?? clock;
           clock.applying = level;
+          root.active = (root.active ?? 0) + 1;
           try {
             const scope: Record<string, unknown> = { ...ctx.names };
             names.forEach((name, index) => setOwn(scope, name, args[index]));
@@ -1056,6 +1060,7 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
             return result.value;
           } finally {
             clock.applying = level - 1;
+            root.active = (root.active ?? 1) - 1;
           }
         };
         Object.defineProperty(closure, CLOSURE, { value: { params: names } });

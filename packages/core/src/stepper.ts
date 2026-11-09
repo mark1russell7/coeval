@@ -1,11 +1,12 @@
 import { type Envelope, type Json, type Key, type TypeRef, docEquals, field, isEnvelope, isRecord, typeName } from "./doc.ts";
 import { type Cap, type Context, type Resolution, type ResolveOptions, type Thing, isHostThing, worldThing } from "./deref.ts";
 import { type EvalError, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
-import { type Effect, type EvalInput, type Machine, type Part, type Perform, intersectCaps, makeContext, permits, placeText } from "./evaluate.ts";
+import { type Effect, type EvalInput, type Machine, type Part, type Perform, WORK_LIMIT, intersectCaps, makeContext, permits, placeText, workFailure } from "./evaluate.ts";
 import { type FormulaProfile, type OpFn, Held, STD_EXT } from "./formula.ts";
 import type { World } from "./ladder.ts";
 import { pathMatches } from "./parts.ts";
-import type { Definitions } from "./reference.ts";
+import { type Definitions, STD_DEFINITIONS } from "./reference.ts";
+import { STD_EVALUATORS } from "./stdlib.ts";
 import { type CapsRule, type Kind, type Shape, type WorldEntry, isAlias, isKind, isNamespace } from "./world.ts";
 
 /**
@@ -111,6 +112,12 @@ interface Shared {
   readonly applying: number;
   /** `true` after a closure or a held error goes in a value. Only then does a value need a change for the host. */
   readonly marked: boolean;
+  /** The work of the evaluation after the last call of `stepperNext` (WORK.LIMIT). A configuration without it has done no work. */
+  readonly work?: number;
+  /** The number of earlier effects at each place, after the last call of `stepperNext` (RUN.ADDRESS). */
+  readonly counts?: Readonly<Record<string, number>>;
+  /** The number of effects of the evaluation, after the last call of `stepperNext`. */
+  readonly effected?: number;
 }
 
 /**
@@ -164,8 +171,16 @@ interface Program {
   readonly perform: Perform | undefined;
   /** The number of earlier effects at each place, by the text of the place (RUN.ADDRESS). */
   readonly counts: Map<string, number>;
+  /** The number of effects of the evaluation before the list `effects`. */
+  before: number;
   /** The count of the applications at the last call of host code. */
   applying: number;
+  /** The most work of one evaluation (WORK.LIMIT). */
+  readonly maxWork: number;
+  /** The work of the evaluation: one point for each application of a closure (WORK.LIMIT). */
+  work: number;
+  /** `true` after the end of the evaluation. Then each application from the host starts a new count (WORK.AFTER). */
+  ended: boolean;
 }
 
 const CLOSURE_MARK = "coeval.closure";
@@ -555,6 +570,9 @@ function apply(p: Program, c: Configuration, target: unknown, args: readonly unk
   }
   const limit = Math.ceil(p.maxDepth / 4);
   if (c.applying >= limit) return back(c, fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`));
+  // WORK.LIMIT: each application counts one point, after the clock of its depth.
+  p.work += 1;
+  if (p.work > p.maxWork) return back(c, { ok: false, error: workFailure(p.maxWork) });
   const frame: Frame = { f: "return", place: closure.place.concat(closure.body.path) };
   pushed(c, frame);
   const start = enter(c, { at: NO_KEYS }, closure.site, closure.body, scopeOf(closure, args));
@@ -576,6 +594,11 @@ function hostClosure(p: Program, value: object, closure: Closure): unknown {
   const fn = (...args: readonly unknown[]): unknown => {
     const limit = Math.ceil(p.maxDepth / 4);
     if (p.applying >= limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
+    // WORK.AFTER: after the end of the evaluation, each application from the host starts a new count.
+    p.work = (p.ended && p.applying === 0 ? 0 : p.work) + 1;
+    if (p.work > p.maxWork) throw new Failure(workFailure(p.maxWork));
+    // Host code in the nested stepper writes the count of the applications, thus the call puts back the count of its start.
+    const before = p.applying;
     p.applying += 1;
     try {
       const place = closure.place.concat(closure.body.path);
@@ -584,7 +607,7 @@ function hostClosure(p: Program, value: object, closure: Closure): unknown {
       if (!end.result.ok) throw new Failure(end.result.error);
       return forHost(p, end, end.result.value);
     } finally {
-      p.applying -= 1;
+      p.applying = before;
     }
   };
   Object.defineProperty(fn, CLOSURE, { value: { params: closure.params } });
@@ -856,7 +879,7 @@ function cause(p: Program, ctx: Context, kind: Cap, payload: unknown, place: rea
   const count = counts.get(at) ?? 0;
   counts.set(at, count + 1);
   const effect: { -readonly [K in keyof Effect]: Effect[K] } = {
-    index: effects.length,
+    index: p.before + effects.length,
     kind: text,
     path: keys,
     payload,
@@ -948,7 +971,9 @@ function evaluateDoc(p: Program, c: Evaluating): Configuration {
       return back(c, thrown(error, `the evaluator ${name}`));
     }
   }
-  const defined = own(p.definitions.evaluators, name);
+  // A standard evaluator gets the definition of the reference, unless the options give another definition (REF.TREE).
+  const standard = code === own(STD_EVALUATORS, name) ? own(STD_DEFINITIONS.evaluators, name) : undefined;
+  const defined = own(p.definitions.evaluators, name) ?? standard;
   if (defined !== undefined) return hostEvaluator(p, c, name, defined, doc, keys, read.data, read.slots, site);
   return back(c, fail("#NOEVAL", `The stepper has no definition of the compiled evaluator ${name}.`));
 }
@@ -1087,7 +1112,11 @@ function programOf(machine: Machine, options: StepperOptions): Program {
     effects: options.effects ?? [],
     perform: options.perform,
     counts: new Map(),
+    before: 0,
     applying: 0,
+    maxWork: machine.maxWork ?? WORK_LIMIT,
+    work: 0,
+    ended: false,
   };
 }
 
@@ -1124,7 +1153,20 @@ export function stepperNext(machine: Machine, configuration: Configuration, opti
     else if (f === "let") stack[stack.length - 1] = { ...top, names: { ...top.names } };
     else stack[stack.length - 1] = { ...top };
   }
-  return advance(programOf(machine, options), { ...configuration, stack });
+  const p = programOf(machine, options);
+  // Each call has a new program. Thus the configuration holds the state of the evaluation that a later step needs.
+  p.work = configuration.work ?? 0;
+  for (const [at, count] of Object.entries(configuration.counts ?? {})) p.counts.set(at, count);
+  // A list of effects from the host holds the earlier effects. Without it, the configuration holds their number.
+  p.before = options.effects === undefined ? (configuration.effected ?? 0) : 0;
+  const next = advance(p, { ...configuration, stack });
+  const effected = p.before + p.effects.length;
+  return {
+    ...next,
+    ...(p.work === 0 ? {} : { work: p.work }),
+    ...(p.counts.size === 0 ? {} : { counts: Object.fromEntries(p.counts) }),
+    ...(effected === 0 ? {} : { effected }),
+  };
 }
 
 /**
@@ -1143,6 +1185,7 @@ export function stepper(machine: Machine, doc: unknown, context: Context = makeC
   const p = programOf(machine, options);
   try {
     const end = drive(p, stepperStart(machine, doc, context, options));
+    p.ended = true;
     return end.result.ok ? ok(forHost(p, end, end.result.value)) : end.result;
   } catch (error) {
     return placed(thrown(error, "the stepper"), []);

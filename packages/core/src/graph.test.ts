@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type GraphNode, type Json, type NodeGraph, STD_MACHINE, components, context, cycles, fail, formulaMachine, heights, necessary, nodeLayers, ok, schedule } from "./index.ts";
+import { createHash } from "node:crypto";
+import { type GraphNode, type Json, type NodeGraph, STD_MACHINE, components, context, cycles, fail, formulaMachine, heights, necessary, nodeLayers, ok, random, schedule } from "./index.ts";
+
+/** The count and the digest of the answers of GRAPH.SCC-SAME, from the Tarjan copy of the core (K249). */
+const COUNT_SAME = 13295;
+const DIGEST_SAME = "a5ce0690230114b43f9581d285ecc1cd811c82d8eed356bf4e2ff0ddaa48ef6d";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const op = (name: string, ...args: Json[]): Json => ({ type: ["ops", name], value: args });
@@ -46,6 +51,31 @@ function diamond(): NodeGraph<string> {
 }
 
 describe("the analysis of a graph of nodes", () => {
+  it("[GRAPH.SCC-SAME] the analyses of 600 seeded graphs give the answers of the Tarjan copy of the core", () => {
+    // K249, CA14: the digest comes from the copy of the core before strong() called the search of collections.
+    // Each graph has lazy edges, edges without a target, sinks and edges to the node itself.
+    const hash = createHash("sha256");
+    let count = 0;
+    for (let seed = 0; seed < 600; seed += 1) {
+      const r = random(seed);
+      const size = 1 + r.int(seed % 3 === 0 ? 60 : 12);
+      const names = Array.from({ length: size }, (_, index) => `n${String(index)}`);
+      const graph = new Map<string, GraphNode<string>>();
+      for (const name of names) {
+        const edges = Array.from({ length: r.int(4) }, () => ({ to: r.chance(0.08) ? undefined : r.pick(names), lazy: r.chance(0.3) }));
+        graph.set(name, r.chance(0.1) ? { edges, side: "run" } : { edges });
+      }
+      for (const options of [{}, { eager: true }]) {
+        const answer = { components: components(graph, options), heights: [...heights(graph, options)], layers: nodeLayers(graph, options) };
+        hash.update(JSON.stringify(answer));
+        count += answer.components.length;
+      }
+      hash.update(JSON.stringify(cycles(graph)));
+    }
+    expect(count).toBe(COUNT_SAME);
+    expect(hash.digest("hex")).toBe(DIGEST_SAME);
+  });
+
   it("[GRAPH.SCC] components gives the strongly connected components deepest first, with its own stack, also for a chain of 100000 nodes", () => {
     // The graph of a schedule is a graph of the analysis.
     expect(components(diamond())).toEqual([["a"], ["b"], ["c"], ["d"]]);

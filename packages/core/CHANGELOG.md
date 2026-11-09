@@ -2,6 +2,39 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.28.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. A long chain of lazy reads gives the values of a plain evaluation, not `#DEPTH!` and not the value of a catch. It is unclear if a host depends on the old results, thus this release counts as a breaking change. No export changes.
+
+### Changes of behavior
+
+- **After an overflow, the schedule demands the nodes of the walk again, deepest first (D196).** A demand that overflows the stack of the host starts the walk of D139. After the walk, each entered node loses its result. Then the schedule demands these nodes in the order in which the walk finished them. Thus each read finds a result, and the stack of the host stays short.
+- **A node that catches the overflow gets its real value (D196).** Before, such a node kept the value of its catch, and that value depended on the depth of the stack.
+- **The bound of a chain epoch (D196).** A data epoch with an overflow does at most `4V` evaluations for `V` entered nodes, not `3V`.
+
+## 0.27.2
+
+PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes.
+
+### Changes
+
+- **The search of the strongly connected components comes from its home (D192).** `strong()` uses `strongComponentsCompact` of `@mark1russell7/collections`, the second runtime dependency of the core. A test pins the answers of the old copy on 600 seeded graphs, and the new search gives the same answers.
+
+### Fixes
+
+- **The generator and the scope rules (D195).** `generate` gives no own entry to a kind with scope rules. Before, a handle with an own entry read a name that no code binds.
+- **The limit of work holds in each tier (D197).** The stepper counts the work of D134 and gives `#WORK!` past `maxWork`. It also finds the standard definition of `ref.resolve`.
+- **The state of `stepperNext` (D197).** A configuration from `stepperNext` holds the count of work and the counts of the effects. Thus steps give each effect the address and the index of `stepper`.
+- **A kept closure keeps one count of work (D197).** The nodes that its equations make use the count of the evaluation. In `reference`, a node of a tree in a kept closure evaluates.
+
+## 0.27.1
+
+PATCH: before `1.0.0`, a new feature increases PATCH. No export goes, and no behavior changes.
+
+### New features
+
+- **A part in another language (D193).** The new export `boundary(machines)` gives a language with the closed boundary kind `lang`. Its value is `{ language, doc }`, and the host gives the machine of each name. `compose` adds the boundary to a machine. The evaluator prepares the inner document with the named machine, one time for each document object. The boundary is closed: the inner document gets no names, no capabilities and no `self`, and only the result crosses. An unknown name gives `#NAME?`.
+
 ## 0.27.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The type `KernelCode` gets the member `"#WORK!"`, and a host with an exhaustive `switch` over it must add the case. An evaluation with more than 200000 points of work gives `#WORK!`. No export goes.
