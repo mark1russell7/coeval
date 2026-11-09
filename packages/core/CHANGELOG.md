@@ -4,7 +4,7 @@ The GitHub release of a version shows the section of that version. Each decision
 
 ## 0.27.0
 
-MINOR: before `1.0.0`, a breaking change increases MINOR. The type `KernelCode` gets the member `"#WORK!"`, and a host with an exhaustive `switch` over it must add the case. An evaluation with more than 200000 points of work now gives `#WORK!`. No export goes.
+MINOR: before `1.0.0`, a breaking change increases MINOR. The type `KernelCode` gets the member `"#WORK!"`, and a host with an exhaustive `switch` over it must add the case. An evaluation with more than 200000 points of work gives `#WORK!`. No export goes.
 
 ### New features
 
