@@ -2,6 +2,16 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.28.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. A long chain of lazy reads gives the values of a plain evaluation, not `#DEPTH!` and not the value of a catch. It is unclear if a host depends on the old results, thus this release counts as a breaking change. No export changes.
+
+### Changes of behavior
+
+- **After an overflow, the schedule demands the nodes of the walk again, deepest first (D196).** A demand that overflows the stack of the host starts the walk of D139. After the walk, each entered node loses its result. Then the schedule demands these nodes in the order in which the walk finished them. Thus each read finds a result, and the stack of the host stays short.
+- **A node that catches the overflow gets its real value (D196).** Before, such a node kept the value of its catch, and that value depended on the depth of the stack.
+- **The bound of a chain epoch (D196).** A data epoch with an overflow does at most `4V` evaluations for `V` entered nodes, not `3V`.
+
 ## 0.27.2
 
 PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes.

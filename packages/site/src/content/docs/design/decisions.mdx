@@ -195,6 +195,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D193 | A part in another language is a document of the closed boundary kind `lang`. Only its result crosses, with no names and no capabilities (K38). |
 | D194 | Theorems over the Lean model: the clock does not change a result, `eval` is deterministic, and `let` is compositional (K223). |
 | D195 | The generator gives no own entry to a kind with scope rules, because other code binds none of their names (C7). |
+| D196 | After an overflow, the schedule demands the nodes of the walk again, deepest first. A long chain through lazy reads gives its value, not `#DEPTH!` (S2b). |
 | D197 | The stepper counts the work of D134 and finds the standard definitions. A kept closure keeps one count across the runtimes of its equations (K250). |
 
 ## Open
