@@ -60,7 +60,7 @@ function check(state: string, reason: string, gate = "", gateOutcome = "", annot
 }
 
 describe("the check shows the line of the report-only gate (K225, D181, K242)", () => {
-  const LINE = "Speed gate (D163): no read for 1 of 2 cases: x. jobs on 1 CPU model: A (2 jobs). A no read is not a pass.";
+  const LINE = "Speed gate (D163): no read for 1 of 2 cases: x. Jobs on 1 CPU model: A (2 jobs). A no read is not a pass.";
   const WARNING = `::warning title=Speed gate (D163)%3A no read (report only)%2C 1 no read::${LINE}`;
 
   it("prints the line of a pass with no warning", () => {
@@ -119,7 +119,7 @@ describe("the verdict writes its state and a reason (K235, D167)", () => {
 
   it("writes the line and the warning of gateLine of rigor-bench for a gate no read (K225, D181, K242)", () => {
     const split = verdict("gate-split", runFile("gate-split-1", [benchCase("x", 1.1, 0), benchCase("y", 1, 0)]), runFile("gate-split-2", second));
-    const line = "Speed gate (D163): no read for 1 of 2 cases: x. jobs on 1 CPU model: a CPU (2 jobs). A no read is not a pass.";
+    const line = "Speed gate (D163): no read for 1 of 2 cases: x. Jobs on 1 CPU model: a CPU (2 jobs). A no read is not a pass.";
     expect(split).toMatchObject({ gateOutcome: "no read", gate: line, gateAnnotation: `::warning title=Speed gate (D163)%3A no read (report only)%2C 1 no read::${line}` });
     expect(split.state).not.toBe("no read");
     // The check prints the line and the warning that the verdict wrote.
