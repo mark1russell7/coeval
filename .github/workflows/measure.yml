@@ -54,7 +54,7 @@ jobs:
         pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/changes@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -84,7 +84,7 @@ jobs:
       plain: ${{ steps.plain.outputs.match }}
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/changes@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           paths: |
             packages/core/src/**
@@ -95,7 +95,7 @@ jobs:
             pnpm-workspace.yaml
             .github/workflows/measure.yml
       - id: plain
-        uses: mark1russell7/template/.github/actions/changes@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/changes@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           paths: |
             packages/core/bench/ladder.ts
@@ -121,7 +121,7 @@ jobs:
         .github/workflows/measure.yml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/changes@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -396,7 +396,7 @@ jobs:
     # The action "gate-summary" reads one job of the action "changes". Thus each step gets one filter and its jobs.
     steps:
       - name: The jobs of the filter "changes"
-        uses: mark1russell7/template/.github/actions/gate-summary@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           needs: >-
             {"changes": ${{ toJSON(needs.changes) }}, "mode": ${{ toJSON(needs.mode) }},
@@ -404,7 +404,7 @@ jobs:
       # The next steps also run when an earlier step failed, thus the summary shows each verdict.
       - name: The jobs of the filter "ladder-changes"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           changes: ladder-changes
           needs: >-
@@ -413,7 +413,7 @@ jobs:
       # The second filter of the job "ladder-changes" is an output of that job, so this step names it as a job of its own.
       - name: The job of the filter "plain"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           changes: plain-changes
           needs: >-
@@ -422,7 +422,7 @@ jobs:
             "ladder-plain": ${{ toJSON(needs.ladder-plain) }}}
       - name: The jobs of the filter "core-changes"
         if: ${{ !cancelled() }}
-        uses: mark1russell7/template/.github/actions/gate-summary@c216644a252956d695bc2a785e80abccd98fa0d0 # main
+        uses: mark1russell7/template/.github/actions/gate-summary@d20d75b11120af71eaf6d2f59385c9cd053fff8b # main
         with:
           changes: core-changes
           needs: >-
