@@ -271,6 +271,35 @@ describe("effects in the stepper", () => {
     same(says, doc, context({ caps: [] }));
   });
 
+  it("[STEPPER.NEXT-STATE] steps of stepperNext give each effect the address and the index of stepper", () => {
+    const base = formulaMachine(PROFILE);
+    const both = { ...base, world: { ...base.world, kinds: { ...base.world.kinds, say: { verbs: { eval: "say" } } } }, evaluators: { ...base.evaluators, say: (says as { readonly evaluators: Machine["evaluators"] }).evaluators["say"] } } as Machine;
+    // Two calls of one closure: two effects at one place, each in its own step.
+    const twice = letIn({ f: fn([], doc as Json) }, { type: "list", value: [call(name("f")), call(name("f"))] });
+    const at = context({ caps: [["log"]] });
+    const show = (list: readonly Effect[]) => list.map((effect) => [effect.index, effect.address]);
+    const whole: Effect[] = [];
+    stepper(both, twice, at, { profile: PROFILE, effects: whole });
+    expect(show(whole)).toEqual([
+      [0, "bind/f/body#0"],
+      [1, "bind/f/body#1"],
+    ]);
+    // A host with one list for all its steps, and a host with no list that stores each configuration as JSON.
+    const listed: Effect[] = [];
+    let now = stepperStart(both, twice, at);
+    while (now.mode !== "done") now = stepperNext(both, now, { profile: PROFILE, effects: listed });
+    expect(show(listed)).toEqual(show(whole));
+    const performed: Effect[] = [];
+    const perform = (effect: Effect): unknown => {
+      performed.push(effect);
+      return effect.payload;
+    };
+    now = stepperStart(both, twice, at);
+    while (now.mode !== "done") now = JSON.parse(JSON.stringify(stepperNext(both, now, { profile: PROFILE, perform }))) as Configuration;
+    expect(show(performed)).toEqual(show(whole));
+    expect(now.result).toEqual(ok(["a", "a"]));
+  });
+
   it("[STEPPER.EFFECT] a mock that throws or waits gives the error of the reference", () => {
     const at = context({ caps: [["log"]] });
     const check = (perform: (effect: Effect) => unknown): void => {

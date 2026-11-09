@@ -727,6 +727,7 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | STEPPER.EFFECT | An effect of a host evaluator has the capability test, the address, the mock and the outcome of `reference`. A runner gives `#NOEVAL`. |
 | STEPPER.DEEP | A list nested 100000 times evaluates, because the stepper does not use the stack of the host for the nesting. The limit `maxDepth` stays. |
 | STEPPER.DATA | A configuration of a pure document of the formula kit survives `JSON.stringify` and `JSON.parse` at each step, and the run gives the same result. |
+| STEPPER.NEXT-STATE | Each call of `stepperNext` has a new program. Thus a configuration from it holds the count of work, the count of the effects at each place and the number of effects. Steps give each effect the address and the index of `stepper`, also through JSON. |
 | STEPPER.PURE | `stepperNext` leaves its configuration as it is. A host can step one configuration twice, and it gets equal configurations. |
 
 ## The calculus

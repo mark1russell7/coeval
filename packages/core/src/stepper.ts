@@ -114,6 +114,10 @@ interface Shared {
   readonly marked: boolean;
   /** The work of the evaluation after the last call of `stepperNext` (WORK.LIMIT). A configuration without it has done no work. */
   readonly work?: number;
+  /** The number of earlier effects at each place, after the last call of `stepperNext` (RUN.ADDRESS). */
+  readonly counts?: Readonly<Record<string, number>>;
+  /** The number of effects of the evaluation, after the last call of `stepperNext`. */
+  readonly effected?: number;
 }
 
 /**
@@ -167,6 +171,8 @@ interface Program {
   readonly perform: Perform | undefined;
   /** The number of earlier effects at each place, by the text of the place (RUN.ADDRESS). */
   readonly counts: Map<string, number>;
+  /** The number of effects of the evaluation before the list `effects`. */
+  before: number;
   /** The count of the applications at the last call of host code. */
   applying: number;
   /** The most work of one evaluation (WORK.LIMIT). */
@@ -873,7 +879,7 @@ function cause(p: Program, ctx: Context, kind: Cap, payload: unknown, place: rea
   const count = counts.get(at) ?? 0;
   counts.set(at, count + 1);
   const effect: { -readonly [K in keyof Effect]: Effect[K] } = {
-    index: effects.length,
+    index: p.before + effects.length,
     kind: text,
     path: keys,
     payload,
@@ -1106,6 +1112,7 @@ function programOf(machine: Machine, options: StepperOptions): Program {
     effects: options.effects ?? [],
     perform: options.perform,
     counts: new Map(),
+    before: 0,
     applying: 0,
     maxWork: machine.maxWork ?? WORK_LIMIT,
     work: 0,
@@ -1147,9 +1154,19 @@ export function stepperNext(machine: Machine, configuration: Configuration, opti
     else stack[stack.length - 1] = { ...top };
   }
   const p = programOf(machine, options);
+  // Each call has a new program. Thus the configuration holds the state of the evaluation that a later step needs.
   p.work = configuration.work ?? 0;
+  for (const [at, count] of Object.entries(configuration.counts ?? {})) p.counts.set(at, count);
+  // A list of effects from the host holds the earlier effects. Without it, the configuration holds their number.
+  p.before = options.effects === undefined ? (configuration.effected ?? 0) : 0;
   const next = advance(p, { ...configuration, stack });
-  return p.work === 0 ? next : { ...next, work: p.work };
+  const effected = p.before + p.effects.length;
+  return {
+    ...next,
+    ...(p.work === 0 ? {} : { work: p.work }),
+    ...(p.counts.size === 0 ? {} : { counts: Object.fromEntries(p.counts) }),
+    ...(effected === 0 ? {} : { effected }),
+  };
 }
 
 /**
