@@ -5,6 +5,7 @@ of a record is part of the meaning, and `Lean.Json` keeps its keys in sorted ord
 -/
 import Lean.Data.Json
 import Coeval.Formula
+import Coeval.Theorems
 
 open Lean (Json)
 open Coeval
