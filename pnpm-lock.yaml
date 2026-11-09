@@ -174,7 +174,7 @@ importers:
         version: 0.38.1
       '@mark1russell7/cue':
         specifier: ^2.1.1
-        version: 2.1.1
+        version: 2.1.2
       '@mark1russell7/ste-lint':
         specifier: ^0.3.0
         version: 0.3.0
@@ -205,7 +205,7 @@ importers:
     devDependencies:
       '@mark1russell7/cue':
         specifier: ^2.1.1
-        version: 2.1.1
+        version: 2.1.2
       '@mark1russell7/rigor-bench':
         specifier: ^0.2.29
         version: 0.2.29(esbuild@0.28.2)
@@ -247,7 +247,7 @@ importers:
         version: link:../core
       '@mark1russell7/site-pages':
         specifier: ^0.4.0
-        version: 0.4.1
+        version: 0.4.2
       astro:
         specifier: ^7.3.8
         version: 7.4.4(@types/node@26.6.6)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
@@ -260,7 +260,7 @@ importers:
     devDependencies:
       '@mark1russell7/cue':
         specifier: ^2.1.1
-        version: 2.1.1
+        version: 2.1.2
       '@types/node':
         specifier: ^26.6.4
         version: 26.6.6
@@ -880,8 +880,8 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
-  '@mark1russell7/cue@2.1.1':
-    resolution: {integrity: sha512-0/L9nQwGqUTCLTnUPtYKJ/cvXTr/gJWFWASUzGUjKyj3LxNpYgAplLuTPNQe0g4kjcM+9JAb/D/IfYwBGvM/mA==}
+  '@mark1russell7/cue@2.1.2':
+    resolution: {integrity: sha512-PjEWeyq353cz3gZyNmYkv/rUChybd3h9BWRW3UWP+fs0s7/CwGeVRzCpYLnvLR4gyHC367G/PS3kqWJO9GEAkg==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -910,8 +910,8 @@ packages:
     resolution: {integrity: sha512-euqZuWFcX8ufU7/+pOPbTPWHqwzKDwuINf1I06FaFyqtD+Tn30TFUHUUmWkgQCVoJ86sZdjV/UnN1nBuWEcRWQ==}
     engines: {node: '>=22'}
 
-  '@mark1russell7/site-pages@0.4.1':
-    resolution: {integrity: sha512-YYPPHH3ee6No2VL+yl+mholtu7m1qdZWTf5ldYLxxZyyrsE55rPFHwIPZOnkxH6OJ7GtzqUn37/cfOg7UJqP9A==}
+  '@mark1russell7/site-pages@0.4.2':
+    resolution: {integrity: sha512-J/t24QyQBgS4tCd+toMf9T8d9QOxYpwREWpjc0uv6/Lfw46eCe6dfH1ip2fZyBLfYEVFdVkVL04AVSxRotTG6A==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -3179,7 +3179,7 @@ snapshots:
     dependencies:
       yaml: 2.9.1
 
-  '@mark1russell7/cue@2.1.1': {}
+  '@mark1russell7/cue@2.1.2': {}
 
   '@mark1russell7/optional@1.2.0': {}
 
@@ -3200,7 +3200,7 @@ snapshots:
     dependencies:
       '@mark1russell7/rigor-generators': 0.1.8
 
-  '@mark1russell7/site-pages@0.4.1':
+  '@mark1russell7/site-pages@0.4.2':
     dependencies:
       '@mark1russell7/rigor-statistics': 0.1.17
 

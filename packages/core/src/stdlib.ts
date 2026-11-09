@@ -9,7 +9,9 @@ import {
   type Result,
   type RunPart,
   type Runner,
+  type Runtime,
   type Steps,
+  NODE_WORK,
   RUNTIME,
   evaluateWithin,
   fail,
@@ -245,9 +247,18 @@ function isNumber(value: unknown): value is number {
 function allValues(results: readonly Result[]): { readonly values: readonly unknown[] } | { readonly error: Result } {
   const errors = results.filter((result) => !result.ok);
   const first = errors[0];
+  // D190: the test of the errors comes before the values. With the values first, a case of the bench took 1.2 to 1.4
+  // times the time in the Maglev tier of V8, in probe 4 of K216.
   if (first !== undefined && errors.length === 1) return { error: first };
-  if (errors.length > 1) return { error: fail("#ARGS", `${errors.length} parts failed.`) };
+  if (errors.length > 1) return { error: partsFailed(errors) };
   return { values: results.map((result) => (result.ok ? result.value : null)) };
+}
+
+/** This function gives the error of more than one failed part. */
+function partsFailed(errors: readonly Result[]): Result {
+  // WORK.LIMIT: after the limit each counted part fails, and the code of the limit stays the code of the result.
+  const stopped = errors.find((result) => !result.ok && result.error.code === "#WORK!");
+  return stopped ?? fail("#ARGS", `${errors.length} parts failed.`);
 }
 
 function numbers(values: readonly unknown[], kind: string): readonly number[] | Result {
@@ -379,7 +390,7 @@ interface NodeState extends LoopNode {
    * @param path - The nodes and the containers whose JSON is in progress. A node on it gives `#CYCLE!`.
    * @returns The JSON, or the first error.
    */
-  json(path: Set<object>): Result;
+  json(path: JsonWalk): Result;
 }
 
 /** The answer of the ladder for one attribute of one node (TREE.CELL, D108). */
@@ -888,23 +899,34 @@ function putField(target: Record<string, unknown>, key: string, value: unknown):
 }
 
 /**
+ * The record of a walk for JSON. A node, list or record has `true` while its JSON is in progress, and `false` after
+ * that. Thus a value in the map with `false` is a second visit (WORK.SHARED).
+ */
+type JsonWalk = Map<object, boolean>;
+
+/**
  * This function gives a value with the JSON of each node of a tree in it. A list or a plain record is new only when
  * it holds a node. A container that holds itself stays as it is.
  */
-function plainOf(value: unknown, path: Set<object>): Result {
+function plainOf(value: unknown, path: JsonWalk, runtime: Runtime | undefined): Result {
+  if (typeof value !== "object" || value === null) return ok(value);
   const state = stateOf(value);
+  const open = path.get(value);
   if (state !== undefined) {
-    if (path.has(value as object)) return fail("#CYCLE!", `The JSON of the node ${state.type} at [${state.place.join(", ")}] holds the node itself.`);
+    if (open === true) return fail("#CYCLE!", `The JSON of the node ${state.type} at [${state.place.join(", ")}] holds the node itself.`);
+    if (open === false) runtime?.spend?.(1);
     return state.json(path);
   }
-  if (typeof value !== "object" || value === null || path.has(value) || isHostThing(value)) return ok(value);
+  if (open === true || isHostThing(value)) return ok(value);
   if (!Array.isArray(value) && !isRecord(value)) return ok(value);
-  path.add(value);
+  // WORK.SHARED: a second visit of a container counts one point, because a chain of shared containers doubles the walk.
+  if (open === false) runtime?.spend?.(1);
+  path.set(value, true);
   try {
     if (Array.isArray(value)) {
       let list: unknown[] | undefined;
       for (let index = 0; index < value.length; index += 1) {
-        const item = plainOf(value[index], path);
+        const item = plainOf(value[index], path, runtime);
         if (!item.ok) return item;
         if (item.value !== value[index]) (list ??= [...(value as readonly unknown[])])[index] = item.value;
       }
@@ -913,7 +935,7 @@ function plainOf(value: unknown, path: Set<object>): Result {
     const record = value as Readonly<Record<string, unknown>>;
     let out: Record<string, unknown> | undefined;
     for (const key of Object.keys(record)) {
-      const item = plainOf(record[key], path);
+      const item = plainOf(record[key], path, runtime);
       if (!item.ok) return item;
       if (item.value === record[key]) continue;
       if (out === undefined) {
@@ -924,7 +946,7 @@ function plainOf(value: unknown, path: Set<object>): Result {
     }
     return ok(out ?? value);
   } finally {
-    path.delete(value);
+    path.set(value, false);
   }
 }
 
@@ -1323,19 +1345,19 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
       return cell.by === undefined ? { attribute: key, rungs } : { attribute: key, rungs, by: cell.by };
     },
     json(path) {
-      path.add(node);
+      path.set(node, true);
       try {
         const out: Record<string, unknown> = {};
         for (const part of parts) {
           const result = read(part.key) as Result;
           if (!result.ok) return result;
-          const value = plainOf(result.value, path);
+          const value = plainOf(result.value, path, runtime);
           if (!value.ok) return value;
           putField(out, part.key, value.value);
         }
         return ok(out);
       } finally {
-        path.delete(node);
+        path.set(node, false);
       }
     },
   };
@@ -1359,7 +1381,7 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
       return cell !== undefined && !cell.busy && cell.result !== undefined;
     },
     toJson(): unknown {
-      const result = state.json(new Set());
+      const result = state.json(new Map());
       if (!result.ok) throw new Failure(result.error);
       return result.value;
     },
@@ -1404,6 +1426,9 @@ const NO_HOPS = /* @__PURE__ */ Object.freeze({ hops: false });
  * The argument `host` gives the memo cells of the host (TREE.CELL), or `undefined` for the plain memo of each node.
  */
 function treeNode(input: EvalInput, host: AttributeCell | undefined): Result {
+  const runtime = (input as InputWithRuntime)[RUNTIME];
+  // WORK.NODE: a node that an equation makes counts. A node of the text of the document does not.
+  if (runtime?.nested === true) runtime.spend?.(NODE_WORK);
   const found = input.resolve(SELF_PATH, NO_HOPS);
   const outer = found.ok ? found.thing : undefined;
   const above = stateOf(outer);
@@ -1415,7 +1440,7 @@ function treeNode(input: EvalInput, host: AttributeCell | undefined): Result {
   build.open = true;
   const root = treeThing(input, place, build, outer, host);
   try {
-    return (stateOf(root) as NodeState).json(new Set());
+    return (stateOf(root) as NodeState).json(new Map());
   } finally {
     build.open = false;
   }

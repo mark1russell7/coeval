@@ -36,12 +36,15 @@ import {
   type Steps,
   type StopSignal,
   JOURNAL,
+  NODE_WORK,
+  WORK_LIMIT,
   heldReason,
   makeContext,
   permits,
   placeText,
   reachedOf,
   waitedReason,
+  workFailure,
 } from "./evaluate.ts";
 import { type FormulaProfile, type OpFn, Held, STD_EXT } from "./formula.ts";
 
@@ -111,6 +114,15 @@ interface Reading {
   readonly root: Context;
 }
 
+/** The count of the work of one evaluation of the reference (WORK.LIMIT). */
+interface Meter {
+  spent: number;
+  /** `true` after the end of the evaluation. Then each entry from the host starts a new count (WORK.AFTER). */
+  ended: boolean;
+  /** The count of the applications of closures that run at this time, in each state of the evaluation (WORK.AFTER). */
+  active: number;
+}
+
 /** The state of one evaluation of the reference. */
 interface Env {
   readonly machine: Machine;
@@ -130,6 +142,12 @@ interface Env {
   held: number;
   /** The count of the applications of closures that run at this time: the clock of `call` (FORMULA.CALL-DEPTH, D125). */
   applying: number;
+  /** The most work of one evaluation (WORK.LIMIT, D134). */
+  readonly maxWork: number;
+  /** The count of the work. An equation of a tree shares the count around it (WORK.EQUATION). */
+  readonly meter: Meter;
+  /** `true` for an equation of a tree (WORK.NODE). */
+  readonly nested: boolean;
   /** The record of the reads. A nested evaluation for an equation of a tree keeps the record of its tree. */
   readonly reading: Reading | undefined;
 }
@@ -689,21 +707,35 @@ function* together(env: Env, list: readonly RunPart[], options: AllOptions = {})
  * @returns The result.
  */
 export function reference(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceOptions = {}): Result {
-  return evaluateRoot(machine, doc, context, options, undefined);
+  return evaluateRoot(machine, doc, context, options, undefined, undefined);
 }
 
 /**
- * This function evaluates a document from its root. An equation of a tree gives the record of its tree. Thus the
- * reads of the equation go in the list of the outer evaluation (REF.READS).
+ * This function evaluates a document from its root. An equation of a tree gives the record of its tree and the count
+ * of its work. Thus its reads go in the list of the outer evaluation (REF.READS), and its work in the outer count
+ * (WORK.EQUATION).
  */
-function evaluateRoot(machine: Machine, doc: unknown, context: Context, options: ReferenceOptions, outer: Reading | undefined): Result {
+function evaluateRoot(machine: Machine, doc: unknown, context: Context, options: ReferenceOptions, outer: Reading | undefined, meter: Meter | undefined): Result {
   const at = rootAt(machine, doc, context, options);
-  const env = envOf(machine, options, false, at.ctx, outer);
+  const env = envOf(machine, options, false, at.ctx, outer, meter);
   try {
     return within(env, () => evaluateAt(env, at));
   } catch (error) {
     return placed(thrown(error, "the reference"), []);
+  } finally {
+    if (!env.nested) env.meter.ended = true;
   }
+}
+
+/**
+ * WORK.LIMIT: this function adds work to the count of an evaluation. After the end of the evaluation, each entry from
+ * the host starts a new count (WORK.AFTER). A count over the limit throws `#WORK!`.
+ */
+function spend(env: Pick<Env, "maxWork" | "meter" | "applying">, points: number): void {
+  const meter = env.meter;
+  if (meter.ended && meter.active === 0) meter.spent = 0;
+  meter.spent += points;
+  if (meter.spent > env.maxWork) throw new Failure(workFailure(env.maxWork));
 }
 
 /**
@@ -723,16 +755,20 @@ function evaluateRoot(machine: Machine, doc: unknown, context: Context, options:
  */
 export function referenceRun(machine: Machine, doc: unknown, context: Context = makeContext(), options: ReferenceRunOptions = {}): Promise<Result> {
   const at = rootAt(machine, doc, context, options);
-  const env = envOf(machine, options, true, at.ctx, undefined);
+  const env = envOf(machine, options, true, at.ctx, undefined, undefined);
   const steps = stepsAt(env, at);
-  return driveRun(env, steps, options.signal).catch((error: unknown) => placed(thrown(error, "the reference"), []));
+  return driveRun(env, steps, options.signal)
+    .catch((error: unknown) => placed(thrown(error, "the reference"), []))
+    .finally(() => {
+      env.meter.ended = true;
+    });
 }
 
 /**
  * This function makes the state of the reference for one evaluation or one run. The record of the reads comes from
  * the evaluation around it, or from the list of the options.
  */
-function envOf(machine: Machine, options: ReferenceOptions, running: boolean, root: Context, outer: Reading | undefined): Env {
+function envOf(machine: Machine, options: ReferenceOptions, running: boolean, root: Context, outer: Reading | undefined, meter: Meter | undefined): Env {
   const perform = options.perform;
   return {
     machine,
@@ -746,6 +782,9 @@ function envOf(machine: Machine, options: ReferenceOptions, running: boolean, ro
     scope: { prefix: "", counts: new Map(), alls: 0 },
     held: 0,
     applying: 0,
+    maxWork: machine.maxWork ?? WORK_LIMIT,
+    meter: meter ?? { spent: 0, ended: false, active: 0 },
+    nested: meter !== undefined,
     reading: outer ?? (options.reads === undefined ? undefined : { list: options.reads, root }),
   };
 }
@@ -869,7 +908,7 @@ function equationOf(node: RefNode, term: Json, names: Readonly<Record<string, un
   const env = node.env;
   if (env === undefined) return fail("#NOEVAL", "The evaluation of an equation needs the machine.");
   const ctx: Context = { ...node.ctx, names, caps: [], self: node.thing };
-  return evaluateRoot(env.machine, term, ctx, { definitions: env.definitions, ...(node.of === undefined ? {} : { declaredType: node.of }) }, env.reading);
+  return evaluateRoot(env.machine, term, ctx, { definitions: env.definitions, ...(node.of === undefined ? {} : { declaredType: node.of }) }, env.reading, env.meter);
 }
 
 function termIn<T>(table: Readonly<Record<string, T>> | undefined, name: string): T | undefined {
@@ -1240,43 +1279,56 @@ function instanceOf(node: RefNode, attr: string, args: unknown): Result | undefi
 }
 
 /** TREE.RESULT: the JSON of a node. `open` holds the nodes and the containers whose JSON is in progress. */
-function jsonOfNode(node: RefNode, self: HostThing, open: readonly object[]): Result {
-  const record: Record<string, unknown> = {};
-  for (const part of node.parts) {
-    const result = attributeOf(node, part.key) as Result;
-    if (!result.ok) return result;
-    const value = plainValue(result.value, [...open, self]);
-    if (!value.ok) return value;
-    setField(record, part.key, value.value);
+function jsonOfNode(node: RefNode, self: HostThing, open: readonly object[], seen: Set<object>): Result {
+  try {
+    const record: Record<string, unknown> = {};
+    for (const part of node.parts) {
+      const result = attributeOf(node, part.key) as Result;
+      if (!result.ok) return result;
+      const value = plainValue(node, result.value, [...open, self], seen);
+      if (!value.ok) return value;
+      setField(record, part.key, value.value);
+    }
+    return ok(record);
+  } finally {
+    seen.add(self);
   }
-  return ok(record);
 }
 
-/** This function gives a copy of a value with the JSON of each node in it. */
-function plainValue(value: unknown, open: readonly object[]): Result {
+/**
+ * This function gives a copy of a value with the JSON of each node in it. The set `seen` holds each node, list and
+ * record that the walk left. A second visit of one of them counts one point on the evaluation of `owner` (WORK.SHARED).
+ */
+function plainValue(owner: RefNode, value: unknown, open: readonly object[], seen: Set<object>): Result {
   const node = refNodeOf(value);
   if (node !== undefined) {
     if (open.includes(value as object)) return fail("#CYCLE!", `The JSON of the node ${node.kind} at [${node.place.join(", ")}] holds the node itself.`);
-    return jsonOfNode(node, value as HostThing, open);
+    if (seen.has(value as object) && owner.env !== undefined) spend(owner.env, 1);
+    return jsonOfNode(node, value as HostThing, open, seen);
   }
   if (typeof value !== "object" || value === null || isHostThing(value) || open.includes(value)) return ok(value);
-  if (Array.isArray(value)) {
-    const items: unknown[] = [];
-    for (const item of value) {
-      const plain = plainValue(item, [...open, value]);
-      if (!plain.ok) return plain;
-      items.push(plain.value);
+  if (!Array.isArray(value) && !isRecord(value)) return ok(value);
+  if (seen.has(value) && owner.env !== undefined) spend(owner.env, 1);
+  try {
+    if (Array.isArray(value)) {
+      const items: unknown[] = [];
+      for (const item of value) {
+        const plain = plainValue(owner, item, [...open, value], seen);
+        if (!plain.ok) return plain;
+        items.push(plain.value);
+      }
+      return ok(items);
     }
-    return ok(items);
+    const copy: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) {
+      const plain = plainValue(owner, value[key], [...open, value], seen);
+      if (!plain.ok) return plain;
+      setField(copy, key, plain.value);
+    }
+    return ok(copy);
+  } finally {
+    seen.add(value);
   }
-  if (!isRecord(value)) return ok(value);
-  const copy: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
-    const plain = plainValue(value[key], [...open, value]);
-    if (!plain.ok) return plain;
-    setField(copy, key, plain.value);
-  }
-  return ok(copy);
 }
 
 /**
@@ -1285,6 +1337,9 @@ function plainValue(value: unknown, open: readonly object[]): Result {
  * reads `self` only through `resolve` (C4, TREE.SELF).
  */
 const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath, resolve: walk, doc }) => {
+  // WORK.NODE: a node that an equation makes counts. A node of the text of the document does not.
+  const maker = activeEnvs[activeEnvs.length - 1];
+  if (maker?.nested === true) spend(maker, NODE_WORK);
   const reached = walk(["self"]);
   const parent: Thing | undefined = reached.ok ? reached.thing : undefined;
   const outer = refNodeOf(parent);
@@ -1320,7 +1375,7 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath
     },
     has: (key) => key === "parent" || key === "type" || parts.some((part) => part.key === String(key)) || node.values.has(String(key)),
     toJson: () => {
-      const result = jsonOfNode(node, self, []);
+      const result = jsonOfNode(node, self, [], new Set());
       if (result.ok) return result.value;
       throw new Failure(result.error);
     },
@@ -1330,7 +1385,7 @@ const treeDefinition: EvalFn = ({ parts, context, kind, place, machine, typePath
   AT_READERS.set(self, (attr, args) => instanceOf(node, attr, args));
   if (nested) return ok(self);
   try {
-    return jsonOfNode(node, self, []);
+    return jsonOfNode(node, self, [], new Set());
   } finally {
     node.tree.open = false;
   }
@@ -1468,20 +1523,28 @@ export function formulaDefinitions(profile: FormulaProfile = {}): Definitions {
     const names = params as readonly string[];
     const body = partNamed(parts, "body") as Part;
     // FORMULA.CALL-DEPTH: the evaluation that makes the closure counts its applications. A quarter of maxDepth is the limit.
-    const clock = activeEnvs[activeEnvs.length - 1] ?? { applying: 0, maxDepth: 1000 };
+    const maker = activeEnvs[activeEnvs.length - 1];
+    const clock = maker ?? { applying: 0, maxDepth: 1000, maxWork: WORK_LIMIT, meter: { spent: 0, ended: false, active: 0 } };
     const limit = Math.ceil(clock.maxDepth / 4);
     const closure = (...args: readonly unknown[]): unknown => {
       if (clock.applying >= limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
+      // WORK.LIMIT: each application counts one point, after the clock of its depth.
+      spend(clock, 1);
       clock.applying += 1;
+      clock.meter.active += 1;
       try {
         const scope: Record<string, unknown> = {};
         for (const key of Object.keys(context.names)) setField(scope, key, context.names[key]);
         names.forEach((name, index) => setField(scope, name, args[index]));
-        const result = body.evaluate({ ...context, names: scope });
+        // The body evaluates in the state of the evaluation that made the closure, also for a host after the end. Thus a
+        // node of a tree in the body has the machine for its equations (WORK.AFTER).
+        const scoped: Context = { ...context, names: scope };
+        const result = maker === undefined ? body.evaluate(scoped) : within(maker, () => body.evaluate(scoped));
         if (!result.ok) throw new Failure(result.error);
         return result.value;
       } finally {
         clock.applying -= 1;
+        clock.meter.active -= 1;
       }
     };
     Object.defineProperty(closure, CLOSURE, { value: { params: names } });

@@ -255,7 +255,7 @@ Effort S is one pull request of a day or less. Effort M is a few days. Effort L 
 1. **Base kinds.** MPS, CLOS and the hierarchies of Clojure have inheritance. Does a kind get a base kind as one more named rung, or do aliases and forwarding (R3 P9) cover the need?
 2. **One ladder.** Is the different ladder of `deref` and `step` (fact 3) a decision, or a gap that P3 closes?
 3. **Evaluator names.** Does each language qualify its evaluator names, or does the merge of P2 find each collision?
-4. **The name of a language.** Does a document name its language? A header field changes D6, and a boundary kind (P8) does not.
+4. **The name of a language.** Does a document name its language? A header field changes D6, and a boundary kind (P8) does not. The answer is a part, not a header: the closed boundary kind `lang` names the language of a part (K38, D193).
 5. **The form of a conflict.** Is a conflict of P2 a thrown error, or a list of issues, as `check` gives?
 6. **Self-extension.** D1 says that an evaluator can be a document. Can a document then carry kinds with document evaluators, under a capability?
 7. **The home of P7.** Does the package format live in the kernel, or in a separate package?

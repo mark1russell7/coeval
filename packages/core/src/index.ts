@@ -91,7 +91,7 @@ export {
   restrictMachine,
   restrictWorld,
 } from "./merge.ts";
-export { type Language, type LanguageCode, type LanguageDefinition, compose, defineLanguage } from "./language.ts";
+export { type Language, type LanguageCode, type LanguageDefinition, boundary, compose, defineLanguage } from "./language.ts";
 export {
   type Answer,
   type AskOptions,
@@ -186,6 +186,7 @@ export {
   prepare,
   resolveCompiled,
   run,
+  WORK_LIMIT,
 } from "./evaluate.ts";
 export {
   type AttributeAnswer,

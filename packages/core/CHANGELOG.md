@@ -2,6 +2,42 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.27.2
+
+PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes.
+
+### Changes
+
+- **The search of the strongly connected components comes from its home (D192).** `strong()` uses `strongComponentsCompact` of `@mark1russell7/collections`, the second runtime dependency of the core. A test pins the answers of the old copy on 600 seeded graphs, and the new search gives the same answers.
+
+### Fixes
+
+- **The generator and the scope rules (D195).** `generate` gives no own entry to a kind with scope rules. Before, a handle with an own entry read a name that no code binds.
+- **The limit of work holds in each tier (D197).** The stepper counts the work of D134 and gives `#WORK!` past `maxWork`. It also finds the standard definition of `ref.resolve`.
+- **The state of `stepperNext` (D197).** A configuration from `stepperNext` holds the count of work and the counts of the effects. Thus steps give each effect the address and the index of `stepper`.
+- **A kept closure keeps one count of work (D197).** The nodes that its equations make use the count of the evaluation. In `reference`, a node of a tree in a kept closure evaluates.
+
+## 0.27.1
+
+PATCH: before `1.0.0`, a new feature increases PATCH. No export goes, and no behavior changes.
+
+### New features
+
+- **A part in another language (D193).** The new export `boundary(machines)` gives a language with the closed boundary kind `lang`. Its value is `{ language, doc }`, and the host gives the machine of each name. `compose` adds the boundary to a machine. The evaluator prepares the inner document with the named machine, one time for each document object. The boundary is closed: the inner document gets no names, no capabilities and no `self`, and only the result crosses. An unknown name gives `#NAME?`.
+
+## 0.27.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. The type `KernelCode` gets the member `"#WORK!"`, and a host with an exhaustive `switch` over it must add the case. An evaluation with more than 200000 points of work gives `#WORK!`. No export goes.
+
+### New features
+
+- **A limit of work for one evaluation (D134).** Each application of a closure of `fn` counts one point. The field `maxWork` of a machine sets the limit, and the default is the new export `WORK_LIMIT`, 200000 points. The point past the limit gives `#WORK!`, with one code, place and reason in each tier.
+- **The count of work in a runtime and in compiled code.** A `Runtime` gets the optional field `nested` and the optional method `spend(points)`. A `CompiledEvaluator` gets the optional field `keeps`.
+
+### Changes
+
+- **The order of the tests in `allValues` (D190).** The function tests the errors of the parts before it gives their values. When more than one part fails, `#WORK!` stays the code of the result.
+
 ## 0.26.1
 
 PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes, and each seed gives the same numbers.

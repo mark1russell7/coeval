@@ -139,7 +139,7 @@ export function isClosure(value: unknown): value is Closure {
  * The runtime of an evaluation with the clock of `call` (FORMULA.CALL-DEPTH, D125): the count of the applications of
  * closures that run at this time. The first application adds the field, thus an evaluation without one has no field.
  */
-type Clocked = Runtime & { applying?: number };
+type Clocked = Runtime & { applying?: number; active?: number; top?: Clocked | undefined };
 
 /**
  * The standard extensions: the values that JSON cannot write. `ext.domain` reads a member of a domain through the
@@ -175,8 +175,8 @@ function setOwn(target: Record<string, unknown>, key: string, value: unknown): v
   else target[key] = value;
 }
 
-function compiled(compile: (input: CompileInput) => Code): CompiledEvaluator {
-  return { compile };
+function compiled(compile: (input: CompileInput) => Code, keeps?: true): CompiledEvaluator {
+  return keeps === undefined ? { compile } : { compile, keeps };
 }
 
 /** This function evaluates parts in order. It gives the value of each part, or the first error. */
@@ -756,7 +756,7 @@ function makeEvaluators(profile: FormulaProfile): Readonly<Record<string, Evalua
   for (const name of Object.keys(evaluators)) {
     const evaluator = evaluators[name] as CompiledEvaluator;
     const type = Object.hasOwn(types, name) ? types[name] : undefined;
-    const made = Object.freeze(type === undefined ? evaluator : { compile: evaluator.compile, type });
+    const made = Object.freeze(type === undefined ? evaluator : { ...evaluator, type });
     if (truth !== undefined && TRUTH_READERS.includes(name)) truthByCode.set(made, truth);
     if (PROFILE_READERS.includes(name)) readerByCode.set(made, { name, profile });
     out[name] = made;
@@ -1045,7 +1045,13 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
           // Each application counts one level on the runtime of its evaluation, and the count goes down after it (FORMULA.CALL-DEPTH).
           const level = (clock.applying ?? 0) + 1;
           if (level > limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
+          // WORK.LIMIT: an application is a place where work can multiply, thus each one counts one point (D134).
+          rt.spend?.(1);
+          // WORK.AFTER: the runtime of the root counts the applications of each runtime of the evaluation. An equation of
+          // a tree in the body has its own runtime, and its work does not start a new count.
+          const root = clock.top ?? clock;
           clock.applying = level;
+          root.active = (root.active ?? 0) + 1;
           try {
             const scope: Record<string, unknown> = { ...ctx.names };
             names.forEach((name, index) => setOwn(scope, name, args[index]));
@@ -1054,12 +1060,14 @@ function formulaCode(profile: FormulaProfile): Readonly<Record<string, CompiledE
             return result.value;
           } finally {
             clock.applying = level - 1;
+            root.active = (root.active ?? 1) - 1;
           }
         };
         Object.defineProperty(closure, CLOSURE, { value: { params: names } });
         return ok(closure);
       };
-    }),
+      // A closure uses its runtime after the end of the evaluation (WORK.KEEPS).
+    }, true),
 
     "formula.call": compiled(({ value }) => {
       const record = partsOf(value);

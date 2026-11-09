@@ -243,8 +243,8 @@ describe("higher-order attributes (L2i, D126)", () => {
     const first = plan.evaluate();
     expect(first).toEqual(ok({ children: [{ size: 1, a: 1 }, { size: 1, a: 1 }] }));
     // Two generators get one plan, but each generated root has its own key: the key of its parent is its scope.
-    // The third demand is the probe of the plan: the compiler tries each literal document one time.
-    expect(computed.filter((name) => name === "n")).toHaveLength(3);
+    // The probe of the plan makes no demand: a node stops the fold before an equation (WORK.PREPARE).
+    expect(computed.filter((name) => name === "n")).toHaveLength(2);
     computed.length = 0;
     made = 0;
     expect(plan.evaluate()).toEqual(first);

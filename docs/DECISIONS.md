@@ -4148,6 +4148,49 @@ The guarantee is one direction. No node of an issue gives a value (SCHED.CYCLE-A
 
 **Why.** A host gets the answer in one call and in the form of `check`. It can show the issues of a schedule and of its documents in one list. The function is a separate export, thus a run does no new work and a bundle without it does not grow. `check`, `Schedule` and `cycles` do not change. The harness of `agreeSchedule` adds more kinds of documents, and it finds no value at a node of an issue. S2c stays open. A certain cycle with more nodes than the stack of the host holds gives `#DEPTH!` in a read. The issue still names its nodes.
 
+## D134 (2026-11-03): one count of work for one evaluation gives `#WORK!` in each tier
+
+**Context.** `maxDepth` and the clock of `call` (D125) bound the depth, not the count of steps. A recursion with two branches doubles its work at each level. The measure of K216 on the plan gives 2507 ms at 20 levels. A kind with two `higher` attributes (D126) grows at the same rate.
+
+The merge gate of the bench refuses a slower case. Thus a count at each document of the compiled code is not a choice. The first idea was this: a document without a closure, a generation or a read through a name is linear in its size. A check of the code corrected the idea in four ways.
+
+- A chain of `names` that doubles does not double the evaluation. A reference in a list stays data, and the hops of one resolution share the bound `MAX_COLLAPSE`. The measure gives 0 ms at 24 levels.
+- Equations double without `higher`. An equation can give a node of its own kind, and `GENERATION_LIMIT` counts only `higher` and `forwards`. The measure gives 160 ms at 14 levels.
+- The JSON of a tree doubles on shared values. An attribute `a0` with the list `[self.a1, self.a1]`, and so on, gives a graph of lists, and the walk visits each path. The measure gives 520 ms at 22 levels, without one closure.
+- `prepare` did the work too. A closure refuses a fold, but the probe of the fold still ran the code to its end.
+
+**Decision.** One evaluation has one count of work, and the new field `maxWork` of a machine is its limit (WORK.LIMIT, WORK.OPTION). The count adds points only at the places that can multiply work:
+
+- each application of a closure of `fn`, by `call` or by an operation of the host, costs 1 point (WORK.HOST)
+- each node that an equation makes costs `NODE_WORK`, 8 points (WORK.NODE, WORK.HIGHER)
+- each second visit of a node, a list or a record in the JSON of a tree costs 1 point (WORK.SHARED)
+
+The point past the limit gives the new code `#WORK!`, as a `Failure` at the same place as the clock of D125. The new code is additive. When more than one part of an operator fails, the code stays `#WORK!`, because each later point fails too.
+
+The plan keeps the count on the runtime of the root. A runtime of an equation holds the root in its field `top` (WORK.EQUATION). The reference keeps a shared `Meter`. A root sets `ended` at its end, and only a plan that can keep its runtime has this step (WORK.KEEPS). Then each entry from the host starts a new count, thus a closure that leaves its evaluation does not collect an error (WORK.AFTER).
+
+A fold stops at the first point (WORK.PREPARE). The probe has `nested` set, thus a node stops the fold before an equation. A recursion of 40 levels prepares at once. The bench has no document in which `prepare` does this work.
+
+The default `WORK_LIMIT` is 200000 points. It comes from a measure and a target. The worst measure of the plan is 2507 ms for 2^21 applications, 1.2 µs for each one. A target of 0.25 s gives 208333 points, and the value rounds down to 200000. A node costs 7.7 µs in the measure of two `higher` attributes. Thus 0.25 s gives 32000 nodes, 6.2 points for each one, and the value rounds up to 8. Thus 25000 nodes reach the limit. The default stops the 20 levels of `call` in 65 to 76 ms on a loaded machine. It stops the 20 levels of `higher` in 102 to 183 ms. Both times include `prepare`. The reference costs 11 µs for each application, thus it needs approximately 2 s.
+
+An evaluation with a trace sets the upper bound of the default. It keeps a record of each node, thus it holds approximately 5 KB for each point. One test used a default of 1000000 points, and `evaluate` went past the heap of Node.js at approximately 4 GB. The process ended before the error. Thus that default does not protect a host. A default of 200000 points keeps the same test near 1.5 GB.
+
+**Alternatives.** A count at each document costs the read path, and the gate refuses it. A wall clock is simple, but two tiers stop at different places, and one tier stops at different places in two runs. `#DEPTH!` is an existing code. But the code tells a host to change `maxDepth`, and a schedule forgets it (D15). A memo of the JSON of a shared value removes the doubling, but a result in a cycle depends on the path. A count of each instance of `tree.at` stops a large honest document, because instances with literal arguments cannot multiply.
+
+**Limits.** This is a change of behaviour. Some evaluations gave a value before, and they give `#WORK!` at this time. They have more than 200000 applications, 25000 nodes from equations or 200000 second visits in the JSON. A higher `maxWork` gives the value again. A flat `map` over more than 200000 items is an example.
+
+The count is not complete.
+
+- An operation of the host has its own cost. Only the applications of closures count.
+- A step `tree.at` of a host with computed arguments can make new instances, and an instance counts only through its closures and nodes.
+- Other work stays polynomial, not exponential, and it does not count: `collect` on a chain, and the copies of the names in a nested `let`.
+- Other walks do not count. A document that `higher` generates can share its parts, and `documentKey` and the compiler walk each path. A step key from `argsKey`, the comparison of `agree` and a `JSON.stringify` of the host do the same.
+- A second visit costs a point also for a small value. Thus 200000 nodes that read one list reach the limit.
+- A cell of the host keeps `#WORK!` as it keeps each other result, and a kept cell costs no work. Thus two evaluations with cells can spend different counts.
+- Each node of a schedule has its own evaluation and its own count. Thus its cache keeps `#WORK!`, as it keeps each other result that depends on the node.
+
+**Why.** The count stays off the read path. A plan without a closure, a tree or a function evaluator has the same code and the same runtime as before. The first version stored the end in each plan, and the bench gave 7 slower cases, with +23 % on one formula. A compiled evaluator tells that it keeps its runtime with the field `keeps`. Without the field the count goes on after the end, and the limit stops the host sooner. One limit covers each source of doubling that the check found, and a host raises it as it raises `maxDepth`.
+
 ## D136 (2026-11-03): a kept read of the node in evaluation closes no cycle
 
 **Context.** K217, from D56 and D57. A closure keeps a read of each whole root when its path meets a reference (READS.KEPT). That read resolves the root, and a root that holds a reference follows the reference. In a schedule, the reference can reach the root `world`, and the step demands a node.
@@ -5366,6 +5409,19 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** A host evaluator is opaque: one step starts it, and each of its handles starts a nested stepper on the stack of the host. A runner gives `#NOEVAL`, and the stepper records no reads. An effect of `stepperNext` goes in a list that lives for that one step, thus a configuration of a document with effects is not data. A compiled evaluator outside the formula kit needs its definition, with `tree.node` too. A value that JSON does not hold, for example `undefined`, changes in a round trip. A record with the key `coeval.closure` or `coeval.held` reads as a closure or a held error. A deep value still overflows a host walk over it, for example `expect` or `JSON.stringify`.
 
+## D190 (2026-11-08): `allValues` tests the errors before the values
+
+**Context.** K216. The Speed gate held #263, because the case "the same tree, with a list of reads" took 1.6 times the time of the base on CI. Four probes looked for the cause:
+
+- Probe 2 (run 42509189430): without the Maglev tier of V8, the head took 0.93 times the time of the base. The field `work` from the start and a nested session with no `top` changed nothing.
+- Probe 3 (run 42510167201): one copy of the head for each change. Only the old `allValues` closed the gap, with 1.09 and 0.92 times the base. The head took 1.32 and 1.37 times the base.
+- Probe 4 (run 42512042192): a function `partsFailed` for more than one error, in two orders. With the values first, the head took 1.40 and 1.21 times the base. With the errors first, it took 0.98 and 1.01 times the base.
+
+**Decision.** `allValues` tests the errors first and gives the values last, as before K216. The function `partsFailed` gives the error of more than one part. It keeps the code `#WORK!` of the limit (WORK.LIMIT).
+
+**Why.** The order of the tests decides the time in the Maglev tier, and the size of the function does not. The probes measured this order, but they do not show the cause in V8. The result of each case stays the same.
+
+**Alternatives.** An accepted record of the slowdown (D117). A record keeps a cost that a small change removes. A bench case without Maglev. The gate then does not measure the code that the hosts run.
 
 ## D191 (2026-11-08): the random numbers of the core come from `rigor-generators`
 
@@ -5398,3 +5454,75 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Alternatives.** The copy in the core. Two copies then drift. The keyed form `stronglyConnectedComponents`. It needs a function for each node, and the indexed form of the core has arrays already.
 
 **Limits.** The core has its first runtime dependency. The search of the home checks its arguments, and this check walks each edge one more time.
+
+## D193 (2026-11-08): a part in another language is a document of the closed boundary kind `lang`
+
+**Context.** K38, R6 P8. A document can need a part in another language, as a module of another language in Racket. Today one machine serves each node of a document. Open question 4 of R6 asks if a document names its language. A header field changes D6, and a boundary kind does not.
+
+**Decision.** The function `boundary(machines)` gives a language with the kind `lang`. Its value is `{ language, doc }`. The host gives the machine of each name, and `compose` adds the boundary to a machine. The evaluator prepares the inner document with the named machine, one time for each document object. It evaluates the plan with `evaluateWithin`, thus the reads of the inner plan go in the record of the outer run. The boundary is closed. The inner document gets no names, no capabilities and no `self`. Only the result crosses. An unknown name gives `#NAME?`, and a value of another shape gives `#VALUE!`.
+
+**Why.** A kind needs no change to the envelope (D6), thus the answer to question 4 is a part, not a header. The root document names no language, because the host selects its machine. A closed boundary keeps each guarantee of the static kit inside one world. The outer `check` sees no effect of the inner document, because no capability crosses. The table of machines is code that the host gives, thus a document cannot bring a machine.
+
+**Alternatives.** A header field `language` on each envelope. This changes D6 and each reader of an envelope. An open boundary that passes the names and the capabilities. Then `check` and `factsOf` of the outer machine must read the inner world, and the static kit must change worlds at the boundary. A boundary that composes the inner language into the outer machine. Two worlds with one kind name then conflict, and the boundary has no purpose.
+
+**Limits.** The outer `check` does not enter the inner document, because the value of `lang` is data for the outer world. The host checks the inner document with its own machine. The kind is not `pure`, because an operation of the inner language can be volatile. The inner evaluation has its own depth and its own limit of work. A run cannot wait in an inner document. A part with a capability needs an open boundary, and no item asks for it today.
+
+## D194 (2026-11-08): theorems over the Lean model: the clock, determinism and `let`
+
+**Context.** K223, after K96 (D159). The model had one theorem: a clock of zero stops an evaluation. A later proof needs the facts that the clock does not change a result and that `let` is compositional.
+
+**Decision.** The function `eval` of the model is one step `step (eval clock)`. The step is one function for each kind, with the evaluator of the parts as a parameter. The file `Coeval/Theorems.lean` proves these theorems, and `lake build` checks them:
+
+- `eval_succ_refines`: one more unit of the clock gives the same result, or the clock stopped the first result.
+- `eval_add_clock`: a result that the clock does not stop does not change with a larger clock.
+- `eval_clocks_agree`: two clocks that both give a result give the same result.
+- `eval_deterministic`: a document, its names and its clock give one result.
+- `kLet_eq`: a `let` evaluates its body in the scope that its bindings make.
+- `bindAll_append`: the bindings run in order, thus a list of bindings is the same as its two parts in sequence.
+
+**Why.** The relation `Refines` says that the clock stopped a result or that two results are equal. Each kind keeps it when the evaluator of the parts keeps it. Thus one induction on the clock proves the monotonicity of the clock for all kinds. A step with the evaluator as a parameter makes each lemma small. The test AGREE.LEAN shows that the new form of `eval` gives the same results as the plan.
+
+**Alternatives.** One proof by cases over the old `eval`. Each case then repeats the unfolding of the envelope and of the kind. Theorems over the plan in TypeScript. TypeScript has no proofs, and the model is the reading in a language of proofs. A local `lake build` for each change of a proof. The proofs are checked in CI, like the model (D159).
+
+**Limits.** Determinism is true by construction, because `eval` is a function in Lean. The theorem of the clock covers the model only, not the plan. AGREE.LEAN connects the two on generated documents, not on all documents. The compositionality of `let` is the order of the bindings and the scope of the body. A theorem that a binding can change to another document with the same results is not in this slice.
+
+## D195 (2026-11-09): the generator gives no own entry to a kind with scope rules
+
+**Context.** The nightly run of One meaning on 2026-11-09 failed STATIC.AGREES at the seed 201003441. The document was a `handle` with the own entry `eval: math.add`. Its clause `return` read the name `result`. `check` gave no issue, and the run gave `#NAME?`.
+
+**Decision.** The generator gives an own entry only to a kind without scope rules. It keeps the random draws of the entry, thus each other document stays the same.
+
+**Why.** The names in scope follow the contract of the kind for each verb (VERB.CHECK). The code of a kind binds the names of its scope rules (C7), and that is an obligation of the author. The code `math.add` binds no name, thus the document broke a contract. GEN.CONTRACTS says that a generated document follows the contracts of its kinds. Thus the generator was wrong, not `check` or the plan.
+
+**Alternatives.** An exception in the harness for a name under an own entry. The harness then hides a broken contract, and other documents with it stay in the corpus. A check that the code of an own entry binds the names of the scope rules. `check` does not run code, and `conforms` (K92, D36) already examines an evaluator against a contract.
+
+**Limits.** The own entries of the harness are standard code only. A host that gives an own entry to a kind with scope rules still owns C7 for its code.
+
+## D197 (2026-11-09): the stepper and a kept closure keep the one count of work
+
+**Context.** K250, from a weekly review of 11-09 and D134. A test on main showed five faults:
+
+- The stepper counted no work. With `maxWork` 5, ten applications gave a value, and `reference` gave `#WORK!`.
+- The stepper found no definition of the compiled standard `ref.resolve`. Thus each `ref` of the standard machine gave `#NOEVAL`.
+- After the end of an evaluation, a node that an equation made in a kept closure started a new count. The runtime of the equation has its own count of applications, and that count was 0. Thus a recursion with a node at each call had no limit.
+- In the reference, the body of a kept closure evaluated with no state of the evaluation. Thus a node of a tree in the body gave `#NOEVAL`.
+- Each call of `stepperNext` started the counts of the effects again. Two effects at one place in two steps both got the address `#0`.
+
+**Decision.**
+
+- The stepper counts one point for each application of a closure, by `call` and by host code, after the clock of the depth. It uses `maxWork` of the machine and the error of D134. After the end, each call from the host starts a new count. A configuration from `stepperNext` holds the count in the field `work`. It also holds the count of the effects at each place and the number of effects (STEPPER.NEXT-STATE).
+- A compiled evaluator of the standard machine gets the definition of `reference` in the stepper too (STEPPER.STD).
+- The runtime of the root counts the applications that run on each runtime of the evaluation, in the field `active`. The plan and the reference start a new count only when this count is 0 (WORK.AFTER-EQUATION).
+- The body of a kept closure of the reference evaluates in the state of the evaluation that made the closure.
+
+**Why.** WORK.LIMIT is one count for each evaluation in each tier. Only an entry from the host starts a new count. An equation in a call of the host is not such an entry. The plan runs the body of a closure with the runtime that made it, and the reference does the same after this change.
+
+**Alternatives.**
+
+- The count of applications on the root, with the clock of the depth. An equation keeps its own clock of the depth (FORMULA.CALL-DEPTH), thus one shared clock changes `#DEPTH!`.
+- The count only in the program of the stepper. A host that steps one configuration at a time then has no limit.
+
+**Limits.**
+
+- The stepper does not evaluate the equations of a tree. Thus WORK.NODE has no test in the stepper.
+- A host call of a closure in the stepper also puts back the count of the applications of its start. Before, a failed call left a higher count.
