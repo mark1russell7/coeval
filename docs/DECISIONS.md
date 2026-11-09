@@ -5439,6 +5439,18 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** Keep the copy as an accepted copy. The two copies then can differ after a fix in the home. Use the `random` of the home. Its `int` takes a minimum and a maximum, and its `pick([])` throws, thus the draws and the API of the core change. A subpath export in the home for its random module. The home then has two entries for one module, and the core still reads the field of the home.
 
+## D193 (2026-11-08): a part in another language is a document of the closed boundary kind `lang`
+
+**Context.** K38, R6 P8. A document can need a part in another language, as a module of another language in Racket. Today one machine serves each node of a document. Open question 4 of R6 asks if a document names its language. A header field changes D6, and a boundary kind does not.
+
+**Decision.** The function `boundary(machines)` gives a language with the kind `lang`. Its value is `{ language, doc }`. The host gives the machine of each name, and `compose` adds the boundary to a machine. The evaluator prepares the inner document with the named machine, one time for each document object. It evaluates the plan with `evaluateWithin`, thus the reads of the inner plan go in the record of the outer run. The boundary is closed. The inner document gets no names, no capabilities and no `self`. Only the result crosses. An unknown name gives `#NAME?`, and a value of another shape gives `#VALUE!`.
+
+**Why.** A kind needs no change to the envelope (D6), thus the answer to question 4 is a part, not a header. The root document names no language, because the host selects its machine. A closed boundary keeps each guarantee of the static kit inside one world. The outer `check` sees no effect of the inner document, because no capability crosses. The table of machines is code that the host gives, thus a document cannot bring a machine.
+
+**Alternatives.** A header field `language` on each envelope. This changes D6 and each reader of an envelope. An open boundary that passes the names and the capabilities. Then `check` and `factsOf` of the outer machine must read the inner world, and the static kit must change worlds at the boundary. A boundary that composes the inner language into the outer machine. Two worlds with one kind name then conflict, and the boundary has no purpose.
+
+**Limits.** The outer `check` does not enter the inner document, because the value of `lang` is data for the outer world. The host checks the inner document with its own machine. The kind is not `pure`, because an operation of the inner language can be volatile. The inner evaluation has its own depth and its own limit of work. A run cannot wait in an inner document. A part with a capability needs an open boundary, and no item asks for it today.
+
 ## D194 (2026-11-08): theorems over the Lean model: the clock, determinism and `let`
 
 **Context.** K223, after K96 (D159). The model had one theorem: a clock of zero stops an evaluation. A later proof needs the facts that the clock does not change a result and that `let` is compositional.
