@@ -593,6 +593,7 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | WORK.HOST | An application of a closure by an operation of the host counts one point, as an application by `call` does. |
 | WORK.RUN | A run has the count and the error of an evaluation. `plan.run`, `run` and `referenceRun` give the same result. |
 | WORK.AFTER | A closure can leave its evaluation. After the end of the evaluation, each entry from the host starts a new count. Thus an application by the host stops only for its own work. |
+| WORK.AFTER-EQUATION | A call from the host keeps one count across each runtime of the evaluation. A node that an equation makes in the body of a kept closure adds to the count of the call, and it does not start a new count. The reference evaluates such a node with the machine of the evaluation that made the closure. |
 | WORK.KEEPS | A plan marks the end of its evaluation only if it holds a runner, an evaluator that is a function, or a compiled evaluator with the field `keeps`. Each other plan has the code of a plan without the count. |
 | WORK.PREPARE | `prepare` does no counted work. A fold stops at the first counted point, and a node is a counted point in a fold. Thus a recursion or a tree costs no time in `prepare`. |
 | WORK.HIGHER | A kind with `higher` attributes that generate two subtrees at each level gives `#WORK!`, because each generated node counts (WORK.NODE). |
@@ -720,6 +721,8 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | STEPPER.PATH | The stepper walks a path itself. It gives the value or the error of `resolve` for keys, references, cycles, deref code and walkers. |
 | STEPPER.CLOSURE | A closure is data in a configuration. Host code gets a function, and a call of that function starts a nested stepper. |
 | STEPPER.LIMIT | The applications of functions have the limit of `reference`: the count of the active applications, with a nested stepper too. |
+| STEPPER.WORK | The stepper counts one point for each application of a closure, by `call` or by an operation of the host. The point past `maxWork` gives the `#WORK!` of `reference`, at the same place. After the end, each call from the host starts a new count. A configuration from `stepperNext` holds the count. |
+| STEPPER.STD | A compiled evaluator of the standard machine gets the definition of `reference`, unless the option `definitions` gives another one. Thus the standard `ref` gives the result of `reference`. |
 | STEPPER.PROFILE | An exception of a rule of the profile gives the error of `reference`, with the name of the evaluator of the document. |
 | STEPPER.EFFECT | An effect of a host evaluator has the capability test, the address, the mock and the outcome of `reference`. A runner gives `#NOEVAL`. |
 | STEPPER.DEEP | A list nested 100000 times evaluates, because the stepper does not use the stack of the host for the nesting. The limit `maxDepth` stays. |

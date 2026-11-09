@@ -17,6 +17,7 @@ import {
   reference,
   referenceRun,
   run,
+  stepper,
   type Code,
   type Context,
   type Evaluator,
@@ -170,7 +171,7 @@ describe("the limit of work of one evaluation (K216, D134)", () => {
   it("[WORK.AFTER] after the end of an evaluation, each application from the host has a new count", () => {
     const machine = machineOf(3);
     const doc = fn(["n"], op("add", name("n"), 1));
-    const results = [prepare(machine, doc).evaluate(context()), evaluate(machine, doc, context()).result, reference(machine, doc, context(), { definitions })];
+    const results = [prepare(machine, doc).evaluate(context()), evaluate(machine, doc, context()).result, reference(machine, doc, context(), { definitions }), stepper(machine, doc, context(), { profile: { ops } })];
     for (const result of results) {
       expect(result.ok).toBe(true);
       const closure = (result as { readonly value: (n: number) => number }).value;
@@ -178,11 +179,40 @@ describe("the limit of work of one evaluation (K216, D134)", () => {
     }
     // One application from the host still has the limit: a recursion in it stops.
     const looped = bind({ f: fn(["self", "n"], when(op("lt", name("n"), 9), call(name("self"), name("self"), op("add", name("n"), 1)), name("n"))) }, fn(["n"], call(name("f"), name("f"), name("n"))));
-    for (const result of [prepare(machine, looped).evaluate(context()), reference(machine, looped, context(), { definitions })]) {
+    for (const result of [prepare(machine, looped).evaluate(context()), reference(machine, looped, context(), { definitions }), stepper(machine, looped, context(), { profile: { ops } })]) {
       const closure = (result as { readonly value: (n: number) => number }).value;
       expect(closure(8)).toBe(9);
       expect(() => closure(0)).toThrow(/maxWork/);
       expect(closure(8)).toBe(9);
+    }
+  });
+
+  it("[WORK.AFTER-EQUATION] a call from the host of a kept closure keeps one count, also across the nodes that its equations make", () => {
+    const formulas = formulaMachine({ ops });
+    const machine = (maxWork: number): Machine => ({
+      ...formulas,
+      evaluators: { ...STD_MACHINE.evaluators, ...formulas.evaluators },
+      world: { ...formulas.world, kinds: { ...STD_MACHINE.world.kinds, ...formulas.world.kinds, ...kinds } },
+      maxWork,
+    });
+    // Each application makes a tree, and its equations make two nodes. 7 applications and 14 nodes cost 7 + 14 x 8 = 119 points.
+    const twice = call(name("self"), name("self"), op("add", name("n"), 1));
+    const body = bind({ t: node("binP", { d: 0, limit: 1, y: self("x") }) }, when(op("lt", name("n"), 2), op("add", twice, twice), ref("names", "t", "y")));
+    const ctx = treeContext();
+    const inside = bind({ g: fn(["self", "n"], body) }, call(name("g"), name("g"), 0));
+    expect(agreed(machine(119), inside, ctx, { definitions })).toEqual(ok(8));
+    expect(agreed(machine(118), inside, ctx, { definitions })).toMatchObject({ ok: false, error: { code: "#WORK!" } });
+    // The same work from the host, with one more application for the closure of the root. A node of an equation has its
+    // own runtime, and its point does not start a new count. The reference evaluates the node in the state of the
+    // evaluation that made the closure.
+    const kept = bind({ g: fn(["self", "n"], body) }, fn(["n"], call(name("g"), name("g"), name("n"))));
+    const tiers = [(limit: number) => prepare(machine(limit), kept).evaluate(ctx), (limit: number) => reference(machine(limit), kept, ctx, { definitions })];
+    for (const tier of tiers) {
+      const closure = (limit: number) => (tier(limit) as { readonly value: (n: number) => number }).value;
+      expect(closure(120)(0)).toBe(8);
+      expect(() => closure(119)(0)).toThrow(/maxWork/);
+      const one = closure(120);
+      for (let index = 0; index < 3; index += 1) expect(one(0)).toBe(8);
     }
   });
 
@@ -275,6 +305,9 @@ describe("the limit of work of one evaluation (K216, D134)", () => {
       for (const maxWork of [1, work - 1, work, work + 1, 3 * work, 3 * work + 3, 200]) {
         const outcome = agree(machineOf(Math.max(1, maxWork)), doc, ctx, { strict: true, definitions });
         expect(outcome, outcome.ok ? "" : outcome.reason).toMatchObject({ ok: true });
+        // The stepper gives the result of the reference at each limit (STEPPER.WORK).
+        const machine = machineOf(Math.max(1, maxWork));
+        expect(stepper(machine, doc, ctx, { profile: { ops } }), `${maxWork}`).toEqual(reference(machine, doc, ctx, { definitions }));
       }
       // A generated tree: a chain of generated levels and shared lists under the same limits.
       const tree = seeds.chance(0.5) ? node("binH", { d: 0, limit: levels, y: self("x") }) : node("binP", { d: 0, limit: levels, y: self("x") });

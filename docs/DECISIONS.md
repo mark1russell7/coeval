@@ -5458,3 +5458,30 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** Determinism is true by construction, because `eval` is a function in Lean. The theorem of the clock covers the model only, not the plan. AGREE.LEAN connects the two on generated documents, not on all documents. The compositionality of `let` is the order of the bindings and the scope of the body. A theorem that a binding can change to another document with the same results is not in this slice.
 
+## D197 (2026-11-09): the stepper and a kept closure keep the one count of work
+
+**Context.** K250, from a weekly review of 11-09 and D134. A test on main showed four faults:
+
+- The stepper counted no work. With `maxWork` 5, ten applications gave a value, and `reference` gave `#WORK!`.
+- The stepper found no definition of the compiled standard `ref.resolve`. Thus each `ref` of the standard machine gave `#NOEVAL`.
+- After the end of an evaluation, a node that an equation made in a kept closure started a new count. The runtime of the equation has its own count of applications, and that count was 0. Thus a recursion with a node at each call had no limit.
+- In the reference, the body of a kept closure evaluated with no state of the evaluation. Thus a node of a tree in the body gave `#NOEVAL`.
+
+**Decision.**
+
+- The stepper counts one point for each application of a closure, by `call` and by host code, after the clock of the depth. It uses `maxWork` of the machine and the error of D134. After the end, each call from the host starts a new count. A configuration from `stepperNext` holds the count in the field `work`.
+- A compiled evaluator of the standard machine gets the definition of `reference` in the stepper too (STEPPER.STD).
+- The runtime of the root counts the applications that run on each runtime of the evaluation, in the field `active`. The plan and the reference start a new count only when this count is 0 (WORK.AFTER-EQUATION).
+- The body of a kept closure of the reference evaluates in the state of the evaluation that made the closure.
+
+**Why.** WORK.LIMIT is one count for each evaluation in each tier. Only an entry from the host starts a new count. An equation in a call of the host is not such an entry. The plan runs the body of a closure with the runtime that made it, and the reference does the same after this change.
+
+**Alternatives.**
+
+- The count of applications on the root, with the clock of the depth. An equation keeps its own clock of the depth (FORMULA.CALL-DEPTH), thus one shared clock changes `#DEPTH!`.
+- The count only in the program of the stepper. A host that steps one configuration at a time then has no limit.
+
+**Limits.**
+
+- The stepper does not evaluate the equations of a tree. Thus WORK.NODE has no test in the stepper.
+- A host call of a closure in the stepper also puts back the count of the applications of its start. Before, a failed call left a higher count.
