@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.29.0
+
+The release train changes the range of `@mark1russell7/collections` to a version outside the old range. The public types name @mark1russell7/collections, so its new version outside the old range can change them.
+
+### Breaking
+
+- The range `^0.9.11` of `@mark1russell7/collections` in `dependencies` does not hold `0.10.0`, so it changes.
+
 ## 0.28.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. A long chain of lazy reads gives the values of a plain evaluation, not `#DEPTH!` and not the value of a catch. It is unclear if a host depends on the old results, thus this release counts as a breaking change. No export changes.
