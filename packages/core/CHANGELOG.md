@@ -2,6 +2,21 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.27.2
+
+PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes.
+
+### Changes
+
+- **The search of the strongly connected components comes from its home (D192).** `strong()` uses `strongComponentsCompact` of `@mark1russell7/collections`, the second runtime dependency of the core. A test pins the answers of the old copy on 600 seeded graphs, and the new search gives the same answers.
+
+### Fixes
+
+- **The generator and the scope rules (D195).** `generate` gives no own entry to a kind with scope rules. Before, a handle with an own entry read a name that no code binds.
+- **The limit of work holds in each tier (D197).** The stepper counts the work of D134 and gives `#WORK!` past `maxWork`. It also finds the standard definition of `ref.resolve`.
+- **The state of `stepperNext` (D197).** A configuration from `stepperNext` holds the count of work and the counts of the effects. Thus steps give each effect the address and the index of `stepper`.
+- **A kept closure keeps one count of work (D197).** The nodes that its equations make use the count of the evaluation. In `reference`, a node of a tree in a kept closure evaluates.
+
 ## 0.27.1
 
 PATCH: before `1.0.0`, a new feature increases PATCH. No export goes, and no behavior changes.

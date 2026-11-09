@@ -5439,6 +5439,22 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Alternatives.** Keep the copy as an accepted copy. The two copies then can differ after a fix in the home. Use the `random` of the home. Its `int` takes a minimum and a maximum, and its `pick([])` throws, thus the draws and the API of the core change. A subpath export in the home for its random module. The home then has two entries for one module, and the core still reads the field of the home.
 
+## D192 (2026-11-08): the search of strongly connected components comes from `collections`
+
+**Context.** K249. The core had its own copy of the search of Tarjan in `graph.ts`, with its own stack. The home of graphs is `@mark1russell7/collections`. Its version 0.9.11 adds `strongComponentsCompact(n, start, targets)` in the entry `@mark1russell7/collections/graph`.
+
+**Decision.**
+
+- The function `strong` of `graph.ts` uses `strongComponentsCompact` with the indexed form of the graph. The core keeps no copy of the search.
+- `components`, `heights`, `nodeLayers` and `cycles` keep their own rules of edges: lazy edges, edges without a target and sinks.
+- The test GRAPH.SCC-SAME pins the answers of the old copy on 600 seeded graphs, before the move (CA14).
+
+**Why.** Each thing has one home. The search of the home gives the same order. The deepest component is first, and the members of a component are in increasing order. The entry imports no other package and has no side effects, thus the bundle of the core stays pure.
+
+**Alternatives.** The copy in the core. Two copies then drift. The keyed form `stronglyConnectedComponents`. It needs a function for each node, and the indexed form of the core has arrays already.
+
+**Limits.** The core has its first runtime dependency. The search of the home checks its arguments, and this check walks each edge one more time.
+
 ## D193 (2026-11-08): a part in another language is a document of the closed boundary kind `lang`
 
 **Context.** K38, R6 P8. A document can need a part in another language, as a module of another language in Racket. Today one machine serves each node of a document. Open question 4 of R6 asks if a document names its language. A header field changes D6, and a boundary kind does not.
