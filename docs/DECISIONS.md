@@ -5458,3 +5458,27 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** Determinism is true by construction, because `eval` is a function in Lean. The theorem of the clock covers the model only, not the plan. AGREE.LEAN connects the two on generated documents, not on all documents. The compositionality of `let` is the order of the bindings and the scope of the body. A theorem that a binding can change to another document with the same results is not in this slice.
 
+## D196 (2026-11-09): after an overflow, the schedule demands the nodes of the walk again, deepest first
+
+**Context.** S2b, from S2a and D139. A demand ahead follows only the eager edges. Thus a long chain through lazy reads uses the stack of the host for each node, and it gave `#DEPTH!`. The walk of D139 followed the same reads with its own stack, but a walk that found no cycle changed nothing. A node that caught the overflow kept the value of its catch. Such a value depends on the depth of the stack, not on the document.
+
+**Decision.**
+
+- `hostDemand` keeps the size of the map of the values of the epoch before its `visit`. A map keeps the order of its new keys. After an overflow, the entries after that size are the nodes of the overflowed demand.
+- After the walk, each such node loses its result and its entry in the cache of `durable`. After a cycle, the entered nodes keep the rule of D139.
+- Then the schedule demands each entered node without a result, in the order in which the walk finished it. A node finishes after each node that it reads. Thus each read of such a demand finds a result, and the stack of the host stays short.
+- The walk still gives no value to a host. Each value comes from a plain demand in the context of the epoch, thus a closure keeps the real root `world`.
+
+**Why.** The walk already knows the order of the real reads. A demand in that order is the demand ahead of S2a for the lazy edges. It follows the reads that happened, not the static edges. Thus D31 keeps its values, and the harness SCHED.DEEP-CYCLE-AGREES compares each node, not only the nodes of a cycle.
+
+**Alternatives.**
+
+- Demands ahead along the lazy edges. D33 refused this: such a demand evaluates a branch that a test skips.
+- The values of the walk for the host. A value can hold the root of the walk, and that root does not answer a host (D139).
+- A check of the overflow count in `visit` for each node. It finds the suspect nodes exactly, but each demand pays for it. The map of the values gives the same list, and only a demand with an overflow pays.
+
+**Limits.**
+
+- The demands after a walk add at most one evaluation for each entered node. Thus a data epoch with an overflow does at most `4V` evaluations for `V` entered nodes, not `3V`.
+- A node of the overflowed demand that the walk does not enter evaluates again at its next demand. Only a read that the walk did not make reaches such a node, for example a read in the branch of a catch.
+- The demands after a walk use `visit`, thus an overflow in them starts no new walk. Each read of such a demand reaches a node that a walk finished, and the harness found no such overflow.

@@ -362,8 +362,14 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
    */
   const hostDemand = (id: string): Result => {
     const before = overflowCount();
+    const size = current().values.size;
     const result = visit(id);
-    return overflowCount() === before && current().walk === undefined ? result : settle(id, result);
+    if (overflowCount() === before) return current().walk === undefined ? result : settle(id, result, []);
+    // A map keeps the order of its new keys. Thus the entries after the first `size` are the nodes of this demand (S2b).
+    const touched: string[] = [];
+    let index = 0;
+    for (const node of current().values.keys()) if (index++ >= size) touched.push(node);
+    return settle(id, result, touched);
   };
 
   /** This function demands one node, with the algorithm of Tarjan over the demands for the cycles of D31. */
@@ -490,20 +496,26 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
    * Each evaluation enters a new node or finishes a node. Thus the walks of a data epoch do at most `2V` evaluations
    * for `V` entered nodes. They keep one result and one entry in each list for each such node.
    *
-   * A walk that reaches no cycle changes nothing, thus a chain keeps its `#DEPTH!`. After a cycle, each entered node
-   * keeps only its error. A node with a value evaluates again at its next demand, because a value can hold the root of
-   * the walk.
+   * After a cycle, each entered node keeps only its error. A result of the overflowed demand depends on the depth of
+   * the stack, thus each such node loses its result too (S2b). A node with a value does not take the value of the walk,
+   * because a value can hold the root of the walk. The schedule demands these nodes again, in the order in which the
+   * walk finished them. Thus each read of such a demand finds a result, and a long chain through lazy reads gives its
+   * value.
    *
    * @param id - The node of the demand.
    * @param given - The result of the demand.
+   * @param touched - The nodes that the overflowed demand gave a result. A demand with no overflow gives none.
    * @returns The final result of the demand.
    */
-  const settle = (id: string, given: Result): Result => {
+  const settle = (id: string, given: Result, touched: readonly string[]): Result => {
     const epoch = current();
     const walk = (epoch.walk ??= startWalk());
     const { results } = walk;
-    if (results.has(id) || cache.facts(docs.get(id)).side === "run") return given;
+    if (cache.facts(docs.get(id)).side === "run") return given;
+    if (results.has(id) && touched.length === 0) return given;
     const entered: string[] = [];
+    // The entered nodes in the order in which the walk finished them. Each node finishes after the nodes that it reads.
+    const finished: string[] = [];
     const starts: number[] = [];
     const enter = (node: string): void => {
       const mine = count++;
@@ -537,6 +549,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
         const self = looped.delete(node);
         const onCycle = reached < (order.get(node) as number) || close(from) > 1 || self;
         results.set(node, onCycle ? cycleOf(node) : result);
+        finished.push(node);
         // A node behind a cycle of an earlier walk finds that cycle too.
         found ||= onCycle || (!result.ok && result.error.code === "#CYCLE!");
         const reader = stack[stack.length - 1];
@@ -549,14 +562,22 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       looped.clear();
       close(0);
     }
-    if (!found) return given;
-    for (const node of entered) {
-      const result = results.get(node) as Result;
+    if (!found && touched.length === 0) return given;
+    for (const node of touched) {
       cache.forget(node);
-      if (result.ok) epoch.values.delete(node);
-      else epoch.values.set(node, result);
+      epoch.values.delete(node);
     }
-    return visit(id);
+    if (found) {
+      for (const node of entered) {
+        const result = results.get(node) as Result;
+        cache.forget(node);
+        if (result.ok) epoch.values.delete(node);
+        else epoch.values.set(node, result);
+      }
+    }
+    // Each demand starts with no node in evaluation, and the nodes that it reads already have their results.
+    for (const node of finished) if (!epoch.values.has(node)) visit(node);
+    return epoch.values.get(id) ?? visit(id);
   };
 
   /** This function gives the record of the derive nodes, for a path that ends at the root `world`. */
