@@ -2150,6 +2150,24 @@ describe("the generator", () => {
     }
   });
 
+  it("[GEN.CONTRACTS] an own entry goes only on a kind without scope rules, because other code binds none of their names", () => {
+    // The seed 201003441 gave a handle with the own code math.add. The return read result, and the run gave #NAME? (C7).
+    const seeds = [201003441, ...Array.from({ length: 2000 }, (_, seed) => seed)];
+    let owned = 0;
+    for (const seed of seeds) {
+      const doc = generate(STD_MACHINE.world, { ...STD_OPTIONS, seed });
+      walk(STD_MACHINE.world, doc, (visit) => {
+        if (!("own" in visit.doc)) return undefined;
+        owned += 1;
+        const found = lookupKind(STD_MACHINE.world, visit.doc.type);
+        expect(found.ok ? (found.kind.scope ?? []) : [], show(visit.doc)).toEqual([]);
+        return undefined;
+      });
+    }
+    // The other kinds still get own entries.
+    expect(owned).toBeGreaterThan(0);
+  });
+
   it("[GEN.MALFORMED] malformed choices give unknown kinds, unknown operations, bad shapes, values without a type and names that nothing binds", () => {
     const found = new Set<string>();
     for (let seed = 0; seed < 300; seed += 1) {
