@@ -5438,3 +5438,23 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 **Why.** Each area has one home, and a copy is debt. The home has no runtime dependency, and its field `sideEffects` is `false`. Thus an import that uses nothing still leaves nothing in a bundle. PKG.PURE marked each module before, so the data modules of the home stayed in its bundle. Each bundler reads the field of the dependency, thus the new mark tests the claim of the core only. A seeded fault in a module of the core still fails the test.
 
 **Alternatives.** Keep the copy as an accepted copy. The two copies then can differ after a fix in the home. Use the `random` of the home. Its `int` takes a minimum and a maximum, and its `pick([])` throws, thus the draws and the API of the core change. A subpath export in the home for its random module. The home then has two entries for one module, and the core still reads the field of the home.
+
+## D194 (2026-11-08): theorems over the Lean model: the clock, determinism and `let`
+
+**Context.** K223, after K96 (D159). The model had one theorem: a clock of zero stops an evaluation. A later proof needs the facts that the clock does not change a result and that `let` is compositional.
+
+**Decision.** The function `eval` of the model is one step `step (eval clock)`. The step is one function for each kind, with the evaluator of the parts as a parameter. The file `Coeval/Theorems.lean` proves these theorems, and `lake build` checks them:
+
+- `eval_succ_refines`: one more unit of the clock gives the same result, or the clock stopped the first result.
+- `eval_add_clock`: a result that the clock does not stop does not change with a larger clock.
+- `eval_clocks_agree`: two clocks that both give a result give the same result.
+- `eval_deterministic`: a document, its names and its clock give one result.
+- `kLet_eq`: a `let` evaluates its body in the scope that its bindings make.
+- `bindAll_append`: the bindings run in order, thus a list of bindings is the same as its two parts in sequence.
+
+**Why.** The relation `Refines` says that the clock stopped a result or that two results are equal. Each kind keeps it when the evaluator of the parts keeps it. Thus one induction on the clock proves the monotonicity of the clock for all kinds. A step with the evaluator as a parameter makes each lemma small. The test AGREE.LEAN shows that the new form of `eval` gives the same results as the plan.
+
+**Alternatives.** One proof by cases over the old `eval`. Each case then repeats the unfolding of the envelope and of the kind. Theorems over the plan in TypeScript. TypeScript has no proofs, and the model is the reading in a language of proofs. A local `lake build` for each change of a proof. The proofs are checked in CI, like the model (D159).
+
+**Limits.** Determinism is true by construction, because `eval` is a function in Lean. The theorem of the clock covers the model only, not the plan. AGREE.LEAN connects the two on generated documents, not on all documents. The compositionality of `let` is the order of the bindings and the scope of the body. A theorem that a binding can change to another document with the same results is not in this slice.
+
