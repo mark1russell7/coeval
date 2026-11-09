@@ -5458,6 +5458,18 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 **Limits.** Determinism is true by construction, because `eval` is a function in Lean. The theorem of the clock covers the model only, not the plan. AGREE.LEAN connects the two on generated documents, not on all documents. The compositionality of `let` is the order of the bindings and the scope of the body. A theorem that a binding can change to another document with the same results is not in this slice.
 
+## D195 (2026-11-09): the generator gives no own entry to a kind with scope rules
+
+**Context.** The nightly run of One meaning on 2026-11-09 failed STATIC.AGREES at the seed 201003441. The document was a `handle` with the own entry `eval: math.add`. Its clause `return` read the name `result`. `check` gave no issue, and the run gave `#NAME?`.
+
+**Decision.** The generator gives an own entry only to a kind without scope rules. It keeps the random draws of the entry, thus each other document stays the same.
+
+**Why.** The names in scope follow the contract of the kind for each verb (VERB.CHECK). The code of a kind binds the names of its scope rules (C7), and that is an obligation of the author. The code `math.add` binds no name, thus the document broke a contract. GEN.CONTRACTS says that a generated document follows the contracts of its kinds. Thus the generator was wrong, not `check` or the plan.
+
+**Alternatives.** An exception in the harness for a name under an own entry. The harness then hides a broken contract, and other documents with it stay in the corpus. A check that the code of an own entry binds the names of the scope rules. `check` does not run code, and `conforms` (K92, D36) already examines an evaluator against a contract.
+
+**Limits.** The own entries of the harness are standard code only. A host that gives an own entry to a kind with scope rules still owns C7 for its code.
+
 ## D197 (2026-11-09): the stepper and a kept closure keep the one count of work
 
 **Context.** K250, from a weekly review of 11-09 and D134. A test on main showed five faults:
