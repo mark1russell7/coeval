@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.27.1
+
+PATCH: before `1.0.0`, a new feature increases PATCH. No export goes, and no behavior changes.
+
+### New features
+
+- **A part in another language (D193).** The new export `boundary(machines)` gives a language with the closed boundary kind `lang`. Its value is `{ language, doc }`, and the host gives the machine of each name. `compose` adds the boundary to a machine. The evaluator prepares the inner document with the named machine, one time for each document object. The boundary is closed: the inner document gets no names, no capabilities and no `self`, and only the result crosses. An unknown name gives `#NAME?`.
+
 ## 0.27.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The type `KernelCode` gets the member `"#WORK!"`, and a host with an exhaustive `switch` over it must add the case. An evaluation with more than 200000 points of work gives `#WORK!`. No export goes.
