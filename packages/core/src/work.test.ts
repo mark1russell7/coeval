@@ -292,29 +292,50 @@ describe("the limit of work of one evaluation (K216, D134)", () => {
     expect(prepare(treeMachine(), sharedChain(40)).evaluate(treeContext())).toMatchObject({ ok: false, error: { code: "#WORK!" } });
   });
 
-  it("[WORK.AGREES] on generated documents, each tier gives the same result at each limit around the true work", () => {
-    const seeds = random(216);
-    for (let index = 0; index < 60; index += 1) {
-      const width = 1 + seeds.int(3);
-      const levels = 1 + seeds.int(4);
-      const inner = branching(width);
-      const mapped = op("map", fn(["item"], inner), op("range", 1 + seeds.int(4)));
-      const doc = seeds.chance(0.5) ? inner : mapped;
-      const ctx = context({ names: { limit: levels } });
-      const work = applications(width, levels);
-      for (const maxWork of [1, work - 1, work, work + 1, 3 * work, 3 * work + 3, 200]) {
-        const outcome = agree(machineOf(Math.max(1, maxWork)), doc, ctx, { strict: true, definitions });
-        expect(outcome, outcome.ok ? "" : outcome.reason).toMatchObject({ ok: true });
-        // The stepper gives the result of the reference at each limit (STEPPER.WORK).
-        const machine = machineOf(Math.max(1, maxWork));
-        expect(stepper(machine, doc, ctx, { profile: { ops } }), `${maxWork}`).toEqual(reference(machine, doc, ctx, { definitions }));
+  // With the stepper, the 60 cases used 0.614 of the timeout in CI, thus each test examines one part of 15 cases (K250, D96).
+  // The draws happen once, in the order of one loop, thus the parts examine the same cases as one test.
+  const seeds = random(216);
+  const cases = Array.from({ length: 60 }, () => {
+    const width = 1 + seeds.int(3);
+    const levels = 1 + seeds.int(4);
+    const range = 1 + seeds.int(4);
+    const plain = seeds.chance(0.5);
+    const helper = seeds.chance(0.5);
+    const extra = 8 + seeds.int(40);
+    const chain = 1 + seeds.int(6);
+    const sharedExtra = 3 + seeds.int(30);
+    return { width, levels, range, plain, helper, extra, chain, sharedExtra };
+  });
+  const agreesParts = 4;
+  const agreesTotals = { cases: 0, parts: 0 };
+  for (let part = 0; part < agreesParts; part += 1) {
+    it(`[WORK.AGREES] on generated documents, each tier gives the same result at each limit around the true work: part ${part + 1} of ${agreesParts}`, () => {
+      const size = cases.length / agreesParts;
+      for (const { width, levels, range, plain, helper, extra, chain, sharedExtra } of cases.slice(part * size, (part + 1) * size)) {
+        const inner = branching(width);
+        const doc = plain ? inner : op("map", fn(["item"], inner), op("range", range));
+        const ctx = context({ names: { limit: levels } });
+        const work = applications(width, levels);
+        for (const maxWork of [1, work - 1, work, work + 1, 3 * work, 3 * work + 3, 200]) {
+          const outcome = agree(machineOf(Math.max(1, maxWork)), doc, ctx, { strict: true, definitions });
+          expect(outcome, outcome.ok ? "" : outcome.reason).toMatchObject({ ok: true });
+          // The stepper gives the result of the reference at each limit (STEPPER.WORK).
+          const machine = machineOf(Math.max(1, maxWork));
+          expect(stepper(machine, doc, ctx, { profile: { ops } }), `${maxWork}`).toEqual(reference(machine, doc, ctx, { definitions }));
+        }
+        // A generated tree: a chain of generated levels and shared lists under the same limits.
+        const tree = helper ? node("binH", { d: 0, limit: levels, y: self("x") }) : node("binP", { d: 0, limit: levels, y: self("x") });
+        const nodes = 2 ** (levels + 1) - 2;
+        for (const maxWork of [0, 8 * nodes - 1, 8 * nodes, 7, extra]) agreed(treeMachine(maxWork), tree);
+        const shared = sharedChain(chain);
+        for (const maxWork of [0, 1, 2, sharedExtra]) agreed(treeMachine(maxWork), shared);
+        agreesTotals.cases += 1;
       }
-      // A generated tree: a chain of generated levels and shared lists under the same limits.
-      const tree = seeds.chance(0.5) ? node("binH", { d: 0, limit: levels, y: self("x") }) : node("binP", { d: 0, limit: levels, y: self("x") });
-      const nodes = 2 ** (levels + 1) - 2;
-      for (const maxWork of [0, 8 * nodes - 1, 8 * nodes, 7, 8 + seeds.int(40)]) agreed(treeMachine(maxWork), tree);
-      const shared = sharedChain(1 + seeds.int(6));
-      for (const maxWork of [0, 1, 2, 3 + seeds.int(30)]) agreed(treeMachine(maxWork), shared);
-    }
+      agreesTotals.parts += 1;
+    });
+  }
+
+  it("[WORK.AGREES] the parts of the agreement examine all 60 generated cases", () => {
+    expect(agreesTotals).toEqual({ cases: 60, parts: agreesParts });
   });
 });
