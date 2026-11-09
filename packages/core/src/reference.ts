@@ -119,6 +119,8 @@ interface Meter {
   spent: number;
   /** `true` after the end of the evaluation. Then each entry from the host starts a new count (WORK.AFTER). */
   ended: boolean;
+  /** The count of the applications of closures that run at this time, in each state of the evaluation (WORK.AFTER). */
+  active: number;
 }
 
 /** The state of one evaluation of the reference. */
@@ -731,7 +733,7 @@ function evaluateRoot(machine: Machine, doc: unknown, context: Context, options:
  */
 function spend(env: Pick<Env, "maxWork" | "meter" | "applying">, points: number): void {
   const meter = env.meter;
-  if (meter.ended && env.applying === 0) meter.spent = 0;
+  if (meter.ended && meter.active === 0) meter.spent = 0;
   meter.spent += points;
   if (meter.spent > env.maxWork) throw new Failure(workFailure(env.maxWork));
 }
@@ -781,7 +783,7 @@ function envOf(machine: Machine, options: ReferenceOptions, running: boolean, ro
     held: 0,
     applying: 0,
     maxWork: machine.maxWork ?? WORK_LIMIT,
-    meter: meter ?? { spent: 0, ended: false },
+    meter: meter ?? { spent: 0, ended: false, active: 0 },
     nested: meter !== undefined,
     reading: outer ?? (options.reads === undefined ? undefined : { list: options.reads, root }),
   };
@@ -1521,22 +1523,28 @@ export function formulaDefinitions(profile: FormulaProfile = {}): Definitions {
     const names = params as readonly string[];
     const body = partNamed(parts, "body") as Part;
     // FORMULA.CALL-DEPTH: the evaluation that makes the closure counts its applications. A quarter of maxDepth is the limit.
-    const clock = activeEnvs[activeEnvs.length - 1] ?? { applying: 0, maxDepth: 1000, maxWork: WORK_LIMIT, meter: { spent: 0, ended: false } };
+    const maker = activeEnvs[activeEnvs.length - 1];
+    const clock = maker ?? { applying: 0, maxDepth: 1000, maxWork: WORK_LIMIT, meter: { spent: 0, ended: false, active: 0 } };
     const limit = Math.ceil(clock.maxDepth / 4);
     const closure = (...args: readonly unknown[]): unknown => {
       if (clock.applying >= limit) throw new Failure(fail("#DEPTH!", `The applications of functions nest deeper than ${limit} levels.`).error);
       // WORK.LIMIT: each application counts one point, after the clock of its depth.
       spend(clock, 1);
       clock.applying += 1;
+      clock.meter.active += 1;
       try {
         const scope: Record<string, unknown> = {};
         for (const key of Object.keys(context.names)) setField(scope, key, context.names[key]);
         names.forEach((name, index) => setField(scope, name, args[index]));
-        const result = body.evaluate({ ...context, names: scope });
+        // The body evaluates in the state of the evaluation that made the closure, also for a host after the end. Thus a
+        // node of a tree in the body has the machine for its equations (WORK.AFTER).
+        const scoped: Context = { ...context, names: scope };
+        const result = maker === undefined ? body.evaluate(scoped) : within(maker, () => body.evaluate(scoped));
         if (!result.ok) throw new Failure(result.error);
         return result.value;
       } finally {
         clock.applying -= 1;
+        clock.meter.active -= 1;
       }
     };
     Object.defineProperty(closure, CLOSURE, { value: { params: names } });

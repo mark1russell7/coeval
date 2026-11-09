@@ -9,6 +9,7 @@ import {
   type Machine,
   type Result,
   Failure,
+  STD_MACHINE,
   context,
   fail,
   formulaDefinitions,
@@ -98,6 +99,32 @@ describe("the stepper of the formula kit", () => {
     const machine = { ...MACHINE, maxDepth: 8 };
     const loop = fn(["f"], call(name("f"), name("f")));
     same(machine, call(loop, loop), context(), DEFINED, PROFILE);
+  });
+
+  it("[STEPPER.WORK] the stepper counts one point for each application of a closure, with the limit and the place of the reference", () => {
+    const ten = letIn({ f: fn(["x"], name("x")) }, { type: "list", value: Array.from({ length: 10 }, (_item, index) => call(name("f"), lit(index))) });
+    expect(same({ ...MACHINE, maxWork: 10 }, ten, context(), DEFINED, PROFILE)).toEqual(ok([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]));
+    expect(same({ ...MACHINE, maxWork: 9 }, ten, context(), DEFINED, PROFILE)).toMatchObject({ ok: false, error: { code: "#WORK!", place: ["body", 9] } });
+    // An application by an operation of the host counts one point too (WORK.HOST).
+    const hosted: Json = { type: "list", value: Array.from({ length: 3 }, (_item, index) => op("apply", fn(["x"], name("x")), lit(index))) };
+    expect(same({ ...MACHINE, maxWork: 3 }, hosted, context(), DEFINED, PROFILE)).toEqual(ok([0, 1, 2]));
+    expect(same({ ...MACHINE, maxWork: 2 }, hosted, context(), DEFINED, PROFILE)).toMatchObject({ ok: false, error: { code: "#WORK!" } });
+    // After the end, each call from the host starts a new count (WORK.AFTER).
+    const kept = stepper({ ...MACHINE, maxWork: 1 }, fn(["n"], op("add", name("n"), lit(1))), context(), { profile: PROFILE });
+    const closure = (kept as { readonly value: (n: number) => number }).value;
+    for (let index = 0; index < 5; index += 1) expect(closure(index)).toBe(index + 1);
+    // A host that steps one configuration at a time keeps the count in the configuration.
+    let now = stepperStart({ ...MACHINE, maxWork: 9 }, ten, context());
+    while (now.mode !== "done") now = JSON.parse(JSON.stringify(stepperNext({ ...MACHINE, maxWork: 9 }, now, { profile: PROFILE }))) as Configuration;
+    expect(now.result).toMatchObject({ ok: false, error: { code: "#WORK!" } });
+  });
+
+  it("[STEPPER.STD] on the standard machine, a compiled standard evaluator gets the definition of the reference", () => {
+    const at = context({ names: { a: 3, b: { c: [4] } } });
+    expect(same(STD_MACHINE, { type: "ref", value: ["names", "a"] }, at)).toEqual(ok(3));
+    expect(same(STD_MACHINE, { type: "ref", value: ["names", "b", "c", 0] }, at)).toEqual(ok(4));
+    expect(same(STD_MACHINE, { type: "ref", value: ["names", "gone"] }, at).ok).toBe(false);
+    expect(same(STD_MACHINE, { type: "ref", value: [] }, at)).toMatchObject({ ok: false, error: { code: "#VALUE!" } });
   });
 
   it("[STEPPER.PROFILE] an exception of a rule of the profile names the evaluator", () => {
@@ -242,6 +269,35 @@ describe("effects in the stepper", () => {
     expect(stepper(says, doc, context({ caps: [["log"]] }), { effects: seen, perform: (effect) => `done ${String(effect.payload)}` })).toEqual(ok("done a"));
     expect(seen.map((effect) => [effect.kind, effect.address])).toEqual([["log", "#0"]]);
     same(says, doc, context({ caps: [] }));
+  });
+
+  it("[STEPPER.NEXT-STATE] steps of stepperNext give each effect the address and the index of stepper", () => {
+    const base = formulaMachine(PROFILE);
+    const both = { ...base, world: { ...base.world, kinds: { ...base.world.kinds, say: { verbs: { eval: "say" } } } }, evaluators: { ...base.evaluators, say: (says as { readonly evaluators: Machine["evaluators"] }).evaluators["say"] } } as Machine;
+    // Two calls of one closure: two effects at one place, each in its own step.
+    const twice = letIn({ f: fn([], doc as Json) }, { type: "list", value: [call(name("f")), call(name("f"))] });
+    const at = context({ caps: [["log"]] });
+    const show = (list: readonly Effect[]) => list.map((effect) => [effect.index, effect.address]);
+    const whole: Effect[] = [];
+    stepper(both, twice, at, { profile: PROFILE, effects: whole });
+    expect(show(whole)).toEqual([
+      [0, "bind/f/body#0"],
+      [1, "bind/f/body#1"],
+    ]);
+    // A host with one list for all its steps, and a host with no list that stores each configuration as JSON.
+    const listed: Effect[] = [];
+    let now = stepperStart(both, twice, at);
+    while (now.mode !== "done") now = stepperNext(both, now, { profile: PROFILE, effects: listed });
+    expect(show(listed)).toEqual(show(whole));
+    const performed: Effect[] = [];
+    const perform = (effect: Effect): unknown => {
+      performed.push(effect);
+      return effect.payload;
+    };
+    now = stepperStart(both, twice, at);
+    while (now.mode !== "done") now = JSON.parse(JSON.stringify(stepperNext(both, now, { profile: PROFILE, perform }))) as Configuration;
+    expect(show(performed)).toEqual(show(whole));
+    expect(now.result).toEqual(ok(["a", "a"]));
   });
 
   it("[STEPPER.EFFECT] a mock that throws or waits gives the error of the reference", () => {
