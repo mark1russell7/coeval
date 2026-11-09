@@ -198,7 +198,12 @@ export function generate(world: World, options: GenerateOptions): unknown {
   const envelope = (type: readonly Key[], value: Json, header?: string): Json => {
     const out: Record<string, Json> = { type: renderType(type), value };
     if (header !== undefined) out["name"] = header;
-    if (options.own !== undefined && options.own.length > 0 && rng.chance(0.03)) out["own"] = { eval: rng.pick(options.own) };
+    if (options.own !== undefined && options.own.length > 0 && rng.chance(0.03)) {
+      const code = rng.pick(options.own);
+      // The code of a kind binds the names of its scope rules (C7). An own entry of other code does not, thus a kind
+      // with scope rules gets no own entry (GEN.CONTRACTS). The draws stay, thus each other document stays the same.
+      if ((kindOf(type)?.scope ?? []).length === 0) out["own"] = { eval: code };
+    }
     return out;
   };
 
