@@ -3127,7 +3127,7 @@ Thus a later case ran on the heap and the type feedback of the earlier cases. An
 - The spread rule: the 5th to 95th percentile of IN ORDER / A1 inside the same band of A2 / A1. It compares two spreads.
 - With no effect, that rule kept a case in 0.245 of the tries of a simulation. Thus it split 3 of 4 cases by noise.
 - The interval of the median inside the A/A band. It kept a case with no effect in 0.96 of the tries.
-- It caught a shift of 1.07 with the noise of PLAN.FIXED a path in each try. The strategist chose the verdict of the strategy, not a new rule.
+- It caught a shift of 1.07 with the noise of PLAN.FIXED a path in each try. The maintainer chose the verdict of the strategy, not a new rule.
 - The verdict with E wider by half the 5th to 95th percentile band of A2 / A1. That term is a spread of single processes, not of a median.
 - With no effect, it gave "no change" in 0.075 of the tries with the noise of run 2, and 0.063 with run 1.
 - The amended verdict above uses the A/A interval of the median, at the level of E. With no effect, it gives 0.246. It does not change the split.
