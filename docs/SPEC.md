@@ -721,14 +721,15 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | STEPPER.SPLIT | The stepper reads each shape itself. It gives the parts, the data and the reason of each error of `partsOf`. |
 | STEPPER.LOOKUP | The stepper reads the lookup itself. It gives the kind of `lookupKind` through aliases, namespaces and fallbacks. |
 | STEPPER.PATH | The stepper walks a path itself. It gives the value or the error of `resolve` for keys, references, cycles, deref code and walkers. |
-| STEPPER.CLOSURE | A closure is data in a configuration. Host code gets a function, and a call of that function starts a nested stepper. |
+| STEPPER.CLOSURE | A closure in a configuration is a value that only the stepper makes. Host code gets a function, and a call of that function starts a nested stepper. |
+| STEPPER.FORGE | A record from data is data, also with the key `coeval.closure` or `coeval.held`. A call of it gives the `#VALUE!` of `reference` with no effect. A read of it gives the record. |
 | STEPPER.LIMIT | The applications of functions have the limit of `reference`: the count of the active applications, with a nested stepper too. |
 | STEPPER.WORK | The stepper counts one point for each application of a closure, by `call` or by an operation of the host. The point past `maxWork` gives the `#WORK!` of `reference`, at the same place. After the end, each call from the host starts a new count. A configuration from `stepperNext` holds the count. |
 | STEPPER.STD | A compiled evaluator of the standard machine gets the definition of `reference`, unless the option `definitions` gives another one. Thus the standard `ref` gives the result of `reference`. |
 | STEPPER.PROFILE | An exception of a rule of the profile gives the error of `reference`, with the name of the evaluator of the document. |
 | STEPPER.EFFECT | An effect of a host evaluator has the capability test, the address, the mock and the outcome of `reference`. A runner gives `#NOEVAL`. |
 | STEPPER.DEEP | A list nested 100000 times evaluates, because the stepper does not use the stack of the host for the nesting. The limit `maxDepth` stays. |
-| STEPPER.DATA | A configuration of a pure document of the formula kit survives `JSON.stringify` and `JSON.parse` at each step, and the run gives the same result. |
+| STEPPER.DATA | A configuration of a document of the formula kit goes through JSON with `encodeConfiguration` and `decodeConfiguration` at each step. The run gives the same result, and a record of data stays data. |
 | STEPPER.NEXT-STATE | Each call of `stepperNext` has a new program. Thus a configuration from it holds the count of work, the count of the effects at each place and the number of effects. Steps give each effect the address and the index of `stepper`, also through JSON. |
 | STEPPER.PURE | `stepperNext` leaves its configuration as it is. A host can step one configuration twice, and it gets equal configurations. |
 

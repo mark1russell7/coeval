@@ -2,6 +2,19 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.30.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. The JSON form of a configuration of the stepper changes, and a record from data with the key `coeval.held` is no longer an error. Two new exports.
+
+### Changes of behavior
+
+- **The stepper keeps its closures and held errors apart from data (D199).** A record from data with the key `coeval.closure` or `coeval.held` is data, as in the plan and the reference (STEPPER.FORGE).
+- **A configuration goes through JSON with a codec (STEPPER.DATA).** `JSON.stringify` with no codec gives each closure back as data.
+
+### Added
+
+- `encodeConfiguration` and `decodeConfiguration`: the JSON form of a configuration of the stepper, and the configuration of a form.
+
 ## 0.29.0
 
 The release train changes the range of `@mark1russell7/collections` to a version outside the old range. The public types name @mark1russell7/collections, so its new version outside the old range can change them.
