@@ -312,6 +312,7 @@ conforms: build/index.d.ts#conforms
 context: build/index.d.ts#context
 cycles: build/index.d.ts#cycles
 dataEdges: build/index.d.ts#dataEdges
+decodeConfiguration: build/index.d.ts#decodeConfiguration
 decodeDomain: build/index.d.ts#decodeDomain
 decodeLog: build/index.d.ts#decodeLog
 decodeValue: build/index.d.ts#decodeValue
@@ -325,6 +326,7 @@ edgesOf: build/index.d.ts#edgesOf
 effectEdges: build/index.d.ts#effectEdges
 effectsOf: build/index.d.ts#effectsOf
 effectsOfVerb: build/index.d.ts#effectsOfVerb
+encodeConfiguration: build/index.d.ts#encodeConfiguration
 encodeLog: build/index.d.ts#encodeLog
 encodeValue: build/index.d.ts#encodeValue
 entriesAsJson: build/index.d.ts#entriesAsJson
@@ -2607,6 +2609,9 @@ export declare function cycles<Id>(graph: NodeGraph<Id>): readonly GraphCycle<Id
 ### build/index.d.ts#dataEdges
 export declare function dataEdges(steps: readonly StepSpec[]): readonly Edge[];
 
+### build/index.d.ts#decodeConfiguration
+export declare function decodeConfiguration(data: Json): Configuration;
+
 ### build/index.d.ts#decodeDomain
 export declare function decodeDomain(data: Json, domains: Domains): Result;
 
@@ -2648,6 +2653,9 @@ export declare function effectsOf(machine: Machine, doc: unknown, options?: Effe
 
 ### build/index.d.ts#effectsOfVerb
 export declare function effectsOfVerb(kind: Kind, verb: string): "type" | readonly string[] | undefined;
+
+### build/index.d.ts#encodeConfiguration
+export declare function encodeConfiguration(configuration: Configuration): Json;
 
 ### build/index.d.ts#encodeLog
 export declare function encodeLog(machine: Pick<Machine, "domains">, log: ReplayLog): ReplayLogJson;

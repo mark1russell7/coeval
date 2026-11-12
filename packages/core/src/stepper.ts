@@ -110,7 +110,7 @@ interface Shared {
   readonly stack: readonly Frame[];
   /** The count of the active applications of functions (FORMULA.CALL-DEPTH). */
   readonly applying: number;
-  /** `true` after a closure or a held error goes in a value. Only then does a value need a change for the host. */
+  /** `true` after a closure goes in a value. Only then does a value need a change for the host. */
   readonly marked: boolean;
   /** The work of the evaluation after the last call of `stepperNext` (WORK.LIMIT). A configuration without it has done no work. */
   readonly work?: number;
@@ -121,8 +121,9 @@ interface Shared {
 }
 
 /**
- * One configuration of the stepper. It is data: for a pure document of the formula kit, it survives `JSON.stringify` and
- * `JSON.parse` (STEPPER.DATA).
+ * One configuration of the stepper. A closure and a held error in it are values that only the stepper makes
+ * (STEPPER.FORGE). Thus a configuration goes through JSON with `encodeConfiguration` and `decodeConfiguration`
+ * (STEPPER.DATA).
  *
  * - `evaluate`: the document `value` starts, with a new evaluation at its depth.
  * - `resume`: a document gave `result`, and the top frame takes it.
@@ -183,8 +184,11 @@ interface Program {
   ended: boolean;
 }
 
+/** The keys of the JSON form of a configuration: a closure, a held error, and a record of data with one of these keys. */
 const CLOSURE_MARK = "coeval.closure";
 const HELD_MARK = "coeval.held";
+const DATA_MARK = "coeval.data";
+const MARKS: readonly string[] = /* @__PURE__ */ Object.freeze([CLOSURE_MARK, HELD_MARK, DATA_MARK]);
 const CLOSURE: unique symbol = /* @__PURE__ */ Symbol.for("coeval.closure") as never;
 const MAX_ALIASES = 32;
 const MAX_COLLAPSE = 64;
@@ -207,13 +211,25 @@ function setField(target: Record<string, unknown>, key: string, value: unknown):
   Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
-function closureOf(value: unknown): Closure | undefined {
-  return isRecord(value) && Object.hasOwn(value, CLOSURE_MARK) ? (value[CLOSURE_MARK] as unknown as Closure) : undefined;
+/**
+ * A closure of the stepper as a value. Only the construct `fn` and `decodeConfiguration` make one. A document gives only
+ * data, thus it cannot make a closure with a context of its choice (STEPPER.FORGE, D199).
+ */
+class StepClosure {
+  readonly closure: Closure;
+
+  constructor(closure: Closure) {
+    this.closure = closure;
+  }
 }
 
+function closureOf(value: unknown): Closure | undefined {
+  return value instanceof StepClosure ? value.closure : undefined;
+}
+
+/** A held error is a `Held`, as in the plan. A record of data with the old key is data (STEPPER.FORGE, D199). */
 function heldOf(value: unknown): EvalError | undefined {
-  if (value instanceof Held) return value.error;
-  return isRecord(value) && Object.hasOwn(value, HELD_MARK) ? (value[HELD_MARK] as unknown as EvalError) : undefined;
+  return value instanceof Held ? value.error : undefined;
 }
 
 /** The judgment 2: K-START and K-COMPUTED. */
@@ -466,7 +482,7 @@ function popped(c: Configuration): void {
 }
 
 /** H-SEAL: the evaluation of a part, with the frame that waits for it on top of the stack. */
-function enter(c: Configuration, frame: { at: readonly Key[] }, site: Site, slot: Slot, given?: Context, marked: boolean = c.marked): Evaluating {
+function enter(c: Configuration, frame: { at: readonly Key[] }, site: Site, slot: Slot, given?: Context): Evaluating {
   frame.at = slot.path;
   return {
     mode: "evaluate",
@@ -477,7 +493,7 @@ function enter(c: Configuration, frame: { at: readonly Key[] }, site: Site, slot
     ctx: contextOf(site, slot, given),
     stack: c.stack,
     applying: c.applying,
-    marked,
+    marked: c.marked,
   };
 }
 
@@ -615,7 +631,7 @@ function hostClosure(p: Program, value: object, closure: Closure): unknown {
   return fn;
 }
 
-/** This function gives a value to host code: a closure is a function, and a held error is a `Held`. */
+/** This function gives a value to host code: a closure is a function. A held error is a `Held` in the stepper too. */
 function forHost(p: Program, c: Configuration, value: unknown): unknown {
   p.applying = c.applying;
   return c.marked ? hostValue(p, value) : value;
@@ -626,11 +642,9 @@ function hostValue(p: Program, value: unknown): unknown {
     const items = (value as readonly unknown[]).map((item) => hostValue(p, item));
     return items.some((item, index) => item !== value[index]) ? items : value;
   }
-  if (!isRecord(value)) return value;
   const closure = closureOf(value);
-  if (closure !== undefined) return hostClosure(p, value, closure);
-  const held = heldOf(value);
-  if (held !== undefined) return new Held(held);
+  if (closure !== undefined) return hostClosure(p, value as StepClosure, closure);
+  if (!isRecord(value)) return value;
   let out: Record<string, unknown> | undefined;
   for (const key of Object.keys(value)) {
     const item = hostValue(p, value[key]);
@@ -811,7 +825,7 @@ function construct(p: Program, c: Evaluating, name: string, doc: Envelope, keys:
         return back(c, fail("#VALUE!", "The params of fn are a list of different texts."));
       }
       const closure: Closure = { params: params as readonly string[], body: partNamed(slots, "body") as Slot, site, place: placeOf(c.stack) };
-      return back({ ...c, marked: true }, ok({ [CLOSURE_MARK]: closure }));
+      return back({ ...c, marked: true }, ok(new StepClosure(closure)));
     }
     case "formula.call": {
       const frame: CallFrame = { f: "call", at: NO_KEYS, site, args: partsUnder(slots, "args") };
@@ -1034,13 +1048,12 @@ function take(p: Program, c: Resuming, frame: Frame): Configuration {
       return resumeValues(p, c, frame);
     case "let": {
       const key = String((frame.slots[frame.next - 1] as Slot).path[1]);
-      setField(frame.names, key, result.ok ? result.value : { [HELD_MARK]: result.error });
-      const marked = c.marked || !result.ok;
+      setField(frame.names, key, result.ok ? result.value : new Held(result.error));
       const slot = nextOf(frame);
-      if (slot !== undefined) return enter(c, frame, frame.site, slot, undefined, marked);
+      if (slot !== undefined) return enter(c, frame, frame.site, slot);
       const tail: Frame = { f: "tail", at: NO_KEYS };
       stack[stack.length - 1] = tail;
-      return enter(c, tail, frame.site, frame.body, { ...frame.site.ctx, names: frame.names }, marked);
+      return enter(c, tail, frame.site, frame.body, { ...frame.site.ctx, names: frame.names });
     }
     case "call": {
       popped(c);
@@ -1167,6 +1180,65 @@ export function stepperNext(machine: Machine, configuration: Configuration, opti
     ...(p.counts.size === 0 ? {} : { counts: Object.fromEntries(p.counts) }),
     ...(effected === 0 ? {} : { effected }),
   };
+}
+
+
+/**
+ * This function gives the JSON form of a configuration (STEPPER.DATA). A closure becomes a record with the key
+ * `coeval.closure`, and a held error a record with the key `coeval.held`. A record of data with one of the keys of the
+ * form goes in a record with the key `coeval.data`. Thus `decodeConfiguration` tells data from a closure. A value that is
+ * not plain JSON stays as it is. A shared object stays shared, and `JSON.stringify` copies it.
+ */
+export function encodeConfiguration(configuration: Configuration): Json {
+  const done = new Map<object, unknown>();
+  const encode = (value: unknown): unknown => {
+    if (typeof value !== "object" || value === null) return value;
+    const known = done.get(value);
+    if (known !== undefined) return known;
+    let out: unknown = value;
+    if (value instanceof StepClosure) out = { [CLOSURE_MARK]: encode(value.closure) };
+    else if (value instanceof Held) out = { [HELD_MARK]: encode(value.error) };
+    else if (Array.isArray(value)) out = (value as readonly unknown[]).map(encode);
+    else if (isRecord(value)) {
+      const fields: Record<string, unknown> = {};
+      for (const key of Object.keys(value)) setField(fields, key, encode(value[key]));
+      out = Object.keys(value).some((key) => MARKS.includes(key)) ? { [DATA_MARK]: fields } : fields;
+    }
+    done.set(value, out);
+    return out;
+  };
+  return encode(configuration) as Json;
+}
+
+/**
+ * This function gives the configuration of a JSON form from `encodeConfiguration` (STEPPER.DATA). Only a record with the
+ * one key `coeval.closure` or `coeval.held` becomes a closure or a held error. The record in a record with the one key
+ * `coeval.data` is data, also with these keys. The host gives the form, thus the stepper trusts it as it trusts a context.
+ */
+export function decodeConfiguration(data: Json): Configuration {
+  const done = new Map<object, unknown>();
+  const decode = (value: unknown, data: boolean): unknown => {
+    if (typeof value !== "object" || value === null) return value;
+    const known = data ? undefined : done.get(value);
+    if (known !== undefined) return known;
+    let out: unknown = value;
+    if (Array.isArray(value)) out = (value as readonly unknown[]).map((item) => decode(item, false));
+    else if (isRecord(value)) {
+      const keys = Object.keys(value);
+      const mark = !data && keys.length === 1 ? keys[0] : undefined;
+      if (mark === CLOSURE_MARK) out = new StepClosure(decode(value[mark], false) as Closure);
+      else if (mark === HELD_MARK) out = new Held(decode(value[mark], false) as EvalError);
+      else if (mark === DATA_MARK && isRecord(value[mark])) out = decode(value[mark], true);
+      else {
+        const fields: Record<string, unknown> = {};
+        for (const key of keys) setField(fields, key, decode(value[key], false));
+        out = fields;
+      }
+    }
+    if (!data) done.set(value, out);
+    return out;
+  };
+  return decode(data, false) as Configuration;
 }
 
 /**

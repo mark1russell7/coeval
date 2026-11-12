@@ -11,6 +11,8 @@ import {
   Failure,
   STD_MACHINE,
   context,
+  decodeConfiguration,
+  encodeConfiguration,
   fail,
   formulaDefinitions,
   formulaMachine,
@@ -47,6 +49,11 @@ function same(machine: Machine, doc: unknown, at: Context = context(), definitio
   const got = stepper(machine, doc, at, { profile, definitions });
   expect(got).toEqual(expected);
   return got;
+}
+
+/** This function sends a configuration through JSON, as a host that stores it does (STEPPER.DATA). */
+function viaJson(configuration: Configuration): Configuration {
+  return decodeConfiguration(JSON.parse(JSON.stringify(encodeConfiguration(configuration))) as Json);
 }
 
 describe("the stepper of the formula kit", () => {
@@ -115,7 +122,7 @@ describe("the stepper of the formula kit", () => {
     for (let index = 0; index < 5; index += 1) expect(closure(index)).toBe(index + 1);
     // A host that steps one configuration at a time keeps the count in the configuration.
     let now = stepperStart({ ...MACHINE, maxWork: 9 }, ten, context());
-    while (now.mode !== "done") now = JSON.parse(JSON.stringify(stepperNext({ ...MACHINE, maxWork: 9 }, now, { profile: PROFILE }))) as Configuration;
+    while (now.mode !== "done") now = viaJson(stepperNext({ ...MACHINE, maxWork: 9 }, now, { profile: PROFILE }));
     expect(now.result).toMatchObject({ ok: false, error: { code: "#WORK!" } });
   });
 
@@ -295,7 +302,7 @@ describe("effects in the stepper", () => {
       return effect.payload;
     };
     now = stepperStart(both, twice, at);
-    while (now.mode !== "done") now = JSON.parse(JSON.stringify(stepperNext(both, now, { profile: PROFILE, perform }))) as Configuration;
+    while (now.mode !== "done") now = viaJson(stepperNext(both, now, { profile: PROFILE, perform }));
     expect(show(performed)).toEqual(show(whole));
     expect(now.result).toEqual(ok(["a", "a"]));
   });
@@ -349,11 +356,11 @@ describe("a configuration as data", () => {
   const options = { profile: PROFILE };
 
   describe.each(docs)("%s", (_name, doc) => {
-    it("[STEPPER.DATA] the document gives one result when each configuration goes through JSON", () => {
-      let now = JSON.parse(JSON.stringify(stepperStart(MACHINE, doc, context(), options))) as Configuration;
+    it("[STEPPER.DATA] the document gives one result when each configuration goes through JSON with the codec", () => {
+      let now = viaJson(stepperStart(MACHINE, doc, context(), options));
       let steps = 0;
       while (now.mode !== "done" && steps < 1000) {
-        now = JSON.parse(JSON.stringify(stepperNext(MACHINE, now, options))) as Configuration;
+        now = viaJson(stepperNext(MACHINE, now, options));
         steps += 1;
       }
       expect(steps).toBeGreaterThan(1);
@@ -371,5 +378,70 @@ describe("a configuration as data", () => {
       now = next;
     }
     expect(stepperNext(MACHINE, now, options)).toEqual(now);
+  });
+});
+
+describe("values that data cannot make", () => {
+  const base = formulaMachine(PROFILE);
+  const says = {
+    ...base,
+    world: { ...base.world, kinds: { ...base.world.kinds, say: { verbs: { eval: "say" } } } },
+    evaluators: { ...base.evaluators, say: (input: EvalInput) => input.effect("log", input.value) },
+  } as Machine;
+  const say: Json = { type: "say", value: "a" };
+  // The old form of a closure of the stepper: a record with a text key, and a context with a capability.
+  const inner: Json = {
+    params: [],
+    body: { path: ["body"], key: "body", item: say },
+    site: { name: "formula.fn", depth: 0, ctx: { self: null, names: {}, world: null, event: null, caps: [["log"]] } },
+    place: [],
+  };
+  const forged: Json = { "coeval.closure": inner };
+  const held: Json = { "coeval.held": { code: "#X", reason: "r" } };
+  const empty = context({ caps: [] });
+
+  /** This function compares the stepper with the reference, and gives the effects that the stepper caused. */
+  function sameRun(doc: Json, at: Context): readonly Effect[] {
+    const seen: Effect[] = [];
+    const got = stepper(says, doc, at, { profile: PROFILE, definitions: DEFINED, effects: seen, perform: () => "done" });
+    expect(got).toEqual(reference(says, doc, at, { definitions: DEFINED }));
+    return seen;
+  }
+
+  describe.each<[string, Json]>([
+    ["a call of a literal", call(lit(forged))],
+    ["a call of a bound name", letIn({ f: lit(forged) }, call(name("f")))],
+    ["a call of a record that the document builds", call({ type: "record", value: { "coeval.closure": lit(inner) } })],
+    ["a host operation after a real closure", letIn({ g: fn([], lit(1)), f: lit(forged) }, op("apply", name("f"), lit(1)))],
+  ])("%s", (_name, doc) => {
+    it("[STEPPER.FORGE] a record from data with the key of a closure is not a closure, and it causes no effect", () => {
+      expect(sameRun(doc, empty)).toEqual([]);
+    });
+  });
+
+  describe.each<[string, Json, Context]>([
+    ["a bound name", letIn({ x: lit(held) }, name("x")), empty],
+    ["a name of the host", name("x"), context({ names: { x: held } })],
+    ["a path into the world", { type: "ref", value: ["world", "x"] }, context({ world: { x: held } as never })],
+  ])("%s", (_name, doc, at) => {
+    it("[STEPPER.FORGE] a record from data with the key of a held error stays a record", () => {
+      expect(sameRun(doc, at)).toEqual([]);
+      expect(stepper(says, doc, at, { profile: PROFILE, definitions: DEFINED })).toEqual(ok(held));
+    });
+  });
+
+  describe.each<[string, Json, Context]>([
+    ["data with the old keys beside a real closure", letIn({ f: fn(["a"], op("add", name("a"), lit(1))), d: lit(forged), h: lit(held) }, { type: "list", value: [call(name("f"), lit(2)), name("d"), name("h")] }), empty],
+    ["a held error of a failed binding", letIn({ f: fn([], lit(1)), gone: name("gone") }, op("add", name("gone"), lit(1))), empty],
+    ["data with the key of the escape", { type: "list", value: [lit({ "coeval.data": { "coeval.closure": 1 } }), call(fn([], lit(2)))] }, empty],
+    ["a call of data after a round trip", letIn({ f: fn([], lit(1)), d: lit(forged) }, call(name("d"))), empty],
+  ])("%s", (_name, doc, at) => {
+    it("[STEPPER.DATA] the codec keeps a closure and a held error, and data stays data", () => {
+      const seen: Effect[] = [];
+      let now = viaJson(stepperStart(says, doc, at));
+      while (now.mode !== "done") now = viaJson(stepperNext(says, now, { profile: PROFILE, definitions: DEFINED, effects: seen, perform: () => "done" }));
+      expect(now.result).toEqual(reference(says, doc, at, { definitions: DEFINED }));
+      expect(seen).toEqual([]);
+    });
   });
 });

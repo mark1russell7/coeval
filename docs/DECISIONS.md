@@ -5577,3 +5577,27 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 - A copy of the list of capabilities, for example `[...context.caps]`, counts as a new list. The part then loses each clause kind that the host did not also give.
 - The kernel tells a spread from a new list by the identity of the list, as CAP.NARROW-CODE does.
+
+## D199 (2026-11-12): the stepper keeps its closures and held errors apart from data
+
+**Context.** D158 made a closure of the stepper a record with the key `coeval.closure`, and a held error a record with the key `coeval.held`. Thus a configuration survived JSON. A document can also write such a record as data. A review found that the stepper then called a record from data with the context in it, also with its capabilities. A record from data with the key of a held error became an error. The plan and the reference give `#VALUE!` and the record.
+
+**Decision.**
+
+- A closure of the stepper is an object of a private class, and a held error is a `Held`, as in the plan. Only the construct `fn`, a failed binding and the codec make them (STEPPER.CLOSURE).
+- A record from data is data, also with one of the two keys. A call of it gives `#VALUE!` with no effect, and a read of it gives the record (STEPPER.FORGE).
+- `encodeConfiguration` gives the JSON form of a configuration, and `decodeConfiguration` gives the configuration back (STEPPER.DATA). The form writes a closure and a held error with the old keys.
+- In the form, a record of data with one of the keys `coeval.closure`, `coeval.held` and `coeval.data` goes in a record with the key `coeval.data`. Thus the decoder tells data from a closure.
+
+**Alternatives.**
+
+- A `WeakSet` of the records that the stepper made. A configuration from JSON then has no closure, and the stepper needs the codec all the same.
+- A key that a document cannot write, for example a symbol. `JSON.stringify` drops a symbol, thus the closure goes out of the form.
+- A check of the record at each call. A document that writes the same record as the stepper then passes the check.
+
+**Why.** A value from data must not get the authority of a value from the kernel. A class in memory gives the stepper the test of the plan, `instanceof`. The codec keeps the one change of the form in one function, and a host calls it only when it stores a configuration.
+
+**Limits.**
+
+- A host that stores a configuration with `JSON.stringify` and no codec gets each closure back as data. A call of it then gives `#VALUE!`.
+- The decoder trusts its form, as the stepper trusts a context from the host. A host that reads a configuration from a source that it does not trust checks the source.
