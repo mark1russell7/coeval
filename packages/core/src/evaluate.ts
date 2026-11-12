@@ -209,6 +209,39 @@ function frameOf(ctx: Context): Frame | undefined {
   return (ctx as Framed)[FRAME];
 }
 
+/**
+ * The key of the clause kinds of a context (CAP.GRANT, D198): the kinds that the frames of the context answer. They are
+ * not capabilities. Thus a read of the root `caps` and the rule `permits` of the host do not see them. A context that
+ * code makes without a spread has none (HANDLE.KINDS). A spread of a context keeps them, and only the kernel writes
+ * them.
+ */
+const HANDLES = /* @__PURE__ */ Symbol("coeval.handles");
+
+/** A context that can have clause kinds. */
+type Handling = Context & { readonly [HANDLES]?: readonly Cap[] };
+
+/**
+ * This function gives the clause kinds of a context. When the code wrote its own list of capabilities, the context
+ * keeps only the clause kinds that this list permits (HANDLE.NARROW). The code does not see the clause kinds, thus such
+ * a list keeps a clause kind only when the host also granted it.
+ */
+function handlesOf(ctx: Context): readonly Cap[] | undefined {
+  const own = (ctx as Handling)[HANDLES];
+  return own === undefined || (ctx as Granted)[GRANT] === ctx.caps ? own : intersectCaps(own, ctx.caps);
+}
+
+/**
+ * This function gives the clause kinds of a context that code gives a part (CAP.MEET, HANDLE.KINDS). A spread of the
+ * context of the parent keeps them. A list of capabilities that the code wrote narrows them. A part also keeps only
+ * the kinds that its parent can cause, by the host or by a clause.
+ */
+function partHandles(parent: Context, next: Context, own: readonly Cap[]): readonly Cap[] {
+  const outer = (parent as Handling)[HANDLES];
+  if (next.caps === parent.caps && own === outer) return own;
+  const kept = next.caps === parent.caps ? own : intersectCaps(own, next.caps);
+  return intersectCaps(kept, outer === undefined ? parent.caps : [...parent.caps, ...outer]);
+}
+
 /** This function finds the frame and the clause that answer an effect. The innermost frame wins, then the first clause. */
 function clauseFor(start: Frame, keys: readonly Key[]): { readonly frame: Frame; readonly clause: Clause } | undefined {
   for (let frame: Frame | undefined = start; frame !== undefined; frame = frame.outer) {
@@ -262,6 +295,11 @@ function grantedCaps(ctx: Context): readonly Cap[] {
 function granted(ctx: Context): Context {
   if ((ctx as Granted)[GRANT] === ctx.caps) return ctx;
   const caps = grantedCaps(ctx);
+  // A list that the code wrote also narrows the clause kinds (HANDLE.NARROW).
+  if ((ctx as Handling)[HANDLES] !== undefined) {
+    const handling: Granted & Handling = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [HANDLES]: handlesOf(ctx) as readonly Cap[] };
+    return handling;
+  }
   const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
   return out;
 }
@@ -336,6 +374,14 @@ function readableOther(ctx: Context, epoch: readonly Cap[]): Context {
 function handed(parent: Context, next: Context): Context {
   const ctx = narrow(parent, next);
   const epoch = epochOf(parent);
+  const own = (next as Handling)[HANDLES];
+  if (own !== undefined) {
+    // The clause kinds of the part (HANDLE.KINDS). A context without them gets no clause.
+    const handles = partHandles(parent, next, own);
+    if ((ctx as Granted)[GRANT] === ctx.caps && epochOf(ctx) === epoch && (ctx as Handling)[HANDLES] === handles) return ctx;
+    const handling: Granted & Handling = { ...ctx, [GRANT]: ctx.caps, [EPOCH]: epoch, [HANDLES]: handles };
+    return handling;
+  }
   if ((ctx as Granted)[GRANT] === ctx.caps && epochOf(ctx) === epoch) return ctx;
   const out: Granted = { ...ctx, [GRANT]: ctx.caps, [EPOCH]: epoch };
   return out;
@@ -1457,14 +1503,17 @@ class Session implements Runtime {
   }
 
   /**
-   * This function finds the clause that answers an effect (D146). Without it, the effect goes on to the host. An effect
-   * without a capability gets no clause, thus `record` gives its `#CAP!` (HANDLE.NARROW). A clause of a frame that has
-   * ended gives `#CAP!`, because the capability came from that frame (HANDLE.ENDED).
+   * This function finds the clause that answers an effect (D146). Without it, the effect goes on to the host. The
+   * clause kinds of the context decide, by the rule of the kernel and not by the rule `permits` of the host (D198). An
+   * effect that they do not permit gets no clause, thus `record` checks it as an effect of the host (HANDLE.NARROW). A
+   * context of another epoch has no clause kinds (CAP.NARROW-KEPT). A clause of a frame that has ended gives `#CAP!`
+   * (HANDLE.ENDED).
    */
   private clauseOf(given: Context, start: Frame, kind: Cap, place: readonly Key[]): Clause | Result | undefined {
-    const ctx = inEpoch(given, this.epoch) ? granted(given) : ungranted(given, this.epoch);
+    if (!inEpoch(given, this.epoch)) return undefined;
+    const handles = handlesOf(given);
     const keys = typeof kind === "string" ? kind.split(".") : kind;
-    if (!this.permitted(ctx, keys)) return undefined;
+    if (handles === undefined || !permits(handles, keys)) return undefined;
     const found = clauseFor(start, keys);
     if (found === undefined) return undefined;
     if (found.frame.ended || found.frame.owner !== this) return fail("#CAP!", `The handler of the effect ${keys.join(".")} has ended.`, { place });
@@ -2396,9 +2445,18 @@ function gated(rules: readonly CapsRule[], part: Compiled): Compiled {
   const under = (given: Context): Context => {
     const ctx = granted(given);
     const caps = capsUnder(rules, ctx.caps);
-    if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
-    const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
-    return out;
+    const own = (ctx as Handling)[HANDLES];
+    // The rules narrow the clause kinds as they narrow the capabilities (HANDLE.NARROW).
+    const handles = own === undefined ? undefined : capsUnder(rules, own);
+    const same = caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0);
+    if (handles === undefined || own === undefined) {
+      if (same) return ctx;
+      const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
+      return out;
+    }
+    if (same && (handles === own || (handles.length === 0 && own.length === 0))) return ctx;
+    const handling: Granted & Handling = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [HANDLES]: handles };
+    return handling;
   };
   // The steps of an evaluator are `runOf` of its code, thus `runOf` of this code narrows the context the same way.
   return { code: (ctx, rt) => inner(under(ctx), rt), run: steps === undefined ? undefined : (ctx, rt) => steps(under(ctx), rt) };
@@ -2554,16 +2612,16 @@ function interpret(fn: EvalFn, input: CompileInput, fill: <P>(handles: readonly 
 }
 
 /**
- * This function runs a part under a new frame (D146). The part gets the capabilities of the document and the kinds of
- * the clauses (CAP.GRANT), with the grant of the kernel. A rule around an effect narrows them as it narrows any other
- * capability (HANDLE.NARROW). The frame ends with the steps.
+ * This function runs a part under a new frame (D146). The part keeps the capabilities of the document, and it gets the
+ * kinds of the clauses as clause kinds, not as capabilities (CAP.GRANT, D198). A rule around an effect narrows them as
+ * it narrows a capability (HANDLE.NARROW). The frame ends with the steps.
  */
 function* handling(given: Context, clauses: readonly Clause[], rt: Runtime, run: (ctx: Context) => Steps): Steps {
   const ctx = granted(given);
   const frame: Frame = { clauses, outer: frameOf(ctx), owner: rt, ended: false };
-  const caps = [...ctx.caps];
-  for (const clause of clauses) if (!permits(caps, clause.op)) caps.push(clause.op);
-  const inner: Granted & Framed = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [FRAME]: frame };
+  const handles = [...((ctx as Handling)[HANDLES] ?? NO_CAPS)];
+  for (const clause of clauses) if (!permits(handles, clause.op)) handles.push(clause.op);
+  const inner: Handling & Framed = { ...ctx, [FRAME]: frame, [HANDLES]: handles };
   try {
     return yield* run(inner);
   } finally {
