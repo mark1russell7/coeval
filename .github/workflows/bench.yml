@@ -70,7 +70,7 @@ jobs:
         pnpm-workspace.yaml
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@ddf7e495fc88b536e2ea89bb8271ac2d50b28baf # main
+        uses: mark1russell7/template/.github/actions/changes@4466542421ef76bcb3ccf5b5e1765d4f509f8f4f # main
         with:
           paths: ${{ env.GATE_PATHS }}
       # The action reads the files of a pull request from the API, so this step gives its rules a list of files.
@@ -220,7 +220,7 @@ jobs:
           GATE: ${{ needs.verdict.outputs.gate }}
           GATE_ANNOTATION: ${{ needs.verdict.outputs.gate_annotation }}
           GATE_OUTCOME: ${{ needs.verdict.outputs.gate_outcome }}
-      - uses: mark1russell7/template/.github/actions/gate-summary@ddf7e495fc88b536e2ea89bb8271ac2d50b28baf # main
+      - uses: mark1russell7/template/.github/actions/gate-summary@4466542421ef76bcb3ccf5b5e1765d4f509f8f4f # main
         if: always()
         with:
           needs: ${{ toJSON(needs) }}
