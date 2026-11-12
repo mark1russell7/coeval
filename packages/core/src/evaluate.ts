@@ -293,9 +293,15 @@ function grantedCaps(ctx: Context): readonly Cap[] {
  * and a context without a grant keeps none. The result has the grant of its capabilities.
  */
 function granted(ctx: Context): Context {
-  if ((ctx as Granted)[GRANT] === ctx.caps) return ctx;
+  return (ctx as Granted)[GRANT] === ctx.caps ? ctx : regranted(ctx);
+}
+
+/**
+ * This function is the rare path of `granted`, in a function of its own, because each part of the plan calls `granted`.
+ * A list that the code wrote also narrows the clause kinds (HANDLE.NARROW).
+ */
+function regranted(ctx: Context): Context {
   const caps = grantedCaps(ctx);
-  // A list that the code wrote also narrows the clause kinds (HANDLE.NARROW).
   if ((ctx as Handling)[HANDLES] !== undefined) {
     const handling: Granted & Handling = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [HANDLES]: handlesOf(ctx) as readonly Cap[] };
     return handling;
@@ -372,18 +378,22 @@ function readableOther(ctx: Context, epoch: readonly Cap[]): Context {
  * of the document, because the document permits each of its capabilities (CAP.NARROW-KEPT).
  */
 function handed(parent: Context, next: Context): Context {
+  const own = (next as Handling)[HANDLES];
+  if (own !== undefined) return handedKinds(parent, next, own);
   const ctx = narrow(parent, next);
   const epoch = epochOf(parent);
-  const own = (next as Handling)[HANDLES];
-  if (own !== undefined) {
-    // The clause kinds of the part (HANDLE.KINDS). A context without them gets no clause.
-    const handles = partHandles(parent, next, own);
-    if ((ctx as Granted)[GRANT] === ctx.caps && epochOf(ctx) === epoch && (ctx as Handling)[HANDLES] === handles) return ctx;
-    const handling: Granted & Handling = { ...ctx, [GRANT]: ctx.caps, [EPOCH]: epoch, [HANDLES]: handles };
-    return handling;
-  }
   if ((ctx as Granted)[GRANT] === ctx.caps && epochOf(ctx) === epoch) return ctx;
   const out: Granted = { ...ctx, [GRANT]: ctx.caps, [EPOCH]: epoch };
+  return out;
+}
+
+/** This function is `handed` for a context with clause kinds (HANDLE.KINDS). A context without them gets no clause. */
+function handedKinds(parent: Context, next: Context, own: readonly Cap[]): Context {
+  const ctx = narrow(parent, next);
+  const epoch = epochOf(parent);
+  const handles = partHandles(parent, next, own);
+  if ((ctx as Granted)[GRANT] === ctx.caps && epochOf(ctx) === epoch && (ctx as Handling)[HANDLES] === handles) return ctx;
+  const out: Granted & Handling = { ...ctx, [GRANT]: ctx.caps, [EPOCH]: epoch, [HANDLES]: handles };
   return out;
 }
 
@@ -2434,6 +2444,16 @@ function placedCode(inner: Code, place: readonly Key[], name: string): Code {
   };
 }
 
+/** This function narrows a context with clause kinds by capability rules. The rules narrow the clause kinds as they narrow the capabilities (HANDLE.NARROW). */
+function underKinds(rules: readonly CapsRule[], ctx: Context, own: readonly Cap[]): Context {
+  const caps = capsUnder(rules, ctx.caps);
+  const handles = capsUnder(rules, own);
+  const same = caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0);
+  if (same && (handles === own || (handles.length === 0 && own.length === 0))) return ctx;
+  const out: Granted & Handling = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [HANDLES]: handles };
+  return out;
+}
+
 /**
  * This function gives the code of a part that capability rules cover. The code narrows the context of the part by
  * the rules before the part starts. First the context keeps only the capabilities of its grant, thus a compiled
@@ -2444,19 +2464,12 @@ function gated(rules: readonly CapsRule[], part: Compiled): Compiled {
   const steps = part.run;
   const under = (given: Context): Context => {
     const ctx = granted(given);
-    const caps = capsUnder(rules, ctx.caps);
     const own = (ctx as Handling)[HANDLES];
-    // The rules narrow the clause kinds as they narrow the capabilities (HANDLE.NARROW).
-    const handles = own === undefined ? undefined : capsUnder(rules, own);
-    const same = caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0);
-    if (handles === undefined || own === undefined) {
-      if (same) return ctx;
-      const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
-      return out;
-    }
-    if (same && (handles === own || (handles.length === 0 && own.length === 0))) return ctx;
-    const handling: Granted & Handling = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx), [HANDLES]: handles };
-    return handling;
+    if (own !== undefined) return underKinds(rules, ctx, own);
+    const caps = capsUnder(rules, ctx.caps);
+    if (caps === ctx.caps || (caps.length === 0 && ctx.caps.length === 0)) return ctx;
+    const out: Granted = { ...ctx, caps, [GRANT]: caps, [EPOCH]: epochOf(ctx) };
+    return out;
   };
   // The steps of an evaluator are `runOf` of its code, thus `runOf` of this code narrows the context the same way.
   return { code: (ctx, rt) => inner(under(ctx), rt), run: steps === undefined ? undefined : (ctx, rt) => steps(under(ctx), rt) };
