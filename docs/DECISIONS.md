@@ -5771,3 +5771,41 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
 
 **SemVer.** No export of the package changes.
+
+## D213 (2026-11-13): an open fixed point keeps each tentative result for its round
+
+**Context.** K265, from a review. D113 says that each attribute that read an approximation evaluates again at its next demand. Thus a value from an approximation does not stay as a final value. But the fixed point also kept no value for the current round. Thus two readers in one round evaluated a plain attribute two times, and each evaluation evaluated its own tentative reads again.
+
+- A chain of k plain attributes with two readers at each level evaluated the last attribute 2^k times in each round.
+- The work limit counts the applications of closures, the nodes that an equation makes and the second visits of JSON (WORK.LIMIT). Thus no `#WORK!` stopped such a chain.
+- A chain of 40 levels, in a document of approximately 2.5 KB, did not end in a practical time. Its value was correct when it came.
+- Both tiers had the fault, thus `agree` did not find it.
+
+The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial.
+
+**Decision.**
+
+- The values of an open fixed point also keep each result that read an approximation, with the number of its round (TREE.CIRCULAR-ONCE). In the plan, these values are `loop.values`. In the reference, they are `point.values`.
+- A second demand in the same round gets the kept result. That demand also reads an approximation, thus its own result is not final.
+- The next round evaluates the attribute again, because the kept result has the number of an earlier round.
+- Thus one memo with the number of the round holds the tentative results and the approximations of the circular attributes.
+- A stable fixed point writes only its circular attributes to the memo of their nodes, as before. Each other attribute that read an approximation evaluates again at its next demand after the fixed point (D113).
+- An instance of `tree.at` follows the same rule. With the cells of a host, an open fixed point also keeps a final instance until it ends. D113 already did this for a final plain attribute.
+- TREE.ONCE names the new row.
+
+**Alternatives.**
+
+- A point of work for each climb of the ladder in an open fixed point. Then `#WORK!` stops the chain, but the work below the limit stays exponential. A legal document of medium size then also gives `#WORK!`.
+- A final value for each attribute of the last round. That changes D113 and TREE.CIRCULAR-CELL, and K265 does not need it.
+- A record of the approximations that each tentative result read, and a new evaluation only when one of them changes. In a round, each circular attribute has one value (D113). Thus a second evaluation reads the same values, and the record gives no gain.
+
+**Why.** A circular attribute already evaluates one time in each round (D113). With D213, the same memo with the number of the round serves each attribute of the fixed point. In one round, the first evaluation of a tentative result sets the value of the round of each circular attribute that it reads. A second evaluation reads the same values, thus the memo gives the same result. The exception is a `#CYCLE!`, because its chain comes from the demands in evaluation (Limits).
+
+**Limits.**
+
+- A plain attribute that read an approximation still evaluates one more time after the fixed point, at its next demand (D113). Thus it evaluates one time in each round and one time after the rounds.
+- The kept result is the first result of the round. When that result is a `#CYCLE!` of a mixed cycle, a second reader in the round gets the same error and the same chain. Before, the second reader evaluated the attribute again. That evaluation found the cycle again with its own chain, or found no cycle when the attribute of the cycle had ended. Outside a fixed point, the plain memo already gave the first result to each reader (TREE.ONCE).
+- `markTentative` and `readApproximation` visit each demand above the leader at each read of an approximation. Thus a chain of n levels takes approximately n² steps in each round. That is polynomial.
+- An evaluator of the host in a fixed point gets fewer calls. A document that gave `#WORK!` for this work can give a value with D213.
+
+**SemVer.** No export changes. But the chain of a `#CYCLE!` in a mixed cycle can change, and an evaluator of the host gets fewer calls. A document that gave `#WORK!` can give a value. Thus the change counts as breaking: MINOR before 1.0.0.
