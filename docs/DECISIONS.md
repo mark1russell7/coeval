@@ -5843,7 +5843,7 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 
 **SemVer.** No export of the package changes.
 
-## D211 (2026-11-12): `check` splits the value of each document one time in each walk
+## D211 (2026-11-13): `check` splits the value of each document one time in each walk
 
 **Context.** K297, after D205. The ladder arm `check shared` allocated approximately 35 KB for each node at 2000 levels. A larger heap gives more work to the collector of the heap, and its share grew with the size (D205).
 
