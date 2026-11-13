@@ -294,7 +294,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
 
 /**
  * This function gives the clause kinds of a part, as a run gives them. They are the kinds of the document and the
- * kinds of a grant. Then the rules of the kind narrow them (HANDLE.NARROW, D198). The walk calls it only for a part
+ * kinds of a grant. Then the rules of the kind narrow them (HANDLE.NARROW, D198). The walk uses it only for a part
  * with a grant, or with clause kinds under capability rules. Its spread is large bytecode, and an inline of it in the
  * walk takes the budget of splitParts.
  */
