@@ -5552,6 +5552,40 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 - The stepper does not evaluate the equations of a tree. Thus WORK.NODE has no test in the stepper.
 - A host call of a closure in the stepper also puts back the count of the applications of its start. Before, a failed call left a higher count.
 
+## D198 (2026-11-12): the clause kinds of a handler stay on its frame, not in the capabilities
+
+**Context.** D146 made each clause kind a capability of the body. Thus code in the body and the rule `permits` of the host saw a clause kind as a capability that the host gave. A context that code made from that list kept the kind with no frame, and its effect went to the host. A review found this fault and two more of the same cause. The hook saw the kinds, and a read of the root `caps` gave other lists in the two tiers.
+
+**Decision.**
+
+- A context keeps its clause kinds in a field that only the kernel writes, beside its frame. The capabilities of a part hold only what the host gave (CAP.GRANT, HANDLE.KINDS).
+- The kernel finds a clause by its own rule `permits` on the clause kinds. The rule `permits` of the host sees only the capabilities.
+- The rules `mask` and `only` narrow the clause kinds as they narrow the capabilities, after a grant of the same part. The reference does the same, thus the two tiers agree (HANDLE.NARROW).
+- A context that code gives a part keeps the clause kinds that its parent can cause, by the host or by a clause. A context that code makes without a spread has none.
+- A list of capabilities that code writes for a part also narrows its clause kinds. The code does not see the clause kinds, thus it cannot keep one by a copy of its list.
+- `check` and `effectsOf` read the clause kinds apart from the capabilities, as a run does.
+
+**Alternatives.**
+
+- A check of the epoch of each clause kind. A part under a mask below a root with the capability passed that check.
+- A frame for each context that code makes, from its parent. Then an effect of a context that left the body went to the host, and HANDLE.ENDED changed.
+- No change of the clause kinds by a list that code writes. A runner that gives its part no capabilities then let a clause around it answer an effect of the part.
+
+**Why.** A capability is a grant of the host, and a clause kind is a grant of the kernel. One list for both let each consumer of the list confuse them. Two fields keep each rule simple: the host reads one, and the kernel reads both.
+
+**Limits.**
+
+- A copy of the list of capabilities, for example `[...context.caps]`, counts as a new list. The part then loses each clause kind that the host did not also give.
+- The kernel tells a spread from a new list by the identity of the list, as CAP.NARROW-CODE does.
+
+**Speed.**
+
+- The first head read 4 cases slower on two CPU models (Speed run 43327928958). The largest cost was `factsOf a tree with an equation`, at +22.4 % and +13.1 %.
+- A trace of the inline decisions of V8 found its cause. The walk of a check used `handledOf` for each part, and V8 put it into the walk first. The walk then had no room for `splitParts`.
+- The walk uses `handledOf` only for a part with a grant, or with clause kinds under rules. The case then read +1.2 % and -1.1 % (Speed run 43334266551).
+- `FORMULA.SPEED formula` and `a reference through an envelope` stay slower by 2 % to 3 % in each job. `bench/accepted/376.json` accepts them, and `PLAN.FIXED a formula with a fixed name and a free name` too.
+- The traces show no new work on their paths, only a new order of the inlines. Their cause is not measured.
+
 ## D199 (2026-11-12): the stepper keeps its closures and held errors apart from data
 
 **Context.** D158 made a closure of the stepper a record with the key `coeval.closure`, and a held error a record with the key `coeval.held`. Thus a configuration survived JSON. A document can also write such a record as data. A review found that the stepper then called a record from data with the context in it, also with its capabilities. A record from data with the key of a held error became an error. The plan and the reference give `#VALUE!` and the record.
@@ -5575,6 +5609,42 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 - A host that stores a configuration with `JSON.stringify` and no codec gets each closure back as data. A call of it then gives `#VALUE!`.
 - The decoder trusts its form, as the stepper trusts a context from the host. A host that reads a configuration from a source that it does not trust checks the source.
+
+## D200 (2026-11-12): a walk of types reads a shared term one time for each depth
+
+**Context.** K254, from a review. A type is a JSON term, and a host can build it with one term at two places. A check of a `let` chain makes such types. Each name gets a record of the type of the name before it, two times.
+
+The walks of types read each way to a shared term, thus a chain of n records took approximately 2^n steps. A probe of 8 walks found each walk 4 to 16 times slower at a chain of 16 than at a chain of 12. The text of the type of a chain of 16 had 720886 characters.
+
+**Decision.**
+
+- Each walk keeps the answer of each term at each depth, by the identity of the term. A text or another primitive needs no memo.
+- `fits` keeps three exact memos for each call. An answer that read no budget of a split holds for each budget. An answer with no budget holds for each call with no budget. An answer with a spent budget holds for each spent budget.
+- A count of the cases of the splits tells `fitsAt` if a call read the budget. A call that read a budget that is not spent keeps no answer.
+- `join` and the meet of a schema reading keep the answer of each pair of terms at each depth. `isPrecise` and the values and the members of a type keep the answer of each term at each depth.
+- `member` starts with no memo, and it counts its steps. After 4096 steps, it starts again with a memo. Thus the test of a value at run time keeps its speed.
+- `typeIssues` gives the problems of a shared term one time for each depth, at its first place.
+- `typeText` takes the characters of each term from a room of 4096. A term takes at most the characters that it writes. Thus a text of at most 4096 characters does not change, and a longer text has 4096 characters.
+- A split follows at most 4096 paths into records.
+
+**Alternatives.**
+
+- A test of identity first in `fits`. A type with `unknown` does not fit itself in the strict form of `join`, thus the test changes answers.
+- A memo of `fits` by the pair of terms alone. The answer of a split depends on the budget that is left, thus that memo gives wrong answers.
+- A copy of each shared term. The copy of a chain of 40 has 2^40 terms.
+- A budget of work for each pass of types (K259). It stops a long walk, but it does not make a shared walk fast. It is a later item.
+
+**Why.** A memo by identity keeps each answer exact, and each walk takes steps for each term and depth. The depth stays in the key, because each walk stops at the depth limit of 256.
+
+**Limits.**
+
+- Two equal terms that are not one object get a walk each. A check and a schema reading share a term by its identity, thus their types do not have this cost.
+- The limit of 4096 paths is the only limit that changes an answer of `fits`. A type with more paths can then fail to fit. The types of the corpus have at most 4 paths at a level.
+- The limit of 4096 characters cuts a text. The longest text of a type in the corpus has 1549 characters.
+- `callable`, `holdsEnvelope`, `stepType`, `withoutOf` and the flatten of `unionOf` stay without a memo. They read only unions, and `unionOf` flattens each union that a check or a schema reading makes.
+- Other walks of values, for example `docEquals`, read each way to a shared value when the two values are not one object. K259 holds this work.
+
+**Results.** The 8 walks of the probe at a chain of 40 take at most 10 ms each. Before the change, a chain of 16 took up to 357 ms. On the source of main, each of the 8 new tests fails. 5 tests do not end in 120 s, and 3 tests end with a failure.
 
 ## D201 (2026-11-12): a walk keeps no copy of the names of the scope rules
 
@@ -5646,3 +5716,80 @@ The flip check put the source of the base back and started each new test in its 
 | The answers on generated documents | pass | pass |
 
 Vitest tells only that its worker stopped with the exit code 1. The same two documents in a thread with the same heap gave `ERR_WORKER_OUT_OF_MEMORY` in `check`, after 34 s and 8 s. The answers on generated documents come from the base, thus this test passes on the base by construction.
+
+## D202 (2026-11-12): the graph of attribute instances keeps the depth limit of check
+
+**Context.** K255, from a review. `check` stops its first walk at the depth limit and gives `#DEPTH!`. Then the cycle walk read the whole document again, with no limit.
+
+Each vertex of that walk made a text of its full place, and each trail kept a full array of its keys. The order of a JSON read used the stack of the host. Thus a deep chain of panels with one reference to a node took memory quadratic in its depth. At approximately 5000 levels the order gave a `RangeError`, and at 12000 levels the process ran out of memory.
+
+**Decision.**
+
+- The graph of attribute instances keeps the depth limit of `check`. A node deeper than the limit gets no vertex, and a read of it has an unknown source (TREE.GRAPH-DEPTH).
+- One function, `depthLimit`, gives the limit to the two walks. Thus the two walks use the same limit.
+- A vertex is an integer with its node and the name of its attribute. An edge keeps its visit. The texts of a name and of a place come only for the result of `attributeGraph` or for an issue.
+- The order of a JSON read keeps its own stack. The list of work moves with an index, not with `shift`.
+
+**Alternatives.**
+
+- No cycle walk after `#DEPTH!`. Then a cycle at the root of a deep document gets no issue before the run.
+- The text ids of the vertices, with a cache. The texts then still take memory quadratic in the depth.
+
+**Why.** A check before a run must not cost more than the run. A document deeper than the limit already gets `#DEPTH!`, thus the graph does not need its deep part. The part inside the limit keeps its cycle issues.
+
+**Limits.**
+
+- A cycle deeper than the limit gets no `#CYCLE!` from `check`. The run finds it, or the run stops at its own depth limit.
+- Many references to a large node still give one edge for each attribute of each node under it (K256).
+- The ladder measures `check` on two deep trees with a quarter of the levels of a rung. A panel costs more than a level of the chain.
+
+## D203 (2026-11-12): three rules of the speed gates from a review
+
+**Context.** A review of 11-10 asked three questions about the speed gates. The roadmap rows K225 and K290 hold the work.
+
+**Decision.**
+
+- **A case that cannot decide is not "same".** `Speed OK` shows a third state, "no decision", with the count of the cases that it could not read (K225). A share limit of such cases comes later, from the A/A series.
+- **A limit counts workflow runs, not jobs.** The record of the speed limits takes the worst of 5 or more runs, plus their spread (K290). The jobs of one run share a commit and a time window, thus they are not independent.
+- **A change of the formula kit starts the Lean comparison.** The paths of the Lean job get `formula.ts`, `deref.ts`, `parts.ts`, `evaluate.ts` and `generate.ts` (K290).
+
+**Alternatives.**
+
+- Keep "same" for a case that cannot decide. Then a gate passes with no reading. A gate that cannot read a case must show no reading.
+- Keep the count of jobs, and record why a job is an independent unit. The jobs of one run share their noise, thus that reason is not true.
+- Start the Lean comparison for each change of `packages/core/src`. Most of those changes do not touch the formula kit, thus the cost has no gain.
+- Keep the Lean comparison at night only. Then a drift merges first and shows only on the next day.
+
+**Limits.** The model of the Lean comparison compares a closure by the names of its parameters, and it sorts the keys of a record. D159 gets these two limits with K290.
+
+## D204 (2026-11-12): a read of a node is one edge to the JSON vertex of the node
+
+**Context.** K256, from a review. The value of a node is its JSON. Thus a reference to a node reads each attribute of each node under it.
+
+The graph of `check` gave each reference one edge to each of those attributes. R references to a node with A attributes under it gave R × A edges. Thus the time and the memory of `check` were quadratic for many references to a large node.
+
+Two smaller costs came with it. Each read of a list sorted its items again. The previous sibling of each child came from a scan of the list.
+
+**Decision.**
+
+- Each node gets one JSON vertex, at the first read of its JSON. The vertex reads each own attribute of the node, and the JSON vertex of each node in their values (TREE.GRAPH-JSON).
+- A reference to a node gives one edge from its JSON vertex.
+- A path through the JSON vertices connects the same attributes as the old edges. Thus the strong components and the certain cycles keep their attributes.
+- The list of a cycle has no JSON vertex. A possible cycle that only the JSON vertices make, with one certain cycle of the same attributes inside it, gives the certain cycle.
+- The cycle walk of `check` goes through the JSON vertices. A second read of the JSON of a node in evaluation goes to the attribute that the first read evaluates, as the run does.
+- A cycle that closes through a JSON vertex keeps the place of the read of the node.
+- A list keeps its sorted items. The previous sibling of a child comes from the index of the child.
+
+**Alternatives.**
+
+- A cache of the attributes of each node. The count of edges then stays R × A.
+- A limit on the count of edges, with an unknown source past it. Then a large document loses its cycle issues before the run.
+
+**Why.** A check before a run must not cost more than the run. One vertex for each node keeps the count of edges linear in the size of the document. The paths keep each cycle of the old graph.
+
+**Limits.**
+
+- `attributeGraph` gives new vertices with `json: true`. A caller that reads each vertex as an attribute sees them, thus 0.34.0 counts as a breaking change.
+- A second read of a JSON in evaluation goes only to the attribute in evaluation. If that attribute is circular, or its cycle is not certain or already has an issue, the walk stops there.
+- The run then evaluates the later attributes of the node inside the second read. The walk reaches them later, from the first read. Thus a second cycle among them can get another chain or another place than in the run.
+- The index of the previous sibling has no speed gate. The old scan costs less than the rest of `check` below approximately 30000 children. Thus a unit test with a time limit cannot find it in a reliable way, and the rungs of the ladder are too small. The wide rungs of K267 get a wide list of children for `check`.

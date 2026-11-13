@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Context, type Effect, type Json, type Machine, type RunPart, type Runner, STD_MACHINE, agree, agreeRun, check, effectsOf, evaluate, makeContext, reference, referenceRun, run } from "./index.ts";
+import { type Context, type Effect, type Json, type Kind, type Machine, type RunPart, type Runner, STD_MACHINE, agree, agreeRun, check, effectsOf, evaluate, makeContext, permits, reference, referenceRun, run } from "./index.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const num = (value: number): Json => ({ type: "number", value });
@@ -140,6 +140,76 @@ describe("the kind handle", () => {
     expect(effectsOf(STD_MACHINE, handle([answers("log", num(1))], log(num(1))))).toEqual([]);
     expect(effectsOf(STD_MACHINE, handle([answers("log", { type: "write", value: { key: "a", value: num(1) } })], log(num(1))))).toEqual(["write"]);
     expect(effectsOf(STD_MACHINE, handle([answers("log", log(num(1)))], log(num(1))))).toEqual(["log"]);
+  });
+
+  /** The standard machine with more kinds of the test, each with the eval runner of its name. */
+  function withKinds(kinds: Record<string, Kind>, runners: Record<string, Runner>, more: Partial<Machine> = {}): Machine {
+    const world = STD_MACHINE.world;
+    return { ...STD_MACHINE, world: { ...world, kinds: { ...world.kinds, ...kinds } }, runners: { ...STD_MACHINE.runners, ...runners }, ...more };
+  }
+
+  /** A kind with one part, whose runner evaluates the part in the context that `make` gives. */
+  function wrapper(make: (context: Context) => Context): Machine {
+    const wrap: Runner = function* ({ parts, context }) {
+      return yield* (parts[0] as RunPart).evaluate(make(context));
+    };
+    return withKinds({ wrap: { verbs: { eval: "test.wrap" }, parts: { shape: "list" } } }, { "test.wrap": wrap });
+  }
+
+  it("[HANDLE.KINDS] gives no clause to a context that the code makes without a spread, and the host gets no effect", async () => {
+    const machine = wrapper((context) => makeContext(context.names, context.caps));
+    const doc = handle([answers("log", num(1))], { type: "wrap", value: [log(num(9))] });
+    expect(await both(doc, [], machine)).toEqual({ value: "#CAP!", host: [] });
+    // The capability of the host still holds in that context.
+    expect(await both(doc, ["log"], machine)).toEqual({ value: 9, host: [["log", 9]] });
+  });
+
+  it("[HANDLE.KINDS] keeps the frame in a spread of the context", async () => {
+    const machine = wrapper((context) => ({ ...context, names: { ...context.names, x: 1 } }));
+    expect(await both(handle([answers("log", num(1))], { type: "wrap", value: [log(num(9))] }), [], machine)).toEqual({ value: 1, host: [] });
+  });
+
+  it("[HANDLE.KINDS] keeps the kinds of the clauses out of the root caps", async () => {
+    const doc = handle([answers("log", num(1))], ref("caps"));
+    expect(await both(doc)).toEqual({ value: [], host: [] });
+    expect(await both(doc, ["log"])).toEqual({ value: ["log"], host: [] });
+  });
+
+  it("[HANDLE.KINDS] gives the rule permits of the host only the capabilities of the host", async () => {
+    // A rule of the host that permits each effect to a context with the capability admin.
+    const machine: Machine = { ...STD_MACHINE, permits: (caps, kind) => caps.includes("admin") || permits(caps, kind) };
+    const doc = handle([{ op: "admin", do: num(0) }], log(num(9)));
+    expect(await both(doc, [], machine)).toEqual({ value: "#CAP!", host: [] });
+    expect(await both(doc, ["admin"], machine)).toEqual({ value: 9, host: [["log", 9]] });
+  });
+
+  it("[HANDLE.NARROW] narrows the kinds of the clauses to a list that the code writes", async () => {
+    const doc = handle([answers("log", num(1))], { type: "wrap", value: [log(num(9))] });
+    expect(await both(doc, [], wrapper((context) => ({ ...context, caps: [] })))).toEqual({ value: "#CAP!", host: [] });
+    expect(await both(doc, ["write"], wrapper((context) => ({ ...context, caps: ["write"] })))).toEqual({ value: "#CAP!", host: [] });
+  });
+
+  it("[HANDLE.NARROW] applies a rule of the kind after its grant, in both tiers", async () => {
+    const kind = STD_MACHINE.world.kinds["handle"] as Kind;
+    const machine = withKinds({ sealed: { ...kind, caps: [...(kind.caps ?? []), { rule: "mask", in: [["body"]] }] } }, {});
+    const doc: Json = { type: "sealed", value: { with: [answers("log", num(1))], body: log(num(9)) } };
+    expect(await both(doc, [], machine)).toEqual({ value: "#CAP!", host: [] });
+  });
+
+  it("[HANDLE.DEEP] answers a kind under the op of a clause in a run, and not a kind above it", async () => {
+    const emit: Runner = function* ({ value, effect }) {
+      const { kind, payload } = value as { readonly kind: string; readonly payload: Json };
+      return yield* effect(kind, payload);
+    };
+    const machine = withKinds({ emit: { verbs: { eval: "test.emit" } } }, { "test.emit": emit });
+    const plus = { type: "add", value: [ref("names", "payload"), num(1)] };
+    expect(await both(handle([{ op: "log", do: plus }], { type: "emit", value: { kind: "log.debug", payload: 4 } }), [], machine)).toEqual({ value: 5, host: [] });
+    expect(await both(handle([{ op: "log.debug", do: plus }], { type: "emit", value: { kind: "log", payload: 4 } }), ["log"], machine)).toEqual({ value: 4, host: [["log", 4]] });
+  });
+
+  it("[HANDLE.DO] gives an effect to the first clause of the innermost frame", async () => {
+    expect(await both(handle([answers("log", num(1)), answers("log", num(2))], log(num(9))))).toEqual({ value: 1, host: [] });
+    expect(await both(handle([answers("log", num(1))], handle([answers("log", num(2))], log(num(9)))))).toEqual({ value: 2, host: [] });
   });
 
   it("[HANDLE.AGREES] gives one result and one log of the host in a run of the plan and of the reference", async () => {

@@ -19,8 +19,8 @@ import {
   typeIssues,
   typeText,
 } from "./index.ts";
-// The kernel does not export falseCovers. `conforms` uses it too (D94).
-import { falseCovers } from "./types.ts";
+// The kernel does not export falseCovers. `conforms` uses it too (D94). The check of types uses isPrecise.
+import { falseCovers, isPrecise } from "./types.ts";
 import { corpus } from "./corpus.test-support.ts";
 
 /** The domains of a small language: refinements of numbers, a unit of length and a color. */
@@ -1423,5 +1423,98 @@ describe("value types and value domains", () => {
     for (let index = 0; index < 400; index += 1) deep = { list: deep };
     expect(typeText(deep)).toMatch(/^list<.*unknown.*>$/);
     expect(typeText({ one: [10n as unknown as Json] })).toBe("10");
+  });
+});
+
+/** A chain of records: each level holds the level below it in two fields, as one shared term (D200). */
+function chainOf(length: number, leaf: unknown, closed = true): ValueType {
+  let type = leaf;
+  for (let index = 0; index < length; index += 1) type = closed ? { record: { a: type, b: type }, closed: true } : { record: { a: type, b: type } };
+  return type as ValueType;
+}
+
+/** The full text of a chain of closed records over the leaf `1`. */
+function chainText(length: number): string {
+  return length === 0 ? "1" : `{a: ${chainText(length - 1)}, b: ${chainText(length - 1)}}`;
+}
+
+describe("types that share their parts (D200)", () => {
+  // A chain of 40 has 2^40 ways to its leaf. A walk that reads each way does not end.
+  const LENGTH = 40;
+
+  it("[TYPE.SHARED] fits and join read a shared term one time for each depth", () => {
+    const one = chainOf(LENGTH, { one: [1] });
+    expect(fits(one, one)).toBe(true);
+    expect(fits(one, chainOf(LENGTH, { one: [1] }))).toBe(true);
+    expect(fits(one, chainOf(LENGTH, "number"))).toBe(true);
+    expect(fits(one, chainOf(LENGTH, "text"))).toBe(false);
+    expect(fits(chainOf(LENGTH, "number"), one)).toBe(false);
+    expect(join(one, one)).toBe(one);
+    const two = chainOf(LENGTH, { one: [2] });
+    const both = join(one, two);
+    expect(fits(one, both)).toBe(true);
+    expect(fits(two, both)).toBe(true);
+    // The join shares its parts too.
+    const record = both as { readonly record: Readonly<Record<string, unknown>> };
+    expect(record.record["a"]).toBe(record.record["b"]);
+  });
+
+  it("[TYPE.FITS-PATH] a split follows at most 4096 paths into records", () => {
+    // An open record does not fit the closed record, thus fits splits it. Each level doubles the paths into records.
+    const union: ValueType = { union: [{ record: { a: "number" }, closed: true }, "text"] };
+    expect(fits(chainOf(LENGTH, "number", false), union)).toBe(false);
+  });
+
+  it("[TYPE.SHARED] member and the finite rule keep the answer of a value that shares its parts", () => {
+    let value: unknown = 1;
+    for (let index = 0; index < LENGTH; index += 1) value = { a: value, b: value };
+    expect(member(value, chainOf(LENGTH, "number"))).toBe(true);
+    expect(member(value, chainOf(LENGTH, "text"))).toBe(false);
+    expect(fits({ one: [value as Json] }, chainOf(LENGTH, "number"))).toBe(true);
+    expect(fits({ one: [value as Json] }, chainOf(LENGTH, "text"))).toBe(false);
+    // A test of a domain that calls member does not stop the count of the outer test.
+    const nested: Readonly<Record<string, Domain>> = { even: { is: (item) => member(item, "number") && (item as number) % 2 === 0, under: ["number"], summary: "An even number." } };
+    expect(member(value, chainOf(LENGTH, "even"), nested)).toBe(false);
+    let even: unknown = 2;
+    for (let index = 0; index < LENGTH; index += 1) even = { a: even, b: even };
+    expect(member(even, chainOf(LENGTH, "even"), nested)).toBe(true);
+  });
+
+  it("[TYPE.SHARED] isPrecise reads a shared term one time for each depth", () => {
+    expect(isPrecise(chainOf(LENGTH, "number"), undefined)).toBe(true);
+    expect(isPrecise(chainOf(LENGTH, "unknown"), undefined)).toBe(false);
+  });
+
+  it("[TYPE.TEXT] the text of a type has at most 4096 characters, and a shorter text does not change", () => {
+    // A chain of 8 has a text of 2806 characters, and a chain of 9 has a text of 5622 characters.
+    expect(typeText(chainOf(8, { one: [1] }))).toBe(chainText(8));
+    const long = typeText(chainOf(9, { one: [1] }));
+    expect(long).toHaveLength(4096);
+    expect(long.endsWith("…")).toBe(true);
+    expect(long.startsWith(chainText(9).slice(0, 2048))).toBe(true);
+    expect(typeText(chainOf(LENGTH, { one: [1] }))).toHaveLength(4096);
+    // A record of 290 fields has a text of 4060 characters, and a record of 300 fields has a longer text.
+    const wide = (count: number): readonly [ValueType, string] => {
+      const keys = Array.from({ length: count }, (_, index) => `f${String(index).padStart(3, "0")}`);
+      return [{ record: Object.fromEntries(keys.map((key) => [key, "number"])), closed: true }, `{${keys.map((key) => `${key}: number`).join(", ")}}`];
+    };
+    const [near, text] = wide(290);
+    expect(text).toHaveLength(4060);
+    expect(typeText(near)).toBe(text);
+    const [over, full] = wide(300);
+    expect(typeText(over)).toBe(`${full.slice(0, 4095)}…`);
+  });
+
+  it("[TYPE.ISSUES] a shared term gives its problems one time for each depth, at its first place", () => {
+    const leaf = { var: "A" };
+    const issues = typeIssues(chainOf(LENGTH, leaf));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.at).toEqual(Array.from({ length: LENGTH }, () => ["record", "a"]).flat());
+    expect(typeIssues({ record: { a: leaf, b: leaf }, closed: true }).map((issue) => issue.at)).toEqual([["record", "a"]]);
+    // The term is at two depths, thus it gives two problems.
+    expect(typeIssues({ record: { a: leaf, b: { list: leaf } }, closed: true }).map((issue) => issue.at)).toEqual([
+      ["record", "a"],
+      ["record", "b", "list"],
+    ]);
   });
 });

@@ -2,6 +2,58 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.34.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `attributeGraph` gives a JSON vertex for each node that a reference reads. A caller that read each vertex as an attribute sees new vertices, thus this release counts as a breaking change. No new exports.
+
+### Fixes
+
+- **A read of a node is one edge to the JSON vertex of the node (D204).** R references to a node with A attributes under it gave R × A edges. The time and the memory of `check` are linear in the size of the document after this fix (TREE.GRAPH-JSON).
+- **A list keeps its sorted items, and the previous sibling of a child comes from its index (D204).** Before, each read sorted the list again, and each child scanned the list.
+
+### Changes of behavior
+
+- **The graph has a vertex with `json: true` for each node that a reference reads (TREE.GRAPH-JSON).** Its attribute is the empty text, and its name is the place of the node with `null` at the end. A reference reads that vertex, and the vertex reads the attributes of the node.
+- **The list of a cycle has no JSON vertex (TREE.GRAPH-JSON).** The issues of `check` keep their places and their reasons.
+
+## 0.33.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `attributeGraph` and `check` no longer read a document past the depth limit of `check`. A caller that read the deep part of the graph sees fewer vertices, thus this release counts as a breaking change. No new exports.
+
+### Fixes
+
+- **The graph of attribute instances keeps the depth limit of `check` (D202).** A deep chain with one reference to a node took memory quadratic in its depth. At approximately 5000 levels `check` gave a `RangeError`, and at 12000 levels it ran out of memory. The time and the memory of `check` are linear in the size after this fix (TREE.GRAPH-DEPTH).
+
+### Changes of behavior
+
+- **A node deeper than the depth limit gets no vertex (TREE.GRAPH-DEPTH).** A read of it has an unknown source. A cycle past the limit gets no `#CYCLE!` from `check`, and the `#DEPTH!` of the first walk stays.
+
+## 0.32.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `typeIssues` gives the problems of a shared term one time, and `typeText` gives at most 4096 characters. No new exports.
+
+### Fixes
+
+- **A walk of types reads a shared term one time for each depth (D200).** A type that shares a term between places took a time that doubled with each level. `fits`, `join`, `member`, `typeFromSchema` and a check of types take a time that grows with the count of terms (TYPE.SHARED). Their answers do not change.
+
+### Changes of behavior
+
+- **`typeIssues` gives the problems of a shared term one time for each depth, at its first place (TYPE.ISSUES).**
+- **`typeText` gives at most 4096 characters (TYPE.TEXT).** A longer text ends with `…`. A shorter text does not change.
+- **A split of `fits` follows at most 4096 paths into records (TYPE.FITS-PATH).** A type with more paths can then fail to fit.
+
+## 0.31.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. The capabilities of a part in the body of `handle` no longer hold the kinds of its clauses. A host or a runner that read them there sees another list, thus this release counts as a breaking change. No export changes.
+
+### Changes of behavior
+
+- **The clause kinds of a handler stay on its frame, not in the capabilities (D198).** The rule `permits` of the host, a read of the root `caps` and the context of an effect show only the capabilities of the host.
+- **A context that code makes without a spread gets no clause (HANDLE.KINDS).** Its effects go to the host, and the host checks them by its own capabilities.
+- **A list of capabilities that code writes for a part also narrows its clause kinds (HANDLE.NARROW).** A copy of the list counts as a new list.
+- **A rule `mask` or `only` of a kind narrows the clause kinds of its own grant, in both tiers (HANDLE.NARROW).** Before, the reference applied the grant after the rule.
+- **`check` and `effectsOf` read the clause kinds apart from the capabilities.** A hook of the host then gets the same list in a check and in a run.
+
 ## 0.30.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The JSON form of a configuration of the stepper changes, and a record from data with the key `coeval.held` is no longer an error. Two new exports.

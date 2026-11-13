@@ -9,7 +9,7 @@
  * `op("add", doc, 1)`. In each round, it fits the slope of log t against log n by least squares. A linear walk gives
  * a slope of 1, and a walk of the square of the size gives 2.
  *
- * Two more rungs hold the names of the scope rules (K257, D201). The type check reads a sequence of N to 8N named
+ * Two more walks read the names of the scope rules (K257, D201). The type check reads a sequence of N to 8N named
  * steps, where each step reads the name of the step before it. It also reads a nest of N to 8N binders: `let`, and at
  * each tenth level a function that a call applies. Each level binds `x` again. Before K257, both documents gave each
  * part a copy of its names, thus a time and a memory of the square of the size.
@@ -189,7 +189,7 @@ function chain(levels: number): unknown {
 }
 
 /** This function gives a sequence of `levels` named steps of the standard world. Each step reads the step before it (K257). */
-function steps(levels: number): unknown {
+function sequence(levels: number): unknown {
   const value: unknown[] = [];
   for (let index = 0; index < levels; index += 1) value.push({ type: "add", value: [index === 0 ? 1 : { type: "ref", value: ["names", `s${index - 1}`] }, 1], name: `s${index}` });
   return { type: "seq", value };
@@ -209,6 +209,27 @@ function binders(levels: number): unknown {
         : { type: "let", value: { bind: { x: level, [`v${level}`]: outer }, body } };
   }
   return body;
+}
+
+/**
+ * This function gives a deep tree of the standard machine: `levels` panels, each in the list `children` of the panel
+ * above it (K255, TREE.GRAPH-DEPTH). With `ref`, the root reads the JSON of its first child, thus each panel under it.
+ */
+function panels(levels: number, ref: boolean): unknown {
+  let value: Record<string, unknown> = { width: 1 };
+  for (let index = 1; index < levels; index += 1) value = { children: { type: "list", value: [{ type: "panel", value }] } };
+  return { type: "panel", value: ref ? { ...value, width: { type: "ref", value: ["self", "children", 0] } } : value };
+}
+
+/**
+ * This function gives a panel with one inner panel of `size` boxes, then `size` boxes whose width is a reference to the
+ * inner panel. Each reference reads the JSON of one large node (K256, TREE.GRAPH-JSON).
+ */
+function shared(size: number): unknown {
+  const boxes = Array.from({ length: size }, () => ({ type: "box", value: { width: 1 } }));
+  const ref = { type: "ref", value: ["self", "parent", "children", 0] };
+  const readers = Array.from({ length: size }, () => ({ type: "box", value: { width: ref } }));
+  return { type: "panel", value: { children: { type: "list", value: [{ type: "panel", value: { children: { type: "list", value: boxes } } }, ...readers] } } };
 }
 
 /**
@@ -250,13 +271,26 @@ async function measure(): Promise<void> {
   if (!Number.isInteger(base) || base < 1 || !Number.isInteger(rounds) || rounds < 1) throw new Error("Give whole numbers of levels and rounds.");
   const started = performance.now();
   const world = { kinds: kernel.formulaKinds(), defaults: {} };
-  // The nest of binders is deeper than the default limit of the depth, thus its machine has no such limit.
-  const deep = { ...kernel.formulaMachine(), maxDepth: Number.MAX_SAFE_INTEGER };
+  // The machine of the deep trees: the standard machine with a depth limit above the deepest rung. Thus `check` reads
+  // the whole tree at each rung (K255).
+  const deep = { ...kernel.STD_MACHINE, maxDepth: Number.MAX_SAFE_INTEGER };
+  // The nest of binders is deeper than the default limit of the depth, thus its machine has no such limit (K257).
+  const formulas = { ...kernel.formulaMachine(), maxDepth: Number.MAX_SAFE_INTEGER };
   const levels = STEPS.map((step) => step * base);
+  // The arms of each walk: the four rungs, then the second document of the rung AA_STEP.
   const calls = [...STEPS.map((step) => 8 / step), 8 / AA_STEP];
+  const steps = [...STEPS, AA_STEP];
   const aaIndex = STEPS.indexOf(AA_STEP);
   let visits = 0;
-  const walks: readonly { readonly name: string; readonly make: (levels: number) => unknown; readonly call: (doc: unknown) => number }[] = [
+  /** One walk: its name, the document of a rung, the call, and the work of one call for the table. */
+  interface Walk {
+    readonly name: string;
+    readonly make: (levels: number) => unknown;
+    readonly call: (doc: unknown) => number;
+    readonly work?: (doc: unknown) => number;
+  }
+  const quarter = (n: number): number => Math.max(1, Math.round(n / 4));
+  const walks: readonly Walk[] = [
     // The walk of the claim: the references of a document.
     { name: "refsOf", make: chain, call: (doc) => kernel.refsOf(world, doc).length },
     // The walk under refsOf, with a visit that only counts.
@@ -271,26 +305,30 @@ async function measure(): Promise<void> {
         return visits;
       },
     },
+    // `check` of a deep tree: the first walk and the graph of attribute instances (K255, TREE.GRAPH-DEPTH). A panel costs
+    // more than a level of the chain, thus a rung of n levels has n / 4 panels. The work is the count of the edges of the graph.
+    { name: "check tree", make: (n) => panels(quarter(n), false), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
+    // The same tree, and the root reads the JSON of its first child.
+    { name: "check tree ref", make: (n) => panels(quarter(n), true), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
+    // A wide tree: n / 4 references to one node of n / 4 boxes. Each reference reads one JSON vertex (K256, TREE.GRAPH-JSON).
+    { name: "check shared", make: (n) => shared(quarter(n)), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
     // The names of the scope rules, through the check and the type check (K257, D201).
-    { name: "typeCheck of steps", make: steps, call: (doc) => kernel.typeCheck(kernel.STD_MACHINE, doc).places.length },
-    { name: "typeCheck of binders", make: binders, call: (doc) => kernel.typeCheck(deep, doc, { declaredType: "lit" }).places.length },
+    { name: "typeCheck of steps", make: sequence, call: (doc) => kernel.typeCheck(kernel.STD_MACHINE, doc).places.length },
+    { name: "typeCheck of binders", make: binders, call: (doc) => kernel.typeCheck(formulas, doc, { declaredType: "lit" }).places.length },
   ];
-  // The arms of each walk: the four rungs, then the second document of the rung AA_STEP.
-  const docs = walks.map((walk) => [...STEPS.map((step) => walk.make(step * base)), walk.make(AA_STEP * base)]);
-  const rungs = STEPS.length + 1;
+  const docs = walks.map((walk) => steps.map((step) => walk.make(step * base)));
   const results: WalkRun[] = [];
-  // arms[walk * rungs + doc]
+  // arms[walk * steps.length + doc]
   // With a fault, one call walks step^(s-1) times the levels of its rung, so the slope over the rungs is s.
   const fault = injectedSlope();
-  const callOf = (walk: (typeof walks)[number], step: number): ((doc: unknown) => number) => {
+  const callOf = (walk: Walk, step: number): ((doc: unknown) => number) => {
     if (fault === undefined) return walk.call;
     const more = step ** (fault - 1) - 1;
     const times = Math.floor(more);
     const rest = Math.round(step * base * (more - times));
     return times === 0 && rest === 0 ? walk.call : faulted(walk.call, times, rest === 0 ? undefined : walk.make(rest));
   };
-  const multiples = [...STEPS, AA_STEP];
-  const arms = walks.flatMap((walk, w) => (docs[w] as unknown[]).map((doc, d) => ({ w, d, call: callOf(walk, multiples[d] as number), doc })));
+  const arms = walks.flatMap((walk, w) => (docs[w] as unknown[]).map((doc, d) => ({ w, d, call: callOf(walk, steps[d] as number), doc })));
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {
@@ -331,19 +369,19 @@ async function measure(): Promise<void> {
   }
   const memorySeconds = fixed((performance.now() - memoryStarted) / 1000, 1);
   walks.forEach((walk, w) => {
-    const of = (d: number): number[] => times[w * rungs + d] as number[];
-    const ofBytes = (d: number): number[] => bytes[w * rungs + d] as number[];
+    const of = (d: number): number[] => times[w * steps.length + d] as number[];
+    const ofBytes = (d: number): number[] => bytes[w * steps.length + d] as number[];
     const slopes: number[] = [];
     const aa: number[] = [];
     const byteSlopes: number[] = [];
     const byteAa: number[] = [];
     for (let round = 0; round < rounds; round += 1) {
       slopes.push(slope(levels, STEPS.map((_, d) => of(d)[round] as number)));
-      aa.push((of(rungs - 1)[round] as number) / (of(aaIndex)[round] as number));
+      aa.push((of(steps.length - 1)[round] as number) / (of(aaIndex)[round] as number));
       byteSlopes.push(slope(levels, STEPS.map((_, d) => ofBytes(d)[round] as number)));
-      byteAa.push((ofBytes(rungs - 1)[round] as number) / (ofBytes(aaIndex)[round] as number));
+      byteAa.push((ofBytes(steps.length - 1)[round] as number) / (ofBytes(aaIndex)[round] as number));
     }
-    const counts = STEPS.map((_, d) => walk.call((docs[w] as unknown[])[d]));
+    const counts = STEPS.map((_, d) => (walk.work ?? walk.call)((docs[w] as unknown[])[d]));
     const ns = STEPS.map((_, d) => median(of(d)));
     results.push({ name: walk.name, ns, slopes, aa, counts, bytes: STEPS.map((_, d) => median(ofBytes(d))), byteSlopes, byteAa });
   });
