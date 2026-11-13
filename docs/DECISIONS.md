@@ -5664,3 +5664,29 @@ The walks of types read each way to a shared term, thus a chain of n records too
 - Keep the Lean comparison at night only. Then a drift merges first and shows only on the next day.
 
 **Limits.** The model of the Lean comparison compares a closure by the names of its parameters, and it sorts the keys of a record. D159 gets these two limits with K290.
+
+## D206 (2026-11-12): the short path follows each form of a reference, and it asks a host thing one time
+
+**Context.** K261, from a review. The short path of a resolution (DEREF.QUICK) found a reference only by the text type `ref`. `isRef` also accepts the type `["ref"]` and a reference to the kind `ref`. At the end of a path, the short path gave such a document, and the full algorithm followed it. Thus a plan and a traced evaluation gave two results for one document (PLAN.PATH-SAME, DEREF.COLLAPSE).
+
+A host thing can also answer the keys with a reference. The short path then stopped, and the full algorithm asked the thing again for the same keys.
+
+**Decision.**
+
+- The test `mayBeRef` of the short path accepts the text type `ref`, and the collapse tests the rest. For each type that is not a text, `isRef` decides.
+- A reference at the end of the short path goes to the full algorithm, with the thing that the short path reached. The full algorithm only follows it (collapse). It does not walk the path again.
+- Thus one resolution without hops asks a host thing one time for the keys of its path. A reference in the answer has its own path, and the resolution asks for those keys one time.
+- `resolveQuick` and each compiled path keep one step function, `walkQuick`. Thus the two get the rule together.
+
+**Alternatives.**
+
+- Give each value whose type is not a text to the full algorithm. The result is correct, but an envelope with a list type at the end of a path then loses the short path.
+- Follow the reference in the short path. Then the short path has a second copy of the collapse, with its test of a cycle and its bound of 64.
+- Keep the second read, and state it in DEREF.QUICK. A store then reads the keys two times for each reference that it gives.
+
+**Why.** The full algorithm gives the meaning of a path, thus the short path must give its result. At the end of the short path, the full algorithm has no hops, no collapse and no open reference. The handoff starts the collapse in that state. Thus the result does not change, and the host sees one read less.
+
+**Limits.**
+
+- The short path still stops at a reference in the middle of a path. The full algorithm then walks the path again from its root. A host thing ends the short path, thus the short path asked no host thing before that stop. The second walk asks no host thing again.
+- A plain navigation reads each form of a reference as data, as before (DEREF.PLAIN).
