@@ -5671,3 +5671,35 @@ Each vertex of that walk made a text of its full place, and each trail kept a fu
 - A cycle deeper than the limit gets no `#CYCLE!` from `check`. The run finds it, or the run stops at its own depth limit.
 - Many references to a large node still give one edge for each attribute of each node under it (K256).
 - The ladder measures `check` on two deep trees with a quarter of the levels of a rung, because a panel costs more than a level of the chain.
+
+## D204 (2026-11-12): a read of a node is one edge to the JSON vertex of the node
+
+**Context.** K256, from a review. The value of a node is its JSON. Thus a reference to a node reads each attribute of each node under it.
+
+The graph of `check` gave each reference one edge to each of those attributes. R references to a node with A attributes under it gave R × A edges. Thus the time and the memory of `check` were quadratic for many references to a large node.
+
+Two smaller costs came with it. Each read of a list sorted its items again. The previous sibling of each child came from a scan of the list.
+
+**Decision.**
+
+- Each node gets one JSON vertex, at the first read of its JSON. The vertex reads each own attribute of the node, and the JSON vertex of each node in their values (TREE.GRAPH-JSON).
+- A reference to a node gives one edge from its JSON vertex.
+- A path through the JSON vertices connects the same attributes as the old edges. Thus the strong components and the certain cycles keep their attributes.
+- The list of a cycle has no JSON vertex. A possible cycle that only the JSON vertices make, with one certain cycle of the same attributes inside it, gives the certain cycle.
+- The cycle walk of `check` goes through the JSON vertices. A second read of the JSON of a node in evaluation goes to the attribute that the first read evaluates, as the run does.
+- A cycle that closes through a JSON vertex keeps the place of the read of the node.
+- A list keeps its sorted items. The previous sibling of a child comes from the index of the child.
+
+**Alternatives.**
+
+- A cache of the attributes of each node. The count of edges then stays R × A.
+- A limit on the count of edges, with an unknown source past it. Then a large document loses its cycle issues before the run.
+
+**Why.** A check before a run must not cost more than the run. One vertex for each node keeps the count of edges linear in the size of the document. The paths keep each cycle of the old graph.
+
+**Limits.**
+
+- `attributeGraph` gives new vertices with `json: true`. A caller that reads each vertex as an attribute sees them, thus 0.34.0 counts as a breaking change.
+- A second read of a JSON in evaluation goes only to the attribute in evaluation. If that attribute is circular, or its cycle is not certain or already has an issue, the walk stops there.
+- The run then evaluates the later attributes of the node inside the second read. The walk reaches them later, from the first read. Thus a second cycle among them can get another chain or another place than in the run.
+- The index of the previous sibling has no speed gate. The old scan costs less than the rest of `check` below approximately 30000 children. Thus a unit test with a time limit cannot find it in a reliable way, and the rungs of the ladder are too small. The wide rungs of K267 get a wide list of children for `check`.

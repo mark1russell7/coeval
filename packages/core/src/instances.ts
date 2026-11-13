@@ -4,7 +4,7 @@ import { ask } from "./ladder.ts";
 import { isRef, walkerOf } from "./deref.ts";
 import type { Machine } from "./evaluate.ts";
 import { type Above, codeFactsOf, partLazy } from "./facts.ts";
-import { type NodeGraph, type GraphEdge, cycles } from "./graph.ts";
+import { type NodeGraph, type GraphCycle, type GraphEdge, cycles } from "./graph.ts";
 import { STD_WALKERS } from "./stdlib.ts";
 import {
   type AtStep,
@@ -30,6 +30,10 @@ import {
  * edges come from the references of the code of each attribute, and from the rungs of its ladder. A read that depends
  * on the value of an attribute gets an edge with an unknown source. `check` reports each certain cycle before a run.
  * The evaluator of the kernel does not use the graph (D3).
+ *
+ * A read of a node reads the JSON of the node. The graph has one vertex for the JSON of each node that a read reaches.
+ * It reads each own attribute of the node and the JSON vertex of each node in their values (TREE.GRAPH-JSON). Thus a
+ * read of a node is one edge, and many reads of a large node cost no more than their count.
  */
 
 /** One vertex of the graph of attribute instances: one attribute of one node of the decorated tree (D107). */
@@ -38,9 +42,16 @@ export interface AttributeVertex {
   readonly id: string;
   /** The place of the document of the node. */
   readonly place: readonly Key[];
+  /** The name of the attribute. It is the empty text for the vertex of the JSON of a node. */
   readonly attribute: string;
   /** The text of the type of the node. */
   readonly type: string;
+  /**
+   * `true` for the vertex of the JSON of a node (TREE.GRAPH-JSON). It reads each own attribute of the node, and the JSON
+   * vertex of each node in their values. Its name is the JSON text of the place with `null` after it. Else the field is
+   * absent.
+   */
+  readonly json?: true;
   /** `true` when the kind of the node declares the attribute `circular` (TREE.CIRCULAR-CHECK). Else the field is absent. */
   readonly circular?: true;
   /** The arguments of an instance of an attribute with parameters (TREE.AT-CHECK). Else the field is absent. */
@@ -61,7 +72,7 @@ export interface AttributeEdge {
 
 /** One cycle of the graph of attribute instances (D107). */
 export interface AttributeCycle {
-  /** The vertices of the cycle, in the order of the graph. */
+  /** The attribute vertices of the cycle, in the order of the graph. The list has no vertex of the JSON of a node. */
   readonly vertices: readonly string[];
   /** `true` when the eager reads with a known source close the cycle (GRAPH.CYCLE). */
   readonly certain: boolean;
@@ -112,6 +123,8 @@ interface PlaceIds {
   readonly plain: Map<string, number>;
   /** The instances of attributes with parameters, by the JSON text of the name and the key of the arguments. */
   readonly at: Map<string, number>;
+  /** The count of the nodes at the place. Each node has its own JSON vertex, thus its name has its index. */
+  nodes: number;
 }
 
 /** One node of the decorated tree of the document. */
@@ -127,6 +140,10 @@ interface NodeInfo {
   readonly up: NodeInfo | null | undefined;
   /** The vertices of the place of the node. */
   readonly ids: PlaceIds;
+  /** The index of the node at its place: 0 for the first node, 1 for a node in a part with an empty slot of it. */
+  readonly index: number;
+  /** The vertex of the JSON of the node, after the first read of the node (TREE.GRAPH-JSON). */
+  json?: number;
 }
 
 /** One document of the document: its code, its node, and the items of a list. */
@@ -136,6 +153,8 @@ interface DocInfo {
   readonly node: NodeInfo | undefined;
   /** The documents of the items of a list, by their index. */
   readonly items: Map<number, DocInfo>;
+  /** The items in the order of their indices, after the first read of the list. */
+  sorted?: readonly DocInfo[];
 }
 
 /** The attribute that a document is a part of: the nearest node around it, and the own part of that node. */
@@ -213,6 +232,8 @@ interface VertexInfo {
   readonly circular: boolean;
   /** The arguments of an instance of an attribute with parameters, and their key (TREE.AT-CHECK). */
   readonly at?: { readonly names: Readonly<Record<string, Json>>; readonly key: string };
+  /** `true` for the vertex of the JSON of the node (TREE.GRAPH-JSON). Its attribute is the empty text. */
+  readonly json?: true;
 }
 
 /** One edge of the builder. Its visit gives the place and the JSON path of the read, only for the result or an issue. */
@@ -228,7 +249,7 @@ interface Builder {
   readonly machine: Machine;
   readonly vertices: VertexInfo[];
   readonly edges: EdgeInfo[];
-  /** The vertices whose rungs the builder reads, in the order of their start. */
+  /** The vertices whose reads the builder adds: the rungs of an attribute or the parts of a JSON, in the order of their start. */
   readonly work: number[];
   readonly terms: Map<Kind, Map<string, readonly TermRef[]>>;
 }
@@ -272,19 +293,35 @@ function atVertexOf(b: Builder, node: NodeInfo, at: AtStep & { readonly kind: "e
   return id;
 }
 
+/** This function gives the vertex of the JSON of a node (TREE.GRAPH-JSON). A new vertex goes on the work list for its reads. */
+function jsonVertexOf(b: Builder, node: NodeInfo): number {
+  if (node.json !== undefined) return node.json;
+  const id = b.vertices.length;
+  b.vertices.push({ node, attribute: "", circular: false, json: true });
+  node.json = id;
+  b.work.push(id);
+  return id;
+}
+
 function edge(b: Builder, from: number | undefined, r: Reader, lazy = false): void {
   b.edges.push({ from, to: r.to, lazy: r.lazy || lazy, visit: r.visit });
 }
 
-/** This function gives the name of a vertex: the text of `attributeVertexId`, with the key of the arguments of an instance. */
+/**
+ * This function gives the name of a vertex: the text of `attributeVertexId`, with the key of the arguments of an
+ * instance. The name of a JSON vertex is the place with `null` after it, and the index of a second node at the place.
+ */
 function vertexName(vertex: VertexInfo): string {
-  const plain = attributeVertexId(vertex.node.visit.place, vertex.attribute);
+  const place = vertex.node.visit.place;
+  if (vertex.json === true) return JSON.stringify(vertex.node.index === 0 ? [...place, null] : [...place, null, vertex.node.index]);
+  const plain = attributeVertexId(place, vertex.attribute);
   return vertex.at === undefined ? plain : `${plain.slice(0, -1)},${vertex.at.key}]`;
 }
 
-/** This function gives the items of a list document, in the order of their indices. */
+/** This function gives the items of a list document, in the order of their indices. The list sorts them one time. */
 function itemsOf(list: DocInfo): readonly DocInfo[] {
-  return [...list.items].sort(([x], [y]) => x - y).map(([, item]) => item);
+  list.sorted ??= [...list.items].sort(([x], [y]) => x - y).map(([, item]) => item);
+  return list.sorted;
 }
 
 /**
@@ -320,11 +357,28 @@ function jsonOrder(value: Value, out: [NodeInfo, string][], done: Set<NodeInfo>)
   }
 }
 
-/** This function adds the reads of the JSON of a value. */
-function jsonReads(b: Builder, value: Value, r: Reader): void {
-  const order: [NodeInfo, string][] = [];
-  jsonOrder(value, order, new Set());
-  for (const [node, key] of order) edge(b, vertexOf(b, node, key), r);
+/**
+ * This function adds the reads of the JSON vertex of a node, in the order of the run (TREE.RESULT, TREE.GRAPH-JSON). It
+ * reads each own part of the node, with the JSON vertex of each node in the value of the part after it. A list gives
+ * the nodes of its items. Thus each JSON vertex has an edge for each own part and for each node in their values only.
+ */
+function jsonEdges(b: Builder, id: number): void {
+  const node = (b.vertices[id] as VertexInfo).node;
+  const r: Reader = { to: id, lazy: false, visit: node.visit };
+  for (const key of node.own) {
+    edge(b, vertexOf(b, node, key), r);
+    const stack: Value[] = [valueOf(node.parts.get(key))];
+    while (stack.length > 0) {
+      const here = stack.pop() as Value;
+      if (typeof here !== "object") continue;
+      if ("node" in here) {
+        edge(b, jsonVertexOf(b, here.node), r);
+        continue;
+      }
+      const items = itemsOf(here.list);
+      for (let index = items.length - 1; index >= 0; index -= 1) stack.push(valueOf(items[index]));
+    }
+  }
 }
 
 /** This function gives the node that a walker `nearest` with the key `parent` reaches before the run. */
@@ -397,8 +451,8 @@ function follow(b: Builder, start: Value, path: readonly Json[], from: number, r
     }
     here = nearestOf(node, isRecord(step) ? field(step, "value") : undefined);
   }
-  // The value of a reference to a node is the JSON of the node. A list keeps its items.
-  if (typeof here === "object" && "node" in here) jsonReads(b, here, r);
+  // The value of a reference to a node is the JSON of the node: one edge to its JSON vertex (TREE.GRAPH-JSON).
+  if (typeof here === "object" && "node" in here) edge(b, jsonVertexOf(b, here.node), r);
 }
 
 /**
@@ -479,15 +533,17 @@ function termReads(b: Builder, refs: readonly TermRef[], self: NodeInfo, names: 
   }
 }
 
-/** This function gives the previous sibling of a node in the list `children` of its parent, before the run. */
+/**
+ * This function gives the previous sibling of a node in the list `children` of its parent, before the run. The visit
+ * of an item of the list has the list as its parent and the index as its slot, thus the function reads no other item.
+ */
 function prevOf(parent: NodeInfo, child: NodeInfo): Value {
   const list = parent.parts.get("children");
   if (list === undefined || list.evaluator !== LIST) return "unknown";
-  for (const [index, item] of list.items) {
-    if (item.node !== child) continue;
-    return index === 0 ? "data" : valueOf(list.items.get(index - 1));
-  }
-  return "data";
+  const slot = child.visit.slot;
+  const index = child.visit.parent === list.visit && slot.length === 1 && typeof slot[0] === "number" ? slot[0] : -1;
+  if (list.items.get(index)?.node !== child) return "data";
+  return index === 0 ? "data" : valueOf(list.items.get(index - 1));
 }
 
 /**
@@ -669,10 +725,11 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
         const up = self === OUTSIDE ? null : self === undefined ? undefined : nodes.get(self);
         let ids = places.get(place);
         if (ids === undefined) {
-          ids = { plain: new Map(), at: new Map() };
+          ids = { plain: new Map(), at: new Map(), nodes: 0 };
           places.set(place, ids);
         }
-        node = { visit: v, kind: v.kind, text: seen.text, own: [...(seen.own ?? [])], parts: new Map(), up, ids };
+        node = { visit: v, kind: v.kind, text: seen.text, own: [...(seen.own ?? [])], parts: new Map(), up, ids, index: ids.nodes };
+        ids.nodes += 1;
         nodes.set(seen, node);
         all.push(node);
         // The run reads each own part of a tree root that an eager position holds (TREE.RESULT).
@@ -710,8 +767,12 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
       edge(b, undefined, r);
     }
   }
-  // A rung can add vertices to the end of the list. The loop reads them too.
-  for (let next = 0; next < b.work.length; next += 1) rungReads(b, b.work[next] as number);
+  // A rung or a JSON can add vertices to the end of the list. The loop reads them too.
+  for (let next = 0; next < b.work.length; next += 1) {
+    const id = b.work[next] as number;
+    if (b.vertices[id]?.json === true) jsonEdges(b, id);
+    else rungReads(b, id);
+  }
   return { b, roots };
 }
 
@@ -730,6 +791,8 @@ function nodeGraph(b: Builder): NodeGraph<number> {
  * - The step `nearest` with the key `parent` depends only on the structure, thus it goes to a node of the document.
  * - The rungs of the ladder read too: `names.prev` of `down` reads the previous sibling, and a fold reads each child.
  * - A read that depends on the value of an attribute gets an edge with an unknown source.
+ * - A read of a node is one edge to the JSON vertex of the node. That vertex reads each own attribute of the node, and
+ *   the JSON vertex of each node in their values (TREE.GRAPH-JSON).
  * - The graph keeps the depth limit of `check`. A document deeper than the limit has no vertex, and its reads have an
  *   unknown source (TREE.GRAPH-DEPTH).
  *
@@ -750,7 +813,8 @@ export function attributeGraph(machine: Machine, doc: unknown, options: Attribut
   const vertices = new Map<string, AttributeVertex>();
   b.vertices.forEach((vertex, id) => {
     const plain = { id: name(id), place: vertex.node.visit.place, attribute: vertex.attribute, type: vertex.node.text };
-    vertices.set(name(id), vertex.at !== undefined ? { ...plain, args: vertex.at.names } : vertex.circular ? { ...plain, circular: true } : plain);
+    if (vertex.json === true) vertices.set(name(id), { ...plain, json: true });
+    else vertices.set(name(id), vertex.at !== undefined ? { ...plain, args: vertex.at.names } : vertex.circular ? { ...plain, circular: true } : plain);
   });
   const edges: AttributeEdge[] = b.edges.map((e) => ({ from: e.from === undefined ? undefined : name(e.from), to: name(e.to), lazy: e.lazy, place: e.visit.place }));
   return {
@@ -758,16 +822,47 @@ export function attributeGraph(machine: Machine, doc: unknown, options: Attribut
     edges,
     graph: new Map([...graph].map(([id, entry]) => [name(id), { edges: entry.edges.map((e) => ({ to: e.to === undefined ? undefined : name(e.to), lazy: e.lazy })) }] as const)),
     unknown: edges.filter((e) => e.from === undefined),
-    cycles: cycles(graph).map((cycle) => {
+    cycles: attributeCycles(b, graph).map((cycle) => {
       const found: AttributeCycle = { vertices: cycle.nodes.map(name), certain: cycle.certain };
       return allCircular(b, cycle.nodes) ? { ...found, circular: true } : found;
     }),
   };
 }
 
-/** This function tells if each vertex of a list is a circular attribute (D113). */
+/** This function tells if each attribute of a list of vertices is circular (D113). A JSON vertex is not an attribute. */
 function allCircular(b: Builder, ids: readonly number[]): boolean {
-  return ids.every((id) => b.vertices[id]?.circular === true);
+  return ids.every((id) => b.vertices[id]?.circular === true || b.vertices[id]?.json === true);
+}
+
+/**
+ * This function gives the cycles of the attributes: the cycles of the graph, without their JSON vertices
+ * (TREE.GRAPH-JSON). A JSON vertex that only a lazy read reaches can split a certain cycle of attributes into a possible
+ * cycle and one certain part with the same attributes. The function gives that cycle as one certain cycle.
+ */
+function attributeCycles(b: Builder, graph: NodeGraph<number>): readonly GraphCycle<number>[] {
+  const all = cycles(graph);
+  const attributes = (nodes: readonly number[]): readonly number[] => nodes.filter((id) => b.vertices[id]?.json !== true);
+  const out: GraphCycle<number>[] = [];
+  for (let index = 0; index < all.length; index += 1) {
+    const cycle = all[index] as GraphCycle<number>;
+    const nodes = attributes(cycle.nodes);
+    if (cycle.certain) {
+      out.push({ nodes, certain: true });
+      continue;
+    }
+    // The certain parts of a possible cycle come after it, and each part is inside the component of the cycle.
+    const members = new Set(cycle.nodes);
+    let end = index + 1;
+    while (end < all.length && all[end]?.certain === true && members.has(all[end]?.nodes[0] as number)) end += 1;
+    const parts = all.slice(index + 1, end).map((part) => attributes(part.nodes));
+    if (parts.length === 1 && parts[0]?.length === nodes.length) out.push({ nodes, certain: true });
+    else {
+      out.push({ nodes, certain: false });
+      for (const part of parts) out.push({ nodes: part, certain: true });
+    }
+    index = end - 1;
+  }
+  return out;
 }
 
 /** This function gives the text of a vertex for the reason of an issue. Only an issue makes the text of the place. */
@@ -794,7 +889,7 @@ export function cycleIssues(machine: Machine, doc: unknown, options: CheckOption
   const { b, roots } = build(machine, doc, options.declaredType);
   const graph = nodeGraph(b);
   const certain = new Map<number, number>();
-  cycles(graph).forEach((cycle, index) => {
+  attributeCycles(b, graph).forEach((cycle, index) => {
     if (cycle.certain && !allCircular(b, cycle.nodes)) for (const id of cycle.nodes) certain.set(id, index);
   });
   if (certain.size === 0) return [];
@@ -816,6 +911,11 @@ export function cycleIssues(machine: Machine, doc: unknown, options: CheckOption
   const BUSY = 1;
   const DONE = 2;
   const state = new Uint8Array(b.vertices.length);
+  // The JSON frames next to each other on the stack share one cell: the attribute that the top of the run of frames
+  // evaluates, and the visit of the read of the node. A second read of the JSON of a node in evaluation reaches that
+  // attribute first, as the run does. A cycle that a JSON frame closes has the place of the read of the node.
+  const cells: ({ attr: number; readonly visit: DocVisit } | undefined)[] = [];
+  const isJson = (id: number): boolean => b.vertices[id]?.json === true;
   const reported = new Set<number>();
   const out: Issue[] = [];
   for (const start of order) {
@@ -833,14 +933,19 @@ export function cycleIssues(machine: Machine, doc: unknown, options: CheckOption
       const index = list[top.next] as number;
       top.next += 1;
       const e = b.edges[index] as EdgeInfo;
-      const from = e.from as number;
+      let from = e.from as number;
       const seen = state[from];
       if (seen === 0) {
         state[from] = BUSY;
+        if (isJson(from)) cells[from] = isJson(top.id) ? cells[top.id] : { attr: -1, visit: e.visit };
+        else if (isJson(top.id)) (cells[top.id] as { attr: number }).attr = from;
         stack.push({ id: from, next: 0 });
         continue;
       }
       if (seen === DONE) continue;
+      // The JSON of a node in evaluation reads its attributes again. Those before the one in evaluation are done.
+      if (isJson(from)) from = cells[from]?.attr ?? -1;
+      if (from < 0) continue;
       // The read reaches an attribute in evaluation: the run gives #CYCLE! here, with the chain of the demands.
       const cycle = certain.get(from);
       if (cycle === undefined || reported.has(cycle)) continue;
@@ -849,8 +954,9 @@ export function cycleIssues(machine: Machine, doc: unknown, options: CheckOption
       // A chain of circular attributes reads an approximation in the run, thus it does not close the cycle (D113).
       if (allCircular(b, ids)) continue;
       reported.add(cycle);
-      const chain = [...ids, from].map((id) => vertexText(b.vertices[id] as VertexInfo));
-      out.push({ code: "#CYCLE!", place: e.visit.place, reason: `The attributes form a cycle: ${chain.join(" -> ")}.`, at: e.visit.at });
+      const chain = [...ids, from].filter((id) => !isJson(id)).map((id) => vertexText(b.vertices[id] as VertexInfo));
+      const via = (isJson(top.id) ? cells[top.id]?.visit : undefined) ?? e.visit;
+      out.push({ code: "#CYCLE!", place: via.place, reason: `The attributes form a cycle: ${chain.join(" -> ")}.`, at: via.at });
     }
   }
   return out;

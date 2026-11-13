@@ -196,3 +196,83 @@ describe("the graph of attribute instances keeps the depth limit of check (K255)
     expect(check(deep, doc)).toEqual([{ code: "#CYCLE!", place: [...last, "width"], reason: `The attributes form a cycle: ${text} -> ${text}.`, at: expect.any(Array) }]);
   });
 });
+
+/** A panel with one inner panel of `size` boxes, then `refs` boxes whose width is a reference to the inner panel. */
+const sharedNode = (size: number, refs: number, last: Json = 1): Json => {
+  const boxes = Array.from({ length: size }, (_, index) => node("box", { width: index === size - 1 ? last : 1 }));
+  const readers = Array.from({ length: refs }, () => node("box", { width: path("self", "parent", "children", 0) }));
+  return node("panel", { children: list(node("panel", { children: list(...boxes) }), ...readers) });
+};
+
+describe("a read of a node is one edge to the JSON vertex of the node (K256)", () => {
+  it("[TREE.GRAPH-JSON] the JSON vertex reads each own attribute of its node, and the JSON vertex of each node in their values", () => {
+    const doc = node("panel", { width: 1, height: path("self", "children", 0), children: list(node("panel", { width: 2, children: list(node("box", { width: 3 })) })) });
+    const graph = attributeGraph(STD_MACHINE, doc);
+    const json = (place: readonly (string | number)[]): string => JSON.stringify([...place, null]);
+    const inner = ["children", 0];
+    const box = ["children", 0, "children", 0];
+    expect(rows(graph)).toEqual([
+      [id([], "children"), id([], "height"), false, ["height"]],
+      [json(inner), id([], "height"), false, ["height"]],
+      [id(inner, "width"), json(inner), false, inner],
+      [id(inner, "children"), json(inner), false, inner],
+      [json(box), json(inner), false, inner],
+      [id(box, "width"), json(box), false, box],
+    ]);
+    expect(graph.vertices.get(json(box))).toEqual({ id: json(box), place: box, attribute: "", type: "box", json: true });
+    expect(graph.cycles).toEqual([]);
+    expect(check(STD_MACHINE, doc)).toEqual([]);
+  });
+
+  it("[TREE.GRAPH-JSON] many references to one large node give edges linear in the size of the document", () => {
+    const size = 300;
+    const refs = 300;
+    const graph = attributeGraph(STD_MACHINE, sharedNode(size, refs));
+    // Each reference gives its edges of the parent and of the list, and one edge to the JSON vertex. Before, each reference read each box.
+    expect(graph.edges.length).toBeLessThan(4 * (size + refs));
+    expect(graph.vertices.size).toBeLessThan(2 * (size + refs) + 10);
+    expect(check(STD_MACHINE, sharedNode(size, refs))).toEqual([]);
+  });
+
+  it("[TREE.GRAPH-JSON] check of 5000 references to a node of 5000 boxes ends, and it finds the cycle of the last box", () => {
+    expect(check(STD_MACHINE, sharedNode(5000, 5000))).toEqual([]);
+    const issues = check(STD_MACHINE, sharedNode(5000, 5000, path("self", "parent", "parent", "children", 1, "width")));
+    expect(issues.map((issue) => [issue.code, issue.place])).toEqual([["#CYCLE!", ["children", 1, "width"]]]);
+  });
+
+  it("[TREE.GRAPH-JSON] a cycle through the JSON of a node has the place and the reason of the run", () => {
+    const panel = (value: Record<string, Json>): Json => node("panel", value);
+    const box = (value: Record<string, Json>): Json => node("box", value);
+    const docs: readonly Json[] = [
+      panel({ width: path("self", "children", 0), children: list(box({ width: path("self", "parent") })) }),
+      // Two reads of the JSON of the panel: the second read reaches the attribute that the first read evaluates.
+      panel({ height: path("self", "children", 0), children: list(box({ width: path("self", "parent") }), box({ width: path("self", "parent") })) }),
+      panel({ width: 1, children: list(box({ width: path("self", "parent", "children", 1) }), box({ height: path("self", "parent", "children", 0) })) }),
+      panel({ children: list(panel({ children: list(box({ width: path("self", "parent", "parent") })) })), height: path("self", "children", 0, "children", 0) }),
+    ];
+    for (const doc of docs) {
+      const run = agreed(STD_MACHINE, doc);
+      if (run.ok) throw new Error(`The run gives no #CYCLE!: ${JSON.stringify(doc)}`);
+      expect(check(STD_MACHINE, doc)).toEqual([{ code: "#CYCLE!", place: run.error.place, reason: run.error.reason, at: expect.any(Array) }]);
+    }
+  });
+
+  it("[TREE.GRAPH-JSON] a node read only in a lazy branch keeps one certain cycle of its attributes", () => {
+    // The test of width reads height, and width reads its node only in a branch that the test can skip.
+    const test = { type: "greater", value: [path("self", "height"), { type: "number", value: 0 }] };
+    const doc = node("panel", { width: { type: "if", value: { test, then: path("self"), else: { type: "number", value: 1 } } }, height: path("self", "width") });
+    const cycles = attributeGraph(STD_MACHINE, doc).cycles;
+    expect(cycles).toEqual([{ vertices: expect.arrayContaining([id([], "width"), id([], "height")]), certain: true }]);
+    expect(cycles[0]?.vertices.length).toBe(2);
+    const run = agreed(STD_MACHINE, doc);
+    if (run.ok) throw new Error("The run gives no #CYCLE!.");
+    expect(check(STD_MACHINE, doc)).toEqual([{ code: "#CYCLE!", place: run.error.place, reason: run.error.reason, at: expect.any(Array) }]);
+  });
+
+  it("[TREE.GRAPH-JSON] the previous sibling of each of 20000 children comes from its index", () => {
+    // Each cell reads its x, thus the graph reads the previous sibling of each cell for the equation of down. The time of
+    // this test does not tell the old scan apart in a reliable way, thus it is a test of the result only (D204).
+    const doc = node("frame", { w: 1, children: list(...Array.from({ length: 20000 }, () => node("cell", { w: 1, y: path("self", "x") }))) });
+    expect(check(machine, doc)).toEqual([]);
+  });
+});

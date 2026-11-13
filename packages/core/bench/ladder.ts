@@ -194,6 +194,17 @@ function panels(levels: number, ref: boolean): unknown {
 }
 
 /**
+ * This function gives a panel with one inner panel of `size` boxes, then `size` boxes whose width is a reference to the
+ * inner panel. Each reference reads the JSON of one large node (K256, TREE.GRAPH-JSON).
+ */
+function shared(size: number): unknown {
+  const boxes = Array.from({ length: size }, () => ({ type: "box", value: { width: 1 } }));
+  const ref = { type: "ref", value: ["self", "parent", "children", 0] };
+  const readers = Array.from({ length: size }, () => ({ type: "box", value: { width: ref } }));
+  return { type: "panel", value: { children: { type: "list", value: [{ type: "panel", value: { children: { type: "list", value: boxes } } }, ...readers] } } };
+}
+
+/**
  * This function gives the fault of a flip test: a call that walks its document `times` more times, then a shorter document.
  * No document is deeper than its rung, so the fault does not reach the limit of the stack (K227, D164).
  */
@@ -269,6 +280,8 @@ async function measure(): Promise<void> {
     { name: "check tree", make: (n) => panels(quarter(n), false), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
     // The same tree, and the root reads the JSON of its first child.
     { name: "check tree ref", make: (n) => panels(quarter(n), true), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
+    // A wide tree: n / 4 references to one node of n / 4 boxes. Each reference reads one JSON vertex (K256, TREE.GRAPH-JSON).
+    { name: "check shared", make: (n) => shared(quarter(n)), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
   ];
   const docs = walks.map((walk) => steps.map((step) => walk.make(step * base)));
   const results: WalkRun[] = [];
