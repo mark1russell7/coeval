@@ -184,6 +184,16 @@ function chain(levels: number): unknown {
 }
 
 /**
+ * This function gives a deep tree of the standard machine: `levels` panels, each in the list `children` of the panel
+ * above it (K255, TREE.GRAPH-DEPTH). With `ref`, the root reads the JSON of its first child, thus each panel under it.
+ */
+function panels(levels: number, ref: boolean): unknown {
+  let value: Record<string, unknown> = { width: 1 };
+  for (let index = 1; index < levels; index += 1) value = { children: { type: "list", value: [{ type: "panel", value }] } };
+  return { type: "panel", value: ref ? { ...value, width: { type: "ref", value: ["self", "children", 0] } } : value };
+}
+
+/**
  * This function gives the fault of a flip test: a call that walks its document `times` more times, then a shorter document.
  * No document is deeper than its rung, so the fault does not reach the limit of the stack (K227, D164).
  */
@@ -222,18 +232,30 @@ async function measure(): Promise<void> {
   if (!Number.isInteger(base) || base < 1 || !Number.isInteger(rounds) || rounds < 1) throw new Error("Give whole numbers of levels and rounds.");
   const started = performance.now();
   const world = { kinds: kernel.formulaKinds(), defaults: {} };
+  // The machine of the deep trees: the standard machine with a depth limit above the deepest rung. Thus `check` reads
+  // the whole tree at each rung (K255).
+  const deep = { ...kernel.STD_MACHINE, maxDepth: Number.MAX_SAFE_INTEGER };
   const levels = STEPS.map((step) => step * base);
-  // The arms: the four rungs, then the second document of the rung AA_STEP.
-  const docs = [...STEPS.map((step) => chain(step * base)), chain(AA_STEP * base)];
+  // The arms of each walk: the four rungs, then the second document of the rung AA_STEP.
   const calls = [...STEPS.map((step) => 8 / step), 8 / AA_STEP];
+  const steps = [...STEPS, AA_STEP];
   const aaIndex = STEPS.indexOf(AA_STEP);
   let visits = 0;
-  const walks: readonly { readonly name: string; readonly call: (doc: unknown) => number }[] = [
+  /** One walk: its name, the document of a rung, the call, and the work of one call for the table. */
+  interface Walk {
+    readonly name: string;
+    readonly make: (levels: number) => unknown;
+    readonly call: (doc: unknown) => number;
+    readonly work?: (doc: unknown) => number;
+  }
+  const quarter = (n: number): number => Math.max(1, Math.round(n / 4));
+  const walks: readonly Walk[] = [
     // The walk of the claim: the references of a document.
-    { name: "refsOf", call: (doc) => kernel.refsOf(world, doc).length },
+    { name: "refsOf", make: chain, call: (doc) => kernel.refsOf(world, doc).length },
     // The walk under refsOf, with a visit that only counts.
     {
       name: "walk",
+      make: chain,
       call: (doc) => {
         visits = 0;
         kernel.walk(world, doc, () => {
@@ -242,20 +264,25 @@ async function measure(): Promise<void> {
         return visits;
       },
     },
+    // `check` of a deep tree: the first walk and the graph of attribute instances (K255, TREE.GRAPH-DEPTH). A panel costs
+    // more than a level of the chain, thus a rung of n levels has n / 4 panels. The work is the count of the edges of the graph.
+    { name: "check tree", make: (n) => panels(quarter(n), false), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
+    // The same tree, and the root reads the JSON of its first child.
+    { name: "check tree ref", make: (n) => panels(quarter(n), true), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
   ];
+  const docs = walks.map((walk) => steps.map((step) => walk.make(step * base)));
   const results: WalkRun[] = [];
   // arms[walk * docs.length + doc]
   // With a fault, one call walks step^(s-1) times the levels of its rung, so the slope over the rungs is s.
   const fault = injectedSlope();
-  const callOf = (call: (doc: unknown) => number, step: number): ((doc: unknown) => number) => {
-    if (fault === undefined) return call;
+  const callOf = (walk: Walk, step: number): ((doc: unknown) => number) => {
+    if (fault === undefined) return walk.call;
     const more = step ** (fault - 1) - 1;
     const times = Math.floor(more);
     const rest = Math.round(step * base * (more - times));
-    return times === 0 && rest === 0 ? call : faulted(call, times, rest === 0 ? undefined : chain(rest));
+    return times === 0 && rest === 0 ? walk.call : faulted(walk.call, times, rest === 0 ? undefined : walk.make(rest));
   };
-  const steps = [...STEPS, AA_STEP];
-  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: callOf(walk.call, steps[d] as number), doc })));
+  const arms = walks.flatMap((walk, w) => (docs[w] as unknown[]).map((doc, d) => ({ w, d, call: callOf(walk, steps[d] as number), doc })));
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {
@@ -296,19 +323,19 @@ async function measure(): Promise<void> {
   }
   const memorySeconds = fixed((performance.now() - memoryStarted) / 1000, 1);
   walks.forEach((walk, w) => {
-    const of = (d: number): number[] => times[w * docs.length + d] as number[];
-    const ofBytes = (d: number): number[] => bytes[w * docs.length + d] as number[];
+    const of = (d: number): number[] => times[w * steps.length + d] as number[];
+    const ofBytes = (d: number): number[] => bytes[w * steps.length + d] as number[];
     const slopes: number[] = [];
     const aa: number[] = [];
     const byteSlopes: number[] = [];
     const byteAa: number[] = [];
     for (let round = 0; round < rounds; round += 1) {
       slopes.push(slope(levels, STEPS.map((_, d) => of(d)[round] as number)));
-      aa.push((of(docs.length - 1)[round] as number) / (of(aaIndex)[round] as number));
+      aa.push((of(steps.length - 1)[round] as number) / (of(aaIndex)[round] as number));
       byteSlopes.push(slope(levels, STEPS.map((_, d) => ofBytes(d)[round] as number)));
-      byteAa.push((ofBytes(docs.length - 1)[round] as number) / (ofBytes(aaIndex)[round] as number));
+      byteAa.push((ofBytes(steps.length - 1)[round] as number) / (ofBytes(aaIndex)[round] as number));
     }
-    const counts = STEPS.map((_, d) => walk.call(docs[d]));
+    const counts = STEPS.map((_, d) => (walk.work ?? walk.call)((docs[w] as unknown[])[d]));
     const ns = STEPS.map((_, d) => median(of(d)));
     results.push({ name: walk.name, ns, slopes, aa, counts, bytes: STEPS.map((_, d) => median(ofBytes(d))), byteSlopes, byteAa });
   });

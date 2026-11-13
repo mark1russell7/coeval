@@ -2,6 +2,18 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.33.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `attributeGraph` and `check` no longer read a document past the depth limit of `check`. A caller that read the deep part of the graph sees fewer vertices, thus this release counts as a breaking change. No new exports.
+
+### Fixes
+
+- **The graph of attribute instances keeps the depth limit of `check` (D202).** A deep chain with one reference to a node took memory quadratic in its depth. At approximately 5000 levels `check` gave a `RangeError`, and at 12000 levels it ran out of memory. The time and the memory of `check` are linear in the size after this fix (TREE.GRAPH-DEPTH).
+
+### Changes of behavior
+
+- **A node deeper than the depth limit gets no vertex (TREE.GRAPH-DEPTH).** A read of it has an unknown source. A cycle past the limit gets no `#CYCLE!` from `check`, and the `#DEPTH!` of the first walk stays.
+
 ## 0.32.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. `typeIssues` gives the problems of a shared term one time, and `typeText` gives at most 4096 characters. No new exports.

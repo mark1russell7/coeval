@@ -149,3 +149,50 @@ describe("the graph of attribute instances (L2e, D107)", () => {
     expect(agreed(STD_MACHINE, later)).toEqual({ ok: true, value: 1 });
   });
 });
+
+/**
+ * A chain of panels: each panel holds the next panel in its list `children`. The root gets the fields `root`, and the
+ * last panel gets the fields `last`. The panel at level k has the place `["children", 0]` k times, and the depth 2k.
+ */
+const panelChain = (levels: number, root: Record<string, Json>, last: Record<string, Json>): Json => {
+  let value: Record<string, Json> = last;
+  for (let level = 1; level < levels; level += 1) value = { children: list(node("panel", value)) };
+  return node("panel", { ...root, ...value });
+};
+
+/** The place of the panel at a level of a chain. */
+const chainPlace = (level: number): readonly (string | number)[] => Array.from({ length: level }, () => ["children", 0] as const).flat();
+
+describe("the graph of attribute instances keeps the depth limit of check (K255)", () => {
+  it("[TREE.GRAPH-DEPTH] a document deeper than the limit has no vertex, and a cycle inside the limit stays an issue", () => {
+    const shallow: Machine = { ...STD_MACHINE, maxDepth: 20 };
+    // The cycle is at depth 58. The first walk stops at depth 21, thus the graph does not reach the cycle either.
+    const deepCycle = panelChain(30, {}, { width: path("self", "width") });
+    expect(check(shallow, deepCycle).map((issue) => issue.code)).toEqual(["#DEPTH!"]);
+    // A cycle at the root stays an issue after the #DEPTH! of the walk.
+    const rootCycle = panelChain(30, { width: path("self", "width") }, {});
+    expect(check(shallow, rootCycle)).toEqual([
+      expect.objectContaining({ code: "#DEPTH!", reason: "The nesting is deeper than 20 documents." }),
+      { code: "#CYCLE!", place: ["width"], reason: "The attributes form a cycle: width of panel at [] -> width of panel at [].", at: ["value", "width"] },
+    ]);
+    // A read of a node deeper than the limit has an unknown source: the graph does not know its reads.
+    const graph = attributeGraph(shallow, panelChain(30, { width: path("self", "children", 0) }, {}));
+    expect(graph.unknown.length).toBeGreaterThan(0);
+    expect([...graph.vertices.values()].every((vertex) => vertex.place.length <= 20)).toBe(true);
+  });
+
+  it("[TREE.GRAPH-DEPTH] check of a very deep chain with a reference to a node gives #DEPTH! and ends", () => {
+    // 12000 levels of panels: the root reads the JSON of its first child, thus each panel under it.
+    const doc = panelChain(12000, { width: path("self", "children", 0) }, { width: 1 });
+    expect(check(STD_MACHINE, doc).map((issue) => issue.code)).toEqual(["#DEPTH!"]);
+  });
+
+  it("[TREE.GRAPH-DEPTH] inside a high limit, a chain of 6000 panels gets the cycle of its last panel, with no overflow", () => {
+    const deep: Machine = { ...STD_MACHINE, maxDepth: 100_000 };
+    // The root reads the JSON of the chain. Its order reaches the last panel, whose width reads itself.
+    const doc = panelChain(6000, { width: path("self", "children", 0) }, { width: path("self", "width") });
+    const last = chainPlace(5999);
+    const text = `width of panel at [${last.join(", ")}]`;
+    expect(check(deep, doc)).toEqual([{ code: "#CYCLE!", place: [...last, "width"], reason: `The attributes form a cycle: ${text} -> ${text}.`, at: expect.any(Array) }]);
+  });
+});

@@ -598,6 +598,17 @@ function capReason(v: DocVisit, kind: readonly Key[], allowed: (caps: readonly C
 }
 
 /**
+ * This function gives the depth limit of `check`: a document deeper than it gives `#DEPTH!`. The graph of attribute
+ * instances keeps the same limit (TREE.GRAPH-DEPTH).
+ *
+ * @param machine - The machine, with its option `maxDepth`.
+ * @returns The limit. The default is 1000.
+ */
+export function depthLimit(machine: Machine): number {
+  return machine.maxDepth ?? 1000;
+}
+
+/**
  * This function checks a document before an evaluation, by the contracts of its kinds. It finds the problems
  * that an evaluation finds when it reaches them:
  *
@@ -1190,7 +1201,7 @@ function checkAll(
   // evaluator. Only a runner that declares `drives` is in the map.
   const driven = new Map<DocVisit, readonly LazyRule[]>();
   const drives: Drive[] = [];
-  const maxDepth = machine.maxDepth ?? 1000;
+  const maxDepth = depthLimit(machine);
   const anyName = options.names === "any";
   const roots: readonly string[] = machine.roots ?? ROOTS;
   const has = (table: Readonly<Record<string, unknown>> | undefined, name: string): boolean => table !== undefined && Object.hasOwn(table, name);
