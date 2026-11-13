@@ -5645,3 +5645,22 @@ The walks of types read each way to a shared term, thus a chain of n records too
 - Other walks of values, for example `docEquals`, read each way to a shared value when the two values are not one object. K259 holds this work.
 
 **Results.** The 8 walks of the probe at a chain of 40 take at most 10 ms each. Before the change, a chain of 16 took up to 357 ms. On the source of main, each of the 8 new tests fails. 5 tests do not end in 120 s, and 3 tests end with a failure.
+
+## D203 (2026-11-12): three rules of the speed gates from a review
+
+**Context.** A review of 11-10 asked three questions about the speed gates. The roadmap rows K225 and K290 hold the work.
+
+**Decision.**
+
+- **A case that cannot decide is not "same".** `Speed OK` shows a third state, "no decision", with the count of the cases that it could not read (K225). A share limit of such cases comes later, from the A/A series.
+- **A limit counts workflow runs, not jobs.** The record of the speed limits takes the worst of 5 or more runs, plus their spread (K290). The jobs of one run share a commit and a time window, thus they are not independent.
+- **A change of the formula kit starts the Lean comparison.** The paths of the Lean job get `formula.ts`, `deref.ts`, `parts.ts`, `evaluate.ts` and `generate.ts` (K290).
+
+**Alternatives.**
+
+- Keep "same" for a case that cannot decide. Then a gate passes with no reading. A gate that cannot read a case must show no reading.
+- Keep the count of jobs, and record why a job is an independent unit. The jobs of one run share their noise, thus that reason is not true.
+- Start the Lean comparison for each change of `packages/core/src`. Most of those changes do not touch the formula kit, thus the cost has no gain.
+- Keep the Lean comparison at night only. Then a drift merges first and shows only on the next day.
+
+**Limits.** The model of the Lean comparison compares a closure by the names of its parameters, and it sorts the keys of a record. D159 gets these two limits with K290.
