@@ -5670,4 +5670,4 @@ Each vertex of that walk made a text of its full place, and each trail kept a fu
 
 - A cycle deeper than the limit gets no `#CYCLE!` from `check`. The run finds it, or the run stops at its own depth limit.
 - Many references to a large node still give one edge for each attribute of each node under it (K256).
-- The ladder measures `check` on two deep trees with a quarter of the levels of a rung, because a panel costs more than a level of the chain.
+- The ladder measures `check` on two deep trees with a quarter of the levels of a rung. A panel costs more than a level of the chain.
