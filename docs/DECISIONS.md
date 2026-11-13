@@ -5578,6 +5578,14 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 - A copy of the list of capabilities, for example `[...context.caps]`, counts as a new list. The part then loses each clause kind that the host did not also give.
 - The kernel tells a spread from a new list by the identity of the list, as CAP.NARROW-CODE does.
 
+**Speed.**
+
+- The first head read 4 cases slower on two CPU models (Speed run 43327928958). The largest cost was `factsOf a tree with an equation`, at +22.4 % and +13.1 %.
+- A trace of the inline decisions of V8 found its cause. The walk of a check used `handledOf` for each part, and V8 put it into the walk first. The walk then had no room for `splitParts`.
+- The walk uses `handledOf` only for a part with a grant, or with clause kinds under rules. The case then read +1.2 % and -1.1 % (Speed run 43334266551).
+- `FORMULA.SPEED formula` and `a reference through an envelope` stay slower by 2 % to 3 % in each job. `bench/accepted/376.json` accepts them, and `PLAN.FIXED a formula with a fixed name and a free name` too.
+- The traces show no new work on their paths, only a new order of the inlines. Their cause is not measured.
+
 ## D199 (2026-11-12): the stepper keeps its closures and held errors apart from data
 
 **Context.** D158 made a closure of the stepper a record with the key `coeval.closure`, and a held error a record with the key `coeval.held`. Thus a configuration survived JSON. A document can also write such a record as data. A review found that the stepper then called a record from data with the context in it, also with its capabilities. A record from data with the key of a held error became an error. The plan and the reference give `#VALUE!` and the record.
