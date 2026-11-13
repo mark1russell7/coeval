@@ -5609,3 +5609,39 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 - A host that stores a configuration with `JSON.stringify` and no codec gets each closure back as data. A call of it then gives `#VALUE!`.
 - The decoder trusts its form, as the stepper trusts a context from the host. A host that reads a configuration from a source that it does not trust checks the source.
+
+## D200 (2026-11-12): a walk of types reads a shared term one time for each depth
+
+**Context.** K254, from a review. A type is a JSON term, and a host can build it with one term at two places. A check of a `let` chain makes such types. Each name gets a record of the type of the name before it, two times.
+
+The walks of types read each way to a shared term, thus a chain of n records took approximately 2^n steps. A probe of 8 walks found each walk 4 to 16 times slower at a chain of 16 than at a chain of 12. The text of the type of a chain of 16 had 720886 characters.
+
+**Decision.**
+
+- Each walk keeps the answer of each term at each depth, by the identity of the term. A text or another primitive needs no memo.
+- `fits` keeps three exact memos for each call. An answer that read no budget of a split holds for each budget. An answer with no budget holds for each call with no budget. An answer with a spent budget holds for each spent budget.
+- A count of the cases of the splits tells `fitsAt` if a call read the budget. A call that read a budget that is not spent keeps no answer.
+- `join` and the meet of a schema reading keep the answer of each pair of terms at each depth. `isPrecise` and the values and the members of a type keep the answer of each term at each depth.
+- `member` starts with no memo, and it counts its steps. After 4096 steps, it starts again with a memo. Thus the test of a value at run time keeps its speed.
+- `typeIssues` gives the problems of a shared term one time for each depth, at its first place.
+- `typeText` takes the characters of each term from a room of 4096. A term takes at most the characters that it writes. Thus a text of at most 4096 characters does not change, and a longer text has 4096 characters.
+- A split follows at most 4096 paths into records.
+
+**Alternatives.**
+
+- A test of identity first in `fits`. A type with `unknown` does not fit itself in the strict form of `join`, thus the test changes answers.
+- A memo of `fits` by the pair of terms alone. The answer of a split depends on the budget that is left, thus that memo gives wrong answers.
+- A copy of each shared term. The copy of a chain of 40 has 2^40 terms.
+- A budget of work for each pass of types (K259). It stops a long walk, but it does not make a shared walk fast. It is a later item.
+
+**Why.** A memo by identity keeps each answer exact, and each walk takes steps for each term and depth. The depth stays in the key, because each walk stops at the depth limit of 256.
+
+**Limits.**
+
+- Two equal terms that are not one object get a walk each. A check and a schema reading share a term by its identity, thus their types do not have this cost.
+- The limit of 4096 paths is the only limit that changes an answer of `fits`. A type with more paths can then fail to fit. The types of the corpus have at most 4 paths at a level.
+- The limit of 4096 characters cuts a text. The longest text of a type in the corpus has 1549 characters.
+- `callable`, `holdsEnvelope`, `stepType`, `withoutOf` and the flatten of `unionOf` stay without a memo. They read only unions, and `unionOf` flattens each union that a check or a schema reading makes.
+- Other walks of values, for example `docEquals`, read each way to a shared value when the two values are not one object. K259 holds this work.
+
+**Results.** The 8 walks of the probe at a chain of 40 take at most 10 ms each. Before the change, a chain of 16 took up to 357 ms. On the source of main, each of the 8 new tests fails. 5 tests do not end in 120 s, and 3 tests end with a failure.
