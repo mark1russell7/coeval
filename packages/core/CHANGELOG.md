@@ -2,6 +2,20 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.34.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `attributeGraph` gives a JSON vertex for each node that a reference reads. A caller that read each vertex as an attribute sees new vertices, thus this release counts as a breaking change. No new exports.
+
+### Fixes
+
+- **A read of a node is one edge to the JSON vertex of the node (D204).** R references to a node with A attributes under it gave R × A edges. The time and the memory of `check` are linear in the size of the document after this fix (TREE.GRAPH-JSON).
+- **A list keeps its sorted items, and the previous sibling of a child comes from its index (D204).** Before, each read sorted the list again, and each child scanned the list.
+
+### Changes of behavior
+
+- **The graph has a vertex with `json: true` for each node that a reference reads (TREE.GRAPH-JSON).** Its attribute is the empty text, and its name is the place of the node with `null` at the end. A reference reads that vertex, and the vertex reads the attributes of the node.
+- **The list of a cycle has no JSON vertex (TREE.GRAPH-JSON).** The issues of `check` keep their places and their reasons.
+
 ## 0.33.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. `attributeGraph` and `check` no longer read a document past the depth limit of `check`. A caller that read the deep part of the graph sees fewer vertices, thus this release counts as a breaking change. No new exports.

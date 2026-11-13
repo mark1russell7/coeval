@@ -38,6 +38,7 @@ import {
   agree,
   agreeRun,
   attributeGraph,
+  type AttributeGraph,
   attributeVertexId,
   check,
   context,
@@ -1014,7 +1015,9 @@ function graphHarness(config: Config, from: number, to: number): GraphOutcome {
         continue;
       }
       const graph = attributeGraph(config.machine, doc);
-      const edges = new Set(graph.edges.map((e) => `${e.from ?? "?"} ${JSON.stringify(e.place)}`));
+      // A read of a node is one edge to its JSON vertex. The attributes of that JSON come from its own edges (TREE.GRAPH-JSON).
+      const reach = jsonReach(graph);
+      const edges = new Set(graph.edges.flatMap((e) => (reach.get(e.from ?? "") ?? [e.from ?? "?"]).map((from) => `${from} ${JSON.stringify(e.place)}`)));
       const unknown = new Set(graph.unknown.map((e) => JSON.stringify(e.place)));
       for (const read of seen) {
         if (unknown.has(JSON.stringify(read.place))) continue;
@@ -1031,6 +1034,31 @@ function graphHarness(config: Config, from: number, to: number): GraphOutcome {
     }
   }
   return { misses, reads, values, cycles };
+}
+
+/** This function gives the attributes that each JSON vertex of a graph reads, through the JSON vertices in their values. */
+function jsonReach(graph: AttributeGraph): ReadonlyMap<string, readonly string[]> {
+  const parts = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    if (e.from === undefined || graph.vertices.get(e.to)?.json !== true) continue;
+    const list = parts.get(e.to);
+    if (list === undefined) parts.set(e.to, [e.from]);
+    else list.push(e.from);
+  }
+  const out = new Map<string, readonly string[]>();
+  for (const start of parts.keys()) {
+    const found: string[] = [];
+    const stack = [start];
+    while (stack.length > 0) {
+      const at = stack.pop() as string;
+      for (const from of parts.get(at) ?? []) {
+        if (graph.vertices.get(from)?.json === true) stack.push(from);
+        else found.push(from);
+      }
+    }
+    out.set(start, found);
+  }
+  return out;
 }
 
 describe("one meaning of runs", () => {

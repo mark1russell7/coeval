@@ -619,6 +619,7 @@ interface AttributeVertex {
   readonly place: readonly Key[];
   readonly attribute: string;
   readonly type: string;
+  readonly json?: true;
   readonly circular?: true;
   readonly args?: Readonly<Record<string, Json>>;
 }
