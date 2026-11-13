@@ -356,21 +356,20 @@ describe("the interface of a schedule", () => {
       [strictMachine, { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "a") } }, body: ref("names", "x") } }],
       [STD_MACHINE, { type: "seq", value: [{ type: ["tree", "quote"], name: "x", value: ref("names", "a") }, ref("names", "x")] }],
     ];
-    for (const [machine, doc] of docs) {
+    const outcomes = docs.map(([machine, doc]) => {
       const s = schedule(machine, { context: context({ names: { a: 1 } }) });
       s.set("n", doc);
-      expect(s.read("n")).toEqual(ok(1));
+      const first = s.read("n");
       // A change of a name that the node does not read: the node verifies its reads and keeps its result.
-      let counts = s.counts;
       s.changeData(context({ names: { a: 1, b: 5 } }));
-      expect(s.read("n")).toEqual(ok(1));
-      expect(s.counts.evaluations - counts.evaluations).toBe(0);
+      const other = s.read("n");
+      const kept = s.counts.evaluations;
       // A change of the name that the reference reaches: the node evaluates again.
-      counts = s.counts;
       s.changeData(context({ names: { a: 2 } }));
-      expect(s.read("n")).toEqual(ok(2));
-      expect(s.counts.evaluations - counts.evaluations).toBe(1);
-    }
+      const target = s.read("n");
+      return { results: [first, other, target], evaluations: [kept, s.counts.evaluations] };
+    });
+    expect(outcomes).toEqual(docs.map(() => ({ results: [ok(1), ok(1), ok(2)], evaluations: [1, 2] })));
   });
 
   it("[SCHED.CLOSURE] a closure keeps a read of the node that it reads, thus a change of another node keeps its result, with no demand and no #CYCLE!", () => {

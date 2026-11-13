@@ -461,17 +461,19 @@ describe("two levels of durability", () => {
       [strictMachine, { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "a") } }, body: ref("names", "x") } }],
       [STD_MACHINE, { type: "seq", value: [{ type: ["tree", "quote"], name: "x", value: ref("names", "a") }, ref("names", "x")] }],
     ];
-    for (const [machine, doc] of docs) {
+    const outcomes = docs.map(([machine, doc]) => {
       const store = durable(machine);
-      expect(store.evaluate("d", doc, context({ names: { a: 1 } }))).toEqual(ok(1));
+      const first = store.evaluate("d", doc, context({ names: { a: 1 } }));
       // A change of a name that the evaluation does not read: the reads verify, and the result stays.
       store.changeData();
-      expect(store.evaluate("d", doc, context({ names: { a: 1, b: 5 } }))).toEqual(ok(1));
+      const other = store.evaluate("d", doc, context({ names: { a: 1, b: 5 } }));
       // A change of the name that the reference reaches: the evaluation starts again.
       store.changeData();
-      expect(store.evaluate("d", doc, context({ names: { a: 2 } }))).toEqual(ok(2));
-      expect(store.counts).toMatchObject({ evaluations: 2, verifications: 2, reuses: 1 });
-    }
+      const target = store.evaluate("d", doc, context({ names: { a: 2 } }));
+      const { evaluations, verifications, reuses } = store.counts;
+      return { results: [first, other, target], evaluations, verifications, reuses };
+    });
+    expect(outcomes).toEqual(docs.map(() => ({ results: [ok(1), ok(1), ok(2)], evaluations: 2, verifications: 2, reuses: 1 })));
   });
 
   it("[DURABLE.IN-PLACE] with the option inPlace, a pure document finds a value of its reads that changed in place, and without it the old result stays", () => {

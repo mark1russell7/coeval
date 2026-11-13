@@ -292,6 +292,31 @@ const TREE_OPTIONS: Omit<GenerateOptions, "seed"> = {
   maxSize: 30,
 };
 
+/** The targets of the references in the data of a binding: free names, a name with a reference, and names that kinds bind. */
+const TARGETS = ["a", "b", "x", "hop", "n"];
+
+/** Many names of let hold literals with references, and the body reads names (READS.BOUND-REF). */
+const LET_OPTIONS: Omit<GenerateOptions, "seed"> = {
+  ...formulaOptions(formulaMachine(STRICT)),
+  types: [["let"], ["let"], ["let"], ["lit"], ["ref"], ["ref"], ["ref"], ["list"]],
+  roots: ["names"],
+  names: ["a"],
+  steps: 0,
+  hints: (type, path) => (type[0] === "let" ? (path[0] === "body" ? [["ref"], ["ref"], ["list"]] : [["lit"]]) : type[0] === "list" ? [["ref"], ["let"]] : undefined),
+  data: (type, rng) => (type.join(".") === "lit" && rng.chance(0.7) ? ref("names", rng.pick(TARGETS)) : undefined),
+};
+
+/** Many named steps of seq hold quoted references, and the later steps read names (READS.BOUND-REF). */
+const SEQ_OPTIONS: Omit<GenerateOptions, "seed"> = {
+  ...STD_OPTIONS,
+  types: [["seq"], ["seq"], ["tree", "quote"], ["tree", "quote"], ["ref"], ["ref"], ["ref"], ["list"], ["add"], ["number"]],
+  roots: ["names"],
+  names: ["a"],
+  steps: 0,
+  hints: (type) => (type[0] === "seq" ? [["tree", "quote"], ["ref"], ["seq"]] : undefined),
+  data: (type, rng) => (type.join(".") === "tree.quote" && rng.chance(0.8) ? ref("names", rng.pick(TARGETS)) : STD_OPTIONS.data?.(type, rng)),
+};
+
 interface Config {
   readonly name: string;
   readonly machine: Machine;
@@ -307,6 +332,8 @@ const CONFIGS: readonly Config[] = [
   { name: "formula, loose", machine: formulaMachine(LOOSE), options: formulaOptions(formulaMachine(LOOSE)) },
   { name: "formula, adopted things", machine: formulaMachine(STRICT, { adopt }), options: formulaOptions(strictMachine) },
   { name: "language", machine: language, options: formulaOptions(language, [["moves", "up"], ["moves", "at"]]) },
+  { name: "references in the data of let", machine: strictMachine, options: LET_OPTIONS },
+  { name: "references in the steps of seq", machine: STD_MACHINE, options: SEQ_OPTIONS },
 ];
 
 /* The harness: record, change the context, verify, and evaluate again. */
@@ -376,6 +403,10 @@ function harness(config: Config, keep: (read: Read) => boolean = () => true, tot
         .map((use) => String(use.path[1])),
     );
     const targets = refPaths(ctx.names, refPaths(doc));
+    reads.forEach((read, at) => {
+      // A free read of the path of a reference after a read that is not free: a reference in the data of a binding.
+      if (read.free && at > 0 && reads[at - 1]?.free === false && targets.has(show(read.path))) add("bound");
+    });
     for (const read of reads) {
       if (read.kept === true) add("kept");
       if (!read.free) add("inner");
@@ -454,6 +485,8 @@ describe("the reads of generated documents", () => {
     expect(total("touched")).toBeGreaterThan(0);
     expect(total("kept")).toBeGreaterThan(0);
     expect(total("inner")).toBeGreaterThan(0);
+    // The generators bind names to data with references, and the evaluations read the targets (READS.BOUND-REF).
+    for (const config of CONFIGS.slice(-2)) expect(outcomeOf(config).counts["bound"] ?? 0, config.name).toBeGreaterThan(0);
     // A list without the reads of whole roots keeps stale results of trees, and the harness finds them. The root of a
     // tree reads the whole root self (TREE.SELF), and the kernel adds the kept reads.
     expect(harness(CONFIGS[1] as Config, (read) => read.path.length > 1).stale.length).toBeGreaterThan(0);
@@ -1014,3 +1047,4 @@ describe("the reads of an evaluation", () => {
     expect(verifyReads(plan, trapReads, names({ v: trap }), { prints: printReads(trapReads) })).toMatchObject({ same: false, inPlace: true });
   });
 });
+
