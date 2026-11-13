@@ -5842,3 +5842,74 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
 
 **SemVer.** No export of the package changes.
+
+## D207 (2026-11-12): a pass of types has a count of work, and the walks of values read a shared part one time
+
+**Context.** K259, from the limits of D200 and D134. D200 gave the walks of types a memo by identity. `callable`, `holdsEnvelope`, `stepType`, `withoutOf` and the flatten of `unionOf` stayed without a memo. The schema reader also reads a shared object of JavaScript at each place. `typeFromSamples`, `encodeValue`, `argsKey` and `documentKey` read each way to a shared value.
+
+A probe on the source of 0.35.0 measured some walks on chains of 12, 14 and 16 levels. Each level holds the level below it two times, as one object.
+
+| Walk | 12 levels | 14 levels | 16 levels |
+| --- | ---: | ---: | ---: |
+| `typeFromSchema` of a shared schema object | 22 ms | 58 ms | 267 ms |
+| `typeFromSamples` of a shared value | 11 ms | 27 ms | 80 ms |
+| `encodeValue` of a shared value with `NaN` at the leaf | 2 ms | 9 ms | 20 ms |
+| `argsKey` of a shared value | 3 ms | 22 ms | 74 ms |
+| `typeCheck` of a step into a shared union | 11 ms | 19 ms | 46 ms |
+| `join` of a shared union and `text` | 8 ms | 7 ms | 21 ms |
+
+The key of `argsKey` had 49141, 196597 and 786421 characters. A memo cannot make that key short, because the text of the key doubles at each level.
+
+`docEquals` and `sameValue` read each pair of containers one time, with the memo of D20. On the source of 0.35.0, two separate chains of 40 levels compared in less than 1 ms. Thus the limit of D200 about `docEquals` was wrong.
+
+**Decision.**
+
+- A pass of types has one count of work. `typeCheck`, `check` with `types: true`, `typeFromSchema` and `typeFromSamples` are each one pass. A call of `fits` or `join` outside a pass is a pass of its own. A pass inside a pass adds to the count of the outer pass.
+- One step of a walk of types costs one point. The steps are each step of the rules of `fits`, `join`, `member` and the values of a type that a memo does not answer. Each step of `callable`, `holdsEnvelope`, `stepType`, `withoutOf`, `isPrecise`, `typeIssues` and the flatten of `unionOf` also costs one point. So do each schema that the reader reads and each group of samples.
+- The limit of a check is `maxWork` of the machine, or `WORK_LIMIT`. The other passes take no machine, thus their limit is `WORK_LIMIT`, 200000 points.
+- The count is one variable of the module `types.ts`, as the count of `member` (D200). The error is the error of D134, `workFailure`, with the text "one pass of types". `WORK_LIMIT` and `workFailure` move to `errors.ts`, and `evaluate.ts` exports them again.
+- Past the limit, the step throws a `Failure` with `#WORK!`, and the start of the pass catches it. A catch in a rule gives the error again when the count is spent. A function of the host can catch the error, thus the count decides the result, not the error.
+- Past the limit, a check gives one issue `#WORK!` at the document on the top of its stack. The type of the root is `unknown`. `fits` gives `true`, and `join` and `typeFromSamples` give `unknown`. `typeFromSchema` gives `unknown` and one issue that names the limit.
+- `encodeValue` keeps the document of each container that it writes. A container at two places gives one document at both places. Thus the document shares its parts, and the work grows with the count of distinct containers.
+- `typeFromSamples` reads each object of a group one time. It keeps the type of a group of one object at each depth. Thus the type of a shared sample shares its parts.
+- `argsKey` and `documentKey` keep the text of each container, and they join the texts with `+`. Thus the engine does not copy a shared text. Each text takes its characters from a room of 16,000,000 characters, the size of the table of D126. A key past the room is `undefined`.
+- The reasons of `#VALUE!` for an argument of `tree.at` and for a value of a higher-order attribute name the room.
+
+**Alternatives.**
+
+- A memo for each walk of types without a memo. `stepType` and `withoutOf` make new unions, and the flatten of `unionOf` makes a list of 2^n members. A memo does not make that list short. The count stops it.
+- A second limit for the passes of types. D134 has one limit and one error. A second limit is a second setting for the host, and the pass reads `maxWork`.
+- `false` from `fits` past the limit. Then a check gives a `#TYPE!` that is not true. `true` reads the two types as `unknown`, as a gradual check does.
+- A limit of time. A time changes from run to run, thus the answer changes too.
+- A count of work for `docEquals`. Its memo of pairs reads each pair one time, thus a count adds nothing.
+- A room for the keys without a memo. On the new room, a probe of the two keys of a chain of 40 levels took 2.9 s before the room stopped them.
+
+**Why.** The count gives the same answer in each run, and it uses the one limit of D134. A user sees the stop as an issue of the check. `unknown` is the top of the types, thus `fits` and `join` give the answer of a gradual check. The memos keep each answer exact, and each walk of values reads each distinct part one time.
+
+**Limits.**
+
+- A pass of usual types takes few points. On a probe, a check of 20000 binders of the formula kit took 22003 points. A check of a `let` chain of 40 records took 126 points.
+- The count is a count of steps, not of time. On a shared machine, the stop of a chain of 40 levels took 63 ms in a check, 38 ms in `join` and 236 ms in `typeFromSchema`.
+- `fits` past the limit gives `true` outside a pass. Thus a caller of `fits` alone can miss a problem of a type past the limit.
+- `member` and `typeText` outside a pass have no count. `member` has the memo of D200, and `typeText` has its room of 4096 characters.
+- `prepare` and the compiler still read each way to a shared document (D134). `encodeValue` gives such documents, thus `decodeValue` of a shared value reads each way. A probe of `decodeValue` took 51 ms, 192 ms and 711 ms at 12, 14 and 16 levels. K298 holds this work.
+- A `JSON.stringify` of the host still reads each way to a shared value (D134).
+- A key of more than 16,000,000 characters was legal before this change. Such a key gives `#VALUE!` at this time.
+
+**Results.** On the source of 0.35.0, 6 of the 7 new tests fail. Each test ran in its own process, with a limit of 60 s and a heap of 512 MB.
+
+| Test | Source of 0.35.0 | New source |
+| --- | --- | --- |
+| TYPE.WORK, a check of a step into a shared union | no end in 60 s | pass, 68 ms |
+| TYPE.WORK, `join` of a shared union | out of memory after 15.5 s | pass, 35 ms |
+| TYPE.WORK, `typeFromSchema` of a shared schema object | out of memory after 6.1 s | pass, 175 ms |
+| TYPE.SHARED, `typeFromSamples` of a shared value | out of memory after 4.7 s | pass, 3 ms |
+| EXT.ENCODE, `encodeValue` of a shared value | out of memory after 3.2 s | pass, 6 ms |
+| DOC.SHARED, `docEquals` and `sameValue` | pass, 3 ms | pass, 3 ms |
+| TREE.KEY-ROOM, `argsKey` and `documentKey` | out of memory after 3.3 s | pass, 4 ms |
+
+The test DOC.SHARED passes on both sources, because the memo of D20 holds. It keeps that memo.
+
+The ladder has two new walks: `docEquals shared` and `encodeValue shared`. Their rungs are chains of N to 8N levels. The band and the verdict of D205 do not change.
+
+**SemVer.** MINOR, because the behaviour changes before 1.0.0. A check of types past the limit gives `#WORK!`. `fits` and `join` past the limit give the top. A key past the room is `undefined`. No export is new, and no export is removed.

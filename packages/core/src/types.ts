@@ -243,7 +243,7 @@ export function typeWorkSpent(): boolean {
 }
 
 /**
- * This function runs a pass of types with a count of work (TYPE.WORK, D207). A pass inside another pass takes its
+ * This function starts a pass of types with a count of work (TYPE.WORK, D207). A pass inside another pass takes its
  * points from the count of the outer pass, thus only the outer pass stops. The package does not export the function.
  *
  * @param limit - The most points of the pass.

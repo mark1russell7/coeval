@@ -444,7 +444,7 @@ type SampleMemo = Map<object, Map<number, ValueType>>;
 
 /**
  * This function gives the type of a group of sample values at one depth. The group reads each object one time. A
- * sample that shares its parts gives the same group at each place of a part, thus the memo keeps the type of a group
+ * sample that shares its parts gives the same group at each place of a part. Thus the memo keeps the type of a group
  * of one object (D207). Each step costs one point of the count of the reading (TYPE.WORK).
  */
 function samplesAt(values: readonly unknown[], closed: boolean, depth: number, memo: SampleMemo): ValueType {
