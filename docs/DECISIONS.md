@@ -5842,3 +5842,31 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
 
 **SemVer.** No export of the package changes.
+
+## D209 (2026-11-12): the two walks of the type check in the ladder take a quarter of the levels
+
+**Context.** K300, from K257 (D201). K257 added two walks to the ladder: the type check of a sequence of named steps, and the type check of a nest of binders. Both used the levels of the chain, N to 8N with N = 250.
+
+A step of the type check costs much more than a level of the chain. In Measure run 43355754865 (head 57f754a), the two walks took 52 and 72 ms a round at the top rung of 2000 levels. The five other walks took 52 ms together. Thus each step of a walk in a job of the ladder took approximately 3.3 times as long as before. The linear step of `ladder-plain` run 3 took 278 s, against 85 s in Measure run 43355266862 (head 1dead60). The five other walks ran at the same speed on both heads, thus the runner was not slower. The jobs of the ladder are the critical path of Measure, and Measure is a check of each PR.
+
+**Decision.**
+
+- The two walks take a quarter of the levels of each rung: N / 4 to 2N, with `quarter(n)`, as the walks of `check` do (D202).
+- The band of D205, the rungs, the rounds and the verdict do not change.
+
+**Alternatives.**
+
+- Half of the levels. A local probe gave about the same slopes at half and at a quarter, and a quarter saves more time.
+- Fewer rounds for the two walks. The rounds are common to all walks in a pass, thus the change touches the design of D97.
+- More jobs at once. The shared limit of the runners is 3 jobs at once for each matrix.
+
+**Why.** The verdict reads the slope, not the size. A quarter of the levels keeps the slope of a fault in view. On the source before K257, a local probe at a quarter of the levels gave slopes of 1.57 (steps) and 1.39 (binders). Both are far over the band.
+
+On the source of K257, the same probe gave slopes from 0.94 to 1.15 at a quarter and from 0.98 to 1.07 at full levels. The local machine is shared, thus these local slopes are noisy. The bottom rung takes approximately 1 ms, as the bottom rung of the walks of `check` does.
+
+**Limits.**
+
+- The Measure run of the first head gives the slopes of the two walks on a CI runner. If their verdict is not linear, they take half of the levels.
+- A fault with a large constant and a small slope is less visible in a smaller document. The flip of the ladder still tests the gate with a fault of known slope.
+
+**Results.** The Measure run of the PR gives the step times and the slopes.
