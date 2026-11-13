@@ -1,5 +1,5 @@
 import { type Json, type Key, docEquals, isRecord } from "./doc.ts";
-import { type TypeIssue, type ValueType, isUnknown, join, member } from "./types.ts";
+import { type PairMemo, type TypeIssue, type ValueType, isUnknown, join, keep, member, recall } from "./types.ts";
 
 /*
  * Type providers (R5 P4, D28). A provider makes a value type from data that a host already has: a JSON Schema or
@@ -81,23 +81,36 @@ function isOptional(type: RecordType, key: string): boolean {
  * This function gives the meet of two types of a reading: a type that holds each value of both types. A schema is
  * the conjunction of its keywords, thus its type is the meet of their types. The meet is exact for the forms that a
  * reading makes: base types, lists, records, unions and `one`. A meet of two different forms is `never`.
+ *
+ * The memo keeps the meet of each pair of types of one reading (D200). A reading shares the type of a definition
+ * between its references. Thus a meet without the memo reads a shared part one time for each way to it.
  */
-function meet(a: ValueType, b: ValueType, depth: number): ValueType {
+function meet(a: ValueType, b: ValueType, depth: number, memo: PairMemo<ValueType>): ValueType {
   if (depth > MAX_SCHEMA_DEPTH) return a;
+  if (typeof a === "string" && typeof b === "string") return meetRules(a, b, depth, memo);
+  const known = recall(memo, a, b, depth);
+  if (known !== undefined) return known;
+  const answer = meetRules(a, b, depth, memo);
+  keep(memo, a, b, depth, answer);
+  return answer;
+}
+
+/** This function holds the rules of the meet of two types, in their order. */
+function meetRules(a: ValueType, b: ValueType, depth: number, memo: PairMemo<ValueType>): ValueType {
   if (isUnknown(a, undefined)) return b;
   if (isUnknown(b, undefined)) return a;
   if (a === "never" || b === "never") return "never";
   if (typeof a !== "string" && "one" in a) return { one: a.one.filter((value) => member(value, b)) };
   if (typeof b !== "string" && "one" in b) return { one: b.one.filter((value) => member(value, a)) };
-  if (typeof b !== "string" && "union" in b && !(typeof a !== "string" && "union" in a)) return meet(b, a, depth);
+  if (typeof b !== "string" && "union" in b && !(typeof a !== "string" && "union" in a)) return meet(b, a, depth, memo);
   if (typeof a !== "string" && "union" in a) {
     const others = typeof b !== "string" && "union" in b ? b.union : [b];
     if (a.union.length * others.length > MAX_MEET_PAIRS) return a;
-    return unionOf(a.union.flatMap((item) => others.map((other) => meet(item, other, depth + 1))));
+    return unionOf(a.union.flatMap((item) => others.map((other) => meet(item, other, depth + 1, memo))));
   }
   if (typeof a === "string" || typeof b === "string") return a === b ? a : "never";
-  if ("list" in a && "list" in b) return { list: meet(a.list, b.list, depth + 1) };
-  if ("record" in a && "record" in b) return meetRecords(a, b, depth + 1);
+  if ("list" in a && "list" in b) return { list: meet(a.list, b.list, depth + 1, memo) };
+  if ("record" in a && "record" in b) return meetRecords(a, b, depth + 1, memo);
   // A list and a record have no common value. Each other pair keeps the first type, which is sound.
   return ("list" in a || "record" in a) && ("list" in b || "record" in b) ? "never" : a;
 }
@@ -107,7 +120,7 @@ function meet(a: ValueType, b: ValueType, depth: number): ValueType {
  * optional only when both records permit its absence. A closed record has no other field, thus a field of only the
  * other record is absent. When the other record needs that field, no value fits both records.
  */
-function meetRecords(a: RecordType, b: RecordType, depth: number): ValueType {
+function meetRecords(a: RecordType, b: RecordType, depth: number, memo: PairMemo<ValueType>): ValueType {
   const fields: Record<string, ValueType> = {};
   const optional: string[] = [];
   const keys = [...Object.keys(a.record), ...Object.keys(b.record).filter((key) => !Object.hasOwn(a.record, key))];
@@ -118,7 +131,7 @@ function meetRecords(a: RecordType, b: RecordType, depth: number): ValueType {
       if ((inA && !isOptional(a, key)) || (inB && !isOptional(b, key))) return "never";
       continue;
     }
-    const type = inA && inB ? meet(a.record[key] as ValueType, b.record[key] as ValueType, depth) : ((inA ? a.record[key] : b.record[key]) as ValueType);
+    const type = inA && inB ? meet(a.record[key] as ValueType, b.record[key] as ValueType, depth, memo) : ((inA ? a.record[key] : b.record[key]) as ValueType);
     setOwn(fields, key, type);
     if ((!inA || isOptional(a, key)) && (!inB || isOptional(b, key))) optional.push(key);
   }
@@ -127,11 +140,11 @@ function meetRecords(a: RecordType, b: RecordType, depth: number): ValueType {
 }
 
 /** This function applies a condition to a type: each member of the JSON type of the condition meets its type. */
-function narrow(type: ValueType, condition: Condition): ValueType {
+function narrow(type: ValueType, condition: Condition, memo: PairMemo<ValueType>): ValueType {
   if (typeof type === "string") return type;
-  if ("union" in type) return unionOf(type.union.map((item) => narrow(item, condition)));
+  if ("union" in type) return unionOf(type.union.map((item) => narrow(item, condition, memo)));
   if ("one" in type) return { one: type.one.filter((value) => !(condition.on === "list" ? Array.isArray(value) : isRecord(value)) || member(value, condition.type)) };
-  return condition.on in type ? meet(type, condition.type, 0) : type;
+  return condition.on in type ? meet(type, condition.type, 0, memo) : type;
 }
 
 /** The base type of each name of the keyword `type`. */
@@ -156,6 +169,8 @@ class SchemaReader {
   readonly defs = new Map<string, ValueType>();
   /** The definitions that the reading has not finished. A reference to one of them is a cycle. */
   readonly open = new Set<string>();
+  /** The meets of the reading, by the two types and the depth (D200). */
+  readonly meets: PairMemo<ValueType> = new Map();
   /** The number of schemas with an own `$id` around the current schema. A reference inside them has another base. */
   inner = 0;
 
@@ -172,13 +187,13 @@ class SchemaReader {
     const types: ValueType[] = [];
     const conditions: Condition[] = [];
     this.parts(schema, at, depth, types, conditions);
-    let type = types.reduce<ValueType>((all, item) => meet(all, item, 0), "unknown");
+    let type = types.reduce<ValueType>((all, item) => meet(all, item, 0, this.meets), "unknown");
     for (const condition of conditions) {
       if (isUnknown(type, undefined)) {
         this.issue(condition.at, "The schema has no keyword type. Thus a value of each JSON type fits it, and the type reads it as unknown.");
         break;
       }
-      type = narrow(type, condition);
+      type = narrow(type, condition, this.meets);
     }
     return type;
   }
