@@ -2094,6 +2094,9 @@ function pureCode(c: Compiler, envelope: Envelope | undefined, kind: Kind, typeP
   return pure === true && volatile !== true;
 }
 
+/** The count of free names that `freeOf` finds with a scan. A longer list keeps a set (STATIC.LINEAR). */
+const SCAN_LIMIT = 8;
+
 /**
  * This function gives the names that a document reads and does not bind, or `undefined` when the document can read
  * other roots. A reference reads the name of its path. Each other document reads the free names of its parts, less
@@ -2105,7 +2108,8 @@ function freeOf(doc: Envelope, kind: Kind, slots: readonly PartSlot[], frees: re
     if (path.length < 2 || path[0] !== "names" || !path.every((step, index) => index === 0 || isKey(step))) return undefined;
     return [String(path[1])];
   }
-  // The layer reads the scope rules one time, and a set finds the names that the list has (STATIC.LINEAR).
+  // The layer reads the scope rules one time (STATIC.LINEAR). A short list finds a name with a scan, with no set to
+  // make. A longer list keeps a set, thus the time stays linear in the count of the names.
   let layer: ScopeLayer | undefined | null = null;
   let out: string[] | undefined;
   let listed: Set<string> | undefined;
@@ -2116,8 +2120,17 @@ function freeOf(doc: Envelope, kind: Kind, slots: readonly PartSlot[], frees: re
     if (layer === null) layer = ScopeLayer.of(kind.scope, doc.value, slots);
     for (const name of free) {
       if (layer?.sees(index, name) === true) continue;
-      out ??= [];
-      listed ??= new Set();
+      if (out === undefined) {
+        out = [name];
+        continue;
+      }
+      if (listed === undefined) {
+        if (out.length < SCAN_LIMIT) {
+          if (!out.includes(name)) out.push(name);
+          continue;
+        }
+        listed = new Set(out);
+      }
       if (listed.has(name)) continue;
       listed.add(name);
       out.push(name);
