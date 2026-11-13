@@ -1483,3 +1483,36 @@ describe("the value types of a machine before a document exists", () => {
     expect(checkWorld(open, [], { types: true })).toEqual([]);
   });
 });
+
+describe("a check of types over types that share their parts (D200)", () => {
+  // A chain of 40 has 2^40 ways to its leaf. A walk that reads each way does not end.
+  const LENGTH = 40;
+
+  /** A let chain: each name holds a record of the name before it, two times. Thus the types of the names share their parts. */
+  const chain = (last: (top: Json) => Json): Json => {
+    let body = last(ref("names", `x${LENGTH}`));
+    for (let index = LENGTH; index >= 1; index -= 1) body = bind({ [`x${index}`]: { type: "record", value: { a: ref("names", `x${index - 1}`), b: ref("names", `x${index - 1}`) } } }, body);
+    return bind({ x0: 1 }, body);
+  };
+
+  it("[TYPE.SHARED] typeCheck and check give the types of a chain of 40 records", () => {
+    const machine = formulaMachine();
+    const list = chain((top) => ({ type: "list", value: [top, top] }));
+    expect(typeCheck(machine, list, LIT).issues).toEqual([]);
+    expect(check(machine, list, { ...LIT, types: true })).toEqual([]);
+    // The type of the chain does not fit `number`. The reason holds the text of the type, at most 4096 characters.
+    const issues = typeCheck(machine, chain((top) => top), { ...LIT, expect: "number" }).issues;
+    expect(issues.map((issue) => issue.code)).toEqual(["#TYPE!"]);
+    expect(issues[0]?.reason.length).toBeLessThan(4096 + 200);
+  });
+
+  it("[TYPE.SHARED] typeFromSchema reads a chain of 40 definitions, and the type shares its parts", () => {
+    const defs: Record<string, Json> = { d0: { type: "number" } };
+    for (let index = 1; index <= LENGTH; index += 1) defs[`d${index}`] = { type: "object", properties: { a: { $ref: `#/$defs/d${index - 1}` }, b: { $ref: `#/$defs/d${index - 1}` } } };
+    const reading = typeFromSchema({ $defs: defs, allOf: [{ $ref: `#/$defs/d${LENGTH}` }, { $ref: `#/$defs/d${LENGTH}` }] });
+    expect(reading.issues).toEqual([]);
+    const record = reading.type as { readonly record: Readonly<Record<string, unknown>> };
+    expect(record.record["a"]).toBe(record.record["b"]);
+    expect(fits(reading.type, reading.type)).toBe(true);
+  });
+});
