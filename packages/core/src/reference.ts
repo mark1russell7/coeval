@@ -1121,10 +1121,15 @@ function ladderOf(node: RefNode, name: string): Result | undefined {
   return undefined;
 }
 
-/** One approximation of a circular attribute in the reference, with its round (TREE.CIRCULAR). */
+/**
+ * One value in a fixed point of the reference, with its round. It is an approximation of a circular attribute
+ * (TREE.CIRCULAR), or a result that read an approximation (TREE.CIRCULAR-ONCE).
+ */
 interface RefApproximation {
   readonly result: Result | undefined;
   readonly round: number;
+  /** The memo of the node of a circular attribute. A stable fixed point writes the final value there. Another result has none. */
+  readonly memo: Map<string, Result> | undefined;
 }
 
 /**
@@ -1136,7 +1141,8 @@ interface RefPoint {
   readonly depth: number;
   round: number;
   changed: boolean;
-  readonly values: Map<RefNode, Map<string, RefApproximation>>;
+  /** The values of the fixed point, by the node or by the list of the instances of a node (TREE.AT), and by the key. */
+  readonly values: Map<object, Map<string, RefApproximation>>;
 }
 
 /** The open fixed point of the reference, or `undefined`. */
@@ -1161,12 +1167,23 @@ function readApproximation(point: RefPoint): void {
   for (const entry of inEvaluation.slice(point.depth + 1)) entry.tentative = true;
 }
 
-function approximationsOf(point: RefPoint, node: RefNode): Map<string, RefApproximation> {
-  const known = point.values.get(node);
+function approximationsOf(point: RefPoint, owner: object): Map<string, RefApproximation> {
+  const known = point.values.get(owner);
   if (known !== undefined) return known;
   const made = new Map<string, RefApproximation>();
-  point.values.set(node, made);
+  point.values.set(owner, made);
   return made;
+}
+
+/**
+ * TREE.CIRCULAR-ONCE: the result of this round that read an approximation, or `undefined`. The next round evaluates it
+ * again. A demand that gets it also reads an approximation.
+ */
+function tentativeIn(point: RefPoint, owner: object, key: string): RefApproximation | undefined {
+  const kept = point.values.get(owner)?.get(key);
+  if (kept === undefined || kept.round !== point.round) return undefined;
+  readApproximation(point);
+  return kept;
 }
 
 /**
@@ -1186,10 +1203,10 @@ function fixedPointOf(node: RefNode, name: string, rule: CircularRule & { readon
       if (result !== undefined && !result.ok) return result;
       if (!sameApproximation(before, result)) point.changed = true;
       before = result;
-      approximationsOf(point, node).set(name, { result, round: point.round });
+      approximationsOf(point, node).set(name, { result, round: point.round, memo: node.values });
       if (!point.changed) {
-        for (const [member, values] of point.values) {
-          for (const [key, value] of values) if (value.round === point.round && value.result !== undefined) member.values.set(key, value.result);
+        for (const values of point.values.values()) {
+          for (const [key, value] of values) if (value.memo !== undefined && value.round === point.round && value.result !== undefined) value.memo.set(key, value.result);
         }
         return result;
       }
@@ -1218,7 +1235,7 @@ function roundOf(point: RefPoint, node: RefNode, name: string, rule: CircularRul
       inEvaluation.pop();
     }
     if (!sameApproximation(value === undefined ? ok(rule.start) : value.result, result)) point.changed = true;
-    value = { result, round: point.round };
+    value = { result, round: point.round, memo: node.values };
     approximationsOf(point, node).set(name, value);
   }
   readApproximation(point);
@@ -1227,7 +1244,8 @@ function roundOf(point: RefPoint, node: RefNode, name: string, rule: CircularRul
 
 /**
  * TREE.ONCE, TREE.MEMO, TREE.CYCLE and TREE.CIRCULAR: the result of one attribute, or `undefined` when no rung of its
- * ladder answers. A result that read an approximation of an open fixed point is not kept.
+ * ladder answers. A result that read an approximation of an open fixed point is not final. The fixed point keeps it
+ * only for its round (TREE.CIRCULAR-ONCE).
  */
 function attributeOf(node: RefNode, name: string): Result | undefined {
   const done = node.values.get(name);
@@ -1253,6 +1271,8 @@ function attributeOf(node: RefNode, name: string): Result | undefined {
   }
   const point = refPoint;
   if (point !== undefined && rule !== undefined) return roundOf(point, node, name, rule);
+  const kept = point === undefined ? undefined : tentativeIn(point, node, name);
+  if (kept !== undefined) return kept.result;
   const entry = { node, name, circular: rule !== undefined, tentative: false };
   node.pending.add(name);
   inEvaluation.push(entry);
@@ -1263,7 +1283,11 @@ function attributeOf(node: RefNode, name: string): Result | undefined {
     node.pending.delete(name);
     inEvaluation.pop();
   }
-  if (!entry.tentative && result !== undefined) node.values.set(name, result);
+  if (!entry.tentative) {
+    if (result !== undefined) node.values.set(name, result);
+  } else if (point !== undefined) {
+    approximationsOf(point, node).set(name, { result, round: point.round, memo: undefined });
+  }
   return result;
 }
 
@@ -1298,6 +1322,11 @@ function instanceOf(node: RefNode, attr: string, args: unknown): Result | undefi
     const steps = inEvaluation.slice(from).map((entry) => nameOfAttribute(entry.node, entry.name));
     return fail("#CYCLE!", `The attributes form a cycle: ${[...steps, nameOfAttribute(node, name)].join(" -> ")}.`);
   }
+  // TREE.CIRCULAR-ONCE: the key of the instance in the values of an open fixed point.
+  const key = `[${JSON.stringify(attr)},${given.key}]`;
+  const point = refPoint;
+  const kept = point === undefined ? undefined : tentativeIn(point, list, key);
+  if (kept !== undefined) return kept.result;
   const item: RefInstance = { attr, names: given.names, result: undefined };
   list.push(item);
   const entry = { node, name, circular: false, tentative: false };
@@ -1311,6 +1340,7 @@ function instanceOf(node: RefNode, attr: string, args: unknown): Result | undefi
     if (result === undefined || entry.tentative) list.splice(list.indexOf(item), 1);
     else item.result = result;
   }
+  if (entry.tentative && point !== undefined) approximationsOf(point, list).set(key, { result, round: point.round, memo: undefined });
   return result;
 }
 

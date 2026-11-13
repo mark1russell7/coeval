@@ -11,6 +11,7 @@ import {
   makeContext,
   ok,
   prepare,
+  reference,
   treeNodeEvaluator,
   type AttributeAnswer,
   type AttributeCell,
@@ -308,5 +309,98 @@ describe("circular attributes (L2f, D113)", () => {
     expect(plan.evaluate()).toEqual(fresh);
     expect(ticks).toBe(0);
     expect(computed).toEqual([]);
+  });
+});
+
+describe("one evaluation in each round of a fixed point (K265, D213)", () => {
+  /** The number of evaluations of the kind `tick`. Its code counts each evaluation of its part. */
+  let ticks = 0;
+  const tickCode: Evaluator = ({ parts }) => {
+    ticks += 1;
+    return parts[0]?.evaluate() ?? fail("#VALUE!", "The kind tick has one part.");
+  };
+  const tick = (term: Json): Json => ({ type: "tick", value: [term] });
+  const at = (attr: string, args: Record<string, Json>): Json => ({ type: ["tree", "at"], value: { attr, args } });
+  const kinds: Record<string, Kind> = {
+    tick: { verbs: { eval: "test.tick" }, parts: { shape: "list" }, pure: true },
+    mix: treeKind({ attributes: { a: { circular: { start: 0 } } } }),
+    // The instance `h` reads the circular attribute `a` of the child `c`, thus it reads an approximation. The instance `k` reads none.
+    mixAt: treeKind({
+      attributes: { a: { circular: { start: 0 } } },
+      at: { h: { params: ["w"], equation: tick(add(self("c", "a"), path("names", "w"))) }, k: { params: ["w"], equation: tick(path("names", "w")) } },
+    }),
+  };
+  const counted = withKinds(kinds, { "test.tick": tickCode });
+
+  /** A cell of a host that keeps each answer, as in TREE.CELL. */
+  const keepingCell = (): AttributeCell => {
+    const kept = new Map<string, AttributeAnswer>();
+    return (place, attribute, compute) => {
+      const id = `${place.join(".")}:${attribute}`;
+      let answer = kept.get(id);
+      if (answer === undefined) {
+        answer = compute();
+        kept.set(id, answer);
+      }
+      return answer;
+    };
+  };
+
+  /** The result and the ticks of the plan, and the ticks of the reference. The two tiers give the same result. */
+  const ticksOf = (doc: Json): { readonly result: Result; readonly plan: number; readonly reference: number } => {
+    ticks = 0;
+    const result = prepare(counted, doc).evaluate();
+    const plan = ticks;
+    ticks = 0;
+    expect(reference(counted, doc, makeContext({}, STD_CAPS))).toEqual(result);
+    return { result, plan, reference: ticks };
+  };
+
+  /** The root `a` leads, and `p` and `r` read `q`. The attribute `q` reads the circular `a` of the child `c`, thus it is tentative. */
+  const twoReaders = node("mix", { a: add(self("p"), self("r")), p: self("q"), r: self("q"), q: tick(self("c", "a")), c: node("mix", { a: 1 }) });
+
+  it("[TREE.CIRCULAR-ONCE] a plain attribute with two readers evaluates one time in each round, in the plan and in the reference", () => {
+    // Two rounds evaluate q one time each. After the fixed point, q evaluates one more time, because it read an approximation (D113).
+    expect(ticksOf(twoReaders)).toEqual({ result: ok({ a: 2, p: 1, r: 1, q: 1, c: { a: 1 } }), plan: 3, reference: 3 });
+    expect(agreed(counted, twoReaders)).toEqual(ok({ a: 2, p: 1, r: 1, q: 1, c: { a: 1 } }));
+    // An instance of tree.at with two readers also evaluates one time in each round.
+    const instance = node("mixAt", { a: add(self("p"), self("r")), p: self(at("h", { w: 1 })), r: self(at("h", { w: 1 })), c: node("mixAt", { a: 1 }) });
+    expect(ticksOf(instance)).toEqual({ result: ok({ a: 4, p: 2, r: 2, c: { a: 1 } }), plan: 3, reference: 3 });
+    expect(agreed(counted, instance)).toEqual(ok({ a: 4, p: 2, r: 2, c: { a: 1 } }));
+  });
+
+  it("[TREE.CIRCULAR-ONCE] with the cells of a host, the fixed point keeps a tentative answer for its round and a final instance for each round", () => {
+    const hosted = (): Machine => withKinds(kinds, { "test.tick": tickCode, "tree.node": treeNodeEvaluator({ cell: keepingCell() }) });
+    const plain = ticksOf(twoReaders);
+    ticks = 0;
+    expect(prepare(hosted(), twoReaders).evaluate()).toEqual(plain.result);
+    expect(ticks).toBe(3);
+    // The instance k reads no approximation. The fixed point keeps it until it ends, thus the two rounds evaluate it one time.
+    const final = node("mixAt", { a: add(self(at("k", { w: 1 })), self(at("k", { w: 1 })), self("c", "a")), c: node("mixAt", { a: 1 }) });
+    expect(ticksOf(final)).toEqual({ result: ok({ a: 3, c: { a: 1 } }), plan: 1, reference: 1 });
+    ticks = 0;
+    expect(prepare(hosted(), final).evaluate()).toEqual(ok({ a: 3, c: { a: 1 } }));
+    expect(ticks).toBe(1);
+  });
+
+  /** The root `a` reads `p1`, each level reads the next level two times, and the last level reads the circular `a` of `c`. */
+  const chainOf = (levels: number): Json => {
+    const value: Record<string, Json> = { a: self("p1") };
+    for (let level = 1; level < levels; level += 1) value[`p${level}`] = add(self(`p${level + 1}`), self(`p${level + 1}`));
+    value[`p${levels}`] = tick(self("c", "a"));
+    value["c"] = node("mix", { a: 1 });
+    return node("mix", value);
+  };
+
+  it("[TREE.CIRCULAR-ONCE] a chain of tentative attributes with two readers at each level evaluates its last level one time in each round", () => {
+    // Without the kept value of the round, p10 evaluates 2^9 times in each round.
+    expect(ticksOf(chainOf(10))).toMatchObject({ result: { ok: true, value: { a: 2 ** 9, p1: 2 ** 9, p10: 1 } }, plan: 3, reference: 3 });
+  });
+
+  it("[TREE.CIRCULAR-ONCE] a chain of 40 levels ends in each tier, with its correct value", () => {
+    const chain = chainOf(40);
+    const outcome = ticksOf(chain);
+    expect(outcome).toMatchObject({ result: { ok: true, value: { a: 2 ** 39, p1: 2 ** 39, p40: 1 } }, plan: 3, reference: 3 });
+    expect(agreed(counted, chain)).toEqual(outcome.result);
   });
 });
