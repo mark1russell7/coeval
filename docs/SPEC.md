@@ -324,6 +324,7 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | CAP.PURE-ONE | The kind `pure` takes exactly one part. A list with no part or with more than one part gives `#VALUE!`. |
 | CAP.NAMESPACE | A capability permits a kind by its name, or by its namespace. |
 | CAP.KEYS | A capability permits the kinds under it, key by key. A key with a dot is one key. |
+| CAP.EACH | The capability with no keys, `[]`, permits each kind. Thus the meet `intersectCaps` of a list and `[]` is that list. An empty text is the one key `""`, not the capability with no keys. A clause with the `op` `[]` also answers each effect (HANDLE.DEEP). |
 | CAP.NARROW | A part cannot get more capabilities than its parent. A rule `grant` gives clause kinds, not capabilities. Thus a part cannot cause a host effect that its parent cannot cause. |
 | CAP.GRANT | A rule `grant` of a kind gives a part the kinds that the value of the document holds at a path, as clause kinds. The capabilities of the part do not change. `check` accepts such an effect in that part, and `effectsOf` leaves it out, because it does not reach the host. |
 | HANDLE.DO | A clause `do` of `handle` answers each effect of the body under its `op`. Its result is the result of the effect, a failure of the clause is a failure of the effect, and the host does not get the effect. The clause reads `names.payload`. The first clause of the innermost frame wins. |
