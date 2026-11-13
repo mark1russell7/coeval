@@ -2,6 +2,22 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.37.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. Past its limit of work, a check of types gives `#WORK!`, and `fits` and `join` give the top. A key past 16,000,000 characters is `undefined`. Thus some calls give other answers (D207).
+
+### Fixes
+
+- **A pass of types has a count of work (TYPE.WORK, D207).** `typeCheck`, `check` with `types: true`, `typeFromSchema`, `typeFromSamples`, and `fits` or `join` outside a check count one point for each step of a walk of types. The limit is `maxWork` of the machine, or `WORK_LIMIT`. Before, a step into a shared union or a schema object at two places took a time that doubled with each level.
+- **`encodeValue` writes a container at two places one time (EXT.ENCODE, D207).** The document shares its parts, and the work grows with the count of distinct containers. Before, a shared value with `NaN` at its leaf took a time that doubled with each level.
+- **`typeFromSamples` reads a shared sample one time for each depth (TYPE.SHARED, D207).** The type shares its parts.
+- **`argsKey` and `documentKey` read each distinct part one time (TREE.KEY-ROOM, D207).** They join the texts with `+`, thus a shared text is not copied.
+
+### Changes of behavior
+
+- **Past the limit of work, a check of types gives one issue `#WORK!` and the type `unknown`.** The issue is at the document on the top of the stack of the check. `fits` gives `true`, `join` and `typeFromSamples` give `unknown`, and `typeFromSchema` gives `unknown` with an issue.
+- **A key of `argsKey` or `documentKey` with more than 16,000,000 characters is `undefined`.** Thus such an argument of `tree.at` gives `#VALUE!`, and so does such a value of a higher-order attribute. The reason names the limit.
+
 ## 0.35.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are views and not instances of `Set`. A caller that tested them with `instanceof Set` gets another answer, thus this release counts as a breaking change. No export changes.

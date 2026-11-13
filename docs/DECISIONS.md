@@ -5892,7 +5892,7 @@ The key of `argsKey` had 49141, 196597 and 786421 characters. A memo cannot make
 - The count is a count of steps, not of time. On a shared machine, the stop of a chain of 40 levels took 63 ms in a check, 38 ms in `join` and 236 ms in `typeFromSchema`.
 - `fits` past the limit gives `true` outside a pass. Thus a caller of `fits` alone can miss a problem of a type past the limit.
 - `member` and `typeText` outside a pass have no count. `member` has the memo of D200, and `typeText` has its room of 4096 characters.
-- `prepare` and the compiler still read each way to a shared document (D134). `encodeValue` gives such documents, thus `decodeValue` of a shared value reads each way. A probe of `decodeValue` took 51 ms, 192 ms and 711 ms at 12, 14 and 16 levels. K298 holds this work.
+- `prepare` and the compiler still read each way to a shared document (D134). `encodeValue` gives such documents, thus `decodeValue` of a shared value reads each way. A probe of `decodeValue` took 51 ms, 192 ms and 711 ms at 12, 14 and 16 levels. K299 holds this work.
 - A `JSON.stringify` of the host still reads each way to a shared value (D134).
 - A key of more than 16,000,000 characters was legal before this change. Such a key gives `#VALUE!` at this time.
 
