@@ -5820,4 +5820,4 @@ The engines had more faults of the same family:
 - A host cell keeps a value that `compute` gave after a caught overflow. The kit does not see the cache of the host, and the package does not export `overflowCount`.
 - Some catches of the kernel give a cautious answer and do not count. An example is the test that a value is plain data.
 
-**SemVer.** An overflow of the host in an effect gives `#DEPTH!` in place of `#CALC!`. A `Failure` or an overflow of a host cell gives its own code in place of `#CYCLE!`. A host can see these changes of behavior. Before 1.0.0 such a change raises MINOR: 0.35.0.
+**SemVer.** An overflow of the host in an effect gives `#DEPTH!` in place of `#CALC!`. A `Failure` or an overflow of a host cell gives its own code in place of `#CYCLE!`. A host can see these changes of behavior. Before 1.0.0 such a change raises MINOR: 0.38.0.

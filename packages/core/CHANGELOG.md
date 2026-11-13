@@ -2,6 +2,21 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.38.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. A stack overflow of the host in an effect gives `#DEPTH!` in place of `#CALC!`. A `Failure` or an overflow of a host cell gives its own code in place of `#CYCLE!`. A host can see these changes, thus this release counts as a breaking change. No export changes (D208).
+
+### Fixes
+
+- **A cache keeps no result of a stack overflow (D208).** `durable.evaluate`, its verification, `planner`, the fold and the schedule compare the count of the overflows before and after their work. A changed count keeps no result, also when the document catches the error (DURABLE.OVERFLOW, PLAN.CACHE-OVERFLOW, PLAN.FOLD-OVERFLOW, SCHED.DEEP-CYCLE-OVERFLOW).
+- **A `Failure` of another copy of the kernel keeps its error value (D208).** A `Failure` has the global brand `coeval.failure`, and each engine and `conforms` find it (FAILURE.SYMBOL).
+- **`parse` and `print` count their stack overflows, and each copy of the kernel shares the count (SYNTAX.DEPTH).**
+
+### Changes of behavior
+
+- **A stack overflow of the host in an effect gives `#DEPTH!` in the plan engine, the reference and the stepper (RUN.OUTCOME-OVERFLOW).** Before, it gave `#CALC!`.
+- **A stack overflow or a `Failure` of a host cell keeps its own code (TREE.CELL-CYCLE).** Before, it gave `#CYCLE!`.
+
 ## 0.34.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. `attributeGraph` gives a JSON vertex for each node that a reference reads. A caller that read each vertex as an attribute sees new vertices, thus this release counts as a breaking change. No new exports.
