@@ -5645,3 +5645,29 @@ The walks of types read each way to a shared term, thus a chain of n records too
 - Other walks of values, for example `docEquals`, read each way to a shared value when the two values are not one object. K259 holds this work.
 
 **Results.** The 8 walks of the probe at a chain of 40 take at most 10 ms each. Before the change, a chain of 16 took up to 357 ms. On the source of main, each of the 8 new tests fails. 5 tests do not end in 120 s, and 3 tests end with a failure.
+
+## D202 (2026-11-12): the graph of attribute instances keeps the depth limit of check
+
+**Context.** K255, from a review. `check` stops its first walk at the depth limit and gives `#DEPTH!`. Then the cycle walk read the whole document again, with no limit.
+
+Each vertex of that walk made a text of its full place, and each trail kept a full array of its keys. The order of a JSON read used the stack of the host. Thus a deep chain of panels with one reference to a node took memory quadratic in its depth. At approximately 5000 levels the order gave a `RangeError`, and at 12000 levels the process ran out of memory.
+
+**Decision.**
+
+- The graph of attribute instances keeps the depth limit of `check`. A node deeper than the limit gets no vertex, and a read of it has an unknown source (TREE.GRAPH-DEPTH).
+- One function, `depthLimit`, gives the limit to the two walks. Thus the two walks use the same limit.
+- A vertex is an integer with its node and the name of its attribute. An edge keeps its visit. The texts of a name and of a place come only for the result of `attributeGraph` or for an issue.
+- The order of a JSON read keeps its own stack. The list of work moves with an index, not with `shift`.
+
+**Alternatives.**
+
+- No cycle walk after `#DEPTH!`. Then a cycle at the root of a deep document gets no issue before the run.
+- The text ids of the vertices, with a cache. The texts then still take memory quadratic in the depth.
+
+**Why.** A check before a run must not cost more than the run. A document deeper than the limit already gets `#DEPTH!`, thus the graph does not need its deep part. The part inside the limit keeps its cycle issues.
+
+**Limits.**
+
+- A cycle deeper than the limit gets no `#CYCLE!` from `check`. The run finds it, or the run stops at its own depth limit.
+- Many references to a large node still give one edge for each attribute of each node under it (K256).
+- The ladder measures `check` on two deep trees with a quarter of the levels of a rung, because a panel costs more than a level of the chain.
