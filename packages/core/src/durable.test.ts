@@ -456,6 +456,24 @@ describe("two levels of durability", () => {
     expect(plain.counts).toMatchObject({ evaluations: 2, reuses: 0 });
   });
 
+  it("[DURABLE.BOUND-REF] a reference in the data of a binding is a read, thus a change of the name that it reaches evaluates again", () => {
+    const docs: readonly (readonly [Machine, Json])[] = [
+      [strictMachine, { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "a") } }, body: ref("names", "x") } }],
+      [STD_MACHINE, { type: "seq", value: [{ type: ["tree", "quote"], name: "x", value: ref("names", "a") }, ref("names", "x")] }],
+    ];
+    for (const [machine, doc] of docs) {
+      const store = durable(machine);
+      expect(store.evaluate("d", doc, context({ names: { a: 1 } }))).toEqual(ok(1));
+      // A change of a name that the evaluation does not read: the reads verify, and the result stays.
+      store.changeData();
+      expect(store.evaluate("d", doc, context({ names: { a: 1, b: 5 } }))).toEqual(ok(1));
+      // A change of the name that the reference reaches: the evaluation starts again.
+      store.changeData();
+      expect(store.evaluate("d", doc, context({ names: { a: 2 } }))).toEqual(ok(2));
+      expect(store.counts).toMatchObject({ evaluations: 2, verifications: 2, reuses: 1 });
+    }
+  });
+
   it("[DURABLE.IN-PLACE] with the option inPlace, a pure document finds a value of its reads that changed in place, and without it the old result stays", () => {
     const doc: Json = { type: ["ops", "keys"], value: [ref("names", "box")] };
     const box: Record<string, unknown> = { a: 1 };

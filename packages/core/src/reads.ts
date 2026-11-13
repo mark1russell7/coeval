@@ -1,6 +1,6 @@
 import { docEquals } from "./doc.ts";
 import { type Result, fail, ok } from "./errors.ts";
-import type { Context, Hop } from "./deref.ts";
+import type { Context, Followed, Hop } from "./deref.ts";
 import { type Machine, type Plan, type Read, keptAgain, readAgain, rootContext } from "./evaluate.ts";
 import { Held } from "./formula.ts";
 import { sameResult } from "./same.ts";
@@ -27,6 +27,12 @@ export type ReadsCheck =
        * (READS.IN-PLACE). Only the option `prints` gives this mark.
        */
       readonly inPlace?: true;
+      /**
+       * `true` when the read reaches the same thing by `sameResult`, but its new resolution follows a reference in
+       * the data, and the read has no mark `followed` (READS.BOUND-REF). That reference can resolve to another thing
+       * in the context of the reader.
+       */
+      readonly followed?: true;
     };
 
 /** The options of `printReads` (READS.IN-PLACE, D112). */
@@ -245,7 +251,11 @@ function heldStop(root: Context, path: readonly unknown[]): Result | undefined {
  * the first read that reaches another thing, and it gives that read (READS.CHANGED).
  *
  * - A read that is not free reads a binding that a kind made from earlier reads, for example a name of `let`. The
- *   function does not resolve it again.
+ *   function does not resolve it again. A reference in the data of the binding resolves in the context of the reader.
+ *   The path of each such reference is its own read in the list, after the read of the binding (READS.BOUND-REF).
+ * - A free read that is not kept and has no mark `followed` resolved in a context of a kind, or it followed no
+ *   reference. When its new resolution follows a reference, the read is changed (READS.BOUND-REF). The answer then
+ *   has the mark `followed`. A kept read resolved in the context at the root, thus it needs no such mark.
  * - A thing compares as in `sameResult`. Thus a host thing or a date is the same only as itself. A host gives a new
  *   object for a new state, or the option `equal`.
  * - A longer path through a name that holds a `Held` in the new context is a changed read. A reference of the formula
@@ -270,6 +280,8 @@ export function verifyReads(target: Machine | Plan, reads: readonly Read[], cont
   const prints = options.prints;
   // The prints of the new values, made only with the option `prints`. Two reads of one object share its print.
   let printed: Map<object, readonly unknown[]> | undefined;
+  // The references that the new resolution of one read follows (READS.BOUND-REF).
+  const followed: Followed[] = [];
   for (let index = 0; index < reads.length; index += 1) {
     const read = reads[index] as Read;
     if (!read.free) continue;
@@ -277,6 +289,7 @@ export function verifyReads(target: Machine | Plan, reads: readonly Read[], cont
     if (stop !== undefined) return { same: false, index, read, now: stop };
     if (read.kept === true) {
       // A kept read does not step into a host thing with `deref`. A host thing with `known` answers its step (SCHED.CLOSURE).
+      // It resolved in the context at the root, thus a reference on its path resolves as before (READS.BOUND-REF).
       const now = keptAgain(machine, root, read.path);
       if (now === undefined) return { same: false, index, read, now: fail("#N/A", "The host does not know the value of the kept read yet.") };
       if (!sameResult(read.reached, now, equal)) return { same: false, index, read, now };
@@ -284,10 +297,13 @@ export function verifyReads(target: Machine | Plan, reads: readonly Read[], cont
       continue;
     }
     const asked = read.hops !== undefined;
-    const now = readAgain(machine, root, read.path, asked);
+    followed.length = 0;
+    const now = readAgain(machine, root, read.path, asked, followed);
     if (!sameResult(read.reached, now.reached, equal) || (read.hops !== undefined && !sameHops(read.hops, now.hops, equal))) {
       return { same: false, index, read, now: now.reached };
     }
+    // A reference resolves in the context of its reader. A read without the mark did not resolve in the context at the root.
+    if (followed.length > 0 && read.followed !== true) return { same: false, index, read, now: now.reached, followed: true };
     if (prints !== undefined && changedInPlace(prints, index, now.reached, (printed ??= new Map()))) {
       return { same: false, index, read, now: now.reached, inPlace: true };
     }

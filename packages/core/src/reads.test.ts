@@ -21,6 +21,7 @@ import {
   generate,
   isClosure,
   isHostThing,
+  isRef,
   jsTruthy,
   mergeMachines,
   ok,
@@ -259,14 +260,15 @@ function formulaOptions(machine: Machine, more: readonly (readonly Key[])[] = []
     data: (type, rng) => {
       const name = type.join(".");
       if (name === "ext.number") return rng.pick(["NaN", "-0", "Infinity", "bad"]);
-      if (name === "lit" && rng.chance(0.1)) return ref("names", "a");
+      // A literal with a reference is data that a kind can bind to a name (READS.BOUND-REF).
+      if (name === "lit" && rng.chance(0.15)) return ref("names", rng.pick(["a", "b", "x", "hop"]));
       return undefined;
     },
   };
 }
 
 const STD_OPTIONS: Omit<GenerateOptions, "seed"> = {
-  types: [...typesOf(STD_MACHINE.world), ...MORE_REFS, ["if"], ["pure"], ["seq"]],
+  types: [...typesOf(STD_MACHINE.world), ...MORE_REFS, ["if"], ["pure"], ["seq"], ["seq"], ["tree", "quote"]],
   names: Object.keys(NAMES),
   data: (type, rng) => {
     const name = type.join(".");
@@ -274,6 +276,8 @@ const STD_OPTIONS: Omit<GenerateOptions, "seed"> = {
     if (name === "text") return rng.chance(0.9) ? rng.pick(["", "a", "b"]) : 1;
     if (name === "bool") return rng.chance(0.9) ? rng.chance(0.5) : 0;
     if (name === "nearest") return rng.pick<Json>([{ type: "panel" }, { type: "box", self: true }, "panel"]);
+    // A quoted reference is data that a named step of seq binds for the later steps (READS.BOUND-REF).
+    if (name === "tree.quote" && rng.chance(0.5)) return ref("names", rng.pick(["a", "b", "x", "hop"]));
     return undefined;
   },
 };
@@ -313,6 +317,15 @@ function show(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+/** This function gives the texts of the paths of the reference documents in a value, as `show` gives them. */
+function refPaths(value: unknown, out: Set<string> = new Set(), seen: Set<object> = new Set()): Set<string> {
+  if (typeof value !== "object" || value === null || seen.has(value)) return out;
+  seen.add(value);
+  if (isRef(value)) out.add(show(value.value));
+  for (const item of Array.isArray(value) ? value : Object.values(value)) refPaths(item, out, seen);
+  return out;
 }
 
 /** This function tells if a static read covers the path of a dynamic read: the same root, and its keys start the path. */
@@ -362,6 +375,7 @@ function harness(config: Config, keep: (read: Read) => boolean = () => true, tot
         .filter((use) => !use.free)
         .map((use) => String(use.path[1])),
     );
+    const targets = refPaths(ctx.names, refPaths(doc));
     for (const read of reads) {
       if (read.kept === true) add("kept");
       if (!read.free) add("inner");
@@ -374,7 +388,9 @@ function harness(config: Config, keep: (read: Read) => boolean = () => true, tot
         root === "names" && read.path.length === 2 && read.reached.ok && read.reached.value instanceof Held && facts.reads.some((fact) => fact.root === "names" && fact.keys[0] === name);
       // A name that a kind binds to the value of the context reads as free.
       const coincides = root === "names" && bound.has(text) && Object.hasOwn(ctx.names, text);
-      if (!isHeld && !coincides) uncovered.push(`seed ${seed}: ${show(read.path)}\n  doc ${show(doc)}`);
+      // The path of a reference in data is a read of the evaluation, and the static reads do not see data (READS.BOUND-REF).
+      const followed = targets.has(show(read.path));
+      if (!isHeld && !coincides && !followed) uncovered.push(`seed ${seed}: ${show(read.path)}\n  doc ${show(doc)}`);
     }
 
     // READS.SOUND: when the reads verify, a new evaluation gives the old result.
@@ -401,7 +417,9 @@ function harness(config: Config, keep: (read: Read) => boolean = () => true, tot
         continue;
       }
       add("changed");
-      if (sameResult(check.read.reached, check.now, equal)) wrong.push(`seed ${seed}: read ${check.index} ${show(check.read.path)}`);
+      // A read that follows a new reference is changed, also with the same answer (READS.BOUND-REF).
+      if (check.followed === true) add("followed");
+      else if (sameResult(check.read.reached, check.now, equal)) wrong.push(`seed ${seed}: read ${check.index} ${show(check.read.path)}`);
     }
   }
   return { stale, wrong, uncovered, counts };
@@ -760,11 +778,86 @@ describe("the reads of an evaluation", () => {
     const plan = prepare(machine, ref("names", "hop"));
     const reads: Read[] = [];
     expect(plan.evaluate(names({ hop: ref("names", "a"), a: 1 }), { reads })).toEqual({ ok: true, value: 1 });
-    expect(reads).toEqual([{ path: ["names", "hop"], reached: { ok: true, value: 1 }, free: true }]);
+    // The read is in the context at the root, thus each reference resolves as in that context (READS.BOUND-REF).
+    expect(reads).toEqual([{ path: ["names", "hop"], reached: { ok: true, value: 1 }, free: true, followed: true }]);
     expect(verifyReads(plan, reads, names({ hop: ref("names", "a"), a: 2 }))).toMatchObject({ same: false, index: 0, now: { ok: true, value: 2 } });
     expect(verifyReads(plan, reads, names({ hop: ref("names", "c"), a: 2, c: 1 }))).toEqual({ same: true });
     // factsOf counts the same read: the reference, not its target.
     expect(factsOf(machine, ref("names", "hop")).reads.map((read) => read.keys)).toEqual([["hop"]]);
+  });
+
+  it("[READS.BOUND-REF] a reference in the data of a binding resolves in the context of the reader, thus the path of the reference is its own read", () => {
+    const one = { ok: true, value: 1 };
+    // The name x of let holds data with a reference. The read of x is not free, and the read of a after it is free.
+    const viaLet = prepare(machine, { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "a") } }, body: ref("names", "x") } });
+    const reads: Read[] = [];
+    expect(viaLet.evaluate(names({ a: 1 }), { reads })).toEqual(one);
+    expect(reads).toEqual([
+      { path: ["names", "x"], reached: one, free: false },
+      { path: ["names", "a"], reached: one, free: true },
+    ]);
+    expect(verifyReads(viaLet, reads, names({ a: 1, b: 5 }))).toEqual({ same: true });
+    expect(verifyReads(viaLet, reads, names({ a: 2 }))).toEqual({ same: false, index: 1, read: reads[1], now: { ok: true, value: 2 } });
+    // A named step of seq binds its result for the later steps. A quoted reference gives the same two reads.
+    const viaSeq = prepare(STD_MACHINE, { type: "seq", value: [{ type: ["tree", "quote"], name: "x", value: ref("names", "a") }, ref("names", "x")] });
+    const steps: Read[] = [];
+    expect(viaSeq.evaluate(names({ a: 1 }), { reads: steps })).toEqual(one);
+    expect(steps.map((read) => [read.path, read.free])).toEqual([
+      [["names", "x"], false],
+      [["names", "a"], true],
+    ]);
+    expect(verifyReads(viaSeq, steps, names({ a: 1, b: 5 }))).toEqual({ same: true });
+    expect(verifyReads(viaSeq, steps, names({ a: 2 }))).toMatchObject({ same: false, index: 1, now: { ok: true, value: 2 } });
+    // A chain of references gives a read of each path. A target that the kind binds is not free.
+    const chain = prepare(machine, { type: "let", value: { bind: { b: 7, x: { type: "lit", value: { v: ref("names", "hop") } } }, body: ref("names", "x", "v") } });
+    const chained: Read[] = [];
+    expect(chain.evaluate(names({ hop: ref("names", "b"), b: 1 }), { reads: chained })).toEqual({ ok: true, value: 7 });
+    expect(chained.map((read) => [read.path, read.free, read.kept === true])).toEqual([
+      [["names", "x", "v"], false, false],
+      [["names"], true, true],
+      [["names", "hop"], false, false],
+      [["names", "b"], false, false],
+    ]);
+    expect(verifyReads(chain, chained, names({ hop: ref("names", "b"), b: 1 }))).toEqual({ same: true });
+    expect(verifyReads(chain, chained, names({ hop: ref("names", "c"), b: 1, c: 1 }))).toMatchObject({ same: false, index: 1 });
+  });
+
+  it("[READS.BOUND-REF] a free read in a context of a kind keeps its root when it follows a reference, and a new reference on a free path changes the read", () => {
+    // The name hop is free, and the let binds b and e. The reference of hop resolves to the bound b.
+    const bound = prepare(machine, { type: "let", value: { bind: { b: 9, e: 4 }, body: ref("names", "hop") } });
+    const reads: Read[] = [];
+    expect(bound.evaluate(names({ hop: ref("names", "b"), b: 1, e: 9 }), { reads })).toEqual({ ok: true, value: 9 });
+    expect(reads.map((read) => [read.path, read.free, read.kept === true])).toEqual([
+      [["names"], true, true],
+      [["names", "hop"], false, false],
+      [["names", "b"], false, false],
+    ]);
+    expect(verifyReads(bound, reads, names({ hop: ref("names", "b"), b: 1, e: 9 }))).toEqual({ same: true });
+    // The new reference of hop reaches e. The context at the root gives 9 for it, but the let binds e to 4.
+    const moved = names({ hop: ref("names", "e"), b: 1, e: 9 });
+    expect(bound.evaluate(moved)).toEqual({ ok: true, value: 4 });
+    expect(verifyReads(bound, reads, moved)).toMatchObject({ same: false, index: 0 });
+    // A free read without a reference: new data can put a reference on its path. The let binds e to another value.
+    const plain = prepare(machine, { type: "let", value: { bind: { e: 9 }, body: ref("names", "hop") } });
+    const before: Read[] = [];
+    expect(plain.evaluate(names({ hop: 5, e: 5 }), { reads: before })).toEqual({ ok: true, value: 5 });
+    expect(before).toEqual([{ path: ["names", "hop"], reached: { ok: true, value: 5 }, free: true }]);
+    const next = names({ hop: ref("names", "e"), e: 5 });
+    expect(plain.evaluate(next)).toEqual({ ok: true, value: 9 });
+    expect(verifyReads(plain, before, next)).toEqual({ same: false, index: 0, read: before[0], now: { ok: true, value: 5 }, followed: true });
+  });
+
+  it("[READS.BOUND-REF] a closure that reads a binding with a reference in its data keeps each whole root", () => {
+    const doc = { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "a") } }, body: { type: "fn", value: { params: [], body: ref("names", "x") } } } };
+    const plan = prepare(machine, doc);
+    const reads: Read[] = [];
+    const result = plan.evaluate(names({ a: 1 }), { reads });
+    expect(reads.map((read) => [read.path, read.kept])).toEqual([[["self"], true], [["names"], true], [["world"], true], [["event"], true], [["caps"], true]]);
+    expect(verifyReads(plan, reads, names({ a: 1 }))).toEqual({ same: true });
+    expect(verifyReads(plan, reads, names({ a: 2 }))).toMatchObject({ same: false, index: 1 });
+    // The old closure reads the old context, and a new one the new context.
+    const call = (value: unknown): unknown => (value as { readonly value: () => unknown }).value();
+    expect([call(result), call(plan.evaluate(names({ a: 2 })))]).toEqual([1, 2]);
   });
 
   it("[READS.IN-PLACE] with the prints of printReads, verifyReads finds a host value that changed in place, and without them the change stays hidden", () => {

@@ -9,6 +9,7 @@ import {
   type HostThing,
   type Json,
   type Key,
+  type Machine,
   type Random,
   type Read,
   type Result,
@@ -348,6 +349,28 @@ describe("the interface of a schedule", () => {
     s.changeMachine(looseMachine);
     expect(s.read("c")).toEqual(ok(7));
     expect(s.counts.evaluations - counts.evaluations).toBe(3);
+  });
+
+  it("[SCHED.BOUND-REF] a node that binds a name to data with a reference reads the name that the reference reaches, thus a change of it evaluates the node again", () => {
+    const docs: readonly (readonly [Machine, Json])[] = [
+      [strictMachine, { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "a") } }, body: ref("names", "x") } }],
+      [STD_MACHINE, { type: "seq", value: [{ type: ["tree", "quote"], name: "x", value: ref("names", "a") }, ref("names", "x")] }],
+    ];
+    for (const [machine, doc] of docs) {
+      const s = schedule(machine, { context: context({ names: { a: 1 } }) });
+      s.set("n", doc);
+      expect(s.read("n")).toEqual(ok(1));
+      // A change of a name that the node does not read: the node verifies its reads and keeps its result.
+      let counts = s.counts;
+      s.changeData(context({ names: { a: 1, b: 5 } }));
+      expect(s.read("n")).toEqual(ok(1));
+      expect(s.counts.evaluations - counts.evaluations).toBe(0);
+      // A change of the name that the reference reaches: the node evaluates again.
+      counts = s.counts;
+      s.changeData(context({ names: { a: 2 } }));
+      expect(s.read("n")).toEqual(ok(2));
+      expect(s.counts.evaluations - counts.evaluations).toBe(1);
+    }
   });
 
   it("[SCHED.CLOSURE] a closure keeps a read of the node that it reads, thus a change of another node keeps its result, with no demand and no #CYCLE!", () => {
