@@ -228,7 +228,7 @@ interface VertexInfo {
   /** The first node at the place of the vertex. */
   readonly node: NodeInfo;
   readonly attribute: string;
-  /** `true` when the kind of the node declares the attribute `circular`. An instance with arguments is never circular. */
+  /** `true` when the kind of the node declares the attribute `circular`. An instance with arguments is not circular. */
   readonly circular: boolean;
   /** The arguments of an instance of an attribute with parameters, and their key (TREE.AT-CHECK). */
   readonly at?: { readonly names: Readonly<Record<string, Json>>; readonly key: string };
