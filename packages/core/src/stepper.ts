@@ -1,6 +1,6 @@
 import { type Envelope, type Json, type Key, type TypeRef, docEquals, field, isEnvelope, isRecord, typeName } from "./doc.ts";
 import { type Cap, type Context, type Resolution, type ResolveOptions, type Thing, isHostThing, worldThing } from "./deref.ts";
-import { type EvalError, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
+import { type EvalError, type Result, Failure, effectFailed, fail, ok, placed, thrown } from "./errors.ts";
 import { type Effect, type EvalInput, type Machine, type Part, type Perform, WORK_LIMIT, intersectCaps, makeContext, permits, placeText, workFailure } from "./evaluate.ts";
 import { type FormulaProfile, type OpFn, Held, STD_EXT } from "./formula.ts";
 import type { World } from "./ladder.ts";
@@ -914,8 +914,7 @@ function answer(perform: Perform | undefined, effect: Effect, place: readonly Ke
   try {
     given = perform(effect);
   } catch (error) {
-    if (error instanceof Failure) return placed({ ok: false, error: error.error }, place);
-    return fail("#CALC!", `The host failed the effect ${effect.kind}: ${describe(error)}`, { place, cause: error });
+    return effectFailed(effect.kind, place, error);
   }
   if (!(given instanceof Promise)) return ok(given);
   void given.catch(() => undefined);

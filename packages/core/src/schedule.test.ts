@@ -902,6 +902,24 @@ function ticking(): { readonly machine: typeof strictMachine; readonly ticks: ()
   return { machine, ticks: () => ticks };
 }
 
+/**
+ * This function gives a machine with the lazy operation `boom`. Its first argument is a label, and it gives its second
+ * argument. At the calls of a label that `plans` names, it throws the error of a stack overflow, as the host does at the
+ * limit of its stack. Thus a test puts an overflow at one step of a demand, with no deep document.
+ */
+function booming(plans: Readonly<Record<number, readonly number[]>>): { readonly machine: typeof strictMachine; readonly calls: Map<number, number> } {
+  const calls = new Map<number, number>();
+  const machine = withLazy("boom", (args) => {
+    const label = args[0]?.();
+    const name = label?.ok === true ? Number(label.value) : 0;
+    const call = (calls.get(name) ?? 0) + 1;
+    calls.set(name, call);
+    if (plans[name]?.includes(call) === true) throw new RangeError("Maximum call stack size exceeded");
+    return args[1]?.() ?? fail("#ARGS", "boom needs two arguments.");
+  });
+  return { machine, calls };
+}
+
 describe("a certain cycle longer than the stack", () => {
   it("[SCHED.DEEP-CYCLE] each node of a ring gives the #CYCLE! of a short ring, in each form and order of demands, also when each node catches the error", () => {
     const forms: Readonly<Record<string, (next: Json) => Json>> = {
@@ -1176,6 +1194,38 @@ describe("a certain cycle longer than the stack", () => {
     }
     expect(cyclic).toBeGreaterThan(COUNT);
     expect(differs.slice(0, 3)).toEqual([]);
+  });
+
+  it("[SCHED.DEEP-CYCLE-OVERFLOW] the demands after a walk keep no result of a demand with an overflow, also when a node catches the error", () => {
+    // The first call of boom 1 starts the walk. The walk gives b its value, and the demand of b after the walk overflows.
+    const { machine, calls } = booming({ 1: [1], 2: [2] });
+    const s = schedule(machine, flagged(true));
+    s.set("a", op("ifError", op("boom", 1, lazily(ref("world", "b"))), -1));
+    s.set("b", op("boom", 2, ref("names", "x")));
+    // The demand of a reads the #DEPTH! of b, and a catches it.
+    expect(s.read("a")).toEqual(ok(-1));
+    expect(calls.get(2)).toBe(2);
+    // The schedule kept neither result, thus the next demands evaluate again with no overflow.
+    expect(s.read("a")).toEqual(ok(7));
+    expect(s.read("b")).toEqual(ok(7));
+    expect(calls.get(2)).toBe(3);
+  });
+
+  it("[SCHED.DEEP-CYCLE-OVERFLOW] a walk with an overflow keeps no result, also for a node that is on a cycle of that walk", () => {
+    // The first call of boom 1 starts the walk. In the walk, c overflows, and top reads c and the ring r1 r2.
+    const { machine, calls } = booming({ 1: [1], 3: [1] });
+    const s = schedule(machine, flagged(true));
+    s.set("r1", lazily(ref("world", "r2")));
+    s.set("r2", lazily(ref("world", "r1")));
+    s.set("c", op("boom", 3, ref("names", "x")));
+    s.set("top", op("boom", 1, op("pair", op("ifError", lazily(ref("world", "c")), 0), lazily(ref("world", "r1")))));
+    expect(s.read("top")).toMatchObject({ ok: false, error: { code: "#CYCLE!" } });
+    // The #DEPTH! of c in the walk is not the result of c. The next demand of c evaluates again.
+    expect(s.read("c")).toEqual(ok(7));
+    expect(calls.get(3)).toBeGreaterThan(1);
+    // The ring is a cycle in each demand.
+    expect(s.read("r1")).toEqual(cycle("r1"));
+    expect(s.read("top")).toMatchObject({ ok: false, error: { code: "#CYCLE!" } });
   });
 });
 

@@ -1,5 +1,5 @@
 import { type Json, type JsonRecord, type Key, docEquals, isEnvelope, isRecord, typePath } from "./doc.ts";
-import { type Result, describe, fail, isStackOverflow, ok } from "./errors.ts";
+import { type Result, countOverflow, describe, fail, isStackOverflow, ok } from "./errors.ts";
 import type { EvalFn, Part } from "./evaluate.ts";
 import type { MachinePart } from "./merge.ts";
 import { encodeValue } from "./codec.ts";
@@ -1229,7 +1229,10 @@ export function parse(profile: SyntaxProfile, text: string): ParseResult {
     return { ok: true, doc: parser.parse() };
   } catch (error) {
     if (error instanceof Stop) return { ok: false, issues: issuesOf(syn, text, error.issue) };
-    if (isStackOverflow(error)) return { ok: false, issues: [{ offset: parser.position(), length: 0, message: "The text is too deep for the stack of the host." }] };
+    if (isStackOverflow(error)) {
+      countOverflow();
+      return { ok: false, issues: [{ offset: parser.position(), length: 0, message: "The text is too deep for the stack of the host." }] };
+    }
     throw error;
   }
 }
@@ -1597,7 +1600,10 @@ export function print(profile: SyntaxProfile, doc: unknown): Result<string> {
   try {
     return printPlace(syn, doc, []);
   } catch (error) {
-    if (isStackOverflow(error)) return fail("#DEPTH!", "The document is too deep for the stack of the host.", { cause: error });
+    if (isStackOverflow(error)) {
+      countOverflow();
+      return fail("#DEPTH!", "The document is too deep for the stack of the host.", { cause: error });
+    }
     throw error;
   }
 }

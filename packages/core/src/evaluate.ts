@@ -5,7 +5,7 @@ import type { CapsRule, Kind, KindFacts, Side } from "./world.ts";
 import { type Domain, type ValueType, member, typeText } from "./types.ts";
 import type { Boundary, TypeRule } from "./typing.ts";
 import type { StaticRead } from "./facts.ts";
-import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
+import { type ErrorCode, type EvalError, type Result, Failure, effectFailed, fail, ok, overflowCount, placed, thrown, describe } from "./errors.ts";
 import {
   type Cap,
   type CompiledPath,
@@ -516,9 +516,9 @@ function isFree(root: Context, ctx: Context, path: readonly unknown[]): boolean 
 }
 
 /**
- * The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value, and a
- * `Failure` gives its own error value. In an evaluation, this function is a mock: it answers at once, and a promise
- * from it gives `#CALC!` (RUN.MOCK).
+ * The host side of a run: it does one effect, and gives its result. A throw or a rejection is an error value. A
+ * `Failure` gives its own error value, and a stack overflow gives `#DEPTH!`. In an evaluation, this function is a mock:
+ * it answers at once, and a promise from it gives `#CALC!` (RUN.MOCK).
  */
 export type Perform = (effect: Effect) => unknown;
 
@@ -552,16 +552,6 @@ export interface Journal {
 /** This function gives the journal of a function `perform`, when it has one. */
 function journalOf(perform: Perform | undefined): Journal | undefined {
   return perform === undefined ? undefined : (perform as { readonly [JOURNAL]?: Journal })[JOURNAL];
-}
-
-/**
- * This function gives the outcome of an effect that the host failed. A `Failure` gives its own error value, for
- * example the recorded error of a replay or `#REPLAY!`. Each other exception gives `#CALC!`, with the exception as the
- * cause (RUN.CAUSE).
- */
-function hostFailed(kind: string, place: readonly Key[], error: unknown): Result {
-  if (error instanceof Failure) return placed({ ok: false, error: error.error }, place);
-  return fail("#CALC!", `The host failed the effect ${kind}: ${describe(error)}`, { place, cause: error });
 }
 
 /**
@@ -1504,7 +1494,7 @@ class Session implements Runtime {
     try {
       done = perform(effect);
     } catch (error) {
-      return (effect.outcome = hostFailed(effect.kind, place, error));
+      return (effect.outcome = effectFailed(effect.kind, place, error));
     }
     if (!(done instanceof Promise)) return (effect.outcome = ok(done));
     // The evaluation does not read the promise, thus its rejection must not be unhandled.
@@ -1559,12 +1549,12 @@ class Session implements Runtime {
     try {
       done = perform(made);
     } catch (error) {
-      return (made.outcome = hostFailed(made.kind, place, error));
+      return (made.outcome = effectFailed(made.kind, place, error));
     }
     if (!(done instanceof Promise)) return (made.outcome = ok(done));
     const result = (yield done.then(
       (value: unknown) => ok(value),
-      (error: unknown) => hostFailed(made.kind, place, error),
+      (error: unknown) => effectFailed(made.kind, place, error),
     )) as Result;
     // A run that stops at this wait does not reach this line, thus the effect keeps no outcome (RUN.OUTCOME).
     return (made.outcome = result);
@@ -2243,10 +2233,12 @@ function folded(c: Compiler, done: Compiled, fixed: readonly string[] | undefine
   probe.refused = false;
   probe.reads = 0;
   let constant: Result | undefined;
+  const before = overflowCount();
   try {
     const root = fixed === undefined ? probe.root : probe.fixedRoot(c.fixed as Readonly<Record<string, unknown>>);
     const result = done.code(root, probe);
-    if (!probe.refused && (result.ok || result.error.code !== "#DEPTH!")) constant = sharedCopy(result) as Result | undefined;
+    // A part that caught a stack overflow gives a value of the depth of the stack, thus it does not fold (D208).
+    if (!probe.refused && overflowCount() === before && (result.ok || result.error.code !== "#DEPTH!")) constant = sharedCopy(result) as Result | undefined;
   } catch {
     constant = undefined;
   }
@@ -2801,7 +2793,8 @@ class CompiledPlan implements Plan {
 
 /**
  * This function makes a cache of plans for one machine. A document object compiles one time. Use it only for
- * documents that do not change after they are made.
+ * documents that do not change after they are made. The plan of a compilation with a stack overflow depends on the
+ * depth of the stack. Thus the cache does not keep that plan (PLAN.CACHE-OVERFLOW, D208).
  *
  * @param machine - The machine.
  * @param options - The options of each compilation.
@@ -2814,8 +2807,9 @@ export function planner(machine: Machine, options: PrepareOptions = {}): (doc: u
     if (typeof doc === "object" && doc !== null) {
       let plan = objects.get(doc);
       if (plan === undefined) {
+        const before = overflowCount();
         plan = prepare(machine, doc, options);
-        objects.set(doc, plan);
+        if (overflowCount() === before) objects.set(doc, plan);
       }
       return plan;
     }
@@ -2823,7 +2817,9 @@ export function planner(machine: Machine, options: PrepareOptions = {}): (doc: u
     if (Object.is(doc, -0)) return prepare(machine, doc, options);
     let plan = values.get(doc);
     if (plan === undefined) {
+      const before = overflowCount();
       plan = prepare(machine, doc, options);
+      if (overflowCount() !== before) return plan;
       if (values.size > 1000) values.clear();
       values.set(doc, plan);
     }

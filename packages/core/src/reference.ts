@@ -18,7 +18,7 @@ import {
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
 import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, ROOTS, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
 import { type AttributeRung, AT_READERS, STD_EVALUATORS } from "./stdlib.ts";
-import { type EvalError, type Failed, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
+import { type EvalError, type Failed, type Result, Failure, describe, effectFailed, fail, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
   type Clause,
@@ -431,12 +431,12 @@ function* causeAndWait(env: Env, ctx: Context, kind: Cap, payload: unknown, plac
   try {
     given = perform(effect);
   } catch (error) {
-    return (effect.outcome = hostError(effect, place, error));
+    return (effect.outcome = effectFailed(effect.kind, place, error));
   }
   if (!(given instanceof Promise)) return (effect.outcome = ok(given));
   const outcome = (yield given.then(
     (value: unknown) => ok(value),
-    (error: unknown) => hostError(effect, place, error),
+    (error: unknown) => effectFailed(effect.kind, place, error),
   )) as Result;
   return (effect.outcome = outcome);
 }
@@ -466,15 +466,9 @@ function recordEffect(env: Env, ctx: Context, kind: Cap, payload: unknown, place
   return effect;
 }
 
-/** This function gives the outcome of an effect that the host failed. A `Failure` gives its own error value (RUN.CAUSE). */
-function hostError(effect: Effect, place: readonly Key[], error: unknown): Result {
-  if (error instanceof Failure) return placed({ ok: false, error: error.error }, place);
-  return fail("#CALC!", `The host failed the effect ${effect.kind}: ${describe(error)}`, { place, cause: error });
-}
-
 /**
- * This function gives the answer of the mock to an effect. A throw gives `#CALC!` with the cause, and a `Failure`
- * gives its own error value. A promise gives `#CALC!`, because an evaluation does not wait.
+ * This function gives the answer of the mock to an effect. A throw gives `#CALC!` with the cause, a `Failure` gives
+ * its own error value, and a stack overflow gives `#DEPTH!`. A promise gives `#CALC!`, because an evaluation does not wait.
  */
 function answer(perform: Perform | undefined, effect: Effect, place: readonly Key[]): Result {
   if (perform === undefined) return ok(effect.payload);
@@ -482,7 +476,7 @@ function answer(perform: Perform | undefined, effect: Effect, place: readonly Ke
   try {
     given = perform(effect);
   } catch (error) {
-    return hostError(effect, place, error);
+    return effectFailed(effect.kind, place, error);
   }
   if (!(given instanceof Promise)) return ok(given);
   void given.catch(() => undefined);

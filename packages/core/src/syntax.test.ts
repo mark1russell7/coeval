@@ -30,6 +30,7 @@ import {
   random,
   syntaxFormat,
 } from "./index.ts";
+import { overflowCount } from "./errors.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const op = (name: string, ...args: Json[]): Json => ({ type: ["ops", ...name.split(".")], value: args });
@@ -194,6 +195,19 @@ describe("the syntax kit", () => {
     expect(issue(ALGEBRA, "gap + round(pad)")).toEqual({ offset: 6, length: 5, message: "This syntax has no function round." });
     expect(issue(ALGEBRA, '"a"')).toMatchObject({ offset: 0, length: 1 });
     expect(issue({ ...STD_SYNTAX, maxDepth: 3 }, "((((1))))")).toMatchObject({ message: "The text is deeper than 3 levels." });
+  });
+
+  it("[SYNTAX.DEPTH] a text or a document too deep for the stack of the host gives an issue or #DEPTH!, and the kernel counts each overflow", () => {
+    // No limit of the profile stops the parse first. The depth is far more than each stack of the host holds.
+    const depth = 200_000;
+    const open = { ...STD_SYNTAX, maxDepth: Number.POSITIVE_INFINITY };
+    const before = overflowCount();
+    expect(issue(open, `${"(".repeat(depth)}1${")".repeat(depth)}`)).toMatchObject({ message: "The text is too deep for the stack of the host." });
+    let nested: Json = 1;
+    for (let index = 0; index < depth; index += 1) nested = op("neg", nested);
+    expect(print(open, nested)).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+    // A cache compares two counts, thus it keeps no result that depends on the depth of the stack (DURABLE.OVERFLOW).
+    expect(overflowCount() - before).toBe(2);
   });
 
   it("[SYNTAX.PRINT] print writes the fewest parentheses that keep the tree, and the verb format uses it by default", () => {

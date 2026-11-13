@@ -82,6 +82,12 @@ export function placed<V>(result: Result<V>, place: readonly Key[]): Result<V> {
 }
 
 /**
+ * The brand of a `Failure`. It is a global symbol, thus a copy of the kernel knows the failures of each other copy
+ * (FAILURE.SYMBOL, D208).
+ */
+const FAILURE: unique symbol = /* @__PURE__ */ Symbol.for("coeval.failure") as never;
+
+/**
  * An exception that carries an error value through code of the host. A closure of a formula throws it when the
  * host calls the closure and the closure fails. The kernel catches it and gives its error value again.
  */
@@ -97,6 +103,24 @@ export class Failure extends Error {
     super(`${error.code} ${error.reason}`);
     this.name = "Failure";
     this.error = error;
+    Object.defineProperty(this, FAILURE, { value: true });
+  }
+}
+
+/**
+ * This function tells if an exception is a `Failure` of this copy or of another copy of the kernel (FAILURE.SYMBOL).
+ * A copy of the kernel has its own class, thus `instanceof` finds only the failures of its own copy.
+ *
+ * @param error - The exception.
+ * @returns `true` for a `Failure`.
+ */
+export function isFailure(error: unknown): error is Failure {
+  if (error instanceof Failure) return true;
+  try {
+    return typeof error === "object" && error !== null && (error as { readonly [FAILURE]?: unknown })[FAILURE] === true;
+  } catch {
+    // A proxy can throw at the read of the brand. Such a value is not a failure.
+    return false;
   }
 }
 
@@ -117,17 +141,50 @@ export function isStackOverflow(error: unknown): boolean {
   }
 }
 
-/** The count of the stack overflows that `thrown` changed into `#DEPTH!`. */
-let overflows = 0;
+/** The count of the stack overflows that the kernel caught. */
+interface Tally {
+  count: number;
+}
+
+/** The key of the shared count on the global object. Each copy of the kernel uses the same count (D208). */
+const OVERFLOWS: unique symbol = /* @__PURE__ */ Symbol.for("coeval.overflows") as never;
+
+/** The count of this copy of the kernel. It is the shared count after the first use. */
+let tally: Tally | undefined;
+
+/** This function gives the count that each copy of the kernel shares. A frozen global object gives a count for this copy only. */
+function shared(): Tally {
+  if (tally !== undefined) return tally;
+  const host = globalThis as { [OVERFLOWS]?: Tally };
+  let found = host[OVERFLOWS];
+  if (found === undefined) {
+    found = { count: 0 };
+    try {
+      Object.defineProperty(host, OVERFLOWS, { value: found });
+    } catch {
+      // A frozen global object refuses the new field. Then this copy keeps its own count.
+    }
+  }
+  tally = found;
+  return found;
+}
 
 /**
- * This function gives the count of the stack overflows that `thrown` changed into `#DEPTH!`. A schedule compares two
- * counts. Thus it finds an overflow also when a document catches the error (SCHED.DEEP-CYCLE).
+ * This function counts one stack overflow that the kernel caught. Each catch of the kernel that changes an overflow
+ * into a value calls it (D139, D208).
+ */
+export function countOverflow(): void {
+  shared().count += 1;
+}
+
+/**
+ * This function gives the count of the stack overflows that the kernel caught. A cache compares two counts. Thus it
+ * finds an overflow also when a document catches the error (SCHED.DEEP-CYCLE, DURABLE.OVERFLOW).
  *
- * @returns The count since the start of the process.
+ * @returns The count since the start of the process, for each copy of the kernel.
  */
 export function overflowCount(): number {
-  return overflows;
+  return shared().count;
 }
 
 /**
@@ -139,12 +196,29 @@ export function overflowCount(): number {
  * @returns The failed result.
  */
 export function thrown(error: unknown, who: string): Failed {
-  if (error instanceof Failure) return { ok: false, error: error.error };
+  if (isFailure(error)) return { ok: false, error: error.error };
   if (isStackOverflow(error)) {
-    overflows += 1;
+    countOverflow();
     return fail("#DEPTH!", `The nesting of ${who} is too deep for the stack of the host.`, { cause: error });
   }
   return fail("#CALC!", `${upper(who)} threw: ${describe(error)}`, { cause: error });
+}
+
+/**
+ * This function changes an exception of the host in an effect into an error value. Each engine uses it
+ * (RUN.OUTCOME, D208). A `Failure` and a stack overflow give what `thrown` gives. Each other exception gives `#CALC!`.
+ *
+ * @param kind - The kind of the effect, for example `http.get`.
+ * @param place - The keys from the root document to the document of the effect.
+ * @param error - The exception.
+ * @returns The failed result, with the place.
+ */
+export function effectFailed(kind: string, place: readonly Key[], error: unknown): Failed {
+  if (isFailure(error) || isStackOverflow(error)) {
+    const failed = thrown(error, `the effect ${kind} of the host`);
+    return failed.error.place === undefined ? { ok: false, error: { ...failed.error, place } } : failed;
+  }
+  return fail("#CALC!", `The host failed the effect ${kind}: ${describe(error)}`, { place, cause: error });
 }
 
 function upper(text: string): string {
