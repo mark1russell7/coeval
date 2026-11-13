@@ -8,7 +8,7 @@ MINOR: before `1.0.0`, a breaking change increases MINOR. Below a kind with scop
 
 ### Fixes
 
-- **A walk keeps no copy of the names of the scope rules (D201).** In a sequence, each named step got the names of all the steps before it. A nest of binders copied its names at each level. Thus the time and the memory of `walk`, `check`, `refsOf`, `attributeGraph` and `typeCheck` grew as the square of the count of the steps or of the binders. The check of a sequence of 20000 named steps used more memory than the heap had. After this fix, they are linear in the size of the document (STATIC.LINEAR). Their answers do not change.
+- **A walk keeps no copy of the names of the scope rules (D201).** In a sequence, each named step got the names of all the steps before it. A nest of binders copied its names at each level. Thus `walk`, `check`, `refsOf`, `attributeGraph` and `typeCheck` took a time and a memory of the square of the size. The check of a sequence of 20000 named steps used more memory than the heap had. After this fix, they are linear in the size of the document, and their answers do not change (STATIC.LINEAR).
 - **`freeOf` of the plan and the check C7 of `conforms` read the scope rules one time for each document (D201).** Before, they read a list of names for each part.
 
 ### Changes of behavior
