@@ -5613,13 +5613,36 @@ Thus the time and the memory grew as the square of the count of the steps or of 
 
 **Results.**
 
-These times come from one shared laptop on battery, with one run of each document after a warm run. They are not a bench.
+These times come from one shared laptop on battery. Each time is one measurement after a warm measurement. They are not a bench.
 
 | Document on the head | `check` | `typeCheck` | `prepare` |
 | --- | ---: | ---: | ---: |
 | A sequence of 20000 named steps | 173 ms | 546 ms | 261 ms |
 | A nest of 20000 binders, with a higher limit of the depth | 255 ms | 1795 ms | `#DEPTH!` after 43 ms, with the evaluation |
 
-From 2500 to 40000 levels, 16 times the size, the time of `typeCheck` grew 17.9 times on the sequence and 17.6 times on the nest. The time of `check` grew 7.2 times and 9.6 times.
+The table below gives the same documents on the source of the base `57e8be9` and of the head, in the same conditions. Each cell gives the times at 1000, 2000, 4000 and 8000 levels, in ms.
 
-The new tests of `scopes.test.ts` took 1196 ms for the sequence of 20000 steps and 1068 ms for the nest of 20000 binders. The plan of 2000 steps took 1010 ms.
+| Measure | Base | Head |
+| --- | --- | --- |
+| `check` of steps | 158 / 598 / 2761 / 22319 | 43 / 40 / 116 / 177 |
+| `typeCheck` of steps | 676 / 2095 / 7812 / 25738 | 38 / 119 / 168 / 279 |
+| `prepare` of steps | 17 / 27 / 76 / 87 | 16 / 22 / 89 / 114 |
+| `check` of binders | 147 / 313 / 725 / 3576 | 38 / 69 / 107 / 173 |
+| `typeCheck` of binders | 175 / 488 / 1753 / 9585 | 109 / 129 / 301 / 737 |
+
+On the head, the size went from 2500 to 40000 levels, 16 times more. The time of `typeCheck` grew 17.9 times on the sequence and 17.6 times on the nest. The time of `check` grew 7.2 times and 9.6 times.
+
+The evaluation of a sequence keeps its square cost on the base and on the head. One process measured the two sources in turns, 6 times each. The medians were 1628 ms and 1720 ms at 2000 steps, and 8847 ms and 8120 ms at 4000 steps.
+
+The flip check put the source of the base back and started each new test in its own process of vitest. Each process had a heap of 1024 MB and a limit of 120 s. A time in the table includes the start of vitest.
+
+| Test of `scopes.test.ts` | Base | Head |
+| --- | --- | --- |
+| A sequence of 20000 named steps | out of memory after 28 s | pass in 4.6 s |
+| A nest of 20000 binders | out of memory after 6 s | pass in 5.9 s |
+| A plan of a sequence of 2000 named steps | pass | pass |
+| A nest of 900 binders | pass | pass |
+| The names of each visit, for the sequences and for the binders | pass | pass |
+| The answers on generated documents | pass | pass |
+
+Vitest tells only that its worker stopped with the exit code 1. The same two documents in a thread with the same heap gave `ERR_WORKER_OUT_OF_MEMORY` in `check`, after 34 s and 8 s. The answers on generated documents come from the base, thus this test passes on the base by construction.
