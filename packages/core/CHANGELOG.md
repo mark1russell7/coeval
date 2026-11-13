@@ -2,6 +2,20 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.32.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. `typeIssues` gives the problems of a shared term one time, and `typeText` gives at most 4096 characters. No new exports.
+
+### Fixes
+
+- **A walk of types reads a shared term one time for each depth (D200).** A type that shares a term between places took a time that doubled with each level. `fits`, `join`, `member`, `typeFromSchema` and a check of types take a time that grows with the count of terms (TYPE.SHARED). Their answers do not change.
+
+### Changes of behavior
+
+- **`typeIssues` gives the problems of a shared term one time for each depth, at its first place (TYPE.ISSUES).**
+- **`typeText` gives at most 4096 characters (TYPE.TEXT).** A longer text ends with `…`. A shorter text does not change.
+- **A split of `fits` follows at most 4096 paths into records (TYPE.FITS-PATH).** A type with more paths can then fail to fit.
+
 ## 0.30.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The JSON form of a configuration of the stepper changes, and a record from data with the key `coeval.held` is no longer an error. Two new exports.
