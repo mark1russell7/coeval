@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, field, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
-import { type Kind, type LazyRule, type World, type WorldEntry, atArgsOf, atRuleOf, circularOf, collectOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
+import { type CapsRule, type Kind, type LazyRule, type World, type WorldEntry, atArgsOf, atRuleOf, circularOf, collectOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { answerOf, ask } from "./ladder.ts";
 import { type PartSlot, partsOf, rulesCover, scopesOf } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
@@ -41,7 +41,10 @@ export interface DocVisit {
    * around it (`Kind.caps`). A walk without capabilities gives none here.
    */
   readonly caps?: readonly Cap[] | undefined;
-  /** The kinds of effects that a handler around the document answers (CAP.GRANT, D146). Such an effect does not reach the host. */
+  /**
+   * The kinds of effects that a handler around the document answers (CAP.GRANT, D146), narrowed by the capability rules
+   * of the kinds around it (D198). Such an effect does not reach the host. They are not in `caps`.
+   */
   readonly handled?: readonly Cap[] | undefined;
 }
 
@@ -277,19 +280,27 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         address: slot.address === true,
         slot: slot.path,
         parent: here,
-        // A part with no grant keeps the list of partCaps, with no copy (K238).
-        caps:
-          item.caps === undefined || kind.caps === undefined
-            ? item.caps
-            : granted === undefined
-              ? partCaps(kind.caps, slot.path, item.caps)
-              : [...partCaps(kind.caps, slot.path, item.caps), ...granted],
-        handled: granted === undefined ? item.handled : [...(item.handled ?? []), ...granted],
+        // A grant gives clause kinds and not capabilities (D198), thus the list of partCaps stays, with no copy (K238).
+        caps: item.caps === undefined || kind.caps === undefined ? item.caps : partCaps(kind.caps, slot.path, item.caps),
+        // A part without clause kinds and without a grant keeps the value of its parent, with no call. Thus the walk of
+        // a document without a handler does not call handledOf, and its inline budget stays for splitParts (K252).
+        handled: granted === undefined && (item.handled === undefined || kind.caps === undefined) ? item.handled : handledOf(kind.caps, slot.path, item.handled, granted),
         bound: extra,
         expect: slot.expect,
       });
     }
   }
+}
+
+/**
+ * This function gives the clause kinds of a part, as a run gives them. They are the kinds of the document and the
+ * kinds of a grant. Then the rules of the kind narrow them (HANDLE.NARROW, D198). The walk uses it only for a part
+ * with a grant, or with clause kinds under capability rules. Its spread is large bytecode, and an inline of it in the
+ * walk takes the budget of splitParts.
+ */
+function handledOf(rules: readonly CapsRule[] | undefined, path: readonly Key[], handled: readonly Cap[] | undefined, granted: readonly Cap[] | undefined): readonly Cap[] | undefined {
+  const kinds = granted === undefined ? handled : [...(handled ?? []), ...granted];
+  return kinds === undefined || rules === undefined ? kinds : partCaps(rules, path, kinds);
 }
 
 /** One reference of a document. */
@@ -1235,8 +1246,11 @@ function checkAll(
       const caps = v.caps;
       const stated = hookEffects(v, verb, machine, name) ?? verbDeclared(v, verb);
       const declared = stated ?? NO_EFFECTS;
+      // A clause answers an effect of its clause kinds before the host sees it, by the rule of the kernel (D198).
+      const handled = v.handled;
       if (allowed !== undefined && caps !== undefined) {
         for (const kind of declared) {
+          if (handled !== undefined && permits(handled, kind)) continue;
           if (!allowed(caps, kind)) push({ code: "#CAP!", place: v.place, reason: capReason(v, kind, allowed), at: v.at });
         }
       }
@@ -1261,10 +1275,11 @@ function checkAll(
           if (own !== undefined && own.length > 0) driven.set(v, own);
         }
         // A runner waits only for an effect that reaches the host (C6). A refused effect gives #CAP! without a wait. A
-        // runner without a declaration for the verb can cause each effect, thus it can wait.
+        // runner without a declaration for the verb can cause each effect, thus it can wait. A clause can wait for an
+        // effect of its own, thus a handled effect can wait too.
         if (typeof chain === "object" && !chain.wait) {
           const rule = allowed ?? permits;
-          chain.wait = stated === undefined || declared.some((kind) => caps === undefined || rule(caps, kind));
+          chain.wait = stated === undefined || declared.some((kind) => caps === undefined || rule(caps, kind) || (handled !== undefined && permits(handled, kind)));
         }
         // In a run, the host does each effect, thus an evaluator cannot cause one.
         const first = declared[0];

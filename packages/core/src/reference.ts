@@ -249,10 +249,42 @@ function capsOfPart(rules: readonly CapsRule[] | undefined, path: readonly Key[]
  * narrow it (CAP.CONTRACT).
  */
 function contextOfPart(seen: Seen, slot: PartSlot, parent: Context, given: Context | undefined): Context {
-  const base =
-    given === undefined || given === parent ? parent : given.caps.every((cap) => permits(parent.caps, cap)) ? given : { ...given, caps: bothPermit(parent.caps, given.caps) };
+  const own = given === undefined || given === parent;
+  const base = own ? parent : given.caps.every((cap) => permits(parent.caps, cap)) ? given : { ...given, caps: bothPermit(parent.caps, given.caps) };
+  const handles = own ? refHandles(parent) : givenHandles(parent, given);
   const caps = capsOfPart(seen.kind?.caps, slot.path, base.caps);
-  return caps === base.caps ? base : { ...base, caps };
+  // The rules of the kind narrow the clause kinds as they narrow the capabilities (HANDLE.NARROW).
+  const kinds = handles === undefined ? undefined : capsOfPart(seen.kind?.caps, slot.path, handles);
+  if (caps === base.caps && kinds === refHandles(base)) return base;
+  if (kinds === undefined) return { ...base, caps };
+  const out: RefHandling = { ...base, caps, [REF_HANDLES]: kinds };
+  return out;
+}
+
+/**
+ * The key of the clause kinds of a context, as SPEC tells (CAP.GRANT, HANDLE.KINDS): the kinds that the frames of the
+ * context answer. They are not capabilities.
+ */
+const REF_HANDLES = /* @__PURE__ */ Symbol("coeval.reference.handles");
+
+/** A context that can have clause kinds. */
+type RefHandling = Context & { readonly [REF_HANDLES]?: readonly Cap[] };
+
+/** This function gives the clause kinds of a context. */
+function refHandles(ctx: Context): readonly Cap[] | undefined {
+  return (ctx as RefHandling)[REF_HANDLES];
+}
+
+/**
+ * This function gives the clause kinds of a context that an evaluator gives a part (HANDLE.KINDS, HANDLE.NARROW). A
+ * context without them gets none. A list of capabilities that is not the list of the parent narrows them. The part
+ * keeps only the kinds that the parent can cause, by the host or by a clause (CAP.MEET).
+ */
+function givenHandles(parent: Context, given: Context): readonly Cap[] | undefined {
+  const own = refHandles(given);
+  if (own === undefined) return undefined;
+  const kept = given.caps === parent.caps ? own : bothPermit(own, given.caps);
+  return bothPermit(kept, [...parent.caps, ...(refHandles(parent) ?? [])]);
 }
 
 function headerOf(item: Json): string | undefined {
@@ -332,16 +364,16 @@ function refFrame(ctx: Context): RefFrame | undefined {
 }
 
 /**
- * This function finds the clause for an effect (HANDLE.DO, HANDLE.FORWARD). An effect without a capability gets no clause
- * (HANDLE.NARROW). A clause of a frame that has ended gives `#CAP!` (HANDLE.ENDED).
+ * This function finds the clause for an effect (HANDLE.DO, HANDLE.FORWARD). The clause kinds of the context decide, by
+ * the rule of SPEC and not by the rule `permits` of the host (HANDLE.KINDS). An effect that they do not permit gets no
+ * clause (HANDLE.NARROW). A clause of a frame that has ended gives `#CAP!` (HANDLE.ENDED).
  */
 function clauseAt(env: Env, ctx: Context, kind: Cap, place: readonly Key[]): Clause | Failed | undefined {
   let frame = refFrame(ctx);
   if (frame === undefined) return undefined;
   const keys = typeof kind === "string" ? kind.split(".") : kind;
-  const machine = env.machine;
-  const allowed = machine.permits === undefined ? permits(ctx.caps, keys) : machine.permits(ctx.caps, keys, ctx);
-  if (!allowed) return undefined;
+  const handles = refHandles(ctx);
+  if (handles === undefined || !permits(handles, keys)) return undefined;
   for (; frame !== undefined; frame = frame.outer) {
     for (const clause of frame.clauses) {
       if (!permits([clause.op], keys)) continue;
@@ -541,10 +573,14 @@ function evalInput(env: Env, seen: Seen, at: At): EvalInput {
   };
 }
 
-/** This function evaluates a part under a frame: the part also gets the kinds of the clauses (CAP.GRANT). */
-function* handledAt(env: Env, part: At, clauses: readonly Clause[]): Steps {
+/**
+ * This function evaluates a part under a frame. The part gets the kinds of the clauses as clause kinds, and its
+ * capabilities stay (CAP.GRANT). The rules of the kind narrow the clause kinds after the grant (HANDLE.NARROW).
+ */
+function* handledAt(env: Env, part: At, clauses: readonly Clause[], rules: readonly CapsRule[] | undefined, path: readonly Key[]): Steps {
   const frame: RefFrame = { clauses, outer: refFrame(part.ctx), owner: env.effects, ended: false };
-  const ctx = { ...part.ctx, caps: [...part.ctx.caps, ...clauses.map((clause) => clause.op)], [REF_FRAME]: frame };
+  const kinds = capsOfPart(rules, path, [...(refHandles(part.ctx) ?? []), ...clauses.map((clause) => clause.op)]);
+  const ctx = { ...part.ctx, [REF_FRAME]: frame, [REF_HANDLES]: kinds };
   try {
     return yield* stepsAt(env, { ...part, ctx });
   } finally {
@@ -561,7 +597,7 @@ function runInput(env: Env, seen: Seen, at: At): RunInput {
       path: slot.path,
       ...(name === undefined ? {} : { name }),
       evaluate: (given?: Context) => stepsAt(env, partAt(seen, at, slot, given)),
-      handled: (clauses: readonly Clause[]) => handledAt(env, partAt(seen, at, slot, undefined), clauses),
+      handled: (clauses: readonly Clause[]) => handledAt(env, partAt(seen, at, slot, undefined), clauses, seen.kind?.caps, slot.path),
     };
   });
   const fill = (items: readonly unknown[]): unknown => (split.parts.length === 0 ? doc.value : split.fill(items));
