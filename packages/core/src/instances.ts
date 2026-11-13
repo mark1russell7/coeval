@@ -719,7 +719,7 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
       // and no part. Its reads are not known, as the reads of code that the check does not know.
       if (v.depth > maxDepth) {
         attach(parent, v, { visit: v, evaluator: undefined, node: undefined, items: new Map() });
-        if (owner !== undefined) reads.push({ owner, v, lazy, self: "unknown", opaque: true });
+        if (owner !== undefined) reads.push({ owner, v, lazy, self: "unknown", opaque: true, bound: false });
         return "skip";
       }
       const answer = ask(machine.world, v.declared ? {} : v.doc, "eval", v.declared ? { declaredType: typeName(v.doc.type) } : {});
