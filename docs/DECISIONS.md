@@ -5771,3 +5771,37 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
 
 **SemVer.** No export of the package changes.
+
+## D212 (2026-11-13): a dispatch of the Speed gate can read the records of an earlier run
+
+**Context.** K225. The A/A series of the Speed gate needs the verdict log of each unit of two control dispatches (D179). The dispatch run 43322755938 had 74 bench jobs at 48 rounds on main, and each of them passed.
+
+- Its job `verdict` stopped at its limit of 5 minutes, at unit 12 of 37.
+- The step for the further pairs read one unit in approximately 24 s. Thus the 37 units need approximately 15 minutes.
+- Speed OK then read no state and went red.
+- The bench jobs of that run took 10.06 hours of runner time, from the times of the 74 jobs. Their records stay 90 days (K214).
+
+**Decision.**
+
+- The job `verdict` gets 60 minutes on a dispatch. A pull request keeps the limit of 5 minutes.
+- A dispatch takes the input `records`, the id of an earlier run of the workflow. Then no bench job starts.
+- The job `verdict` downloads the records of that run with the token of the run, and reads them with the `merge.ts` of the dispatched commit.
+- The job `verdict` gets the scope `actions: read` for that download.
+- On such a dispatch, the summary job permits the skip of the job `bench`. A pull request still needs each bench job.
+- The concurrency group holds the input, so a new read does not stop a dispatch that measures.
+
+**Alternatives.**
+
+- A new dispatch of 74 jobs with the new limit. That takes the runner time of the first dispatch again, and it measures new rounds, not the rounds of the series.
+- A local read of the 74 records. The verdict log of the series is a CI log with a run id. A local read gives no such record.
+- A job for each pair, in a matrix. Each job then installs the packages again, and the read of 37 units is short work.
+
+**Why.** The records of a run are its measurement. The verdict is a calculation on them. Thus a new calculation needs no new measurement, and a change of `merge.ts` can read the old records again.
+
+**Limits.**
+
+- A read with records gives the verdict of the new `merge.ts` on the old rounds. The log names the run of the records, and the series cites both runs.
+- The records of a run older than 90 days are gone.
+- The limit of 60 minutes holds approximately 140 units at 48 rounds.
+
+**SemVer.** No file of the package changes.
