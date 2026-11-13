@@ -94,6 +94,121 @@ function kindFault(kinds: readonly (readonly Key[])[], item: Json, of: string | 
 }
 
 /**
+ * The shape of each field of a record shape whose `fields` is a list of names, by the record shape (K297). Each name
+ * gets a part with the type `of` and the value type `expect` of the record. A split reads the table of its shape, thus
+ * it does not make the table again for each value. The shapes of a world do not change, thus a table stays correct.
+ */
+const NAMED_FIELDS = /* @__PURE__ */ new WeakMap<Shape, Readonly<Record<string, Shape>>>();
+
+/** This function gives the shape of each field of a record shape, by the name of the field. */
+function namedFields(spec: Extract<Shape, { readonly shape: "record" }>): Readonly<Record<string, Shape>> {
+  if (!Array.isArray(spec.fields)) return spec.fields as Readonly<Record<string, Shape>>;
+  let named = NAMED_FIELDS.get(spec);
+  if (named === undefined) {
+    named = Object.fromEntries((spec.fields as readonly string[]).map((name) => [name, termOf(spec.of, spec.expect)]));
+    NAMED_FIELDS.set(spec, named);
+  }
+  return named;
+}
+
+/**
+ * This function adds a part to the parts of a split, and gives the template of its place in the value. The functions
+ * of a split are module functions, thus a split makes no function for each value (K297). A part gets the fields `of`,
+ * `address` and `expect` only with a value, in that order, with no spread copy.
+ */
+function slotOf(parts: PartSlot[], item: Json, path: readonly Key[], of: string | undefined, address: boolean, expect: ValueType | undefined): Template {
+  const part: { -readonly [K in keyof PartSlot]: PartSlot[K] } = { path, key: path.join("."), item };
+  if (of !== undefined) part.of = of;
+  if (address) part.address = true;
+  if (expect !== undefined) part.expect = expect;
+  parts.push(part);
+  return { t: "slot", index: parts.length - 1 };
+}
+
+/** This function gives the template of a value of the shape `deep`: each envelope in the value is a part. */
+function deepOf(parts: PartSlot[], item: Json, path: readonly Key[], of: string | undefined, expect: ValueType | undefined): Template {
+  if (isEnvelope(item)) return slotOf(parts, item, path, of, false, expect);
+  if (Array.isArray(item)) {
+    const items = (item as readonly Json[]).map((child, index) => deepOf(parts, child, [...path, index], of, expect));
+    return items.some(hasSlots) ? { t: "list", items } : { t: "data", value: item };
+  }
+  if (isRecord(item)) {
+    const fields = Object.keys(item).map((key) => [key, deepOf(parts, item[key] as Json, [...path, key], of, expect)] as const);
+    return fields.some(([, child]) => hasSlots(child)) ? { t: "record", fields } : { t: "data", value: item };
+  }
+  return { t: "data", value: item };
+}
+
+/**
+ * This function gives the template of a value by its shape. It adds each part to `parts`, in the order of the value.
+ * It throws `Bad` for a value without the shape.
+ */
+function templateOf(parts: PartSlot[], spec: Shape | undefined, item: Json, path: readonly Key[]): Template {
+  if (spec === undefined || spec.shape === "none") return { t: "data", value: item };
+  if (spec.shape === "text" || spec.shape === "number" || spec.shape === "one") {
+    const reason = dataFault(spec, item);
+    if (reason !== undefined) throw new Bad(reason, path);
+    return { t: "data", value: item };
+  }
+  if (spec.shape === "term") {
+    if (spec.kinds !== undefined) kindFault(spec.kinds, item, spec.of, path);
+    return slotOf(parts, item, path, spec.of, spec.address === true, spec.expect);
+  }
+  if (spec.shape === "deep") return deepOf(parts, item, path, spec.of, spec.expect);
+  if (spec.shape === "list") {
+    if (!Array.isArray(item)) throw new Bad("The value must be a list.", path);
+    const list = item as readonly Json[];
+    if (spec.distinct === true) {
+      const twice = list.findIndex((child, index) => list.slice(0, index).some((before) => docEquals(before, child)));
+      if (twice !== -1) throw new Bad("The items of the list must be different.", [...path, twice]);
+    }
+    const each: Shape = spec.item ?? termOf(spec.of, spec.expect);
+    const items = list.map((child, index) => templateOf(parts, each, child, [...path, index]));
+    // A list of data is data, also when it is empty. Only a list that can hold parts gives null in the data.
+    return isData(each) ? { t: "data", value: item } : { t: "list", items };
+  }
+  if (!isRecord(item)) throw new Bad("The value must be a record.", path);
+  if (spec.shape === "map") {
+    const each: Shape = spec.item ?? termOf(spec.of, spec.expect);
+    return { t: "record", fields: Object.keys(item).map((key) => [key, templateOf(parts, each, item[key] as Json, [...path, key])] as const) };
+  }
+  for (const name of spec.required ?? []) {
+    if (!Object.hasOwn(item, name)) throw new Bad(`The field ${name} is missing.`, path);
+  }
+  const named = namedFields(spec);
+  const fields: (readonly [string, Template])[] = [];
+  for (const key of Object.keys(item)) {
+    if (spec.closed === true && !Object.hasOwn(named, key)) throw new Bad(`The field ${key} is not a field of this kind.`, [...path, key]);
+    const fieldShape = Object.hasOwn(named, key) ? named[key] : spec.rest;
+    fields.push([key, templateOf(parts, fieldShape, item[key] as Json, [...path, key])]);
+  }
+  return { t: "record", fields };
+}
+
+/** This function gives the value of a template without the parts. A list that holds only parts gives `null`. */
+function dataOf(node: Template): Json | undefined {
+  if (node.t === "data") return node.value as Json;
+  if (node.t === "slot") return undefined;
+  if (node.t === "list") return node.items.every((child) => child.t === "slot") ? null : (node.items.map((child) => dataOf(child) ?? null) as Json);
+  const out: Record<string, Json> = {};
+  for (const [key, child] of node.fields) {
+    const kept = dataOf(child);
+    if (kept !== undefined) setOwn(out, key, kept);
+  }
+  return out;
+}
+
+/** This function gives the value of a template with a handle in the place of each part. */
+function fillOf<P>(node: Template, handles: readonly P[]): unknown {
+  if (node.t === "data") return node.value;
+  if (node.t === "slot") return handles[node.index];
+  if (node.t === "list") return node.items.map((child) => fillOf(child, handles));
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of node.fields) setOwn(out, key, fillOf(child, handles));
+  return out;
+}
+
+/**
  * This function splits a value into its parts, by the shape that its kind declares. The evaluator, the view and
  * the static kit use the same split, thus each one sees the same parts.
  *
@@ -105,105 +220,14 @@ export function splitParts(shape: Shape | undefined, value: Json): Split {
   // A value without parts is data: the split needs no template.
   if (shape === undefined || shape.shape === "none") return { ok: true, parts: NO_SLOTS, data: value, fill: () => value };
   const parts: PartSlot[] = [];
-  const slot = (item: Json, path: readonly Key[], of: string | undefined, address = false, expect?: ValueType): Template => {
-    parts.push({
-      path,
-      key: path.join("."),
-      item,
-      ...(of === undefined ? {} : { of }),
-      ...(address ? { address: true as const } : {}),
-      ...(expect === undefined ? {} : { expect }),
-    });
-    return { t: "slot", index: parts.length - 1 };
-  };
-
-  const deep = (item: Json, path: readonly Key[], of: string | undefined, expect: ValueType | undefined): Template => {
-    if (isEnvelope(item)) return slot(item, path, of, false, expect);
-    if (Array.isArray(item)) {
-      const items = (item as readonly Json[]).map((child, index) => deep(child, [...path, index], of, expect));
-      return items.some(hasSlots) ? { t: "list", items } : { t: "data", value: item };
-    }
-    if (isRecord(item)) {
-      const fields = Object.keys(item).map((key) => [key, deep(item[key] as Json, [...path, key], of, expect)] as const);
-      return fields.some(([, child]) => hasSlots(child)) ? { t: "record", fields } : { t: "data", value: item };
-    }
-    return { t: "data", value: item };
-  };
-
-  const walk = (spec: Shape | undefined, item: Json, path: readonly Key[]): Template => {
-    if (spec === undefined || spec.shape === "none") return { t: "data", value: item };
-    if (spec.shape === "text" || spec.shape === "number" || spec.shape === "one") {
-      const reason = dataFault(spec, item);
-      if (reason !== undefined) throw new Bad(reason, path);
-      return { t: "data", value: item };
-    }
-    if (spec.shape === "term") {
-      if (spec.kinds !== undefined) kindFault(spec.kinds, item, spec.of, path);
-      return slot(item, path, spec.of, spec.address === true, spec.expect);
-    }
-    if (spec.shape === "deep") return deep(item, path, spec.of, spec.expect);
-    if (spec.shape === "list") {
-      if (!Array.isArray(item)) throw new Bad("The value must be a list.", path);
-      const list = item as readonly Json[];
-      if (spec.distinct === true) {
-        const twice = list.findIndex((child, index) => list.slice(0, index).some((before) => docEquals(before, child)));
-        if (twice !== -1) throw new Bad("The items of the list must be different.", [...path, twice]);
-      }
-      const each: Shape = spec.item ?? termOf(spec.of, spec.expect);
-      const items = list.map((child, index) => walk(each, child, [...path, index]));
-      // A list of data is data, also when it is empty. Only a list that can hold parts gives null in the data.
-      return isData(each) ? { t: "data", value: item } : { t: "list", items };
-    }
-    if (!isRecord(item)) throw new Bad("The value must be a record.", path);
-    if (spec.shape === "map") {
-      const each: Shape = spec.item ?? termOf(spec.of, spec.expect);
-      return { t: "record", fields: Object.keys(item).map((key) => [key, walk(each, item[key] as Json, [...path, key])] as const) };
-    }
-    for (const name of spec.required ?? []) {
-      if (!Object.hasOwn(item, name)) throw new Bad(`The field ${name} is missing.`, path);
-    }
-    const named: Readonly<Record<string, Shape>> = Array.isArray(spec.fields)
-      ? Object.fromEntries((spec.fields as readonly string[]).map((name) => [name, termOf(spec.of, spec.expect)]))
-      : (spec.fields as Readonly<Record<string, Shape>>);
-    const fields: (readonly [string, Template])[] = [];
-    for (const key of Object.keys(item)) {
-      if (spec.closed === true && !Object.hasOwn(named, key)) throw new Bad(`The field ${key} is not a field of this kind.`, [...path, key]);
-      const fieldShape = Object.hasOwn(named, key) ? named[key] : spec.rest;
-      fields.push([key, walk(fieldShape, item[key] as Json, [...path, key])]);
-    }
-    return { t: "record", fields };
-  };
-
   let template: Template;
   try {
-    template = walk(shape, value, []);
+    template = templateOf(parts, shape, value, []);
   } catch (error) {
     if (error instanceof Bad) return { ok: false, reason: error.reason, at: error.at };
     throw error;
   }
-
-  const strip = (node: Template): Json | undefined => {
-    if (node.t === "data") return node.value as Json;
-    if (node.t === "slot") return undefined;
-    if (node.t === "list") return node.items.every((child) => child.t === "slot") ? null : (node.items.map((child) => strip(child) ?? null) as Json);
-    const out: Record<string, Json> = {};
-    for (const [key, child] of node.fields) {
-      const kept = strip(child);
-      if (kept !== undefined) setOwn(out, key, kept);
-    }
-    return out;
-  };
-
-  const fillWith = <P>(node: Template, handles: readonly P[]): unknown => {
-    if (node.t === "data") return node.value;
-    if (node.t === "slot") return handles[node.index];
-    if (node.t === "list") return node.items.map((child) => fillWith(child, handles));
-    const out: Record<string, unknown> = {};
-    for (const [key, child] of node.fields) setOwn(out, key, fillWith(child, handles));
-    return out;
-  };
-
-  return { ok: true, parts, data: strip(template) ?? null, fill: (handles) => fillWith(template, handles) };
+  return { ok: true, parts, data: dataOf(template) ?? null, fill: (handles) => fillOf(template, handles) };
 }
 
 /**
