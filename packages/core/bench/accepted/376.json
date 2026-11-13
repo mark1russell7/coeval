@@ -1,0 +1,23 @@
+[
+  {
+    "case": "FORMULA.SPEED formula",
+    "head": "6451a9769dcc",
+    "cost": "+2.5 % (noise +0.0 %) and +2.8 % (noise -0.6 %), slower in each job: Speed run 43334266551. +3.6 % and +2.9 %, slower in each job, on the head before the fix of the walk: Speed run 43327928958. The case takes about 165 to 210 ns, thus the cost is about 4 to 6 ns for each evaluation.",
+    "reason": "The cost is small, with one sign in four jobs on two CPU models. K252 keeps the clause kinds of a handler on its frame (D198), and each evaluation tests its grant. A trace of the inline decisions of V8 shows the same inlines as the base, with no deopt, in another order. No new work runs on the path, and the cause is not measured. A change of the size of a function for the inliner of V8 is not a fix that stays, thus the cost stays with the feature. The fix of the walk removed the large cost of factsOf (+22.4 % to +1.2 %).",
+    "owner": "coeval session (K252)"
+  },
+  {
+    "case": "a reference through an envelope",
+    "head": "6451a9769dcc",
+    "cost": "+3.2 % (noise +0.6 %) and +2.2 % (noise -0.3 %), slower in each job: Speed run 43334266551. +2.6 % and +1.8 %, slower in each job, on the head before the fix of the walk: Speed run 43327928958. The case takes about 290 to 460 ns, thus the cost is about 9 to 10 ns for each evaluation.",
+    "reason": "The cost is small, with one sign in four jobs on two CPU models. K252 keeps the clause kinds of a handler on its frame (D198), and each evaluation tests its grant. A trace of the inline decisions of V8 shows one more call for each evaluation: the smaller test of the grant goes into evaluate first, and resolveCompiled then runs as its own call. The trace measures no time, thus this cause is not measured. A change of the size of a function for the inliner of V8 is not a fix that stays, thus the cost stays with the feature.",
+    "owner": "coeval session (K252)"
+  },
+  {
+    "case": "PLAN.FIXED a formula with a fixed name and a free name",
+    "head": "6451a9769dcc",
+    "cost": "+13.2 % (noise +0.3 %) in one job and +0.7 % (cannot decide) in the other: Speed run 43334266551. +13.2 % and +2.1 %: Speed run 43327928958. The case takes about 90 ns, thus the cost in the slower job is about 12 ns.",
+    "reason": "One job of each run reads +13.2 %, and the other job reads at most +2.1 %. The record of K216 (263.json) read this case at +11.2 % in one job and at most +2.1 % in the others. A trace of the inline decisions of V8 shows the same inlines as the base, with no deopt, in another order. No new work runs on the path, and the cause is not measured. Thus the record accepts this case when a later run reads it slower in both jobs.",
+    "owner": "coeval session (K252)"
+  }
+]

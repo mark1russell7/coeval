@@ -91,9 +91,9 @@ export type CapsRule =
   | { readonly rule: "mask"; readonly in?: readonly (readonly Key[])[] }
   | { readonly rule: "only"; readonly caps: readonly Cap[]; readonly in?: readonly (readonly Key[])[] }
   /**
-   * The parts that the rule covers get each capability that the value of the document holds at the path `from`. The
-   * code of the kind answers these effects with its own clauses (`RunPart.handled`), thus they do not reach the host.
-   * The key `"*"` in `from` steps into each item (CAP.GRANT, D146).
+   * The parts that the rule covers get each kind that the value of the document holds at the path `from`. Each is a
+   * clause kind and not a capability (D198). The code of the kind answers these effects with its own clauses
+   * (`RunPart.handled`), thus they do not reach the host. The key `"*"` in `from` steps into each item (CAP.GRANT, D146).
    */
   | { readonly rule: "grant"; readonly from: readonly Key[]; readonly in?: readonly (readonly Key[])[] };
 

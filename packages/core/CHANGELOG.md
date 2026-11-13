@@ -2,6 +2,18 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.31.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. The capabilities of a part in the body of `handle` no longer hold the kinds of its clauses. A host or a runner that read them there sees another list, thus this release counts as a breaking change. No export changes.
+
+### Changes of behavior
+
+- **The clause kinds of a handler stay on its frame, not in the capabilities (D198).** The rule `permits` of the host, a read of the root `caps` and the context of an effect show only the capabilities of the host.
+- **A context that code makes without a spread gets no clause (HANDLE.KINDS).** Its effects go to the host, and the host checks them by its own capabilities.
+- **A list of capabilities that code writes for a part also narrows its clause kinds (HANDLE.NARROW).** A copy of the list counts as a new list.
+- **A rule `mask` or `only` of a kind narrows the clause kinds of its own grant, in both tiers (HANDLE.NARROW).** Before, the reference applied the grant after the rule.
+- **`check` and `effectsOf` read the clause kinds apart from the capabilities.** A hook of the host then gets the same list in a check and in a run.
+
 ## 0.30.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. The JSON form of a configuration of the stepper changes, and a record from data with the key `coeval.held` is no longer an error. Two new exports.

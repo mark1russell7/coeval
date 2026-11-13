@@ -5552,6 +5552,40 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 - The stepper does not evaluate the equations of a tree. Thus WORK.NODE has no test in the stepper.
 - A host call of a closure in the stepper also puts back the count of the applications of its start. Before, a failed call left a higher count.
 
+## D198 (2026-11-12): the clause kinds of a handler stay on its frame, not in the capabilities
+
+**Context.** D146 made each clause kind a capability of the body. Thus code in the body and the rule `permits` of the host saw a clause kind as a capability that the host gave. A context that code made from that list kept the kind with no frame, and its effect went to the host. A review found this fault and two more of the same cause. The hook saw the kinds, and a read of the root `caps` gave other lists in the two tiers.
+
+**Decision.**
+
+- A context keeps its clause kinds in a field that only the kernel writes, beside its frame. The capabilities of a part hold only what the host gave (CAP.GRANT, HANDLE.KINDS).
+- The kernel finds a clause by its own rule `permits` on the clause kinds. The rule `permits` of the host sees only the capabilities.
+- The rules `mask` and `only` narrow the clause kinds as they narrow the capabilities, after a grant of the same part. The reference does the same, thus the two tiers agree (HANDLE.NARROW).
+- A context that code gives a part keeps the clause kinds that its parent can cause, by the host or by a clause. A context that code makes without a spread has none.
+- A list of capabilities that code writes for a part also narrows its clause kinds. The code does not see the clause kinds, thus it cannot keep one by a copy of its list.
+- `check` and `effectsOf` read the clause kinds apart from the capabilities, as a run does.
+
+**Alternatives.**
+
+- A check of the epoch of each clause kind. A part under a mask below a root with the capability passed that check.
+- A frame for each context that code makes, from its parent. Then an effect of a context that left the body went to the host, and HANDLE.ENDED changed.
+- No change of the clause kinds by a list that code writes. A runner that gives its part no capabilities then let a clause around it answer an effect of the part.
+
+**Why.** A capability is a grant of the host, and a clause kind is a grant of the kernel. One list for both let each consumer of the list confuse them. Two fields keep each rule simple: the host reads one, and the kernel reads both.
+
+**Limits.**
+
+- A copy of the list of capabilities, for example `[...context.caps]`, counts as a new list. The part then loses each clause kind that the host did not also give.
+- The kernel tells a spread from a new list by the identity of the list, as CAP.NARROW-CODE does.
+
+**Speed.**
+
+- The first head read 4 cases slower on two CPU models (Speed run 43327928958). The largest cost was `factsOf a tree with an equation`, at +22.4 % and +13.1 %.
+- A trace of the inline decisions of V8 found its cause. The walk of a check used `handledOf` for each part, and V8 put it into the walk first. The walk then had no room for `splitParts`.
+- The walk uses `handledOf` only for a part with a grant, or with clause kinds under rules. The case then read +1.2 % and -1.1 % (Speed run 43334266551).
+- `FORMULA.SPEED formula` and `a reference through an envelope` stay slower by 2 % to 3 % in each job. `bench/accepted/376.json` accepts them, and `PLAN.FIXED a formula with a fixed name and a free name` too.
+- The traces show no new work on their paths, only a new order of the inlines. Their cause is not measured.
+
 ## D199 (2026-11-12): the stepper keeps its closures and held errors apart from data
 
 **Context.** D158 made a closure of the stepper a record with the key `coeval.closure`, and a held error a record with the key `coeval.held`. Thus a configuration survived JSON. A document can also write such a record as data. A review found that the stepper then called a record from data with the context in it, also with its capabilities. A record from data with the key of a held error became an error. The plan and the reference give `#VALUE!` and the record.

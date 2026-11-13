@@ -322,16 +322,17 @@ A reference interpreter reads the rules of this file directly and compiles nothi
 | CAP.PURE-ONE | The kind `pure` takes exactly one part. A list with no part or with more than one part gives `#VALUE!`. |
 | CAP.NAMESPACE | A capability permits a kind by its name, or by its namespace. |
 | CAP.KEYS | A capability permits the kinds under it, key by key. A key with a dot is one key. |
-| CAP.NARROW | A part cannot get more capabilities than its parent. Only a rule `grant` adds a capability, and a clause then answers that effect. Thus a part cannot cause a host effect that its parent cannot cause. |
-| CAP.GRANT | A rule `grant` of a kind gives a part the kinds that the value of the document holds at a path. `check` accepts such an effect in that part, and `effectsOf` leaves it out, because it does not reach the host. |
+| CAP.NARROW | A part cannot get more capabilities than its parent. A rule `grant` gives clause kinds, not capabilities. Thus a part cannot cause a host effect that its parent cannot cause. |
+| CAP.GRANT | A rule `grant` of a kind gives a part the kinds that the value of the document holds at a path, as clause kinds. The capabilities of the part do not change. `check` accepts such an effect in that part, and `effectsOf` leaves it out, because it does not reach the host. |
 | HANDLE.DO | A clause `do` of `handle` answers each effect of the body under its `op`. Its result is the result of the effect, a failure of the clause is a failure of the effect, and the host does not get the effect. The clause reads `names.payload`. The first clause of the innermost frame wins. |
 | HANDLE.ABORT | A clause `abort` stops the body. Its result is the result of `handle`, and the clause `return` does not run. |
 | HANDLE.RETURN | A clause `return` gives the result of `handle` after a body without a failure. It reads `names.result`. |
 | HANDLE.FORWARD | An effect of a clause goes to the next frame out, and then to the host. |
 | HANDLE.DEEP | A frame stays in the context of the body, thus it answers each effect under the body, and each kind under its `op` (CAP.KEYS). |
-| HANDLE.NARROW | A rule around an effect narrows a kind of a clause as it narrows any capability. An effect in `pure` under `handle` gives `#CAP!`. |
+| HANDLE.NARROW | A rule around an effect narrows a clause kind as it narrows a capability, also after a grant of the same kind. An effect in `pure` under `handle` gives `#CAP!`. A list of capabilities that code writes for a part also narrows its clause kinds. |
+| HANDLE.KINDS | The clause kinds stay with the frame and out of the capabilities. A read of the root `caps` and the rule `permits` of the host do not see them. A context that code makes without a spread has none. A part keeps only the clause kinds that its parent can cause. The kernel finds a clause by its own rule. |
 | HANDLE.CLAUSE | A clause gets the context of the `handle` document. It has no capability of its own frame, and it does not get its own frame. |
-| HANDLE.ENDED | A context that leaves the body keeps the capability of a clause. An effect from that context after the end of the body gives `#CAP!`, and the host does not get it. |
+| HANDLE.ENDED | A context that leaves the body keeps the clause kinds of its frame. An effect from that context after the end of the body gives `#CAP!`, and the host does not get it. |
 | HANDLE.SEALED | A clause sees only the payload. The place, the names and the context of the effect stay hidden. |
 | HANDLE.VALUE | A clause with both `do` and `abort`, or with neither, gives `#VALUE!`. An `op` that is not a text or a list of keys also gives `#VALUE!`. |
 | HANDLE.AGREES | The plan and the reference give one result, and they give the host one list of effects with the same addresses. |
