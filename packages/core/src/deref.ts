@@ -460,6 +460,18 @@ const CHAIN_REASON = "The path follows more than 64 references. One resolution f
 const NO_HOPS: readonly Hop[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
+ * The end of a short walk at a value that can be a reference document (DEREF.QUICK). The caller gives it to the
+ * collapse of the full algorithm. Thus the walk keeps four parameters, and only this rare end makes an object.
+ */
+class QuickEnd {
+  declare readonly thing: Thing;
+
+  constructor(thing: Thing) {
+    this.thing = thing;
+  }
+}
+
+/**
  * This function tells if the short path gives a value to the collapse of the full algorithm (DEREF.QUICK). The text
  * type `ref` is enough, and the collapse tests the rest. A type that is not a text can also give the path `ref`, for
  * example `["ref"]`. Then `isRef` decides.
@@ -492,23 +504,22 @@ function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): R
   if (!quickRoot(root)) return undefined;
   if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return undefined;
   if (nav.adopt !== undefined) return undefined;
-  return walkQuick(nav, ctx, ctx[root], path, nav.plain === true, false);
+  const quick = walkQuick(ctx[root], path, nav.plain === true, false);
+  return quick instanceof QuickEnd ? resolveFully(nav, ctx, path, undefined, undefined, quick) : quick;
 }
 
 /**
  * This function walks the steps of the short path from the value of the root (DEREF.QUICK). `resolveQuick` and each
  * compiled path use it, thus the two cannot disagree. It gives `undefined` when the path needs the full algorithm.
- * A reference at the end of the path goes to the collapse of the full algorithm, with the thing that the walk
- * reached. Thus a host thing answers the keys of the path one time.
+ * At a reference at the end of the path, it gives a `QuickEnd` with the thing that the walk reached. The caller
+ * gives it to the collapse of the full algorithm. Thus a host thing answers the keys of the path one time.
  *
- * @param nav - The navigator. Its collapse follows a reference at the end of the path.
- * @param ctx - The context. A reference resolves its own path in it.
  * @param start - The value of the root.
  * @param path - The steps. The walk starts at the index 1.
  * @param plain - `true` for a plain navigation.
  * @param keyed - `true` when each step after the root is a key. The walk then does not test the steps again.
  */
-function walkQuick(nav: Navigator, ctx: Context, start: unknown, path: readonly unknown[], plain: boolean, keyed: boolean): Resolution | undefined {
+function walkQuick(start: unknown, path: readonly unknown[], plain: boolean, keyed: boolean): Resolution | QuickEnd | undefined {
   let here = start;
   for (let index = 1; index < path.length; index += 1) {
     if (typeof here !== "object" || here === null) return undefined;
@@ -522,7 +533,7 @@ function walkQuick(nav: Navigator, ctx: Context, start: unknown, path: readonly 
       const reached = thing.resolve(keys);
       if (reached === undefined) return { ok: false, code: "#N/A", reason: `The path ${keys.join(".")} reaches nothing.`, hops: NO_HOPS };
       // The collapse starts from this answer, thus the thing does not answer the same keys again.
-      if (!plain && mayBeRef(reached.thing)) return resolveFully(nav, ctx, path, undefined, undefined, reached);
+      if (!plain && mayBeRef(reached.thing)) return new QuickEnd(reached.thing);
       return { ok: true, thing: reached.thing, hops: NO_HOPS };
     }
     const step = path[index];
@@ -535,7 +546,7 @@ function walkQuick(nav: Navigator, ctx: Context, start: unknown, path: readonly 
     if (type !== undefined && isEnvelope(here)) return undefined;
     here = (here as Readonly<Record<string, unknown>>)[step];
   }
-  if (!plain && mayBeRef(here)) return resolveFully(nav, ctx, path, undefined, undefined, { thing: here });
+  if (!plain && mayBeRef(here)) return new QuickEnd(here);
   return { ok: true, thing: here, hops: NO_HOPS };
 }
 
@@ -597,10 +608,10 @@ class StaticPath implements CompiledPath {
     const from = this.from;
     if (from !== FULL) {
       const start = from === FROM_NAMES ? ctx.names : from === FROM_WORLD ? ctx.world : from === FROM_SELF ? ctx.self : ctx.event;
-      const quick = walkQuick(this.nav, ctx, start, this.path, this.plain, true);
-      if (quick !== undefined) return quick;
+      const quick = walkQuick(start, this.path, this.plain, true);
+      if (quick !== undefined) return quick instanceof QuickEnd ? resolveFully(this.nav, ctx, this.path, undefined, undefined, quick) : quick;
     }
-    return resolveFully(this.nav, ctx, this.path, undefined, this.known);
+    return resolveFully(this.nav, ctx, this.path, undefined, this.known, undefined);
   }
 }
 
@@ -684,7 +695,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
     const quick = resolveQuick(nav, ctx, path);
     if (quick !== undefined) return quick;
   }
-  return resolveFully(nav, ctx, path, options.hops === false ? undefined : [], undefined);
+  return resolveFully(nav, ctx, path, options.hops === false ? undefined : [], undefined, undefined);
 }
 
 /** The functions `deref` and `has` of the input of a walker, for one navigator. */
@@ -730,7 +741,7 @@ function walkSteps(nav: Navigator): WalkSteps {
  * @param end - The thing at the end of the path, when the short path reached it without hops. The algorithm then only follows it (collapse).
  * @returns What the path reached and each hop, or an error.
  */
-function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], hops: Hop[] | undefined, known: KnownWalkers | undefined, end?: { readonly thing: Thing }): Resolution {
+function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], hops: Hop[] | undefined, known: KnownWalkers | undefined, end: QuickEnd | undefined): Resolution {
   const done = hops ?? NO_HOPS;
   const failed = (code: ResolveCode | ErrorCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;

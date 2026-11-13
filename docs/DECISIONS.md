@@ -5716,3 +5716,7 @@ A host thing can also answer the keys with a reference. The short path then stop
 
 - The short path still stops at a reference in the middle of a path. The full algorithm then walks the path again from its root. A host thing ends the short path, thus the short path asked no host thing before that stop. The second walk asks no host thing again.
 - A plain navigation reads each form of a reference as data, as before (DEREF.PLAIN).
+
+**Results.** The first Speed run (43355708743) held one case on both CPU models: a reference with a step document, +3.5 % and +5.7 %. On the Intel job, three more cases of references read slower (+1.4 % to +9.8 %). The other job could not decide them.
+
+These cases do not take the new handoff. They see only a larger `walkQuick` with six parameters, and a `resolveFully` that gets five of its six arguments. Thus `walkQuick` gets its four parameters back. At a reference at its end, it gives a small `QuickEnd`, and the caller starts the collapse. Each call of `resolveFully` gives all six arguments. The Speed run of the next head tells if the cost goes.
