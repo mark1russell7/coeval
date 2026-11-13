@@ -1308,8 +1308,8 @@ function nodeIssues(machine: Machine, node: SeenNode, state: TreeState, v: DocVi
 }
 
 /**
- * This function gives the keys from the root JSON value to an own part of a node, with the name of the part as the
- * last key. It is a module function, thus a node makes no function for its issues (K297).
+ * This function gives the keys from the root JSON value to an own part of a node. The name of the part is the last
+ * key. It is a module function, thus a node makes no function for its issues (K297).
  */
 function ownPartAt(v: DocVisit, key: string): readonly Key[] {
   return [...v.at, ...(v.declared ? [] : ["value"]), key];
