@@ -650,8 +650,8 @@ function shapeFits(a: Form, b: Form, domains: Readonly<Record<string, Domain>> |
  * The budget is the budget of the outer split, when the call is part of the work of a split (TYPE.FITS-PATH, D89).
  *
  * The walk keeps the answer of each pair of terms (D200). A call that took a record from a budget changed the budget,
- * thus the memo `pure` does not keep its answer. Its answer goes to the memo `free` when the call had no budget, and to
- * the memo `spent` when the budget was spent at the start. Each other answer stays out of the memos.
+ * thus the memo `pure` does not keep its answer. Its answer goes to the memo `free` when the call had no budget. It goes
+ * to the memo `spent` when the budget was spent at the start. Each other answer stays out of the memos.
  */
 function fitsAt(
   found: unknown,
@@ -1262,7 +1262,7 @@ function take(room: Room, text: string): string {
 /**
  * This function gives the text of a type at one depth. `wrap` puts a union or a function type in brackets.
  *
- * Each term takes its own characters from the room before its parts, and a term never takes more than it writes. Thus
+ * Each term takes its own characters from the room before its parts, and a term does not take more than it writes. Thus
  * a text of at most 4096 characters does not change. When the room is spent, each next term gives "…". A type that
  * shares its parts can have a text for each way through it, and the room ends such a walk (D200).
  */
