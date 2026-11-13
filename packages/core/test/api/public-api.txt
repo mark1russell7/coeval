@@ -1579,6 +1579,7 @@ interface Read {
   readonly free: boolean;
   readonly kept?: true;
   readonly hops?: readonly Hop[];
+  readonly followed?: true;
 }
 
 ### build/index.d.ts#ReadPrints
@@ -1596,6 +1597,7 @@ type ReadsCheck = {
   readonly read: Read;
   readonly now: Result;
   readonly inPlace?: true;
+  readonly followed?: true;
 };
 
 ### build/index.d.ts#Recorder
