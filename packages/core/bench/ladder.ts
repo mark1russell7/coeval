@@ -9,6 +9,11 @@
  * `op("add", doc, 1)`. In each round, it fits the slope of log t against log n by least squares. A linear walk gives
  * a slope of 1, and a walk of the square of the size gives 2.
  *
+ * Two more rungs hold the names of the scope rules (K257, D201). The type check reads a sequence of N to 8N named
+ * steps, where each step reads the name of the step before it. It also reads a nest of N to 8N binders: `let`, and at
+ * each tenth level a function that a call applies. Each level binds `x` again. Before K257, both documents gave each
+ * part a copy of its names, thus a time and a memory of the square of the size.
+ *
  * All rungs run in one process, in turns. Each round has some passes, and each pass measures each arm one time. The
  * order of the arms turns by one place in each pass, and it goes back to front in each second round. Thus no rung
  * gets the start or the end of a round more often than another rung. The time of a rung in a round is the median of
@@ -183,6 +188,29 @@ function chain(levels: number): unknown {
   return doc;
 }
 
+/** This function gives a sequence of `levels` named steps of the standard world. Each step reads the step before it (K257). */
+function steps(levels: number): unknown {
+  const value: unknown[] = [];
+  for (let index = 0; index < levels; index += 1) value.push({ type: "add", value: [index === 0 ? 1 : { type: "ref", value: ["names", `s${index - 1}`] }, 1], name: `s${index}` });
+  return { type: "seq", value };
+}
+
+/**
+ * This function gives a nest of `levels` binders of the formula kit (K257). Each level binds `x` again, and it binds
+ * `v<level>` to the `x` around it. Each tenth level is a function that a call applies, and the other levels are `let`.
+ */
+function binders(levels: number): unknown {
+  let body: unknown = { type: "list", value: [{ type: "ref", value: ["names", "x"] }, { type: "ref", value: ["names", "v0"] }] };
+  for (let level = levels - 1; level >= 0; level -= 1) {
+    const outer = level === 0 ? 0 : { type: "ref", value: ["names", "x"] };
+    body =
+      level % 10 === 9
+        ? { type: "call", value: { fn: { type: "fn", value: { params: ["x", `v${level}`], body } }, args: [level, outer] } }
+        : { type: "let", value: { bind: { x: level, [`v${level}`]: outer }, body } };
+  }
+  return body;
+}
+
 /**
  * This function gives the fault of a flip test: a call that walks its document `times` more times, then a shorter document.
  * No document is deeper than its rung, so the fault does not reach the limit of the stack (K227, D164).
@@ -222,18 +250,19 @@ async function measure(): Promise<void> {
   if (!Number.isInteger(base) || base < 1 || !Number.isInteger(rounds) || rounds < 1) throw new Error("Give whole numbers of levels and rounds.");
   const started = performance.now();
   const world = { kinds: kernel.formulaKinds(), defaults: {} };
+  // The nest of binders is deeper than the default limit of the depth, thus its machine has no such limit.
+  const deep = { ...kernel.formulaMachine(), maxDepth: Number.MAX_SAFE_INTEGER };
   const levels = STEPS.map((step) => step * base);
-  // The arms: the four rungs, then the second document of the rung AA_STEP.
-  const docs = [...STEPS.map((step) => chain(step * base)), chain(AA_STEP * base)];
   const calls = [...STEPS.map((step) => 8 / step), 8 / AA_STEP];
   const aaIndex = STEPS.indexOf(AA_STEP);
   let visits = 0;
-  const walks: readonly { readonly name: string; readonly call: (doc: unknown) => number }[] = [
+  const walks: readonly { readonly name: string; readonly make: (levels: number) => unknown; readonly call: (doc: unknown) => number }[] = [
     // The walk of the claim: the references of a document.
-    { name: "refsOf", call: (doc) => kernel.refsOf(world, doc).length },
+    { name: "refsOf", make: chain, call: (doc) => kernel.refsOf(world, doc).length },
     // The walk under refsOf, with a visit that only counts.
     {
       name: "walk",
+      make: chain,
       call: (doc) => {
         visits = 0;
         kernel.walk(world, doc, () => {
@@ -242,20 +271,26 @@ async function measure(): Promise<void> {
         return visits;
       },
     },
+    // The names of the scope rules, through the check and the type check (K257, D201).
+    { name: "typeCheck of steps", make: steps, call: (doc) => kernel.typeCheck(kernel.STD_MACHINE, doc).places.length },
+    { name: "typeCheck of binders", make: binders, call: (doc) => kernel.typeCheck(deep, doc, { declaredType: "lit" }).places.length },
   ];
+  // The arms of each walk: the four rungs, then the second document of the rung AA_STEP.
+  const docs = walks.map((walk) => [...STEPS.map((step) => walk.make(step * base)), walk.make(AA_STEP * base)]);
+  const rungs = STEPS.length + 1;
   const results: WalkRun[] = [];
-  // arms[walk * docs.length + doc]
+  // arms[walk * rungs + doc]
   // With a fault, one call walks step^(s-1) times the levels of its rung, so the slope over the rungs is s.
   const fault = injectedSlope();
-  const callOf = (call: (doc: unknown) => number, step: number): ((doc: unknown) => number) => {
-    if (fault === undefined) return call;
+  const callOf = (walk: (typeof walks)[number], step: number): ((doc: unknown) => number) => {
+    if (fault === undefined) return walk.call;
     const more = step ** (fault - 1) - 1;
     const times = Math.floor(more);
     const rest = Math.round(step * base * (more - times));
-    return times === 0 && rest === 0 ? call : faulted(call, times, rest === 0 ? undefined : chain(rest));
+    return times === 0 && rest === 0 ? walk.call : faulted(walk.call, times, rest === 0 ? undefined : walk.make(rest));
   };
-  const steps = [...STEPS, AA_STEP];
-  const arms = walks.flatMap((walk, w) => docs.map((doc, d) => ({ w, d, call: callOf(walk.call, steps[d] as number), doc })));
+  const multiples = [...STEPS, AA_STEP];
+  const arms = walks.flatMap((walk, w) => (docs[w] as unknown[]).map((doc, d) => ({ w, d, call: callOf(walk, multiples[d] as number), doc })));
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {
@@ -296,19 +331,19 @@ async function measure(): Promise<void> {
   }
   const memorySeconds = fixed((performance.now() - memoryStarted) / 1000, 1);
   walks.forEach((walk, w) => {
-    const of = (d: number): number[] => times[w * docs.length + d] as number[];
-    const ofBytes = (d: number): number[] => bytes[w * docs.length + d] as number[];
+    const of = (d: number): number[] => times[w * rungs + d] as number[];
+    const ofBytes = (d: number): number[] => bytes[w * rungs + d] as number[];
     const slopes: number[] = [];
     const aa: number[] = [];
     const byteSlopes: number[] = [];
     const byteAa: number[] = [];
     for (let round = 0; round < rounds; round += 1) {
       slopes.push(slope(levels, STEPS.map((_, d) => of(d)[round] as number)));
-      aa.push((of(docs.length - 1)[round] as number) / (of(aaIndex)[round] as number));
+      aa.push((of(rungs - 1)[round] as number) / (of(aaIndex)[round] as number));
       byteSlopes.push(slope(levels, STEPS.map((_, d) => ofBytes(d)[round] as number)));
-      byteAa.push((ofBytes(docs.length - 1)[round] as number) / (ofBytes(aaIndex)[round] as number));
+      byteAa.push((ofBytes(rungs - 1)[round] as number) / (ofBytes(aaIndex)[round] as number));
     }
-    const counts = STEPS.map((_, d) => walk.call(docs[d]));
+    const counts = STEPS.map((_, d) => walk.call((docs[w] as unknown[])[d]));
     const ns = STEPS.map((_, d) => median(of(d)));
     results.push({ name: walk.name, ns, slopes, aa, counts, bytes: STEPS.map((_, d) => median(ofBytes(d))), byteSlopes, byteAa });
   });

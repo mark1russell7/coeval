@@ -334,38 +334,250 @@ function namesOf(source: NamesSource, value: unknown, covered: readonly PartSlot
 }
 
 /**
- * This function gives the names that the scope rules of a kind give each part, and the names that only later parts
- * see. `check`, `conforms` and the plan read the scope rules with it.
- *
- * @param rules - The scope rules of the kind.
- * @param value - The value of the document.
- * @param slots - The parts of the value, in order.
- * @returns The names that each part sees, and the names that only the later parts see, by the index of the part.
+ * How a scope rule gives its names. The mode `all` gives the names to each part that the rule covers. The mode `after`
+ * gives them to each covered part after the first. The mode `headers` gives each step the names in the headers of the
+ * steps before it.
  */
-export function scopesOf(rules: readonly ScopeRule[] | undefined, value: unknown, slots: readonly PartSlot[]): { readonly sees: readonly (readonly string[])[]; readonly later: readonly (readonly string[])[] } {
-  const sees: string[][] = slots.map(() => []);
-  const later: string[][] = slots.map(() => []);
-  for (const rule of rules ?? []) {
-    const covered = slots.map((slot, index) => ({ slot, index })).filter(({ slot }) => rule.in.some((pattern) => pathMatches(slot.path, pattern)));
-    if (rule.sequential !== true) {
-      const names = namesOf(rule.names, value, covered.map(({ slot }) => slot));
-      for (const { index } of covered) sees[index]?.push(...names);
-      continue;
-    }
-    if ("headers" in rule.names) {
-      covered.forEach(({ index }, position) => {
-        const before = covered.slice(0, position).map(({ slot }) => headerName(slot.item)).filter((name): name is string => name !== undefined);
-        const after = covered.slice(position).map(({ slot }) => headerName(slot.item)).filter((name): name is string => name !== undefined);
-        sees[index]?.push(...before);
-        later[index]?.push(...after);
-      });
-      continue;
-    }
-    const names = namesOf(rule.names, value, covered.map(({ slot }) => slot));
-    covered.forEach(({ index }, position) => {
-      if (position > 0) sees[index]?.push(...names);
-      else later[index]?.push(...names);
-    });
+type Mode = "all" | "after" | "headers";
+
+/** One scope rule of a layer, read one time for all the parts of the document. */
+interface LayerRule {
+  readonly mode: Mode;
+  /** The position of each part among the parts that the rule covers, or -1 for a part that the rule does not cover. */
+  readonly at: Int32Array;
+  /** The names of the modes `all` and `after`, in their order. */
+  readonly names: readonly string[];
+  readonly set: ReadonlySet<string>;
+  /** The mode `headers`: the name in the header of each covered part, or `undefined`. */
+  readonly headers: readonly (string | undefined)[];
+  /** The mode `headers`: the count of the names before each position. It has one more item than the covered parts. */
+  readonly before: Int32Array;
+  /** The mode `headers`: the first position and the last position of each name. */
+  readonly first: ReadonlyMap<string, number>;
+  readonly last: ReadonlyMap<string, number>;
+}
+
+/** A function that adds 1 to the count of a name, or that subtracts 1 from it. */
+export type NameCount = (name: string, change: 1 | -1) => void;
+
+const NO_STRINGS: ReadonlySet<string> = /* @__PURE__ */ new Set();
+const NO_POSITIONS: ReadonlyMap<string, number> = /* @__PURE__ */ new Map();
+const NO_COUNTS: Int32Array = /* @__PURE__ */ new Int32Array(1);
+
+/** This function gives the position of a part among the parts that a rule covers, or -1. */
+function positionOf(rule: LayerRule, index: number): number {
+  return index < 0 || index >= rule.at.length ? -1 : (rule.at[index] as number);
+}
+
+/**
+ * The names that the scope rules of a kind give the parts of one document (STATIC.LINEAR). `check`, `conforms` and
+ * the plan read the scope rules with it. A layer reads each rule one time. Then it answers for each part without a
+ * list of names for each part. In a sequence, each step sees the names of the steps before it. Lists for each step
+ * thus hold a count of names that is the square of the count of the steps.
+ */
+export class ScopeLayer {
+  readonly #rules: readonly LayerRule[];
+
+  private constructor(rules: readonly LayerRule[]) {
+    this.#rules = rules;
   }
-  return { sees, later };
+
+  /**
+   * This function reads the scope rules of a kind for one document. The time is linear in the count of the parts and
+   * in the count of the names of the rules.
+   *
+   * @param rules - The scope rules of the kind.
+   * @param value - The value of the document.
+   * @param slots - The parts of the value, in order.
+   * @returns The layer, or `undefined` for a kind without scope rules.
+   */
+  static of(rules: readonly ScopeRule[] | undefined, value: unknown, slots: readonly PartSlot[]): ScopeLayer | undefined {
+    if (rules === undefined || rules.length === 0) return undefined;
+    const out: LayerRule[] = [];
+    for (const rule of rules) {
+      const at = new Int32Array(slots.length).fill(-1);
+      const covered: PartSlot[] = [];
+      slots.forEach((slot, index) => {
+        if (!rule.in.some((pattern) => pathMatches(slot.path, pattern))) return;
+        at[index] = covered.length;
+        covered.push(slot);
+      });
+      if (rule.sequential === true && "headers" in rule.names) {
+        const headers = covered.map((slot) => headerName(slot.item));
+        const before = new Int32Array(headers.length + 1);
+        const first = new Map<string, number>();
+        const last = new Map<string, number>();
+        headers.forEach((name, position) => {
+          before[position + 1] = (before[position] as number) + (name === undefined ? 0 : 1);
+          if (name === undefined) return;
+          if (!first.has(name)) first.set(name, position);
+          last.set(name, position);
+        });
+        out.push({ mode: "headers", at, names: [], set: NO_STRINGS, headers, before, first, last });
+        continue;
+      }
+      const names = namesOf(rule.names, value, covered);
+      out.push({ mode: rule.sequential === true ? "after" : "all", at, names, set: new Set(names), headers: [], before: NO_COUNTS, first: NO_POSITIONS, last: NO_POSITIONS });
+    }
+    return new ScopeLayer(out);
+  }
+
+  /**
+   * This function tells if the rules give a part one name or more.
+   *
+   * @param index - The index of the part.
+   * @returns `true` when the part sees a name from the rules.
+   */
+  seesAny(index: number): boolean {
+    for (const rule of this.#rules) {
+      const position = positionOf(rule, index);
+      if (position < 0) continue;
+      if (rule.mode === "headers" ? (rule.before[position] as number) > 0 : rule.names.length > 0 && (rule.mode === "all" || position > 0)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * This function tells if the sequential rules keep one name or more from a part for the parts after it.
+   *
+   * @param index - The index of the part.
+   * @returns `true` when only the later parts see a name of a sequential rule.
+   */
+  laterAny(index: number): boolean {
+    for (const rule of this.#rules) {
+      const position = positionOf(rule, index);
+      if (position < 0 || rule.mode === "all") continue;
+      if (rule.mode === "headers" ? (rule.before[rule.headers.length] as number) > (rule.before[position] as number) : position === 0 && rule.names.length > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * This function tells if the rules give a name to a part. The time is linear in the count of the rules.
+   *
+   * @param index - The index of the part.
+   * @param name - The name.
+   * @returns `true` when the part sees the name.
+   */
+  sees(index: number, name: string): boolean {
+    for (const rule of this.#rules) {
+      const position = positionOf(rule, index);
+      if (position < 0) continue;
+      if (rule.mode === "headers" ? (rule.first.get(name) ?? position) < position : rule.set.has(name) && (rule.mode === "all" || position > 0)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * This function tells if a sequential rule keeps a name from a part for the parts after it.
+   *
+   * @param index - The index of the part.
+   * @param name - The name.
+   * @returns `true` when only the later parts see the name from a sequential rule.
+   */
+  hides(index: number, name: string): boolean {
+    for (const rule of this.#rules) {
+      const position = positionOf(rule, index);
+      if (position < 0 || rule.mode === "all") continue;
+      if (rule.mode === "headers" ? (rule.last.get(name) ?? -1) >= position : position === 0 && rule.set.has(name)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * This function gives the names that the rules give a part, rule by rule, in the order of each rule. A name can
+   * occur two times. The time is linear in the count of these names.
+   *
+   * @param index - The index of the part.
+   * @returns The names.
+   */
+  seesOf(index: number): string[] {
+    const out: string[] = [];
+    for (const rule of this.#rules) {
+      const position = positionOf(rule, index);
+      if (position < 0) continue;
+      if (rule.mode === "headers") {
+        for (let at = 0; at < position; at += 1) {
+          const name = rule.headers[at];
+          if (name !== undefined) out.push(name);
+        }
+      } else if (rule.mode === "all" || position > 0) for (const name of rule.names) out.push(name);
+    }
+    return out;
+  }
+
+  /**
+   * This function gives the names that only the parts after a part see, rule by rule, in the order of each rule.
+   *
+   * @param index - The index of the part.
+   * @returns The names.
+   */
+  laterOf(index: number): string[] {
+    const out: string[] = [];
+    for (const rule of this.#rules) {
+      const position = positionOf(rule, index);
+      if (position < 0 || rule.mode === "all") continue;
+      if (rule.mode === "headers") {
+        for (let at = position; at < rule.headers.length; at += 1) {
+          const name = rule.headers[at];
+          if (name !== undefined) out.push(name);
+        }
+      } else if (position === 0) for (const name of rule.names) out.push(name);
+    }
+    return out;
+  }
+
+  /**
+   * This function changes the counts of the names when a walk goes from one part to another part. The index -1 is no
+   * part. The time is linear in the count of the names that change. Thus a walk of the parts in their order is linear.
+   *
+   * @param from - The index of the part before the change.
+   * @param to - The index of the part after the change.
+   * @param sees - The count of the names that the part sees.
+   * @param later - The count of the names that only the later parts see.
+   */
+  move(from: number, to: number, sees: NameCount, later?: NameCount): void {
+    for (const rule of this.#rules) {
+      const before = positionOf(rule, from);
+      const after = positionOf(rule, to);
+      if (before === after) continue;
+      if (rule.mode === "all") {
+        if (before >= 0 && after >= 0) continue;
+        const change = after >= 0 ? 1 : -1;
+        for (const name of rule.names) sees(name, change);
+        continue;
+      }
+      if (rule.mode === "after") {
+        const old = before < 0 ? undefined : before === 0 ? later : sees;
+        const next = after < 0 ? undefined : after === 0 ? later : sees;
+        if (old === next) continue;
+        for (const name of rule.names) {
+          old?.(name, -1);
+          next?.(name, 1);
+        }
+        continue;
+      }
+      if (before >= 0 && after >= 0) {
+        // The names between the two positions go from the later parts to the part, or back.
+        const forward = after > before;
+        const low = forward ? before : after;
+        const high = forward ? after : before;
+        for (let at = low; at < high; at += 1) {
+          const name = rule.headers[at];
+          if (name === undefined) continue;
+          sees(name, forward ? 1 : -1);
+          later?.(name, forward ? -1 : 1);
+        }
+        continue;
+      }
+      const change = after >= 0 ? 1 : -1;
+      const position = after >= 0 ? after : before;
+      for (let at = 0; at < rule.headers.length; at += 1) {
+        const name = rule.headers[at];
+        if (name === undefined) continue;
+        if (at < position) sees(name, change);
+        else later?.(name, change);
+      }
+    }
+  }
 }

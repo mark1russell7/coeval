@@ -148,8 +148,11 @@ interface TermRef {
   readonly lazy: boolean;
   /** `true` when the self of the reference is the node of the equation. */
   readonly self: boolean;
-  /** The names that a kind inside the equation binds for the reference. */
-  readonly bound: ReadonlySet<string>;
+  /**
+   * `true` when a kind inside the equation binds the first name of the path. The walk reads it at the visit, when the
+   * test of the names is fast (STATIC.LINEAR).
+   */
+  readonly bound: boolean;
   /** `true` for code that the check does not know: its reads are not known before the run. */
   readonly opaque: boolean;
 }
@@ -166,7 +169,11 @@ const OUTSIDE: SeenNode = { kind: { verbs: {} }, text: "", own: undefined, paren
 /** The self of an equation, for the references of the equation. */
 const EQUATION_SELF: SeenNode = { kind: { verbs: {} }, text: "", own: undefined, parent: undefined };
 
-const NO_BOUND: ReadonlySet<string> = /* @__PURE__ */ new Set();
+/** This function tells if a kind around a reference binds the first name of its path. The walk asks at the visit, when the test is fast (STATIC.LINEAR). */
+function namedRef(v: DocVisit): boolean {
+  const path = v.doc.value as readonly Json[];
+  return path[0] === "names" && path.length >= 2 && v.names.has(String(path[1]));
+}
 
 /** This function gives the name of an own part from the slot of its document. */
 function slotKey(slot: readonly Key[]): string {
@@ -377,9 +384,9 @@ function termRefs(b: Builder, kind: Kind, label: string, term: Json): readonly T
       const { self } = selves.enter(v, answer.evaluator);
       const evaluator = answer.evaluator;
       if (evaluator === REF_CODE && isRef(v.doc)) {
-        if (v.address !== true) out.push({ path: v.doc.value, lazy, self: self === EQUATION_SELF, bound: v.names, opaque: false });
+        if (v.address !== true) out.push({ path: v.doc.value, lazy, self: self === EQUATION_SELF, bound: namedRef(v), opaque: false });
       } else if (self === EQUATION_SELF && evaluator !== TREE_NODE && !keepsSelf(evaluator)) {
-        out.push({ path: [], lazy, self: true, bound: NO_BOUND, opaque: true });
+        out.push({ path: [], lazy, self: true, bound: false, opaque: true });
       }
       return undefined;
     },
@@ -414,7 +421,7 @@ function termReads(b: Builder, refs: readonly TermRef[], self: NodeInfo, names: 
     const name = String(ref.path[1]);
     // A name that a kind inside the equation binds holds a value of the run. The others are the names of the rung.
     let start: Value;
-    if (ref.bound.has(name)) start = "unknown";
+    if (ref.bound) start = "unknown";
     else if (names?.params !== undefined) {
       if (!names.params.includes(name)) continue;
       start = "data";
@@ -576,7 +583,7 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
   const b: Builder = { machine, vertices: new Map(), nodes: new Map(), edges: [], ats: [], work: [], terms: new Map() };
   const roots: NodeInfo[] = [];
   const all: NodeInfo[] = [];
-  const reads: { readonly owner: Owner; readonly v: DocVisit; readonly lazy: boolean; readonly self: Value; readonly opaque: boolean }[] = [];
+  const reads: { readonly owner: Owner; readonly v: DocVisit; readonly lazy: boolean; readonly self: Value; readonly opaque: boolean; readonly bound: boolean }[] = [];
   const states = new Map<DocVisit, VisitState>();
   const nodes = new Map<SeenNode, NodeInfo>();
   const selves = selvesOf(machine, "eval", OUTSIDE);
@@ -612,17 +619,17 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
       if (owner === undefined || node !== undefined) return undefined;
       const value: Value = self === OUTSIDE ? "outside" : self === undefined ? "unknown" : { node: nodes.get(self) as NodeInfo };
       if (evaluator === REF_CODE && isRef(v.doc)) {
-        if (v.address !== true) reads.push({ owner, v, lazy, self: value, opaque: false });
+        if (v.address !== true) reads.push({ owner, v, lazy, self: value, opaque: false, bound: namedRef(v) });
       } else if (value !== "unknown" && evaluator !== REF_CODE && !keepsSelf(evaluator)) {
         // Code that the check does not know can read each attribute of its self.
-        reads.push({ owner, v, lazy, self: value, opaque: true });
+        reads.push({ owner, v, lazy, self: value, opaque: true, bound: false });
       }
       return undefined;
     },
     declaredType === undefined ? {} : { declaredType },
   );
   for (const node of all) for (const key of node.own) vertexOf(b, node, key);
-  for (const { owner, v, lazy, self, opaque } of reads) {
+  for (const { owner, v, lazy, self, opaque, bound } of reads) {
     const r: Reader = { to: vertexOf(b, owner.node, owner.key), lazy, place: v.place, at: v.at };
     if (opaque) {
       edge(b, undefined, r);
@@ -633,7 +640,7 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
     if (root === "self") {
       if (self === "unknown") edge(b, undefined, r);
       else follow(b, self, path, 1, r);
-    } else if (root === "names" && path.length >= 2 && v.names.has(String(path[1]))) {
+    } else if (bound) {
       // A name that a kind binds holds a value of the run, and that value can hold a node.
       edge(b, undefined, r);
     }

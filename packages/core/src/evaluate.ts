@@ -1,5 +1,5 @@
 import { type Envelope, type Json, type Key, type TypeRef, isEnvelope, isKey, typeName } from "./doc.ts";
-import { type PartSlot, type Split, partsOf, pathMatches, scopesOf } from "./parts.ts";
+import { type PartSlot, type Split, ScopeLayer, partsOf, pathMatches } from "./parts.ts";
 import { answerOf, ask, type Answer } from "./ladder.ts";
 import type { CapsRule, Kind, KindFacts, Side } from "./world.ts";
 import { type Domain, type ValueType, member, typeText } from "./types.ts";
@@ -2046,18 +2046,22 @@ function freeOf(doc: Envelope, kind: Kind, slots: readonly PartSlot[], frees: re
     if (path.length < 2 || path[0] !== "names" || !path.every((step, index) => index === 0 || isKey(step))) return undefined;
     return [String(path[1])];
   }
-  let sees: readonly (readonly string[])[] | undefined;
+  // The layer reads the scope rules one time, and a set finds the names that the list has (STATIC.LINEAR).
+  let layer: ScopeLayer | undefined | null = null;
   let out: string[] | undefined;
+  let listed: Set<string> | undefined;
   for (let index = 0; index < frees.length; index += 1) {
     const free = frees[index];
     if (free === undefined) return undefined;
     if (free.length === 0) continue;
-    if (sees === undefined) sees = kind.scope === undefined || kind.scope.length === 0 ? [] : scopesOf(kind.scope, doc.value, slots).sees;
-    const bound = sees[index] ?? CLOSED;
+    if (layer === null) layer = ScopeLayer.of(kind.scope, doc.value, slots);
     for (const name of free) {
-      if (bound.includes(name)) continue;
+      if (layer?.sees(index, name) === true) continue;
       out ??= [];
-      if (!out.includes(name)) out.push(name);
+      listed ??= new Set();
+      if (listed.has(name)) continue;
+      listed.add(name);
+      out.push(name);
     }
   }
   return out ?? CLOSED;

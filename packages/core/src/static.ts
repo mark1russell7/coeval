@@ -1,7 +1,7 @@
 import { type Envelope, type Json, type Key, field, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { type Kind, type LazyRule, type World, type WorldEntry, atArgsOf, atRuleOf, circularOf, collectOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
 import { answerOf, ask } from "./ladder.ts";
-import { type PartSlot, partsOf, rulesCover, scopesOf } from "./parts.ts";
+import { type NameCount, type PartSlot, ScopeLayer, partsOf, rulesCover } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
 import { type Machine, partCaps, partGrants, permits, waitedReason } from "./evaluate.ts";
@@ -30,9 +30,13 @@ export interface DocVisit {
   readonly typePath?: readonly Key[] | undefined;
   /** The number of documents around this document. The root has 0. */
   readonly depth: number;
-  /** The names that the kinds around this document bind for it. */
+  /**
+   * The names that the kinds around this document bind for it. Below a kind with scope rules, the set is a view, and not
+   * an instance of `Set`. Its `has` is fast at the visit of the document (STATIC.LINEAR). Its size and its items cost a
+   * new set for each read.
+   */
   readonly names: ReadonlySet<string>;
-  /** The names that a sequence around this document binds only for the parts after it. */
+  /** The names that a sequence around this document binds only for the parts after it. It is a view, as `names` is. */
   readonly later: ReadonlySet<string>;
   /** `true` when the position of the document declares an address: a reference there is not a read of a value. */
   readonly address?: true | undefined;
@@ -103,6 +107,129 @@ function keysOf(trail: Trail | undefined): readonly Key[] {
   return keys;
 }
 
+/** This function adds a change to the count of a name. A name with the count 0 is not in the map. */
+function count(counts: Map<string, number>, name: string, change: 1 | -1): void {
+  const next = (counts.get(name) ?? 0) + change;
+  if (next === 0) counts.delete(name);
+  else counts.set(name, next);
+}
+
+/**
+ * The counts of the names at the current visit of a walk (STATIC.LINEAR). The views of the names of the current visit
+ * read them. A layer changes them when the walk goes from one part to the next part.
+ */
+class LiveNames {
+  /** `false` after the end of the walk. Then each view reads the layers of its parents. */
+  active = true;
+  /** The views of the current visit. */
+  seesView: ReadonlySet<string> | undefined = undefined;
+  laterView: ReadonlySet<string> | undefined = undefined;
+  readonly sees: Map<string, number> = new Map();
+  readonly later: Map<string, number> = new Map();
+  readonly countSees: NameCount = (name, change) => count(this.sees, name, change);
+  readonly countLater: NameCount = (name, change) => count(this.later, name, change);
+}
+
+/**
+ * The names of a visit: the names of its parent, and the names that the layer of the parent gives its part. A view
+ * keeps no list of names (STATIC.LINEAR). At the current visit of a walk, `has` reads the counts of the walk. At other
+ * times, `has` reads the layers of the parents. The size and the items come from a set that the view makes for each
+ * read, in the order of the names.
+ */
+class ScopeNames implements ReadonlySet<string> {
+  readonly #up: ReadonlySet<string>;
+  readonly #layer: ScopeLayer;
+  readonly #index: number;
+  readonly #later: boolean;
+  readonly #live: LiveNames;
+
+  constructor(up: ReadonlySet<string>, layer: ScopeLayer, index: number, later: boolean, live: LiveNames) {
+    this.#up = up;
+    this.#layer = layer;
+    this.#index = index;
+    this.#later = later;
+    this.#live = live;
+  }
+
+  has(name: string): boolean {
+    const live = this.#live;
+    if (live.active && (this.#later ? live.laterView : live.seesView) === this) return (this.#later ? live.later : live.sees).has(name);
+    let here: ReadonlySet<string> = this;
+    while (here instanceof ScopeNames) {
+      if (here.#later ? here.#layer.hides(here.#index, name) : here.#layer.sees(here.#index, name)) return true;
+      here = here.#up;
+    }
+    return here.has(name);
+  }
+
+  #set(): Set<string> {
+    const chain: ScopeNames[] = [];
+    let here: ReadonlySet<string> = this;
+    while (here instanceof ScopeNames) {
+      chain.push(here);
+      here = here.#up;
+    }
+    const out = new Set(here);
+    for (let at = chain.length - 1; at >= 0; at -= 1) {
+      const view = chain[at] as ScopeNames;
+      for (const name of view.#later ? view.#layer.laterOf(view.#index) : view.#layer.seesOf(view.#index)) out.add(name);
+    }
+    return out;
+  }
+
+  get size(): number {
+    return this.#set().size;
+  }
+
+  forEach(each: (value: string, key: string, set: ReadonlySet<string>) => void, self?: unknown): void {
+    for (const name of this.#set()) each.call(self, name, name, this);
+  }
+
+  keys(): SetIterator<string> {
+    return this.#set().keys();
+  }
+
+  values(): SetIterator<string> {
+    return this.#set().values();
+  }
+
+  entries(): SetIterator<[string, string]> {
+    return this.#set().entries();
+  }
+
+  [Symbol.iterator](): SetIterator<string> {
+    return this.#set()[Symbol.iterator]();
+  }
+
+  union<U>(other: ReadonlySetLike<U>): Set<string | U> {
+    return this.#set().union(other);
+  }
+
+  intersection<U>(other: ReadonlySetLike<U>): Set<string & U> {
+    return this.#set().intersection(other);
+  }
+
+  difference<U>(other: ReadonlySetLike<U>): Set<string> {
+    return this.#set().difference(other);
+  }
+
+  symmetricDifference<U>(other: ReadonlySetLike<U>): Set<string | U> {
+    return this.#set().symmetricDifference(other);
+  }
+
+  isSubsetOf(other: ReadonlySetLike<unknown>): boolean {
+    return this.#set().isSubsetOf(other);
+  }
+
+  isSupersetOf(other: ReadonlySetLike<unknown>): boolean {
+    return this.#set().isSupersetOf(other);
+  }
+
+  isDisjointFrom(other: ReadonlySetLike<unknown>): boolean {
+    return this.#set().isDisjointFrom(other);
+  }
+}
+
 /** A visit with its paths as trails. It makes the keys of a path only when a reader asks for them. */
 class Visit implements DocVisit {
   readonly doc: Envelope;
@@ -119,7 +246,8 @@ class Visit implements DocVisit {
   readonly handled: readonly Cap[] | undefined;
   readonly #place: Trail | undefined;
   readonly #at: Trail | undefined;
-  readonly #bound: readonly string[];
+  readonly #scope: ScopeLayer | undefined;
+  readonly #part: number;
   readonly #expect: ValueType | undefined;
 
   constructor(
@@ -136,7 +264,8 @@ class Visit implements DocVisit {
     typePath: readonly Key[] | undefined,
     address: true | undefined,
     caps: readonly Cap[] | undefined,
-    bound: readonly string[],
+    scope: ScopeLayer | undefined,
+    part: number,
     expect: ValueType | undefined,
     handled: readonly Cap[] | undefined,
   ) {
@@ -154,13 +283,19 @@ class Visit implements DocVisit {
     this.handled = handled;
     this.#place = place;
     this.#at = at;
-    this.#bound = bound;
+    this.#scope = scope;
+    this.#part = part;
     this.#expect = expect;
   }
 
-  /** The names that the scope rules of the parent bind for this document. The check of types reads them. */
-  get bound(): readonly string[] {
-    return this.#bound;
+  /** The layer of the scope rules of the parent. With `part`, it gives the names that the parent binds for this document. */
+  get scope(): ScopeLayer | undefined {
+    return this.#scope;
+  }
+
+  /** The index of this document among the parts of its parent. The root has -1. */
+  get part(): number {
+    return this.#part;
   }
 
   /** The type that the shape of the parent declares for this part. The check of types reads it. */
@@ -181,8 +316,13 @@ class Visit implements DocVisit {
  * This function visits each document of a document: the root and each part at each depth, by the contracts of the
  * kinds. A part of a kind that the world does not have is not visited. With capabilities in the options, the walk
  * narrows them for each part by the rules of its kind, as a run does. The walk uses no stack of the host for the
- * depth, thus a deep document cannot overflow it. The time and the memory of a walk are linear in the size of the
- * document. A visit makes the keys of its place and of its path only when a reader asks for them.
+ * depth, thus a deep document cannot overflow it. A visit makes the keys of its place and of its path only when a
+ * reader asks for them.
+ *
+ * The time and the memory of a walk are linear in the size of the document (STATIC.LINEAR). This includes a wide
+ * sequence of named steps and a deep nest of binders. A visit keeps no copy of its names. The `has` of the names of
+ * the current visit reads counts that the walk keeps. At other times, `has` reads one layer for each binder around
+ * the visit. The size and the items of the names cost a set for each read.
  *
  * @param world - The world of the kinds.
  * @param doc - The document, as JSON.
@@ -202,10 +342,16 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
     readonly slot: readonly Key[];
     readonly parent: DocVisit | undefined;
     readonly caps: readonly Cap[] | undefined;
-    readonly bound: readonly string[];
+    /** The layer of the scope rules of the parent, and the index of the part. */
+    readonly scope: ScopeLayer | undefined;
+    readonly part: number;
     readonly expect: ValueType | undefined;
     readonly handled: readonly Cap[] | undefined;
   }
+  const live = new LiveNames();
+  for (const name of options.names ?? []) live.countSees(name, 1);
+  // The layer of each document on the path to the current visit, by its depth, with the part that the walk is in.
+  const frames: ({ readonly layer: ScopeLayer; at: number } | undefined)[] = [];
   const stack: Item[] = [
     {
       value: doc,
@@ -220,75 +366,95 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       parent: undefined,
       caps: options.caps,
       handled: undefined,
-      bound: [],
+      scope: undefined,
+      part: -1,
       expect: undefined,
     },
   ];
-  while (stack.length > 0) {
-    const item = stack.pop() as Item;
-    const read = partsOf(world, item.value, item.declared);
-    if (!read.ok) {
-      options.problem?.({ place: keysOf(item.place), at: keysOf(item.at), code: read.code, reason: read.reason });
-      continue;
+  try {
+    while (stack.length > 0) {
+      const item = stack.pop() as Item;
+      // The walk leaves the parts of the documents at the depth of the item and below. Then it goes to the part of the item.
+      for (let depth = frames.length - 1; depth >= item.depth; depth -= 1) {
+        const frame = frames[depth];
+        if (frame !== undefined) frame.layer.move(frame.at, -1, live.countSees, live.countLater);
+      }
+      if (frames.length > item.depth) frames.length = item.depth;
+      const up = item.depth === 0 ? undefined : frames[item.depth - 1];
+      if (up !== undefined && up.at !== item.part) {
+        up.layer.move(up.at, item.part, live.countSees, live.countLater);
+        up.at = item.part;
+      }
+      live.seesView = item.names;
+      live.laterView = item.later;
+      const read = partsOf(world, item.value, item.declared);
+      if (!read.ok) {
+        options.problem?.({ place: keysOf(item.place), at: keysOf(item.at), code: read.code, reason: read.reason });
+        continue;
+      }
+      const { doc, kind, split } = read;
+      const here = new Visit(
+        item.place,
+        item.at,
+        doc,
+        read.declared,
+        item.depth,
+        item.names,
+        item.later,
+        item.slot,
+        item.parent,
+        kind,
+        read.typePath,
+        item.address ? true : undefined,
+        item.caps,
+        item.scope,
+        item.part,
+        item.expect,
+        item.handled,
+      );
+      const answer = visit(here);
+      if (answer === "skip" || kind === undefined) continue;
+      const base: Trail | undefined = read.declared ? item.at : { up: item.at, keys: ["value"] };
+      if (!split.ok) {
+        options.problem?.({ place: keysOf(item.place), at: keysOf({ up: base, keys: split.at }), code: "#VALUE!", reason: split.reason });
+        continue;
+      }
+      // The layer reads the scope rules one time for all the parts. The walk counts the names of its parts.
+      const layer = ScopeLayer.of(kind.scope, doc.value, split.parts);
+      if (layer !== undefined) frames[item.depth] = { layer, at: -1 };
+      // The rules of a grant are read one time for each kind, not for each part. A kind without such a rule gives no list (K238).
+      const grantRules = kind.caps !== undefined && kind.caps.some((rule) => rule.rule === "grant") ? kind.caps : undefined;
+      for (let index = split.parts.length - 1; index >= 0; index -= 1) {
+        const slot = split.parts[index] as PartSlot;
+        const grants = grantRules === undefined ? undefined : partGrants(grantRules, slot.path, doc.value);
+        const granted = grants !== undefined && grants.length > 0 ? grants : undefined;
+        stack.push({
+          value: slot.item,
+          place: slot.path.length === 0 ? item.place : { up: item.place, keys: slot.path },
+          at: slot.path.length === 0 ? base : { up: base, keys: slot.path },
+          declared: slot.of,
+          depth: item.depth + 1,
+          names: layer === undefined || !layer.seesAny(index) ? item.names : new ScopeNames(item.names, layer, index, false, live),
+          later: layer === undefined || !layer.laterAny(index) ? item.later : new ScopeNames(item.later, layer, index, true, live),
+          address: slot.address === true,
+          slot: slot.path,
+          parent: here,
+          // A part with no grant keeps the list of partCaps, with no copy (K238).
+          caps:
+            item.caps === undefined || kind.caps === undefined
+              ? item.caps
+              : granted === undefined
+                ? partCaps(kind.caps, slot.path, item.caps)
+                : [...partCaps(kind.caps, slot.path, item.caps), ...granted],
+          handled: granted === undefined ? item.handled : [...(item.handled ?? []), ...granted],
+          scope: layer,
+          part: index,
+          expect: slot.expect,
+        });
+      }
     }
-    const { doc, kind, split } = read;
-    const here = new Visit(
-      item.place,
-      item.at,
-      doc,
-      read.declared,
-      item.depth,
-      item.names,
-      item.later,
-      item.slot,
-      item.parent,
-      kind,
-      read.typePath,
-      item.address ? true : undefined,
-      item.caps,
-      item.bound,
-      item.expect,
-      item.handled,
-    );
-    const answer = visit(here);
-    if (answer === "skip" || kind === undefined) continue;
-    const base: Trail | undefined = read.declared ? item.at : { up: item.at, keys: ["value"] };
-    if (!split.ok) {
-      options.problem?.({ place: keysOf(item.place), at: keysOf({ up: base, keys: split.at }), code: "#VALUE!", reason: split.reason });
-      continue;
-    }
-    const { sees, later } = scopesOf(kind.scope, doc.value, split.parts);
-    // The rules of a grant are read one time for each kind, not for each part. A kind without such a rule gives no list (K238).
-    const grantRules = kind.caps !== undefined && kind.caps.some((rule) => rule.rule === "grant") ? kind.caps : undefined;
-    for (let index = split.parts.length - 1; index >= 0; index -= 1) {
-      const slot = split.parts[index] as PartSlot;
-      const extra = sees[index] ?? [];
-      const hidden = later[index] ?? [];
-      const grants = grantRules === undefined ? undefined : partGrants(grantRules, slot.path, doc.value);
-      const granted = grants !== undefined && grants.length > 0 ? grants : undefined;
-      stack.push({
-        value: slot.item,
-        place: slot.path.length === 0 ? item.place : { up: item.place, keys: slot.path },
-        at: slot.path.length === 0 ? base : { up: base, keys: slot.path },
-        declared: slot.of,
-        depth: item.depth + 1,
-        names: extra.length === 0 ? item.names : new Set([...item.names, ...extra]),
-        later: hidden.length === 0 ? item.later : new Set([...item.later, ...hidden]),
-        address: slot.address === true,
-        slot: slot.path,
-        parent: here,
-        // A part with no grant keeps the list of partCaps, with no copy (K238).
-        caps:
-          item.caps === undefined || kind.caps === undefined
-            ? item.caps
-            : granted === undefined
-              ? partCaps(kind.caps, slot.path, item.caps)
-              : [...partCaps(kind.caps, slot.path, item.caps), ...granted],
-        handled: granted === undefined ? item.handled : [...(item.handled ?? []), ...granted],
-        bound: extra,
-        expect: slot.expect,
-      });
-    }
+  } finally {
+    live.active = false;
   }
 }
 
@@ -1193,7 +1359,7 @@ function checkAll(
     doc,
     (v) => {
       if (nodes !== undefined && indices !== undefined) {
-        current = { visit: v, bound: v instanceof Visit ? v.bound : [], expect: v instanceof Visit ? v.expect : undefined, children: [], evaluator: undefined, marked: false };
+        current = v instanceof Visit ? { visit: v, scope: v.scope, part: v.part, expect: v.expect, children: [], evaluator: undefined, marked: false } : { visit: v, scope: undefined, part: -1, expect: undefined, children: [], evaluator: undefined, marked: false };
         const parent = v.parent === undefined ? undefined : indices.get(v.parent);
         if (parent !== undefined) nodes[parent]?.children.push(nodes.length);
         indices.set(v, nodes.length);

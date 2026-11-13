@@ -5575,3 +5575,51 @@ The verdict job merges only the runs 1 and 2. Thus the jobs 3 and 4 of the contr
 
 - A host that stores a configuration with `JSON.stringify` and no codec gets each closure back as data. A call of it then gives `#VALUE!`.
 - The decoder trusts its form, as the stepper trusts a context from the host. A host that reads a configuration from a source that it does not trust checks the source.
+
+## D201 (2026-11-12): a walk keeps no copy of the names of the scope rules
+
+**Context.** K257. From a review. STATIC.LINEAR and the TSDoc of `walk` said that a walk takes time linear in the size of the document. A wide sequence of named steps and a deep nest of binders broke this claim:
+
+- `scopesOf` made a list of names for each part. In a sequence, each step got the names of all the steps before it.
+- The walk made a new set of names for each part with a binder. The type check copied its maps of names for each part.
+- `freeOf` of the plan and the check C7 of `conforms` read the lists of `scopesOf`.
+
+Thus the time and the memory grew as the square of the count of the steps or of the binders. The check of a sequence of 20000 named steps used more memory than the heap had.
+
+**Decision.**
+
+- `ScopeLayer` of `parts.ts` reads the scope rules of a kind one time for each document. It tells if the rules give a name to a part. It also gives the names that change from one part to the next part.
+- The walk keeps a count of each name that the current visit sees, and a count of each later name. When the walk goes to the next part, the layer changes only the counts of the names that change.
+- `DocVisit.names` and `DocVisit.later` are views with no list of names. At the visit of the document, `has` reads the counts of the walk. At other times, `has` reads one layer for each binder around the document.
+- The size and the items of a view come from a set that the view makes for each read. The order of the names is the order of the old sets.
+- The type check keeps the types of the names as a chain of layers. For each name, a stack holds the frames that give it a type, with the deepest frame last.
+- `freeOf` and the check C7 read the layer. `refsOf`, `attributeGraph` and the check of cycles read `has` at the visit of a reference, when `has` reads the counts.
+
+**Alternatives.**
+
+- Persistent sets, for example a hash trie, for the names of each part. Each part then costs a time and a memory of the order of the logarithm of the count of the names.
+- A set of names for each visit that the walk makes only when a reader asks for it. A reader at each visit then gets the square of the size all the same.
+- A limit on the count of the steps of a sequence. This changes the language, and a nest of binders stays as slow as before.
+
+**Why.** Each answer stays the same, and the cost of the names is the count of the names that change from one part to the next. A view keeps the type `ReadonlySet<string>`, thus the API report does not change. A visit that a reader keeps after the walk still gives the right names.
+
+**Limits.**
+
+- Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are not instances of `Set`. Each read of their size or of their items makes a new set.
+- After the visit of a document, `has` of its names takes time linear in the count of the binders around it.
+- The runner `control.seq` of the standard machine copies the names of its context at each step. Thus the evaluation of a wide sequence still takes time of the order of the square of the count of the steps. A change of this runner changes `Context.names` for the evaluators, thus it is a different item.
+- `prepare` compiles a document with a recursion of the host. With a higher limit of the depth, a nest of 20000 binders gives `#DEPTH!` from `prepare`. The reason is that the stack of the host is too short.
+- The ladder holds the slope of the type check only at 250 to 2000 levels. Larger sizes have no gate.
+
+**Results.**
+
+These times come from one shared laptop on battery, with one run of each document after a warm run. They are not a bench.
+
+| Document on the head | `check` | `typeCheck` | `prepare` |
+| --- | ---: | ---: | ---: |
+| A sequence of 20000 named steps | 173 ms | 546 ms | 261 ms |
+| A nest of 20000 binders, with a higher limit of the depth | 255 ms | 1795 ms | `#DEPTH!` after 43 ms, with the evaluation |
+
+From 2500 to 40000 levels, 16 times the size, the time of `typeCheck` grew 17.9 times on the sequence and 17.6 times on the nest. The time of `check` grew 7.2 times and 9.6 times.
+
+The new tests of `scopes.test.ts` took 1196 ms for the sequence of 20000 steps and 1068 ms for the nest of 20000 binders. The plan of 2000 steps took 1010 ms.
