@@ -140,7 +140,7 @@ interface NodeInfo {
   readonly up: NodeInfo | null | undefined;
   /** The vertices of the place of the node. */
   readonly ids: PlaceIds;
-  /** The index of the node at its place: 0 for the first node, 1 for a node in a part with an empty slot of it. */
+  /** The count of the nodes before this node at its place. A node in a part with an empty slot shares a place, thus it can get 1 or more. */
   readonly index: number;
   /** The vertex of the JSON of the node, after the first read of the node (TREE.GRAPH-JSON). */
   json?: number;
@@ -535,7 +535,7 @@ function termReads(b: Builder, refs: readonly TermRef[], self: NodeInfo, names: 
 
 /**
  * This function gives the previous sibling of a node in the list `children` of its parent, before the run. The visit
- * of an item of the list has the list as its parent and the index as its slot, thus the function reads no other item.
+ * of an item of the list has the list as its parent and the index as its slot. Thus the function reads no other item.
  */
 function prevOf(parent: NodeInfo, child: NodeInfo): Value {
   const list = parent.parts.get("children");
@@ -836,8 +836,8 @@ function allCircular(b: Builder, ids: readonly number[]): boolean {
 
 /**
  * This function gives the cycles of the attributes: the cycles of the graph, without their JSON vertices
- * (TREE.GRAPH-JSON). A JSON vertex that only a lazy read reaches can split a certain cycle of attributes into a possible
- * cycle and one certain part with the same attributes. The function gives that cycle as one certain cycle.
+ * (TREE.GRAPH-JSON). A JSON vertex that only a lazy read reaches can split a certain cycle of attributes. The parts are
+ * a possible cycle and one certain part with the same attributes. The function gives that cycle as one certain cycle.
  */
 function attributeCycles(b: Builder, graph: NodeGraph<number>): readonly GraphCycle<number>[] {
   const all = cycles(graph);
