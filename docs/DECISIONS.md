@@ -2950,6 +2950,7 @@ The test finds 0 counterexamples. The same corpus with a false cover of `number`
 - The interval is the median of the rounds and their 5th to 95th percentile. The mode `merge` pools the rounds of the runs.
 - A run counts only when the A/A band of each walk contains 1.0. Else the run measured the runner, and a new run replaces it.
 - The claim is linear when the pooled interval contains 1.0 and its upper end is less than 1.2.
+- Changed by D205 (K256): the time verdict reads the band 0.948 to 1.052, not the point 1.0.
 - The workflow `measure.yml` starts the ladder on 5 runners, at most 3 at one time. The job `ladder-verdict` pools them.
 
 **Measures (2026-11-02).** The measure run 41420165848 gave 5 counted runs and no excluded run. The CPUs were 4 AMD EPYC 7763 and 1 AMD EPYC 9V74.
@@ -5722,3 +5723,51 @@ Two smaller costs came with it. Each read of a list sorted its items again. The 
 - A second read of a JSON in evaluation goes only to the attribute in evaluation. If that attribute is circular, or its cycle is not certain or already has an issue, the walk stops there.
 - The run then evaluates the later attributes of the node inside the second read. The walk reaches them later, from the first read. Thus a second cycle among them can get another chain or another place than in the run.
 - The index of the previous sibling has no speed gate. The old scan costs less than the rest of `check` below approximately 30000 children. Thus a unit test with a time limit cannot find it in a reliable way, and the rungs of the ladder are too small. The wide rungs of K267 get a wide list of children for `check`.
+
+## D205 (2026-11-12): the time verdict of the ladder reads a band of 1 plus or minus 0.052
+
+**Context.** K256. The job `ladder-flip` reads a linear walk at 10 rounds on one runner, and its gate must read `pass`. The new arm `check shared` read the interval 1.003 to 1.027 there. Thus the row failed (Measure run 43350977054).
+
+- The count of edges of that arm is linear: 253, 501, 1001 and 2001 at the four rungs.
+- Its memory slope was 0.984 to 0.985 in each run.
+- The 10 counted runs of the same Measure run gave run slopes from 1.005 to 1.027 for that arm.
+- A local CPU profile of `check` on that document compared 250 and 8000 nodes. The time of one node grew from 12.6 µs to 18.5 µs.
+- The share of the collector of the heap grew from 4.4 % to 18.4 %.
+- `vertexOf`, `attach` and `build` grew from 0.1 µs to 0.3 µs for each node, and the visit of `build` grew from 0.9 µs to 1.8 µs. Their own code reads and writes maps and pushes to arrays. It has no loop over a set that grows.
+- Thus the slope comes from the collector and from the cache misses of a larger heap, not from more steps.
+
+The old verdict asked for an interval that contains the point 1. A narrow interval then blocks a linear walk on a real machine. `check tree ref` read run slopes up to 1.021 in the same run, so the row was near a block for that walk too.
+
+**Decision.**
+
+- The time verdict reads the band from 0.948 to 1.052. A walk is linear when its interval meets the band and its upper end is less than 1.2.
+- The half width 0.052 of the band comes from the 10 counted runs of the Measure run 43350977054. Those are the 5 jobs `ladder` and the 5 linear jobs of `ladder-plain`.
+- For each walk, the value is the largest run slope minus 1, plus the spread of the run slopes. The band takes the largest value of the walks.
+- The memory verdict does not change. It was an upper bound before this decision.
+- The smallest slope that the time verdict blocks is the lower of `1 + 0.052 + half` and `1.2 - half`. Its largest value over all half widths is 1.126.
+
+| Walk | Run slopes (CPU models: EPYC 7763, 9V74 and 9V45, Xeon 8370C and 8573C) | Largest | Spread | Value |
+| --- | --- | ---: | ---: | ---: |
+| `refsOf` | 1.003, 0.986, 1.005, 1.011, 0.989, 0.986, 1.003, 0.982, 0.981, 0.970 | 1.011 | 0.041 | 0.052 |
+| `walk` | 1.014, 1.003, 1.004, 1.008, 0.993, 0.990, 1.004, 0.998, 0.992, 0.991 | 1.014 | 0.024 | 0.038 |
+| `check tree` | 1.008, 1.000, 1.006, 1.016, 0.997, 0.997, 1.004, 0.994, 0.991, 0.992 | 1.016 | 0.025 | 0.041 |
+| `check tree ref` | 1.018, 1.010, 1.008, 1.021, 1.005, 1.004, 1.011, 1.005, 1.008, 1.008 | 1.021 | 0.017 | 0.038 |
+| `check shared` | 1.017, 1.021, 1.013, 1.026, 1.009, 1.005, 1.027, 1.013, 1.016, 1.021 | 1.027 | 0.022 | 0.049 |
+
+**Alternatives.**
+
+- Less allocation in `check`. That arm allocates approximately 35 KB for each node, and less allocation can make the slope smaller. But each walk with a large heap has this slope on a real machine, so the verdict needs the band in all cases. K297 keeps the allocation work.
+- A band for each walk. Then each new walk needs its own runs before its first verdict.
+- A margin of the slope only on the job `ladder-flip`. Then the plain gate and its flip read two different rules.
+- A larger young generation of V8 for the ladder. Then the ladder measures a heap that no user has.
+
+**Why.** STATIC.LINEAR is a claim about the count of steps. The time slope also holds the memory of the machine, and that part grows slowly with the heap. A band from measured runs keeps that part out of the verdict. The band stays well under the slope of a walk of `n ln n` on these rungs, which is 1.154. Thus the gate still blocks such a walk at each half width.
+
+**Limits.**
+
+- The band comes from one Measure run, on the code of K256. `check shared` gives the second largest value, so the band admits that arm by its construction. Its proof of linear steps is its count of edges.
+- A walk with the true slope of 1.05 reads `linear`. Before, a narrow interval blocked it. A walk of `n` times a log with a large constant has a slope under 1.05. The ladder cannot tell it from a linear walk.
+- The weekly job `ladder-plain` reads the band each week. If a linear walk gives a value over 0.052 in 5 or more runs, a new decision moves the band with those runs.
+- The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
+
+**SemVer.** No export of the package changes.
