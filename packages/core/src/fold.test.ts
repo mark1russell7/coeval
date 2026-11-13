@@ -214,13 +214,15 @@ describe("the fold of a closed pure part", () => {
       },
     };
     const machine = formulaMachine({ ops: { deep }, lazy, pure: ["deep", "ifError"] });
-    // The fallback hides the #DEPTH! of the probe from the result. The count of the overflows still finds it.
-    const plan = prepare(machine, { type: ["ops", "ifError"], value: [{ type: ["ops", "deep"], value: [1] }, -1] });
+    // The operation reads a name of the let, thus only the let folds. The fallback hides the #DEPTH! of the probe from
+    // the result of the let. The count of the overflows still finds it.
+    const caught = (value: number): Json => ({ type: "let", value: { bind: { x: value }, body: op("ifError", op("deep", ref("names", "x")), -1) } });
+    const plan = prepare(machine, caught(1));
     expect(plan.evaluate()).toEqual(ok(-1));
     armed = false;
     expect(plan.evaluate()).toEqual(ok(1));
     // Without an overflow, the same document folds.
-    const folded = prepare(machine, { type: ["ops", "ifError"], value: [{ type: ["ops", "deep"], value: [2] }, -1] });
+    const folded = prepare(machine, caught(2));
     armed = true;
     expect(folded.evaluate()).toEqual(ok(2));
   });
