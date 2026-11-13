@@ -77,6 +77,8 @@ interface Encoder {
   readonly json: WeakMap<object, boolean>;
   /** The containers on the way from the root to the value. A container on the way again is a cycle. */
   readonly open: Set<object>;
+  /** The document of each container that the call wrote. A value that shares its parts writes each part one time (D207). */
+  readonly done: Map<object, Json>;
 }
 
 /**
@@ -123,6 +125,8 @@ function encodeTerm(value: unknown, encoder: Encoder): Json {
   if (isJson(value, encoder)) return isEnvelope(value) ? { type: "lit", value: value as Json } : (value as Json);
   if (value === undefined) return { type: ["ext", "undefined"], value: null };
   if (typeof value === "number") return { type: ["ext", "number"], value: numberText(value) };
+  const known = typeof value === "object" && value !== null ? encoder.done.get(value) : undefined;
+  if (known !== undefined) return known;
   for (const [name, codec] of encoder.codecs) {
     if (member(value, name, encoder.domains)) return { type: ["ext", "domain"], value: { domain: name, data: codec.encode(value) } };
   }
@@ -142,6 +146,7 @@ function encodeTerm(value: unknown, encoder: Encoder): Json {
     out = { type: "record", value: fields };
   }
   encoder.open.delete(value);
+  encoder.done.set(value, out);
   return out;
 }
 
@@ -155,6 +160,9 @@ function encodeTerm(value: unknown, encoder: Encoder): Json {
  *   (EXT.SPECIFIC, D109). The order of the names decides between unrelated domains.
  * - A list or a plain record with such a value becomes the construct `list` or `record`.
  *
+ * A container at two places of the value gives one document at both places (D207). Thus a value that shares its parts
+ * gives a document that shares its parts, and the work grows with the count of distinct containers.
+ *
  * @param machine - The machine, or only its domains.
  * @param value - The host value.
  * @returns The document. `decodeValue` gives the value again (EXT.ROUNDTRIP).
@@ -162,7 +170,7 @@ function encodeTerm(value: unknown, encoder: Encoder): Json {
  */
 export function encodeValue(machine: Pick<Machine, "domains">, value: unknown): Json {
   const domains = machine.domains;
-  return encodeTerm(value, { domains, codecs: codecOrder(domains), json: new WeakMap(), open: new Set() });
+  return encodeTerm(value, { domains, codecs: codecOrder(domains), json: new WeakMap(), open: new Set(), done: new Map() });
 }
 
 /**

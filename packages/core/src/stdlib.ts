@@ -27,6 +27,7 @@ import {
   type CircularRule,
   type TreeContract,
   GENERATION_LIMIT,
+  MAX_KEY_LENGTH,
   atArgsOf,
   atRuleOf,
   circularOf,
@@ -1141,7 +1142,7 @@ function generated(n: NodeState, node: HostThing, key: string, term: Json): Resu
   if (!value.ok) return value;
   const doc = internedDocument(value.value);
   const text = attributeText(key, n.type, n.place);
-  if (doc === undefined) return fail("#VALUE!", `The equation of the higher-order attribute ${text} gives a value that is not JSON data.`);
+  if (doc === undefined) return fail("#VALUE!", `The equation of the higher-order attribute ${text} gives a value that is not JSON data, or a value with a key of more than ${MAX_KEY_LENGTH} characters.`);
   const depth = generationOf(node, n.build) + 1;
   if (depth > GENERATION_LIMIT) return fail("#DEPTH!", `The higher-order attribute ${text} is under more than ${GENERATION_LIMIT} generated documents.`);
   const root = n.equation(doc, NO_NAMES);

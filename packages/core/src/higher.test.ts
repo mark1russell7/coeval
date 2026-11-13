@@ -166,7 +166,7 @@ describe("higher-order attributes (L2i, D126)", () => {
 
   it("[TREE.HIGHER] a value that gives no node of the tree gives its error", () => {
     const value = (kind: string): Result => agreed(node(kind, { x: self("b") }));
-    expect(value("notJson")).toMatchObject({ ok: false, error: { code: "#VALUE!", reason: "The equation of the higher-order attribute b of notJson at [] gives a value that is not JSON data." } });
+    expect(value("notJson")).toMatchObject({ ok: false, error: { code: "#VALUE!", reason: "The equation of the higher-order attribute b of notJson at [] gives a value that is not JSON data, or a value with a key of more than 16000000 characters." } });
     expect(value("notNode")).toMatchObject({ ok: false, error: { code: "#VALUE!", reason: "The document of the higher-order attribute b of notNode at [] gives no node of the tree." } });
     // The document evaluates as an equation: without capabilities and with the rules of a document.
     expect(value("effect")).toMatchObject({ ok: false, error: { code: "#CAP!" } });

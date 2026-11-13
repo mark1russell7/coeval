@@ -1,5 +1,6 @@
 import { type Json, type Key, docEquals, isRecord } from "./doc.ts";
-import { type PairMemo, type TypeIssue, type ValueType, isUnknown, join, keep, member, recall } from "./types.ts";
+import { WORK_LIMIT } from "./errors.ts";
+import { type PairMemo, type TypeIssue, type ValueType, isUnknown, join, keep, member, recall, spendTypeWork, typeWorkSpent, withTypeWork } from "./types.ts";
 
 /*
  * Type providers (R5 P4, D28). A provider makes a value type from data that a host already has: a JSON Schema or
@@ -203,6 +204,8 @@ class SchemaReader {
    * holds each value that the schema accepts. The parts of `allOf` add their keywords too.
    */
   parts(schema: unknown, at: readonly Key[], depth: number, types: ValueType[], conditions: Condition[]): void {
+    // Each schema costs one point of the count of the reading (TYPE.WORK, D207).
+    spendTypeWork();
     if (depth > MAX_SCHEMA_DEPTH) {
       this.issue(at, `The schema is deeper than ${MAX_SCHEMA_DEPTH} levels. The type reads it as unknown.`);
       return;
@@ -400,18 +403,31 @@ class SchemaReader {
  * `unknown`, and the issues name it. Examples are `minimum` and `pattern`. A schema with `nullable` or `$dynamicRef`
  * reads as `unknown`, because these keywords can permit more values. The function does not throw.
  *
+ * The reading is a pass of types with the limit `WORK_LIMIT` (TYPE.WORK, D207). A schema that shares a part reads it
+ * at each place, and a definition reads one time. Past the limit, the type is `unknown`, and an issue tells the limit.
+ *
  * @param schema - The schema, as JSON.
  * @returns The type, and the problems of the reading with their keys in the schema.
  */
 export function typeFromSchema(schema: unknown): TypeReading {
   const reader = new SchemaReader(schema);
-  try {
-    return { type: reader.read(schema, [], 0), issues: reader.issues };
-  } catch (error) {
-    // A getter of a host value can throw. The reading then gives the top.
-    reader.issue([], `The schema cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-    return { type: "unknown", issues: reader.issues };
-  }
+  return withTypeWork(
+    WORK_LIMIT,
+    () => {
+      try {
+        return { type: reader.read(schema, [], 0), issues: reader.issues };
+      } catch (error) {
+        if (typeWorkSpent()) throw error;
+        // A getter of a host value can throw. The reading then gives the top.
+        reader.issue([], `The schema cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+        return { type: "unknown", issues: reader.issues };
+      }
+    },
+    () => {
+      reader.issue([], `The work of the reading is more than ${WORK_LIMIT} points (#WORK!). The type reads the schema as unknown.`);
+      return { type: "unknown", issues: reader.issues };
+    },
+  );
 }
 
 /** The options of `typeFromSamples`. */
@@ -423,9 +439,40 @@ export interface SampleOptions {
 /** The deepest sample that `typeFromSamples` reads. A deeper value gives `unknown`. */
 const MAX_SAMPLE_DEPTH = 256;
 
-/** This function gives the type of a group of sample values at one depth. */
-function samplesAt(values: readonly unknown[], closed: boolean, depth: number): ValueType {
+/** The type of each sample that is an object, by its depth, when the sample is the only value of its group (D207). */
+type SampleMemo = Map<object, Map<number, ValueType>>;
+
+/**
+ * This function gives the type of a group of sample values at one depth. The group reads each object one time. A
+ * sample that shares its parts gives the same group at each place of a part, thus the memo keeps the type of a group
+ * of one object (D207). Each step costs one point of the count of the reading (TYPE.WORK).
+ */
+function samplesAt(values: readonly unknown[], closed: boolean, depth: number, memo: SampleMemo): ValueType {
   if (depth > MAX_SAMPLE_DEPTH) return values.length === 0 ? "never" : "unknown";
+  spendTypeWork();
+  const objects = new Set<object>();
+  const group: unknown[] = [];
+  for (const value of values) {
+    if (typeof value === "object" && value !== null) {
+      if (objects.has(value)) continue;
+      objects.add(value);
+    }
+    group.push(value);
+  }
+  const only = group.length === 1 && typeof group[0] === "object" && group[0] !== null ? (group[0] as object) : undefined;
+  const known = only === undefined ? undefined : memo.get(only)?.get(depth);
+  if (known !== undefined) return known;
+  const type = groupType(group, closed, depth, memo);
+  if (only !== undefined) {
+    let byDepth = memo.get(only);
+    if (byDepth === undefined) memo.set(only, (byDepth = new Map()));
+    byDepth.set(depth, type);
+  }
+  return type;
+}
+
+/** This function holds the rules of `samplesAt` for a group of distinct objects and other values. */
+function groupType(values: readonly unknown[], closed: boolean, depth: number, memo: SampleMemo): ValueType {
   const types: ValueType[] = [];
   const bases = new Set<string>();
   const items: unknown[] = [];
@@ -446,7 +493,7 @@ function samplesAt(values: readonly unknown[], closed: boolean, depth: number): 
     else return "unknown";
   }
   for (const base of ["null", "undefined", "bool", "number", "text"]) if (bases.has(base)) types.push(base);
-  if (lists) types.push({ list: samplesAt(items, closed, depth + 1) });
+  if (lists) types.push({ list: samplesAt(items, closed, depth + 1, memo) });
   if (records.length > 0) {
     // All records join into one record. A field that a record does not have is optional.
     const keys: string[] = [];
@@ -456,7 +503,7 @@ function samplesAt(values: readonly unknown[], closed: boolean, depth: number): 
     for (const key of keys) {
       const found = records.filter((record) => Object.hasOwn(record, key));
       if (found.length < records.length) optional.push(key);
-      setOwn(fields, key, samplesAt(found.map((record) => record[key]), closed, depth + 1));
+      setOwn(fields, key, samplesAt(found.map((record) => record[key]), closed, depth + 1, memo));
     }
     types.push({ record: fields, ...(optional.length === 0 ? {} : { optional }), ...(closed ? { closed: true } : {}) });
   }
@@ -476,10 +523,17 @@ function samplesAt(values: readonly unknown[], closed: boolean, depth: number): 
  * Each sample is a member of the type. A record is open, because samples do not show that a field cannot exist. With
  * `closed: true`, each record is closed, and a reference to a field that no sample has gives `#TYPE!`.
  *
+ * A sample that shares its parts gives a type that shares its parts, and each part reads one time for each depth
+ * (D207). The reading is a pass of types with the limit `WORK_LIMIT` (TYPE.WORK). Past the limit, the type is `unknown`.
+ *
  * @param values - The sample values.
  * @param options - `closed: true` closes each record type.
  * @returns The type.
  */
 export function typeFromSamples(values: readonly unknown[], options: SampleOptions = {}): ValueType {
-  return samplesAt(values, options.closed === true, 0);
+  return withTypeWork(
+    WORK_LIMIT,
+    () => samplesAt(values, options.closed === true, 0, new Map()),
+    () => "unknown",
+  );
 }

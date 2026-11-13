@@ -1,4 +1,5 @@
 import { type Json, type Key, docEquals, isEnvelope, isRecord } from "./doc.ts";
+import { type EvalError, Failure, WORK_LIMIT, workFailure } from "./errors.ts";
 
 /*
  * Value types and value domains (R5 P2, D22). A value type is a set of values that a result can have. It is a JSON
@@ -210,6 +211,62 @@ function newWalk(): Walk {
   return { pure: new Map(), free: new Map(), spent: new Map(), cases: 0, members: new Map(), values: new Map(), joins: new Map() };
 }
 
+/*
+ * A pass of types has a count of work (TYPE.WORK, D207). Each step of a walk of types costs one point: each term that a
+ * rule reads when no memo has its answer. The memos keep most walks linear (D200), and the count ends each other walk,
+ * for example a walk of the members of a union that shares its parts. A pass past its limit stops with `#WORK!`.
+ */
+
+/** The count of the current pass of types: the points that it can still spend, and its limit. */
+interface TypeWork {
+  left: number;
+  readonly limit: number;
+}
+
+/** The count of the current pass of types, or `undefined` outside a pass. */
+let typeWork: TypeWork | undefined;
+
+/** The work that the error of the limit names for a pass of types. */
+const TYPE_PASS = "one pass of types";
+
+/**
+ * This function takes one point from the count of the current pass of types. Past the limit, it throws the error
+ * `#WORK!`, and the pass stops. Outside a pass, it does nothing. The package does not export it.
+ */
+export function spendTypeWork(): void {
+  if (typeWork !== undefined && (typeWork.left -= 1) < 0) throw new Failure(workFailure(typeWork.limit, TYPE_PASS));
+}
+
+/** This function tells if the current pass of types is past its limit. A catch inside the pass then throws the error again. */
+export function typeWorkSpent(): boolean {
+  return typeWork !== undefined && typeWork.left < 0;
+}
+
+/**
+ * This function runs a pass of types with a count of work (TYPE.WORK, D207). A pass inside another pass takes its
+ * points from the count of the outer pass, thus only the outer pass stops. The package does not export the function.
+ *
+ * @param limit - The most points of the pass.
+ * @param run - The pass.
+ * @param stopped - The answer of a pass past its limit. It gets the error `#WORK!`.
+ * @returns The answer of the pass, or the answer of `stopped`.
+ */
+export function withTypeWork<T>(limit: number, run: () => T, stopped: (error: EvalError) => T): T {
+  if (typeWork !== undefined) return run();
+  const own: TypeWork = { left: limit, limit };
+  typeWork = own;
+  let answer: { readonly value: T } | undefined;
+  try {
+    answer = { value: run() };
+  } catch (error) {
+    if (own.left >= 0) throw error;
+  } finally {
+    typeWork = undefined;
+  }
+  // A function of the host can catch the error, thus the count decides.
+  return answer === undefined || own.left < 0 ? stopped(workFailure(limit, TYPE_PASS)) : answer.value;
+}
+
 /** The key of the value -0 in a memo. A `Map` reads -0 as 0, but a domain can tell them apart. */
 const NEG_ZERO: object = {};
 
@@ -346,6 +403,7 @@ function memberAt(value: unknown, type: unknown, domains: Readonly<Record<string
 
 /** This function holds the rules of the membership test at one depth of a type. */
 function memberRules(value: unknown, type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk | undefined): boolean {
+  spendTypeWork();
   const form = formOf(type, domains);
   const next = depth + 1;
   switch (form.t) {
@@ -511,6 +569,7 @@ function valuesOf(type: unknown, domains: Readonly<Record<string, Domain>> | und
 
 /** This function holds the rules of `valuesOf` at one depth of a type. */
 function valuesRules(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): readonly unknown[] | undefined {
+  spendTypeWork();
   const form = formOf(type, domains);
   const next = depth + 1;
   switch (form.t) {
@@ -690,6 +749,7 @@ function fitsRules(
   budget: SplitBudget | undefined,
   w: Walk,
 ): boolean {
+  spendTypeWork();
   const a = formOf(found, domains);
   const b = formOf(expected, domains);
   const next = depth + 1;
@@ -929,6 +989,7 @@ function meetOf(type: ValueType, proved: ValueType, domains: Readonly<Record<str
 
 /** This function gives the type of a value of the first type that is not a member of the second type. */
 function withoutOf(type: ValueType, removed: ValueType, domains: Readonly<Record<string, Domain>> | undefined): ValueType {
+  spendTypeWork();
   if (isUnknown(removed, domains)) return type;
   const form = formOf(type, domains);
   if (form.t === "one") return { one: form.values.filter((value) => !member(value, removed, domains)) };
@@ -1094,13 +1155,20 @@ function casesFit(
  * neither does a type with more than 64 members that is not a record. The cover rule tests at most 64 domains of
  * covers. The function does not throw.
  *
+ * A call outside a pass of types is a pass of its own, with the limit `WORK_LIMIT` (TYPE.WORK, D207). Past the limit,
+ * the function reads the types as `unknown`, thus it gives `true`. Inside a pass, the pass stops with `#WORK!`.
+ *
  * @param found - The type that a part has.
  * @param expected - The type that the position needs.
  * @param domains - The domains of the machine. A domain of the kernel that the table does not name comes from `STD_DOMAINS`.
  * @returns `true` when `found` fits `expected`.
  */
 export function fits(found: ValueType, expected: ValueType, domains?: Readonly<Record<string, Domain>>): boolean {
-  return fitsAt(found, expected, domains, 0, true, true, undefined, newWalk());
+  return withTypeWork(
+    WORK_LIMIT,
+    () => fitsAt(found, expected, domains, 0, true, true, undefined, newWalk()),
+    () => true,
+  );
 }
 
 /** This function sets an own field of a new record. Only the key `__proto__` needs `defineProperty`. */
@@ -1146,6 +1214,7 @@ function unionOf(types: readonly unknown[], domains: Readonly<Record<string, Dom
   const values: Json[] = [];
   let valuesAt = -1;
   const add = (type: unknown, level: number): void => {
+    spendTypeWork();
     const form = formOf(type, domains);
     if (form.t === "bottom") return;
     if (form.t === "union" && level <= MAX_TYPE_DEPTH) {
@@ -1190,6 +1259,7 @@ function joinAt(a: unknown, b: unknown, domains: Readonly<Record<string, Domain>
 
 /** This function holds the rules of the join at one depth of two types, in their order. */
 function joinRules(a: unknown, b: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): ValueType {
+  spendTypeWork();
   const fa = formOf(a, domains);
   const fb = formOf(b, domains);
   if (fa.t === "top" || fb.t === "top") return "unknown";
@@ -1220,13 +1290,20 @@ function joinRules(a: unknown, b: unknown, domains: Readonly<Record<string, Doma
  * The join is sound: a member of `a` or of `b` is a member of the join. It is not always the least such type. The
  * function does not throw.
  *
+ * A call outside a pass of types is a pass of its own, with the limit `WORK_LIMIT` (TYPE.WORK, D207). Past the limit,
+ * the join is `unknown`. Inside a pass, the pass stops with `#WORK!`.
+ *
  * @param a - The first type.
  * @param b - The second type.
  * @param domains - The domains of the machine. A domain of the kernel that the table does not name comes from `STD_DOMAINS`.
  * @returns The join.
  */
 export function join(a: ValueType, b: ValueType, domains?: Readonly<Record<string, Domain>>): ValueType {
-  return joinAt(a, b, domains, 0, newWalk());
+  return withTypeWork(
+    WORK_LIMIT,
+    () => joinAt(a, b, domains, 0, newWalk()),
+    () => "unknown",
+  );
 }
 
 /** The most values of `one` that the text of a type shows. */
@@ -1359,6 +1436,7 @@ export function fnOf(type: unknown, domains: Readonly<Record<string, Domain>> | 
 /** This function tells if each value of a type can be a function. Such a type is the top, the bottom, a function type, or a union of them. */
 export function callable(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth = 0): boolean {
   if (depth > MAX_TYPE_DEPTH) return true;
+  spendTypeWork();
   const form = formOf(type, domains);
   if (form.t === "top" || form.t === "bottom" || form.t === "fn") return true;
   if (form.t === "union") return form.members.every((item) => callable(item, domains, depth + 1));
@@ -1374,6 +1452,7 @@ export function isPrecise(type: unknown, domains: Readonly<Record<string, Domain
   if (!isObject(type)) return formOf(type, domains).t !== "top";
   const known = recallAt(memo, type, depth);
   if (known !== undefined) return known;
+  spendTypeWork();
   const form = formOf(type, domains);
   const next = depth + 1;
   let answer: boolean;
@@ -1414,6 +1493,7 @@ export const HEADER_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set(["type",
  */
 export function holdsEnvelope(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth = 0): boolean {
   if (depth > MAX_TYPE_DEPTH) return true;
+  spendTypeWork();
   const form = formOf(type, domains);
   switch (form.t) {
     case "top":
@@ -1481,6 +1561,7 @@ export function stepType(
   depth = 0,
 ): StepType {
   if (depth > MAX_TYPE_DEPTH) return { type: "unknown" };
+  spendTypeWork();
   const form = formOf(type, domains);
   const name = String(key);
   switch (form.t) {
@@ -1565,6 +1646,7 @@ export function typeIssues(type: unknown, domains?: Readonly<Record<string, Doma
       if (depths.has(depth)) continue;
       seen.set(here, depths.add(depth));
     }
+    spendTypeWork();
     if (depth > MAX_TYPE_DEPTH) {
       issue(`The value type is deeper than ${MAX_TYPE_DEPTH} terms.`);
       continue;

@@ -4,11 +4,17 @@ import {
   STD_MACHINE,
   WORK_LIMIT,
   agree,
+  argsKey,
+  check,
   context,
+  docEquals,
+  documentKey,
+  encodeValue,
   evaluate,
   fail,
   formulaDefinitions,
   formulaMachine,
+  join,
   makeContext,
   mergeMachines,
   ok,
@@ -17,7 +23,11 @@ import {
   reference,
   referenceRun,
   run,
+  sameValue,
   stepper,
+  typeCheck,
+  typeFromSamples,
+  typeFromSchema,
   type Code,
   type Context,
   type Evaluator,
@@ -26,6 +36,7 @@ import {
   type Machine,
   type Result,
   type TreeContract,
+  type ValueType,
 } from "./index.ts";
 import { RUNTIME, type InputWithRuntime } from "./evaluate.ts";
 
@@ -337,5 +348,99 @@ describe("the limit of work of one evaluation (K216, D134)", () => {
 
   it("[WORK.AGREES] the parts of the agreement examine all 60 generated cases", () => {
     expect(agreesTotals).toEqual({ cases: 60, parts: agreesParts });
+  });
+});
+
+/** A union of two copies of the term below it, `length` times: one shared term with 2^length ways to its leaf (D207). */
+function unionChain(length: number, leaf: ValueType): ValueType {
+  let type = leaf;
+  for (let index = 0; index < length; index += 1) type = { union: [type, type] };
+  return type;
+}
+
+/** A record of two copies of the value below it, `length` times: one shared value with 2^length ways to its leaf. */
+function valueChain(length: number, leaf: unknown): unknown {
+  let value = leaf;
+  for (let index = 0; index < length; index += 1) value = { a: value, b: value };
+  return value;
+}
+
+describe("the limit of work of a pass of types, and the walks of values that share their parts (K259, D207)", () => {
+  // A chain of 40 has 2^40 ways to its leaf. A walk that reads each way does not end.
+  const LENGTH = 40;
+  const LIT = { declaredType: "lit" } as const;
+  const TYPES_PASS = `The work of one pass of types is more than ${WORK_LIMIT} points. The field maxWork of the machine sets the limit.`;
+  /** A check of the field `a` of the host name `x`, with the type `x` for the name. */
+  const field = (x: ValueType, machine: Machine = formulaMachine()) => typeCheck(machine, ref("names", "x", "a"), { ...LIT, names: ["x"], rootTypes: { names: { x } } });
+
+  it("[TYPE.WORK] a check of types past maxWork stops with one #WORK! at the document on the top of its stack, and the type is unknown", () => {
+    const record: ValueType = { record: { a: "number" }, closed: true };
+    expect(field(unionChain(4, record))).toMatchObject({ type: "number", issues: [] });
+    // The step into the shared union reads each way to the leaf, thus the pass of a chain of 40 stops at the limit.
+    expect(field(unionChain(LENGTH, record))).toMatchObject({ type: "unknown", issues: [{ code: "#WORK!", place: [], reason: TYPES_PASS, at: [] }] });
+    expect(check(formulaMachine(), ref("names", "x", "a"), { ...LIT, types: true, names: ["x"], rootTypes: { names: { x: unionChain(LENGTH, record) } } })).toEqual([
+      { code: "#WORK!", place: [], reason: TYPES_PASS, at: [] },
+    ]);
+    // The field maxWork of the machine is the limit of the pass. A pass under the limit gives the same result as before.
+    const small = (maxWork: number) => field(unionChain(4, record), { ...formulaMachine(), maxWork });
+    expect(small(1).issues.map((issue) => [issue.code, issue.reason])).toEqual([["#WORK!", "The work of one pass of types is more than 1 points. The field maxWork of the machine sets the limit."]]);
+    expect(small(1).type).toBe("unknown");
+    expect(small(1000)).toMatchObject({ type: "number", issues: [] });
+    expect(field(unionChain(LENGTH, record), { ...formulaMachine(), maxWork: 10 }).issues.map((issue) => issue.code)).toEqual(["#WORK!"]);
+  });
+
+  it("[TYPE.WORK] a join outside a check of types is a pass of its own, and past the limit the join is unknown", () => {
+    const record: ValueType = { record: { a: "number" }, closed: true };
+    expect(join(unionChain(4, record), "text")).toEqual({ union: [record, "text"] });
+    expect(join(unionChain(LENGTH, record), "text")).toBe("unknown");
+  });
+
+  it("[TYPE.WORK] typeFromSchema stops past the limit with one issue, and the type is unknown", () => {
+    // Each level holds the level below it in two properties, as one object of JavaScript. A $ref reads one time, but
+    // a shared object reads at each place.
+    const schema = (length: number): unknown => {
+      let part: unknown = { type: "number" };
+      for (let index = 0; index < length; index += 1) part = { type: "object", properties: { a: part, b: part } };
+      return part;
+    };
+    expect(typeFromSchema(schema(4)).issues).toEqual([]);
+    expect(typeFromSchema(schema(LENGTH))).toEqual({
+      type: "unknown",
+      issues: [{ at: [], reason: `The work of the reading is more than ${WORK_LIMIT} points (#WORK!). The type reads the schema as unknown.` }],
+    });
+  });
+
+  it("[TYPE.SHARED] typeFromSamples reads a sample that shares its parts one time for each depth, and the type shares its parts", () => {
+    const type = typeFromSamples([valueChain(LENGTH, 1)]) as { readonly record: Readonly<Record<string, ValueType>> };
+    expect(type.record["a"]).toBe(type.record["b"]);
+    expect(typeFromSamples([valueChain(2, 1)])).toEqual(typeFromSamples([{ a: { a: 1, b: 1 }, b: { a: 1, b: 1 } }]));
+  });
+
+  it("[EXT.ENCODE] encodeValue writes a container at two places one time, thus the document shares its parts", () => {
+    const doc = encodeValue({}, valueChain(LENGTH, Number.NaN)) as { readonly type: string; readonly value: Readonly<Record<string, unknown>> };
+    expect(doc.type).toBe("record");
+    expect(doc.value["a"]).toBe(doc.value["b"]);
+    expect(encodeValue({}, valueChain(1, Number.NaN))).toEqual(encodeValue({}, { a: Number.NaN, b: Number.NaN }));
+  });
+
+  it("[DOC.SHARED] docEquals and sameValue read each pair of containers one time, thus two values that share their parts compare at once", () => {
+    expect(docEquals(valueChain(LENGTH, 1), valueChain(LENGTH, 1))).toBe(true);
+    expect(docEquals(valueChain(LENGTH, 1), valueChain(LENGTH, 2))).toBe(false);
+    expect(docEquals(valueChain(LENGTH, [1, -0]), valueChain(LENGTH, [1, 0]))).toBe(false);
+    expect(sameValue(valueChain(LENGTH, 1), valueChain(LENGTH, 1))).toBe(true);
+    expect(sameValue(valueChain(LENGTH, 1), valueChain(LENGTH, 2))).toBe(false);
+  });
+
+  it("[TREE.KEY-ROOM] argsKey and documentKey read each distinct part one time, and a key past 16000000 characters is undefined", () => {
+    // The key of a chain of n levels over 1 has 12 * 2^n - 11 characters: 12582901 for 20 levels, 25165813 for 21.
+    expect(argsKey(valueChain(2, -0))).toBe('{"a":{"a":-0,"b":-0},"b":{"a":-0,"b":-0}}');
+    expect(documentKey({ b: valueChain(1, 1), a: [] })).toBe('{"b":{"a":1,"b":1},"a":[]}');
+    expect(argsKey(valueChain(20, 1))).toHaveLength(12582901);
+    expect(documentKey(valueChain(20, 1))).toHaveLength(12582901);
+    expect(argsKey(valueChain(21, 1))).toBeUndefined();
+    expect(argsKey(valueChain(LENGTH, 1))).toBeUndefined();
+    expect(documentKey(valueChain(LENGTH, 1))).toBeUndefined();
+    // A value that is not JSON data still gives undefined.
+    expect(argsKey(valueChain(3, Number.NaN))).toBeUndefined();
   });
 });

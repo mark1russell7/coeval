@@ -82,6 +82,24 @@ export function placed<V>(result: Result<V>, place: readonly Key[]): Result<V> {
 }
 
 /**
+ * The most work of one evaluation for a machine without its own `maxWork` (WORK.LIMIT, D134). One application of a
+ * closure is one point. A pass of types has the same limit, and one step of a walk of types is one point (TYPE.WORK, D207).
+ */
+export const WORK_LIMIT = 200000;
+
+/**
+ * This function gives the error of the limit of work. Each tier gives this error (WORK.AGREES), and a pass of types
+ * gives it too (TYPE.WORK).
+ *
+ * @param limit - The limit of the machine.
+ * @param what - The work that the limit stops. The default is one evaluation.
+ * @returns The error.
+ */
+export function workFailure(limit: number, what = "one evaluation"): EvalError {
+  return fail("#WORK!", `The work of ${what} is more than ${limit} points. The field maxWork of the machine sets the limit.`).error;
+}
+
+/**
  * An exception that carries an error value through code of the host. A closure of a formula throws it when the
  * host calls the closure and the closure fails. The kernel catches it and gives its error value again.
  */

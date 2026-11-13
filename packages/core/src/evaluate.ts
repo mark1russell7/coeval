@@ -5,7 +5,7 @@ import type { CapsRule, Kind, KindFacts, Side } from "./world.ts";
 import { type Domain, type ValueType, member, typeText } from "./types.ts";
 import type { Boundary, TypeRule } from "./typing.ts";
 import type { StaticRead } from "./facts.ts";
-import { type ErrorCode, type EvalError, type Result, Failure, fail, ok, placed, thrown, describe } from "./errors.ts";
+import { type ErrorCode, type EvalError, type Result, Failure, WORK_LIMIT, fail, ok, placed, thrown, describe, workFailure } from "./errors.ts";
 import {
   type Cap,
   type CompiledPath,
@@ -27,7 +27,7 @@ import {
 
 export type { Context } from "./deref.ts";
 export type { ErrorCode, EvalError, Result } from "./errors.ts";
-export { fail, ok } from "./errors.ts";
+export { WORK_LIMIT, fail, ok, workFailure } from "./errors.ts";
 
 /**
  * This function makes a context with names and capabilities. The other roots are empty, and an evaluation sets
@@ -597,24 +597,8 @@ export function placeText(place: readonly Key[]): string {
 /** An effect while the kernel waits for its outcome. */
 type Recorded = { -readonly [K in keyof Effect]: Effect[K] };
 
-/**
- * The most work of one evaluation for a machine without its own `maxWork` (WORK.LIMIT, D134). One application of a
- * closure is one point.
- */
-export const WORK_LIMIT = 200000;
-
 /** The work of one node that an equation makes (WORK.NODE, D134). A node costs more than an application. */
 export const NODE_WORK = 8;
-
-/**
- * This function gives the error of the limit of work. Each tier gives this error (WORK.AGREES).
- *
- * @param limit - The limit of the machine.
- * @returns The error.
- */
-export function workFailure(limit: number): EvalError {
-  return fail("#WORK!", `The work of one evaluation is more than ${limit} points. The field maxWork of the machine sets the limit.`).error;
-}
 
 /**
  * The runtime of one evaluation or run. Compiled code gets it with the context, and asks it to resolve paths and
@@ -937,7 +921,8 @@ export type Runner = RunFn | CompiledRunner;
  * A machine: a world of kinds, and the code of each evaluator name, of each `deref` and of each walker.
  *
  * - `maxDepth`: the deepest nesting of documents. The default is 1000.
- * - `maxWork`: the most work of one evaluation (WORK.LIMIT, D134). The default is `WORK_LIMIT`.
+ * - `maxWork`: the most work of one evaluation (WORK.LIMIT, D134) and of one check of types (TYPE.WORK, D207). The
+ *   default is `WORK_LIMIT`.
  * - `permits`: the rule of the host for an effect. The default is the function `permits` on the capabilities. A run,
  *   `check` and `effectsOf` ask it (CAP.PERMITS). In a check, its context has only the capabilities and the world.
  * - `known`: the names that the evaluators know, for `check`. Without it, `check` does not check such names.

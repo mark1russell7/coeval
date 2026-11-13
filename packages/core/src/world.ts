@@ -332,21 +332,29 @@ export function atArgsOf(params: readonly string[], args: unknown): AtArgs {
   for (const name of params) {
     if (!Object.hasOwn(args, name)) return { ok: false, reason: `The step gives no argument ${name}.` };
     const value = field(args, name);
-    if (argsKey(value) === undefined) return { ok: false, reason: `The argument ${name} is not JSON data.` };
+    if (argsKey(value) === undefined) return { ok: false, reason: `The argument ${name} is not JSON data, or its key has more than ${MAX_KEY_LENGTH} characters.` };
     Object.defineProperty(names, name, { value, enumerable: true, writable: true, configurable: true });
   }
   return { ok: true, names, key: argsKey(names) as string };
 }
 
 /**
+ * The most characters of a key of `argsKey` and `documentKey` (D207). A value that shares its parts has a text for each
+ * way to a part, thus its key can double at each level. The table of documents of D126 holds as many characters.
+ */
+export const MAX_KEY_LENGTH = 16_000_000;
+
+/**
  * This function gives the key of a JSON value (D124). The fields of a record are in the order of their names. Two
  * values have the same key only when they are equal by DOC.EQUALS, thus `-0` and `0` have different keys.
  *
  * @param value - The value.
- * @returns The JSON text, or `undefined` for a value that is not JSON data: a number that is not finite, a host value or a cycle.
+ * @returns The JSON text, or `undefined` for a value that is not JSON data: a number that is not finite, a host value or
+ *   a cycle. A key with more than 16000000 characters also gives `undefined` (D207). The walk reads each distinct part
+ *   one time, and it stops at that count.
  */
 export function argsKey(value: unknown): string | undefined {
-  return keyOf(value, new Set());
+  return keyOf(value, new Set(), true, keyRoom());
 }
 
 /**
@@ -355,23 +363,72 @@ export function argsKey(value: unknown): string | undefined {
  * document, and the two documents are equal by DOC.EQUALS.
  *
  * @param doc - The document.
- * @returns The JSON text, or `undefined` for a value that is not JSON data.
+ * @returns The JSON text, or `undefined` for a value that is not JSON data. A key with more than 16000000 characters
+ *   also gives `undefined` (D207). The walk reads each distinct part one time, and it stops at that count.
  */
 export function documentKey(doc: unknown): string | undefined {
-  return keyOf(doc, new Set(), false);
+  return keyOf(doc, new Set(), false, keyRoom());
 }
 
-function keyOf(value: unknown, open: Set<object>, sorted = true): string | undefined {
-  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "number") return !Number.isFinite(value) ? undefined : Object.is(value, -0) ? "-0" : JSON.stringify(value);
-  if (typeof value !== "object" || open.has(value) || (!Array.isArray(value) && !isRecord(value))) return undefined;
+/** The state of one walk of a key: the characters that the key can still take, and the text of each container. */
+interface KeyRoom {
+  left: number;
+  readonly done: Map<object, string>;
+}
+
+/** This function starts the walk of one key. */
+function keyRoom(): KeyRoom {
+  return { left: MAX_KEY_LENGTH, done: new Map() };
+}
+
+/**
+ * This function gives the key of a value. Each text takes its characters from the room, thus the room holds the length
+ * of the key. A key past the room gives `undefined`, and each later step stops at once (D207). A container at two
+ * places gets its text one time, thus the walk reads each distinct part one time.
+ */
+function keyOf(value: unknown, open: Set<object>, sorted: boolean, room: KeyRoom): string | undefined {
+  if (room.left < 0) return undefined;
+  let text: string | undefined;
+  if (value === null || typeof value === "boolean" || typeof value === "string") text = JSON.stringify(value);
+  else if (typeof value === "number") text = !Number.isFinite(value) ? undefined : Object.is(value, -0) ? "-0" : JSON.stringify(value);
+  else if (typeof value !== "object" || open.has(value) || (!Array.isArray(value) && !isRecord(value))) return undefined;
+  else {
+    const known = room.done.get(value);
+    if (known === undefined) return containerKey(value, open, sorted, room);
+    text = known;
+  }
+  if (text === undefined) return undefined;
+  room.left -= text.length;
+  return room.left < 0 ? undefined : text;
+}
+
+/**
+ * This function gives the key of a list or a record. The brackets, the commas and the names take their characters, and
+ * each part takes the characters of its text. The text joins its parts with `+`, thus a shared part is not copied.
+ */
+function containerKey(value: object, open: Set<object>, sorted: boolean, room: KeyRoom): string | undefined {
   open.add(value);
   try {
     const list = Array.isArray(value);
     const names = list ? [] : sorted ? Object.keys(value).sort() : Object.keys(value);
-    const items = list ? value.map((item) => keyOf(item, open, sorted)) : names.map((name) => keyOf(field(value as JsonRecord, name), open, sorted));
-    if (items.includes(undefined)) return undefined;
-    return list ? `[${items.join(",")}]` : `{${names.map((name, index) => `${JSON.stringify(name)}:${String(items[index])}`).join(",")}}`;
+    const count = list ? value.length : names.length;
+    room.left -= 2 + Math.max(count - 1, 0);
+    let text = list ? "[" : "{";
+    for (let index = 0; index < count; index += 1) {
+      let item: string | undefined;
+      if (list) item = keyOf(value[index], open, sorted, room);
+      else {
+        const head = JSON.stringify(names[index]);
+        room.left -= head.length + 1;
+        const part = keyOf(field(value as JsonRecord, names[index] as string), open, sorted, room);
+        item = part === undefined ? undefined : head + ":" + part;
+      }
+      if (item === undefined) return undefined;
+      text = index === 0 ? text + item : text + "," + item;
+    }
+    text += list ? "]" : "}";
+    room.done.set(value, text);
+    return room.left < 0 ? undefined : text;
   } finally {
     open.delete(value);
   }
