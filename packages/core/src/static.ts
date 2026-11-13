@@ -282,7 +282,9 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         parent: here,
         // A grant gives clause kinds and not capabilities (D198), thus the list of partCaps stays, with no copy (K238).
         caps: item.caps === undefined || kind.caps === undefined ? item.caps : partCaps(kind.caps, slot.path, item.caps),
-        handled: handledOf(kind.caps, slot.path, item.handled, granted),
+        // A part without clause kinds and without a grant keeps the value of its parent, with no call. Thus the walk of
+        // a document without a handler does not call handledOf, and its inline budget stays for splitParts (K252).
+        handled: granted === undefined && (item.handled === undefined || kind.caps === undefined) ? item.handled : handledOf(kind.caps, slot.path, item.handled, granted),
         bound: extra,
         expect: slot.expect,
       });
@@ -292,7 +294,9 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
 
 /**
  * This function gives the clause kinds of a part, as a run gives them. They are the kinds of the document and the
- * kinds of a grant. Then the rules of the kind narrow them (HANDLE.NARROW, D198).
+ * kinds of a grant. Then the rules of the kind narrow them (HANDLE.NARROW, D198). The walk calls it only for a part
+ * with a grant, or with clause kinds under capability rules. Its spread is large bytecode, and an inline of it in the
+ * walk takes the budget of splitParts.
  */
 function handledOf(rules: readonly CapsRule[] | undefined, path: readonly Key[], handled: readonly Cap[] | undefined, granted: readonly Cap[] | undefined): readonly Cap[] | undefined {
   const kinds = granted === undefined ? handled : [...(handled ?? []), ...granted];
