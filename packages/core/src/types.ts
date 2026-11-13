@@ -138,6 +138,86 @@ const MAX_COVER_STEPS = 64;
 /** The most records that one split of `fits` builds, with each split inside its work (TYPE.FITS-PATH, D89). A larger split gives `false`. */
 const MAX_SPLIT_RECORDS = 64;
 
+/**
+ * The most paths of one depth that the split rule follows into the fields of a record (TYPE.FITS-PATH, D200). A record
+ * that shares its parts has a path for each way through it. A level with more paths ends the search for splits.
+ */
+const MAX_SPLIT_PATHS = 4096;
+
+/*
+ * A type that a check builds can share its parts. For example, a `let` gives the same type to each reference of a
+ * name. A walk that reads such a type as a tree reads a shared part one time for each way to it. That count can double
+ * at each level. Thus the walks of `fits`, `join` and the members keep the answer of each part in a memo of one call
+ * (D200). Each memo gives the answer that the walk without the memo gives.
+ */
+
+/** A memo of a pair of terms: the first term, then the second term, then a number for the other arguments. */
+export type PairMemo<T> = Map<unknown, Map<unknown, Map<number, T>>>;
+
+/** This function gives the answer of a pair from a memo, or `undefined` when the memo has no answer. */
+export function recall<T>(memo: PairMemo<T>, a: unknown, b: unknown, code: number): T | undefined {
+  return memo.get(a)?.get(b)?.get(code);
+}
+
+/** This function puts the answer of a pair into a memo. */
+export function keep<T>(memo: PairMemo<T>, a: unknown, b: unknown, code: number, answer: T): void {
+  let byA = memo.get(a);
+  if (byA === undefined) memo.set(a, (byA = new Map()));
+  let byB = byA.get(b);
+  if (byB === undefined) byA.set(b, (byB = new Map()));
+  byB.set(code, answer);
+}
+
+/** A memo of one term at a depth. */
+type DepthMemo<T> = Map<unknown, Map<number, T>>;
+
+/** This function gives the answer of a term at a depth from a memo, or `undefined` when the memo has no answer. */
+function recallAt<T>(memo: DepthMemo<T>, type: unknown, depth: number): T | undefined {
+  return memo.get(type)?.get(depth);
+}
+
+/** This function puts the answer of a term at a depth into a memo. */
+function keepAt<T>(memo: DepthMemo<T>, type: unknown, depth: number, answer: T): void {
+  let byDepth = memo.get(type);
+  if (byDepth === undefined) memo.set(type, (byDepth = new Map()));
+  byDepth.set(depth, answer);
+}
+
+/**
+ * The memos of one walk of `fits`, `join` or `membersOf`. The answer of `fits` can depend on the budget of a split
+ * (D89). Thus it has three memos:
+ *
+ * - `pure` holds the answers of calls that took no record from a budget. Such an answer holds under each budget.
+ * - `free` holds the answers of calls without a budget. Such a call makes its own budget.
+ * - `spent` holds the answers of calls whose budget was spent at the start. Each record that such a call tries fails.
+ */
+interface Walk {
+  readonly pure: PairMemo<boolean>;
+  readonly free: PairMemo<boolean>;
+  readonly spent: PairMemo<boolean>;
+  /** The number of records that the splits of the walk took from a budget. */
+  cases: number;
+  /** The answers of `memberAt`, by the value, the type and the depth. */
+  readonly members: PairMemo<boolean>;
+  /** The answers of `valuesOf`, by the type and the depth. `null` is the answer `undefined`. */
+  readonly values: DepthMemo<readonly unknown[] | null>;
+  /** The answers of `joinAt`, by the two types and the depth. */
+  readonly joins: PairMemo<ValueType>;
+}
+
+/** This function makes the memos of a new walk. */
+function newWalk(): Walk {
+  return { pure: new Map(), free: new Map(), spent: new Map(), cases: 0, members: new Map(), values: new Map(), joins: new Map() };
+}
+
+/** The key of the value -0 in a memo. A `Map` reads -0 as 0, but a domain can tell them apart. */
+const NEG_ZERO: object = {};
+
+/** This function tells if a term is an object. Only an object can be a shared part of a type. */
+function isObject(term: unknown): term is object {
+  return typeof term === "object" && term !== null;
+}
+
 /** The keys that each term permits beside its own key. */
 const TERM_KEYS: Readonly<Record<string, readonly string[]>> = {
   list: ["list"],
@@ -241,9 +321,31 @@ function inDomain(value: unknown, name: string, domains: Readonly<Record<string,
   return true;
 }
 
-/** This function is the membership test at one depth of a type. Below the deepest term, each value is a member. */
-function memberAt(value: unknown, type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number): boolean {
+/** The most steps of a test of `member` without a walk. Then the test starts again with a walk (D200). */
+const MAX_MEMBER_STEPS = 4096;
+
+/** The steps of the test of `member` that runs without a walk. */
+let memberSteps = 0;
+
+/**
+ * This function is the membership test at one depth of a type. Below the deepest term, each value is a member. A walk
+ * keeps the answer of each value and term of a type (D200). The test of `member` starts without a walk, and it counts
+ * its steps. After the most steps, each step gives `false`, and `member` starts the test again with a walk.
+ */
+function memberAt(value: unknown, type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk | undefined): boolean {
   if (depth > MAX_TYPE_DEPTH) return true;
+  if (w === undefined) return (memberSteps += 1) > MAX_MEMBER_STEPS ? false : memberRules(value, type, domains, depth, w);
+  if (!isObject(type)) return memberRules(value, type, domains, depth, w);
+  const key = Object.is(value, -0) ? NEG_ZERO : value;
+  const known = recall(w.members, key, type, depth);
+  if (known !== undefined) return known;
+  const answer = memberRules(value, type, domains, depth, w);
+  keep(w.members, key, type, depth, answer);
+  return answer;
+}
+
+/** This function holds the rules of the membership test at one depth of a type. */
+function memberRules(value: unknown, type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk | undefined): boolean {
   const form = formOf(type, domains);
   const next = depth + 1;
   switch (form.t) {
@@ -256,14 +358,14 @@ function memberAt(value: unknown, type: unknown, domains: Readonly<Record<string
     case "list": {
       if (!Array.isArray(value)) return false;
       // A hole of a list holds undefined, thus a loop by index tests it too.
-      for (let index = 0; index < value.length; index += 1) if (!memberAt(value[index], form.item, domains, next)) return false;
+      for (let index = 0; index < value.length; index += 1) if (!memberAt(value[index], form.item, domains, next, w)) return false;
       return true;
     }
     case "record": {
       if (!isRecord(value)) return false;
       for (const key of Object.keys(form.fields)) {
         if (Object.hasOwn(value, key)) {
-          if (!memberAt(value[key], form.fields[key], domains, next)) return false;
+          if (!memberAt(value[key], form.fields[key], domains, next, w)) return false;
         } else if (!form.optional.has(key)) {
           return false;
         }
@@ -273,7 +375,7 @@ function memberAt(value: unknown, type: unknown, domains: Readonly<Record<string
     case "fn":
       return typeof value === "function";
     case "union":
-      return form.members.some((item) => memberAt(value, item, domains, next));
+      return form.members.some((item) => memberAt(value, item, domains, next, w));
     case "one":
       return form.values.some((item) => docEquals(item, value));
   }
@@ -296,7 +398,14 @@ function memberAt(value: unknown, type: unknown, domains: Readonly<Record<string
  * @returns `true` when the value is a member of the type.
  */
 export function member(value: unknown, type: ValueType, domains?: Readonly<Record<string, Domain>>): boolean {
-  return memberAt(value, type, domains, 0);
+  // A test of a domain can call member. Thus the count of the outer test stays, and it continues after the inner test.
+  const outer = memberSteps;
+  memberSteps = 0;
+  const answer = memberAt(value, type, domains, 0, undefined);
+  const spent = memberSteps > MAX_MEMBER_STEPS;
+  memberSteps = outer;
+  // A value that shares its parts can have a test for each way through it. The walk tests each part one time.
+  return spent ? memberAt(value, type, domains, 0, newWalk()) : answer;
 }
 
 /** This function tells if the record type `a` fits the record type `b`: width, closed records and optional fields. */
@@ -307,6 +416,7 @@ function recordFits(
   depth: number,
   gradual: boolean,
   budget: SplitBudget | undefined,
+  w: Walk,
 ): boolean {
   if (b.closed && (!a.closed || Object.keys(a.fields).some((key) => !Object.hasOwn(b.fields, key)))) return false;
   for (const key of Object.keys(b.fields)) {
@@ -314,7 +424,7 @@ function recordFits(
     const needed = !b.optional.has(key);
     if (Object.hasOwn(a.fields, key)) {
       if (needed && a.optional.has(key)) return false;
-      if (!fitsAt(a.fields[key], want, domains, depth, gradual, true, budget)) return false;
+      if (!fitsAt(a.fields[key], want, domains, depth, gradual, true, budget, w)) return false;
     } else if (needed) {
       return false;
     } else if (!a.closed && formOf(want, domains).t !== "top") {
@@ -361,11 +471,11 @@ function withField(record: Readonly<Record<string, unknown>>, key: string, value
  * This function gives the members of a record type, when they are few. A record with a needed field without members
  * has no members. Only a closed record with a finite list for each field has a finite list.
  */
-function recordValues(form: Extract<Form, { readonly t: "record" }>, domains: Readonly<Record<string, Domain>> | undefined, depth: number): readonly unknown[] | undefined {
+function recordValues(form: Extract<Form, { readonly t: "record" }>, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): readonly unknown[] | undefined {
   let out: readonly Record<string, unknown>[] = [{}];
   let finite = form.closed;
   for (const key of Object.keys(form.fields)) {
-    const values = valuesOf(form.fields[key], domains, depth);
+    const values = valuesOf(form.fields[key], domains, depth, w);
     const optional = form.optional.has(key);
     if (values === undefined) {
       finite = false;
@@ -387,9 +497,20 @@ function recordValues(form: Extract<Form, { readonly t: "record" }>, domains: Re
  * This function gives a list of the members of a type, when the type has at most 64 members (TYPE.FITS-FINITE). Each
  * other type gives `undefined`. Such a type is `unknown`, a base type without a finite list, or a function type. A
  * list that can hold an item and an open record with members are also such types.
+ *
+ * The walk keeps the list of each term at each depth (D200). Thus the callers share the lists, and they do not change them.
  */
-function valuesOf(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number): readonly unknown[] | undefined {
+function valuesOf(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): readonly unknown[] | undefined {
   if (depth > MAX_TYPE_DEPTH) return undefined;
+  const known = recallAt(w.values, type, depth);
+  if (known !== undefined) return known ?? undefined;
+  const answer = valuesRules(type, domains, depth, w);
+  keepAt(w.values, type, depth, answer ?? null);
+  return answer;
+}
+
+/** This function holds the rules of `valuesOf` at one depth of a type. */
+function valuesRules(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): readonly unknown[] | undefined {
   const form = formOf(type, domains);
   const next = depth + 1;
   switch (form.t) {
@@ -398,15 +519,15 @@ function valuesOf(type: unknown, domains: Readonly<Record<string, Domain>> | und
     case "base":
       return baseValues(form.name, domains);
     case "list":
-      return valuesOf(form.item, domains, next)?.length === 0 ? [[]] : undefined;
+      return valuesOf(form.item, domains, next, w)?.length === 0 ? [[]] : undefined;
     case "record":
-      return recordValues(form, domains, next);
+      return recordValues(form, domains, next, w);
     case "one":
     case "union": {
       const out: unknown[] = [];
       const items: readonly unknown[] = form.t === "one" ? form.values : form.members;
       for (const item of items) {
-        const values = form.t === "one" ? [item] : valuesOf(item, domains, next);
+        const values = form.t === "one" ? [item] : valuesOf(item, domains, next, w);
         if (values === undefined) return undefined;
         for (const value of values) addValue(out, value);
         if (out.length > MAX_FINITE_VALUES) return undefined;
@@ -418,14 +539,24 @@ function valuesOf(type: unknown, domains: Readonly<Record<string, Domain>> | und
   }
 }
 
-/** This function gives the members of a type at one depth, for `membersOf`. */
-function membersAt(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, samples: readonly unknown[], depth: number): readonly unknown[] {
-  const finite = valuesOf(type, domains, depth);
+/** This function gives the members of a type at one depth, for `membersOf`. The memo keeps the members of each union at each depth (D200). */
+function membersAt(
+  type: unknown,
+  domains: Readonly<Record<string, Domain>> | undefined,
+  samples: readonly unknown[],
+  depth: number,
+  w: Walk,
+  memo: DepthMemo<readonly unknown[]>,
+): readonly unknown[] {
+  const finite = valuesOf(type, domains, depth, w);
   if (finite !== undefined) return finite;
   const form = formOf(type, domains);
-  if (form.t !== "union" || depth > MAX_TYPE_DEPTH) return samples.filter((sample) => member(sample, type as ValueType, domains));
+  if (form.t !== "union" || depth > MAX_TYPE_DEPTH) return samples.filter((sample) => memberAt(sample, type, domains, 0, w));
+  const known = recallAt(memo, type, depth);
+  if (known !== undefined) return known;
   const out: unknown[] = [];
-  for (const item of form.members) for (const value of membersAt(item, domains, samples, depth + 1)) addValue(out, value);
+  for (const item of form.members) for (const value of membersAt(item, domains, samples, depth + 1, w, memo)) addValue(out, value);
+  keepAt(memo, type, depth, out);
   return out;
 }
 
@@ -441,7 +572,7 @@ function membersAt(type: unknown, domains: Readonly<Record<string, Domain>> | un
  * @returns Distinct members of the type.
  */
 export function membersOf(type: ValueType, domains: Readonly<Record<string, Domain>> | undefined, samples: readonly unknown[]): readonly unknown[] {
-  return membersAt(type, domains, withDomainSamples(samples, domains), 0);
+  return membersAt(type, domains, withDomainSamples(samples, domains), 0, newWalk(), new Map());
 }
 
 /**
@@ -499,13 +630,13 @@ export function falseCovers(domains: Readonly<Record<string, Domain>>, samples: 
 }
 
 /** This function holds the rules of the shapes of `fits`: base types, lists, records and functions. */
-function shapeFits(a: Form, b: Form, domains: Readonly<Record<string, Domain>> | undefined, next: number, gradual: boolean, budget: SplitBudget | undefined): boolean {
+function shapeFits(a: Form, b: Form, domains: Readonly<Record<string, Domain>> | undefined, next: number, gradual: boolean, budget: SplitBudget | undefined, w: Walk): boolean {
   if (a.t === "base") return b.t === "base" && lineOf(a.name, domains).has(b.name);
-  if (a.t === "list") return b.t === "list" && fitsAt(a.item, b.item, domains, next, gradual, true, budget);
-  if (a.t === "record") return b.t === "record" && recordFits(a, b, domains, next, gradual, budget);
+  if (a.t === "list") return b.t === "list" && fitsAt(a.item, b.item, domains, next, gradual, true, budget, w);
+  if (a.t === "record") return b.t === "record" && recordFits(a, b, domains, next, gradual, budget, w);
   if (a.t !== "fn" || b.t !== "fn" || a.params.length > b.params.length) return false;
   // A function fits when it accepts each argument of the expected type, and when its result fits.
-  return a.params.every((param, index) => fitsAt(b.params[index], param, domains, next, gradual, true, budget)) && fitsAt(a.to, b.to, domains, next, gradual, true, budget);
+  return a.params.every((param, index) => fitsAt(b.params[index], param, domains, next, gradual, true, budget, w)) && fitsAt(a.to, b.to, domains, next, gradual, true, budget, w);
 }
 
 /**
@@ -517,33 +648,64 @@ function shapeFits(a: Form, b: Form, domains: Readonly<Record<string, Domain>> |
  * a union in `expected` get such calls, because the call for the union tests `found` against the full union.
  *
  * The budget is the budget of the outer split, when the call is part of the work of a split (TYPE.FITS-PATH, D89).
+ *
+ * The walk keeps the answer of each pair of terms (D200). A call that took a record from a budget changed the budget,
+ * thus the memo `pure` does not keep its answer. Its answer goes to the memo `free` when the call had no budget, and to
+ * the memo `spent` when the budget was spent at the start. Each other answer stays out of the memos.
  */
 function fitsAt(
   found: unknown,
   expected: unknown,
   domains: Readonly<Record<string, Domain>> | undefined,
   depth: number,
-  gradual = true,
-  finite = true,
-  budget?: SplitBudget,
+  gradual: boolean,
+  finite: boolean,
+  budget: SplitBudget | undefined,
+  w: Walk,
 ): boolean {
   if (depth > MAX_TYPE_DEPTH) return true;
+  // Two texts are no shared parts, and their rules are short.
+  if (!isObject(found) && !isObject(expected)) return fitsRules(found, expected, domains, depth, gradual, finite, budget, w);
+  const code = depth * 4 + (gradual ? 2 : 0) + (finite ? 1 : 0);
+  const pure = recall(w.pure, found, expected, code);
+  if (pure !== undefined) return pure;
+  const memo = budget === undefined ? w.free : budget.left <= 0 ? w.spent : undefined;
+  const known = memo === undefined ? undefined : recall(memo, found, expected, code);
+  if (known !== undefined) return known;
+  const cases = w.cases;
+  const answer = fitsRules(found, expected, domains, depth, gradual, finite, budget, w);
+  if (w.cases === cases) keep(w.pure, found, expected, code, answer);
+  else if (memo !== undefined) keep(memo, found, expected, code, answer);
+  return answer;
+}
+
+/** This function holds the rules of `fits` at one depth of two types, in their order. */
+function fitsRules(
+  found: unknown,
+  expected: unknown,
+  domains: Readonly<Record<string, Domain>> | undefined,
+  depth: number,
+  gradual: boolean,
+  finite: boolean,
+  budget: SplitBudget | undefined,
+  w: Walk,
+): boolean {
   const a = formOf(found, domains);
   const b = formOf(expected, domains);
   const next = depth + 1;
   if (b.t === "top" || a.t === "bottom") return true;
   if (a.t === "top") return gradual;
-  if (a.t === "union") return a.members.every((item) => fitsAt(item, expected, domains, next, gradual, true, budget));
-  if (a.t === "one") return a.values.every((item) => memberAt(item, expected, domains, next));
-  if (b.t === "union" ? b.members.some((item) => fitsAt(found, item, domains, next, gradual, false, budget)) : b.t !== "bottom" && shapeFits(a, b, domains, next, gradual, budget)) return true;
+  if (a.t === "union") return a.members.every((item) => fitsAt(item, expected, domains, next, gradual, true, budget, w));
+  if (a.t === "one") return a.values.every((item) => memberAt(item, expected, domains, next, w));
+  if (b.t === "union" ? b.members.some((item) => fitsAt(found, item, domains, next, gradual, false, budget, w)) : b.t !== "bottom" && shapeFits(a, b, domains, next, gradual, budget, w)) return true;
   if (!finite || a.t === "fn") return false;
   // The finite rule: a type with few members fits when each member is a member of `expected`.
-  const values = valuesOf(found, domains, next);
-  if (values !== undefined) return values.every((value) => memberAt(value, expected, domains, next));
+  const values = valuesOf(found, domains, next, w);
+  if (values !== undefined) return values.every((value) => memberAt(value, expected, domains, next, w));
   // The cover rule: a base type fits when each domain of a cover of its line fits (D85).
-  if (a.t === "base") return (b.t === "union" || b.t === "one") && lineCovered(a.name, expected, domains, depth, gradual, undefined);
+  if (a.t === "base") return (b.t === "union" || b.t === "one") && lineCovered(a.name, expected, domains, depth, gradual, undefined, w);
   // The split rule: an open record, or a closed record with too many members, splits over a union or a `one` (D84, D89).
-  return a.t === "record" && (b.t === "union" || (b.t === "one" && a.closed)) && splitFits(found, a, expected, domains, depth, gradual, budget);
+  return a.t === "record" && (b.t === "union" || (b.t === "one" && a.closed)) && splitFits(found, a, expected, domains, depth, gradual, budget, w);
 }
 
 /** The state of the cover rule for one type: the result for each domain whose covers it tested, and the steps that are left. */
@@ -556,12 +718,12 @@ interface CoverState {
  * This function is the cover rule of `fits` (TYPE.FITS-COVER, D85). A base type fits when a domain of its line has a
  * cover, and each domain of the cover fits `expected`. The function makes the state at the first domain with covers.
  */
-function lineCovered(name: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState | undefined): boolean {
+function lineCovered(name: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState | undefined, w: Walk): boolean {
   let now = state;
   for (const each of lineOf(name, domains)) {
     if (!Array.isArray(domainOf(each, domains)?.covers)) continue;
     now ??= { held: new Map(), left: MAX_COVER_STEPS };
-    if (covered(each, expected, domains, depth, gradual, now)) return true;
+    if (covered(each, expected, domains, depth, gradual, now, w)) return true;
   }
   return false;
 }
@@ -571,7 +733,7 @@ function lineCovered(name: string, expected: unknown, domains: Readonly<Record<s
  * the domain or a name that is not under it, does not count. Each domain of a cover costs one step, and the rule
  * stops after 64 steps.
  */
-function covered(name: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState): boolean {
+function covered(name: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState, w: Walk): boolean {
   const known = state.held.get(name);
   if (known !== undefined) return known;
   // A domain on the way gives false until its cover holds, thus a cycle of covers ends.
@@ -584,7 +746,7 @@ function covered(name: string, expected: unknown, domains: Readonly<Record<strin
     for (const part of cover as readonly unknown[]) {
       state.left -= 1;
       if (state.left < 0) return false;
-      if (typeof part !== "string" || part === name || !lineOf(part, domains).has(name) || !partFits(part, expected, domains, depth, gradual, state)) {
+      if (typeof part !== "string" || part === name || !lineOf(part, domains).has(name) || !partFits(part, expected, domains, depth, gradual, state, w)) {
         held = false;
         break;
       }
@@ -598,11 +760,11 @@ function covered(name: string, expected: unknown, domains: Readonly<Record<strin
 }
 
 /** This function tells if a domain of a cover fits `expected`. It tries the rules of the shapes, the finite rule and its own covers. */
-function partFits(part: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState): boolean {
-  if (fitsAt(part, expected, domains, depth, gradual, false)) return true;
-  const values = valuesOf(part, domains, depth + 1);
-  if (values !== undefined) return values.every((value) => memberAt(value, expected, domains, depth + 1));
-  return lineCovered(part, expected, domains, depth, gradual, state);
+function partFits(part: string, expected: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, gradual: boolean, state: CoverState, w: Walk): boolean {
+  if (fitsAt(part, expected, domains, depth, gradual, false, undefined, w)) return true;
+  const values = valuesOf(part, domains, depth + 1, w);
+  if (values !== undefined) return values.every((value) => memberAt(value, expected, domains, depth + 1, w));
+  return lineCovered(part, expected, domains, depth, gradual, state, w);
 }
 
 /**
@@ -632,38 +794,64 @@ interface SplitBudget {
  * The type splits follow each value split, in the same order (D90). A base type with a valid cover in its line splits
  * into the domains of a cover, and it tries each valid cover (D102). A union without a finite list splits into its
  * members. The prefix is the path of `a`.
+ *
+ * Each record of a split takes one record from a budget of 64 (D89). Thus a split reads at most the first 65 entries of
+ * the list, and the list keeps only them. The search follows at most 4096 paths into records (MAX_SPLIT_PATHS, D200).
+ * When a type has more paths, the search ends after the level that reaches the limit.
  */
 function splitsOf(
   a: Extract<Form, { readonly t: "record" }>,
   domains: Readonly<Record<string, Domain>> | undefined,
   depth: number,
+  w: Walk,
   prefix: readonly string[] = [],
 ): readonly Split[] {
   const out: Split[] = [];
   const later: Split[] = [];
-  let level: { readonly path: readonly string[]; readonly form: Extract<Form, { readonly t: "record" }> }[] = [{ path: prefix, form: a }];
-  for (let at = depth + 1; level.length > 0 && at <= MAX_TYPE_DEPTH; at += 1) {
+  const most = MAX_SPLIT_RECORDS + 1;
+  let paths = 0;
+  let level: { readonly step: PathStep | undefined; readonly form: Extract<Form, { readonly t: "record" }> }[] = [{ step: undefined, form: a }];
+  for (let at = depth + 1; level.length > 0 && at <= MAX_TYPE_DEPTH && out.length < most; at += 1) {
     const deeper: typeof level = [];
-    for (const { path, form } of level) {
+    for (const { step, form } of level) {
       for (const key of Object.keys(form.fields)) {
-        const values = valuesOf(form.fields[key], domains, at);
+        const values = valuesOf(form.fields[key], domains, at, w);
         const optional = form.optional.has(key);
         if (values !== undefined) {
-          if (values.length + (optional ? 1 : 0) > 1) out.push({ path: [...path, key], values, optional });
+          if (values.length + (optional ? 1 : 0) > 1 && out.length < most) out.push({ path: pathOf(prefix, step, key), values, optional });
           continue;
         }
         const inner = formOf(form.fields[key], domains);
-        if (inner.t === "record") deeper.push({ path: [...path, key], form: inner });
-        else if (inner.t === "union") later.push({ path: [...path, key], types: inner.members, optional });
-        else if (inner.t === "base") {
+        if (inner.t === "record") {
+          paths += 1;
+          if (paths <= MAX_SPLIT_PATHS) deeper.push({ step: { up: step, key }, form: inner });
+        } else if (later.length >= most) {
+          continue;
+        } else if (inner.t === "union") {
+          later.push({ path: pathOf(prefix, step, key), types: inner.members, optional });
+        } else if (inner.t === "base") {
           const covers = coversOf(inner.name, domains, false);
-          if (covers.length > 0) later.push({ path: [...path, key], covers, optional });
+          if (covers.length > 0) later.push({ path: pathOf(prefix, step, key), covers, optional });
         }
       }
     }
-    level = deeper;
+    level = paths > MAX_SPLIT_PATHS ? [] : deeper;
   }
-  return later.length === 0 ? out : [...out, ...later];
+  const all = later.length === 0 ? out : [...out, ...later];
+  return all.length > most ? all.slice(0, most) : all;
+}
+
+/** A path of `splitsOf` from the record of the split: its last key, and the path before that key. */
+interface PathStep {
+  readonly up: PathStep | undefined;
+  readonly key: string;
+}
+
+/** This function gives the keys of a path of `splitsOf`, after the prefix, with one more key at the end. */
+function pathOf(prefix: readonly string[], step: PathStep | undefined, key: string): readonly string[] {
+  const keys = [key];
+  for (let at = step; at !== undefined; at = at.up) keys.push(at.key);
+  return [...prefix, ...keys.reverse()];
 }
 
 /** This function tells if a cover of a domain is valid by the line rule of D85. Such a cover is not empty, and each name in it is a domain under the domain. */
@@ -690,12 +878,12 @@ function coversOf(name: string, domains: Readonly<Record<string, Domain>> | unde
  * splits by its members. A base type splits by a cover of its own domain, because the covers of its parents hold it
  * already. A union splits by its members, and a record splits by the paths into its fields.
  */
-function againOf(type: ValueType, path: readonly string[], domains: Readonly<Record<string, Domain>> | undefined, depth: number): readonly Split[] {
+function againOf(type: ValueType, path: readonly string[], domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): readonly Split[] {
   const at = depth + path.length;
-  const values = valuesOf(type, domains, at);
+  const values = valuesOf(type, domains, at, w);
   if (values !== undefined) return values.length > 1 ? [{ path, values, optional: false }] : [];
   const form = formOf(type, domains);
-  if (form.t === "record") return splitsOf(form, domains, at, path);
+  if (form.t === "record") return splitsOf(form, domains, at, w, path);
   if (form.t === "union") return [{ path, types: form.members, optional: false }];
   const covers = form.t === "base" ? coversOf(form.name, domains, true) : [];
   return covers.length === 0 ? [] : [{ path, covers, optional: false }];
@@ -807,10 +995,11 @@ function splitFits(
   depth: number,
   gradual: boolean,
   budget: SplitBudget | undefined,
+  w: Walk,
 ): boolean {
-  const splits = splitsOf(a, domains, depth);
+  const splits = splitsOf(a, domains, depth, w);
   if (splits.length === 0) return false;
-  return casesFit(found as ValueType, a.closed, splits, 0, expected, domains, depth, gradual, budget ?? { left: MAX_SPLIT_RECORDS });
+  return casesFit(found as ValueType, a.closed, splits, 0, expected, domains, depth, gradual, budget ?? { left: MAX_SPLIT_RECORDS }, w);
 }
 
 /** This function tells if each record of the split of one field fits `expected`. It splits the next field for a record that does not fit. */
@@ -824,6 +1013,7 @@ function casesFit(
   depth: number,
   gradual: boolean,
   budget: SplitBudget,
+  w: Walk,
 ): boolean {
   const split = splits[index];
   if (split === undefined) return false;
@@ -832,7 +1022,7 @@ function casesFit(
     for (const cover of split.covers) {
       const tried = [...splits];
       tried[index] = { path: split.path, types: cover, optional: split.optional };
-      if (casesFit(type, closed, tried, index, expected, domains, depth, gradual, budget)) return true;
+      if (casesFit(type, closed, tried, index, expected, domains, depth, gradual, budget, w)) return true;
     }
     return false;
   }
@@ -841,18 +1031,20 @@ function casesFit(
   if (split.optional) cases.push(narrowAt(type, split.path, 0, undefined, domains));
   for (const [at, record] of cases.entries()) {
     budget.left -= 1;
+    // The count tells the memo of `fitsAt` that the answer of a call depends on the budget (D200).
+    w.cases += 1;
     if (budget.left < 0) return false;
     // The rules of the shapes first, then the finite rule for a closed record, then the split of the next field.
-    if (fitsAt(record, expected, domains, depth, gradual, false, budget)) continue;
-    const values = closed ? valuesOf(record, domains, depth + 1) : undefined;
+    if (fitsAt(record, expected, domains, depth, gradual, false, budget, w)) continue;
+    const values = closed ? valuesOf(record, domains, depth + 1, w) : undefined;
     if (values !== undefined) {
-      if (values.every((value) => memberAt(value, expected, domains, depth + 1))) continue;
+      if (values.every((value) => memberAt(value, expected, domains, depth + 1, w))) continue;
       return false;
     }
     // A case of a type split splits again at its path, before the next split (D90).
-    const again = split.types !== undefined && at < split.types.length ? againOf(split.types[at] as ValueType, split.path, domains, depth) : [];
+    const again = split.types !== undefined && at < split.types.length ? againOf(split.types[at] as ValueType, split.path, domains, depth, w) : [];
     const rest = again.length === 0 ? splits : [...again, ...splits.slice(index + 1)];
-    if (!casesFit(record, closed, rest, again.length === 0 ? index + 1 : 0, expected, domains, depth, gradual, budget)) return false;
+    if (!casesFit(record, closed, rest, again.length === 0 ? index + 1 : 0, expected, domains, depth, gradual, budget, w)) return false;
   }
   return true;
 }
@@ -908,7 +1100,7 @@ function casesFit(
  * @returns `true` when `found` fits `expected`.
  */
 export function fits(found: ValueType, expected: ValueType, domains?: Readonly<Record<string, Domain>>): boolean {
-  return fitsAt(found, expected, domains, 0);
+  return fitsAt(found, expected, domains, 0, true, true, undefined, newWalk());
 }
 
 /** This function sets an own field of a new record. Only the key `__proto__` needs `defineProperty`. */
@@ -923,6 +1115,7 @@ function joinRecords(
   b: Extract<Form, { readonly t: "record" }>,
   domains: Readonly<Record<string, Domain>> | undefined,
   depth: number,
+  w: Walk,
 ): ValueType {
   const closed = a.closed && b.closed;
   const fields: Record<string, ValueType> = {};
@@ -932,7 +1125,7 @@ function joinRecords(
     const inA = Object.hasOwn(a.fields, key);
     const inB = Object.hasOwn(b.fields, key);
     if (inA && inB) {
-      setOwn(fields, key, joinAt(a.fields[key], b.fields[key], domains, depth));
+      setOwn(fields, key, joinAt(a.fields[key], b.fields[key], domains, depth, w));
       if (a.optional.has(key) || b.optional.has(key)) optional.push(key);
     } else if (closed) {
       // The other record is closed, thus the field can be absent.
@@ -948,7 +1141,7 @@ function joinRecords(
  * This function makes a union of types. It puts the members of each inner union and each value of `one` together. It
  * leaves out each member that fits another member, by the strict form of `fits`.
  */
-function unionOf(types: readonly unknown[], domains: Readonly<Record<string, Domain>> | undefined, depth: number): ValueType {
+function unionOf(types: readonly unknown[], domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): ValueType {
   const members: unknown[] = [];
   const values: Json[] = [];
   let valuesAt = -1;
@@ -973,29 +1166,42 @@ function unionOf(types: readonly unknown[], domains: Readonly<Record<string, Dom
   if (valuesAt !== -1) members[valuesAt] = { one: values };
   const kept: unknown[] = [];
   for (const member of members) {
-    if (kept.some((item) => fitsAt(member, item, domains, depth, false))) continue;
-    for (let index = kept.length - 1; index >= 0; index -= 1) if (fitsAt(kept[index], member, domains, depth, false)) kept.splice(index, 1);
+    if (kept.some((item) => fitsAt(member, item, domains, depth, false, true, undefined, w))) continue;
+    for (let index = kept.length - 1; index >= 0; index -= 1) if (fitsAt(kept[index], member, domains, depth, false, true, undefined, w)) kept.splice(index, 1);
     kept.push(member);
   }
   if (kept.length === 0) return "never";
   return kept.length === 1 ? (kept[0] as ValueType) : { union: kept as ValueType[] };
 }
 
-/** This function is the join at one depth of two types. */
-function joinAt(a: unknown, b: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number): ValueType {
+/**
+ * This function is the join at one depth of two types. The walk keeps the join of each pair of terms (D200). Thus the
+ * join of two types that share their parts shares its parts too.
+ */
+function joinAt(a: unknown, b: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): ValueType {
   if (depth > MAX_TYPE_DEPTH) return "unknown";
+  if (!isObject(a) && !isObject(b)) return joinRules(a, b, domains, depth, w);
+  const known = recall(w.joins, a, b, depth);
+  if (known !== undefined) return known;
+  const answer = joinRules(a, b, domains, depth, w);
+  keep(w.joins, a, b, depth, answer);
+  return answer;
+}
+
+/** This function holds the rules of the join at one depth of two types, in their order. */
+function joinRules(a: unknown, b: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth: number, w: Walk): ValueType {
   const fa = formOf(a, domains);
   const fb = formOf(b, domains);
   if (fa.t === "top" || fb.t === "top") return "unknown";
   if (fa.t === "bottom") return b as ValueType;
   if (fb.t === "bottom") return a as ValueType;
   // The strict form keeps the join sound: a type with `unknown` inside is not under a type without it.
-  if (fitsAt(a, b, domains, depth, false)) return b as ValueType;
-  if (fitsAt(b, a, domains, depth, false)) return a as ValueType;
+  if (fitsAt(a, b, domains, depth, false, true, undefined, w)) return b as ValueType;
+  if (fitsAt(b, a, domains, depth, false, true, undefined, w)) return a as ValueType;
   const next = depth + 1;
-  if (fa.t === "list" && fb.t === "list") return { list: joinAt(fa.item, fb.item, domains, next) };
-  if (fa.t === "record" && fb.t === "record") return joinRecords(fa, fb, domains, next);
-  return unionOf([a, b], domains, next);
+  if (fa.t === "list" && fb.t === "list") return { list: joinAt(fa.item, fb.item, domains, next, w) };
+  if (fa.t === "record" && fb.t === "record") return joinRecords(fa, fb, domains, next, w);
+  return unionOf([a, b], domains, next, w);
 }
 
 /**
@@ -1020,7 +1226,7 @@ function joinAt(a: unknown, b: unknown, domains: Readonly<Record<string, Domain>
  * @returns The join.
  */
 export function join(a: ValueType, b: ValueType, domains?: Readonly<Record<string, Domain>>): ValueType {
-  return joinAt(a, b, domains, 0);
+  return joinAt(a, b, domains, 0, newWalk());
 }
 
 /** The most values of `one` that the text of a type shows. */
@@ -1039,34 +1245,66 @@ function valueText(value: unknown): string {
   return text.length > MAX_TEXT_VALUE ? `${text.slice(0, MAX_TEXT_VALUE - 1)}…` : text;
 }
 
-/** This function gives the text of a type at one depth. `wrap` puts a union or a function type in brackets. */
-function textAt(type: unknown, depth: number, wrap: boolean): string {
-  if (depth > MAX_TYPE_DEPTH) return "unknown";
-  if (typeof type === "string") return type;
+/** The most characters of the text of a type (TYPE.TEXT, D200). A longer text ends with "…". */
+const MAX_TEXT_LENGTH = 4096;
+
+/** The characters that the text of a type can still take. */
+interface Room {
+  left: number;
+}
+
+/** This function takes the characters of a text from the room, and it gives the text. */
+function take(room: Room, text: string): string {
+  room.left -= text.length;
+  return text;
+}
+
+/**
+ * This function gives the text of a type at one depth. `wrap` puts a union or a function type in brackets.
+ *
+ * Each term takes its own characters from the room before its parts, and a term never takes more than it writes. Thus
+ * a text of at most 4096 characters does not change. When the room is spent, each next term gives "…". A type that
+ * shares its parts can have a text for each way through it, and the room ends such a walk (D200).
+ */
+function textAt(type: unknown, depth: number, wrap: boolean, room: Room): string {
+  if (room.left < 0) return "…";
+  if (depth > MAX_TYPE_DEPTH) return take(room, "unknown");
+  if (typeof type === "string") return take(room, type);
   const term = isRecord(type) ? termOf(type) : undefined;
-  if (!isRecord(type) || term === undefined) return "unknown";
+  if (!isRecord(type) || term === undefined) return take(room, "unknown");
   const next = depth + 1;
   const group = (items: readonly string[]): string => (items.length === 0 ? "never" : items.length > 1 && wrap ? `(${items.join(" | ")})` : items.join(" | "));
-  if (term === "list") return `list<${textAt(type["list"], next, false)}>`;
-  if (term === "union") return Array.isArray(type["union"]) ? group((type["union"] as readonly unknown[]).map((item) => textAt(item, next, true))) : "unknown";
+  if (term === "list") {
+    room.left -= "list<>".length;
+    return `list<${textAt(type["list"], next, false, room)}>`;
+  }
+  if (term === "union") {
+    if (!Array.isArray(type["union"])) return take(room, "unknown");
+    const members = type["union"] as readonly unknown[];
+    room.left -= members.length === 0 ? "never".length : members.length === 1 ? 0 : " | ".length * (members.length - 1) + (wrap ? 2 : 0);
+    return group(members.map((item) => textAt(item, next, true, room)));
+  }
   if (term === "one") {
-    if (!Array.isArray(type["one"])) return "unknown";
+    if (!Array.isArray(type["one"])) return take(room, "unknown");
     const values = type["one"] as readonly unknown[];
     const shown = values.slice(0, MAX_TEXT_VALUES).map(valueText);
-    return group(values.length > MAX_TEXT_VALUES ? [...shown, `… ${values.length - MAX_TEXT_VALUES} more`] : shown);
+    return take(room, group(values.length > MAX_TEXT_VALUES ? [...shown, `… ${values.length - MAX_TEXT_VALUES} more`] : shown));
   }
   if (term === "fn") {
-    if (!Array.isArray(type["fn"])) return "unknown";
-    const text = `(${(type["fn"] as readonly unknown[]).map((item) => textAt(item, next, false)).join(", ")}) => ${textAt(type["to"], next, true)}`;
+    if (!Array.isArray(type["fn"])) return take(room, "unknown");
+    const params = type["fn"] as readonly unknown[];
+    room.left -= "() => ".length + ", ".length * Math.max(params.length - 1, 0) + (wrap ? 2 : 0);
+    const text = `(${params.map((item) => textAt(item, next, false, room)).join(", ")}) => ${textAt(type["to"], next, true, room)}`;
     return wrap ? `(${text})` : text;
   }
   const fields = type["record"];
-  if (!isRecord(fields)) return "unknown";
+  if (!isRecord(fields)) return take(room, "unknown");
   const optional = Array.isArray(type["optional"]) ? (type["optional"] as readonly unknown[]) : [];
-  const items = Object.keys(fields).map((key) => {
-    const name = /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key);
-    return `${name}${optional.includes(key) ? "?" : ""}: ${textAt(fields[key], next, false)}`;
-  });
+  const keys = Object.keys(fields);
+  const names = keys.map((key) => (/^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key)));
+  // The brackets, and each name with its ": ".
+  room.left -= names.reduce((sum, name) => sum + name.length + ": ".length, "{}".length);
+  const items = keys.map((key, index) => `${names[index] as string}${optional.includes(key) ? "?" : ""}: ${textAt(fields[key], next, false, room)}`);
   if (type["closed"] !== true) items.push("...");
   return `{${items.join(", ")}}`;
 }
@@ -1080,13 +1318,15 @@ function textAt(type: unknown, depth: number, wrap: boolean): string {
  * - `one` gives its values as JSON, and an empty union gives `never`.
  * - A term that is not a value type gives `unknown`.
  *
- * The text shows at most 8 values of `one`, and it cuts a long value.
+ * The text shows at most 8 values of `one`, and it cuts a long value. The text has at most 4096 characters. A longer
+ * text has 4096 characters, and it ends with "…". It can show "…" in place of other parts too (D200).
  *
  * @param type - The value type.
  * @returns The text.
  */
 export function typeText(type: ValueType): string {
-  return textAt(type, 0, false);
+  const text = textAt(type, 0, false, { left: MAX_TEXT_LENGTH });
+  return text.length > MAX_TEXT_LENGTH ? `${text.slice(0, MAX_TEXT_LENGTH - 1)}…` : text;
 }
 
 /*
@@ -1125,25 +1365,39 @@ export function callable(type: unknown, domains: Readonly<Record<string, Domain>
   return form.t === "one" && form.values.length === 0;
 }
 
-/** This function tells if a type has no `unknown` at any depth. Then `fits` decides it without the gradual rule. */
-export function isPrecise(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth = 0): boolean {
+/**
+ * This function tells if a type has no `unknown` at any depth. Then `fits` decides it without the gradual rule. The
+ * memo keeps the answer of each term at each depth, for a type that shares its parts (D200).
+ */
+export function isPrecise(type: unknown, domains: Readonly<Record<string, Domain>> | undefined, depth = 0, memo: DepthMemo<boolean> = new Map()): boolean {
   if (depth > MAX_TYPE_DEPTH) return false;
+  if (!isObject(type)) return formOf(type, domains).t !== "top";
+  const known = recallAt(memo, type, depth);
+  if (known !== undefined) return known;
   const form = formOf(type, domains);
   const next = depth + 1;
+  let answer: boolean;
   switch (form.t) {
     case "top":
-      return false;
+      answer = false;
+      break;
     case "list":
-      return isPrecise(form.item, domains, next);
+      answer = isPrecise(form.item, domains, next, memo);
+      break;
     case "record":
-      return Object.keys(form.fields).every((key) => isPrecise(form.fields[key], domains, next));
+      answer = Object.keys(form.fields).every((key) => isPrecise(form.fields[key], domains, next, memo));
+      break;
     case "fn":
-      return form.params.every((item) => isPrecise(item, domains, next)) && isPrecise(form.to, domains, next);
+      answer = form.params.every((item) => isPrecise(item, domains, next, memo)) && isPrecise(form.to, domains, next, memo);
+      break;
     case "union":
-      return form.members.every((item) => isPrecise(item, domains, next));
+      answer = form.members.every((item) => isPrecise(item, domains, next, memo));
+      break;
     default:
-      return true;
+      answer = true;
   }
+  keepAt(memo, type, depth, answer);
+  return answer;
 }
 
 /** The keys of the header of an envelope. A record with only these keys can have the form of an envelope. */
@@ -1290,6 +1544,9 @@ interface Pending {
  * base type without a domain, or a term that is too deep. `fits` and `member` read each such term as `unknown`.
  * Thus a check that reads a type from a contract can report it first.
  *
+ * A type that a host builds can share a term between two places. Such a term gives its problems one time, at its first
+ * place in the order of the term, for each depth where it is (D200).
+ *
  * @param type - The value type, as JSON.
  * @param domains - The domains of the machine. A domain of the kernel that the table does not name comes from `STD_DOMAINS`.
  * @returns The problems. A term comes before its parts, and the parts keep their order.
@@ -1297,11 +1554,17 @@ interface Pending {
 export function typeIssues(type: unknown, domains?: Readonly<Record<string, Domain>>): readonly TypeIssue[] {
   const issues: TypeIssue[] = [];
   const stack: Pending[] = [{ type, at: [], depth: 0 }];
+  const seen = new Map<object, Set<number>>();
   while (stack.length > 0) {
     const { type: here, at, depth } = stack.pop() as Pending;
     const issue = (reason: string, where: readonly Key[] = at): void => {
       issues.push({ at: where, reason });
     };
+    if (isObject(here)) {
+      const depths = seen.get(here) ?? new Set<number>();
+      if (depths.has(depth)) continue;
+      seen.set(here, depths.add(depth));
+    }
     if (depth > MAX_TYPE_DEPTH) {
       issue(`The value type is deeper than ${MAX_TYPE_DEPTH} terms.`);
       continue;
