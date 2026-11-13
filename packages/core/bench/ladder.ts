@@ -32,6 +32,8 @@
  * script imports `@mark1russell7/rigor-statistics` (D114). The workflow `measure.yml` runs the ladder in CI, because
  * a shared machine gives unreliable numbers.
  *
+ * The time verdict reads a band around 1, because the collector of the heap adds a small slope on a real machine (D205).
+ *
  * The mode `merge` prints the gate of the verdicts as report only (K227, D164). With `LADDER_BLOCK=1`, a block gives the
  * exit code 3. It also prints the smallest slope that gives a block with the spread of its own runs. Under that size, it
  * has no read. With `LADDER_INJECT=s`, each call walks more levels, so the levels of one call grow as `n^s`. The count of
@@ -93,8 +95,15 @@ const AA_STEP = 4;
 const PASSES = 5;
 /** The rounds before the measures. Their times do not count. They give the compiler the same code for each rung. */
 const WARM_ROUNDS = 2;
-/** The claim is linear when the interval contains 1 and its upper end is less than this value. */
+/** The claim is linear when the interval meets the band of `BAND` and its upper end is less than this value. */
 const UPPER = 1.2;
+/**
+ * The time verdict reads the band from `1 - BAND` to `1 + BAND`, not the point 1 (D205). On a CI runner, a walk with a
+ * linear count of steps reads a time slope of up to 1.027, because the collector of the heap does more work in a larger
+ * heap. The value is the worst slope of 10 counted runs minus 1, plus the spread of those runs, for the walk with the
+ * largest sum. The runs are the 5 jobs `ladder` and the 5 linear jobs of `ladder-plain` of the Measure run 43350977054.
+ */
+const BAND = 0.052;
 /**
  * The one-sided quantile of 0.95 of the t distribution for 1 to 10 degrees of freedom: a 90 % interval.
  *
@@ -128,9 +137,9 @@ function fixed(value: number, digits = 3): number {
  * `verdict`, `memoryVerdict` and `counts` stay here.
  */
 
-/** This function gives the verdict of an interval: linear when it contains 1 and its upper end is under `UPPER`. */
+/** This function gives the verdict of an interval: linear when it meets the band of `BAND` and its upper end is under `UPPER`. */
 function verdict(low: number, high: number): string {
-  return low <= 1 && high >= 1 && high < UPPER ? "linear" : "not linear";
+  return low <= 1 + BAND && high >= 1 - BAND && high < UPPER ? "linear" : "not linear";
 }
 
 /**
@@ -194,6 +203,17 @@ function panels(levels: number, ref: boolean): unknown {
 }
 
 /**
+ * This function gives a panel with one inner panel of `size` boxes, then `size` boxes whose width is a reference to the
+ * inner panel. Each reference reads the JSON of one large node (K256, TREE.GRAPH-JSON).
+ */
+function shared(size: number): unknown {
+  const boxes = Array.from({ length: size }, () => ({ type: "box", value: { width: 1 } }));
+  const ref = { type: "ref", value: ["self", "parent", "children", 0] };
+  const readers = Array.from({ length: size }, () => ({ type: "box", value: { width: ref } }));
+  return { type: "panel", value: { children: { type: "list", value: [{ type: "panel", value: { children: { type: "list", value: boxes } } }, ...readers] } } };
+}
+
+/**
  * This function gives the fault of a flip test: a call that walks its document `times` more times, then a shorter document.
  * No document is deeper than its rung, so the fault does not reach the limit of the stack (K227, D164).
  */
@@ -205,10 +225,10 @@ function faulted(call: (doc: unknown) => number, times: number, rest: unknown): 
   };
 }
 
-/** This function gives the smallest true slope that the time verdict tells from 1: the interval leaves 1 or passes `UPPER`. */
+/** This function gives the smallest true slope that the time verdict blocks: the interval leaves the band or passes `UPPER`. */
 function seenTime(low: number, high: number): number {
   const half = (high - low) / 2;
-  return fixed(Math.min(1 + half, UPPER - half));
+  return fixed(Math.min(1 + BAND + half, UPPER - half));
 }
 
 /** This function gives the smallest true slope that the memory verdict blocks: the upper end passes `UPPER`. */
@@ -269,6 +289,8 @@ async function measure(): Promise<void> {
     { name: "check tree", make: (n) => panels(quarter(n), false), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
     // The same tree, and the root reads the JSON of its first child.
     { name: "check tree ref", make: (n) => panels(quarter(n), true), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
+    // A wide tree: n / 4 references to one node of n / 4 boxes. Each reference reads one JSON vertex (K256, TREE.GRAPH-JSON).
+    { name: "check shared", make: (n) => shared(quarter(n)), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
   ];
   const docs = walks.map((walk) => steps.map((step) => walk.make(step * base)));
   const results: WalkRun[] = [];
@@ -424,7 +446,7 @@ function merge(files: readonly string[]): void {
     "",
     "The pooled interval is the 5th to the 95th percentile of the slopes of all rounds of the counted runs. The verdict reads it.",
     "The interval of the runs is the mean of the medians of the counted runs, plus or minus t times the standard error (90 %).",
-    `The claim is linear when the pooled interval contains 1.0 and its upper end is less than ${UPPER}.`,
+    `The claim is linear when the pooled interval meets the band ${(1 - BAND).toFixed(3)} to ${(1 + BAND).toFixed(3)} (D205), and its upper end is less than ${UPPER}.`,
     "",
     "| Walk | Slope of each counted run | Pooled slope | Pooled 90 % interval | Interval of the runs | Pooled A/A (90 %) | Verdict |",
     "| --- | --- | ---: | ---: | ---: | ---: | --- |",
