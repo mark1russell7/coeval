@@ -1,7 +1,35 @@
-import { useId } from "react";
-import type { Json } from "@mark1russell7/coeval";
+import { Fragment, useId, useState } from "react";
+import { docEquals, type Json } from "@mark1russell7/coeval";
 import type { DataEditor, Editor } from "../lib/contract.ts";
 import { isHole } from "../lib/contract.ts";
+import { dataField, dataText, dropStep, followData, followPath, numberOfText, pathField, readPath, typeNumber, typePath, type NumberEditor, type PathField } from "../lib/fields.ts";
+import { stepText } from "../lib/moves.ts";
+
+/**
+ * The input of a number. It keeps the text that the reader types, and it writes a value only when the text is a number
+ * of the contract. Thus an empty field stays empty, and the document keeps its last number (K274, D214).
+ */
+function NumberInput({ editor, value, onValue }: { readonly editor: NumberEditor; readonly value: Json | undefined; readonly onValue: (next: Json) => void }) {
+  const [field, setField] = useState(() => dataField(value));
+  const shown = followData(field, value);
+  if (shown !== field) setField(shown);
+  return (
+    <input
+      type="number"
+      value={shown.text}
+      step={editor.whole ? 1 : "any"}
+      min={editor.min}
+      max={editor.max}
+      aria-invalid={shown.text.trim() !== "" && numberOfText(shown.text, editor) === undefined}
+      onChange={(event) => {
+        const next = typeNumber(shown, event.target.value, editor);
+        setField(next);
+        if (next.value !== undefined && !docEquals(next.value, shown.value)) onValue(next.value);
+      }}
+      onBlur={() => setField(dataField(shown.value))}
+    />
+  );
+}
 
 /** One input for data, from a shape of a contract. */
 function DataInput({ editor, label, value, onValue }: { readonly editor: DataEditor; readonly label: string; readonly value: Json | undefined; readonly onValue: (next: Json) => void }) {
@@ -16,13 +44,10 @@ function DataInput({ editor, label, value, onValue }: { readonly editor: DataEdi
             </option>
           ))}
         </select>
+      ) : editor.form === "number" ? (
+        <NumberInput editor={editor} value={value} onValue={onValue} />
       ) : (
-        <input
-          type={editor.form}
-          value={typeof value === "number" || typeof value === "string" ? String(value) : ""}
-          {...(editor.form === "number" ? { step: editor.whole ? 1 : "any", min: editor.min, max: editor.max } : {})}
-          onChange={(event) => onValue(editor.form === "number" ? Number(event.target.value) : event.target.value)}
-        />
+        <input type="text" value={dataText(value)} onChange={(event) => onValue(event.target.value)} />
       )}
     </label>
   );
@@ -46,32 +71,61 @@ export interface ContractEditorProps {
   readonly onClearField: (key: string) => void;
 }
 
-/** The editor of a reference: the keys of its path, and a button for each name that the scope binds here. */
+/**
+ * The editor of a reference: the keys of its path, and a button for each name that the scope binds here. The field
+ * keeps the text that the reader types, and it reads the text on blur or Enter. A step that no text holds, for example
+ * a step document, is a chip between two texts (K274, D214).
+ */
 function PathEditor({ value, names, onValue }: Pick<ContractEditorProps, "value" | "names" | "onValue">) {
   const help = useId();
+  const first = useId();
   const path = Array.isArray(value) ? (value as readonly Json[]) : [];
+  const [field, setField] = useState(() => pathField(path));
+  const shown = followPath(field, path);
+  if (shown !== field) setField(shown);
+  const use = (next: PathField): void => {
+    setField(next);
+    if (!docEquals(next.path, path)) onValue(next.path);
+  };
   return (
     <>
-      <label className="cv-field-edit">
-        <span>Path</span>
-        <input
-          type="text"
-          aria-describedby={help}
-          value={path.map((step) => (typeof step === "object" ? "…" : String(step))).join(", ")}
-          onChange={(event) =>
-            onValue(
-              event.target.value
-                .split(",")
-                .map((step) => step.trim())
-                .filter((step) => step !== "")
-                .map((step) => (/^\d+$/.test(step) ? Number(step) : step)),
-            )
-          }
-        />
+      <div className="cv-field-edit">
+        <label htmlFor={first}>Path</label>
+        <div className="cv-path-edit">
+          {shown.texts.map((text, index) => {
+            const step = index === 0 ? undefined : shown.steps[index - 1];
+            const name = step === undefined ? undefined : stepText(step);
+            return (
+              <Fragment key={index}>
+                {name !== undefined && (
+                  <>
+                    <span className="ce-chip" title={JSON.stringify(step)}>
+                      {name}
+                    </span>
+                    <button type="button" className="ce-btn" aria-label={`Remove the step ${name}`} onClick={() => use(dropStep(shown, index - 1))}>
+                      ×
+                    </button>
+                  </>
+                )}
+                <input
+                  type="text"
+                  {...(index === 0 ? { id: first } : { "aria-label": `The keys after the step ${name ?? ""}` })}
+                  aria-describedby={help}
+                  value={text}
+                  onChange={(event) => setField(typePath(shown, index, event.target.value))}
+                  onBlur={() => use(readPath(shown))}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") use(readPath(shown));
+                  }}
+                />
+              </Fragment>
+            );
+          })}
+        </div>
         <span id={help} className="cv-small cv-muted" style={{ gridColumn: "2" }}>
-          A root (self, names, world, event or caps), then the keys, with a comma between them.
+          A root (self, names, world, event or caps), then the keys, with a comma between them. Press Enter or leave the field to use the text.
         </span>
-      </label>
+      </div>
       {names.length > 0 && (
         <div className="ce-bar-group" role="group" aria-label="The names at this place">
           <span className="cv-small cv-muted">Names at this place</span>
