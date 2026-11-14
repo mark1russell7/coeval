@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { type Context, type Effect, type Json, type Kind, type Machine, type RunPart, type Runner, STD_MACHINE, agree, agreeRun, check, effectsOf, evaluate, makeContext, permits, reference, referenceRun, run } from "./index.ts";
+import {
+  type Cap,
+  type Context,
+  type Effect,
+  type Json,
+  type Kind,
+  type Machine,
+  type RunPart,
+  type Runner,
+  STD_MACHINE,
+  agree,
+  agreeRun,
+  check,
+  effectsOf,
+  evaluate,
+  intersectCaps,
+  makeContext,
+  narrow,
+  permits,
+  reference,
+  referenceRun,
+  run,
+} from "./index.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
 const num = (value: number): Json => ({ type: "number", value });
@@ -9,7 +31,7 @@ const handle = (clauses: Json[], body: Json, more: Record<string, Json> = {}): J
 const answers = (op: string, doc: Json): Json => ({ op: [op], do: doc });
 
 /** The run of a document in the plan and in the reference, which agree. */
-async function both(doc: Json, caps: readonly string[] = [], machine: Machine = STD_MACHINE): Promise<{ readonly value: unknown; readonly host: readonly unknown[] }> {
+async function both(doc: Json, caps: readonly Cap[] = [], machine: Machine = STD_MACHINE): Promise<{ readonly value: unknown; readonly host: readonly unknown[] }> {
   const host: unknown[] = [];
   const perform = (effect: Effect): unknown => {
     host.push([effect.kind, effect.payload]);
@@ -223,5 +245,50 @@ describe("the kind handle", () => {
     const model = await referenceRun(STD_MACHINE, doc, context, { effects });
     expect(plan.result).toEqual(model);
     expect(plan.effects.map((effect) => effect.address)).toEqual(effects.map((effect) => effect.address));
+  });
+});
+
+describe("the capability with no keys", () => {
+  const write = (key: string, value: Json): Json => ({ type: "write", value: { key, value } });
+  const EACH: readonly Cap[] = [[]];
+  const doc = seq(log(num(1)), write("a", num(2)), num(3));
+
+  it("[CAP.EACH] permits each kind, and an empty text is one key, not the capability with no keys", () => {
+    expect(permits(EACH, "log")).toBe(true);
+    expect(permits(EACH, ["fs", "read.json"])).toBe(true);
+    expect(permits(EACH, [])).toBe(true);
+    expect(permits([""], "log")).toBe(false);
+    expect(permits(["log"], [])).toBe(false);
+  });
+
+  it("[CAP.EACH] [CAP.MEET] the meet with the capability with no keys is the other list", () => {
+    const list: readonly Cap[] = ["log", ["fs", "read.json"]];
+    expect(intersectCaps(list, EACH)).toBe(list);
+    expect(intersectCaps(EACH, list)).toEqual(list);
+    expect(intersectCaps(EACH, EACH)).toEqual(EACH);
+    const parent = makeContext({}, EACH);
+    expect(narrow(parent, { ...parent, caps: ["log"] }).caps).toEqual(["log"]);
+    expect(narrow(makeContext({}, ["log"]), { ...parent, caps: EACH }).caps).toEqual(["log"]);
+  });
+
+  it("[CAP.EACH] a run gives the host each effect, and the plan, the traced plan and the reference agree", async () => {
+    expect(await both(doc, EACH)).toEqual({ value: 3, host: [["log", 1], ["write", { key: "a", value: 2 }]] });
+    expect(await both(doc)).toEqual({ value: "#CAP!", host: [] });
+    expect(await both(doc, ["log"])).toEqual({ value: "#CAP!", host: [["log", 1]] });
+  });
+
+  it("[CAP.EACH] check and effectsOf permit each declared effect", () => {
+    expect(check(STD_MACHINE, doc, { caps: EACH }).filter((issue) => issue.code === "#CAP!")).toEqual([]);
+    expect(check(STD_MACHINE, doc, { caps: ["log"] }).filter((issue) => issue.code === "#CAP!").length).toBe(1);
+    expect(effectsOf(STD_MACHINE, doc, { caps: EACH })).toEqual(["log", "write"]);
+    expect(effectsOf(STD_MACHINE, doc, { caps: ["log"] })).toEqual(["log"]);
+  });
+
+  it("[CAP.EACH] [HANDLE.DEEP] a clause with the op of no keys answers each effect, as the capability permits each kind", async () => {
+    const all = handle([{ op: [], do: num(7) }], doc);
+    expect(await both(all)).toEqual({ value: 3, host: [] });
+    expect(check(STD_MACHINE, all).filter((issue) => issue.code === "#CAP!")).toEqual([]);
+    expect(agree(STD_MACHINE, all).ok).toBe(true);
+    expect(evaluate(STD_MACHINE, all).result).toEqual(reference(STD_MACHINE, all));
   });
 });

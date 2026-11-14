@@ -5843,6 +5843,34 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 
 **SemVer.** No export of the package changes.
 
+## D209 (2026-11-12): the two walks of the type check in the ladder take a quarter of the levels
+
+**Context.** K300, from K257 (D201). K257 added two walks to the ladder: the type check of a sequence of named steps, and the type check of a nest of binders. Both used the levels of the chain, N to 8N with N = 250.
+
+A step of the type check costs much more than a level of the chain. In Measure run 43355754865 (head 57f754a), the two walks took 52 and 72 ms a round at the top rung of 2000 levels. The five other walks took 52 ms together. Thus each step of a walk in a job of the ladder took approximately 3.3 times as long as before. The linear step of `ladder-plain` run 3 took 278 s, against 85 s in Measure run 43355266862 (head 1dead60). The five other walks ran at the same speed on both heads, thus the runner was not slower. The jobs of the ladder are the critical path of Measure, and Measure is a check of each PR.
+
+**Decision.**
+
+- The two walks take a quarter of the levels of each rung: N / 4 to 2N, with `quarter(n)`, as the walks of `check` do (D202).
+- The band of D205, the rungs, the rounds and the verdict do not change.
+
+**Alternatives.**
+
+- Half of the levels. A local probe gave about the same slopes at half and at a quarter, and a quarter saves more time.
+- Fewer rounds for the two walks. The rounds are common to all walks in a pass, thus the change touches the design of D97.
+- More jobs at once. The shared limit of the runners is 3 jobs at once for each matrix.
+
+**Why.** The verdict reads the slope, not the size. A quarter of the levels keeps the slope of a fault in view. On the source before K257, a local probe at a quarter of the levels gave slopes of 1.57 (steps) and 1.39 (binders). Both are far over the band.
+
+On the source of K257, the same probe gave slopes from 0.94 to 1.15 at a quarter and from 0.98 to 1.07 at full levels. The local machine is shared, thus these local slopes are noisy. The bottom rung takes approximately 1 ms, as the bottom rung of the walks of `check` does.
+
+**Limits.**
+
+- The Measure run of the first head gives the slopes of the two walks on a CI runner. If their verdict is not linear, they take half of the levels.
+- A fault with a large constant and a small slope is less visible in a smaller document. The flip of the ladder still tests the gate with a fault of known slope.
+
+**Results.** The Measure run of the PR gives the step times and the slopes.
+
 ## D211 (2026-11-13): `check` splits the value of each document one time in each walk
 
 **Context.** K297, after D205. The ladder arm `check shared` allocated approximately 35 KB for each node at 2000 levels. A larger heap gives more work to the collector of the heap, and its share grew with the size (D205).
@@ -5903,3 +5931,41 @@ Each split made five closures. The ladder in CI uses tsx, and tsx gives each clo
 At 2000 levels under tsx, `check shared` allocated approximately 34 KB for each node before the change, and approximately 14 KB after it. The issues and the graph of 5 documents with issues and without issues have the same digests before and after.
 
 **SemVer.** PATCH. No export of the package changes, and no result changes.
+
+## D213 (2026-11-13): an open fixed point keeps each tentative result for its round
+
+**Context.** K265, from a review. D113 says that each attribute that read an approximation evaluates again at its next demand. Thus a value from an approximation does not stay as a final value. But the fixed point also kept no value for the current round. Thus two readers in one round evaluated a plain attribute two times, and each evaluation evaluated its own tentative reads again.
+
+- A chain of k plain attributes with two readers at each level evaluated the last attribute 2^k times in each round.
+- The work limit counts the applications of closures, the nodes that an equation makes and the second visits of JSON (WORK.LIMIT). Thus no `#WORK!` stopped such a chain.
+- A chain of 40 levels, in a document of approximately 2.5 KB, did not end in a practical time. Its value was correct when it came.
+- Both tiers had the fault, thus `agree` did not find it.
+
+The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial.
+
+**Decision.**
+
+- The values of an open fixed point also keep each result that read an approximation, with the number of its round (TREE.CIRCULAR-ONCE). In the plan, these values are `loop.values`. In the reference, they are `point.values`.
+- A second demand in the same round gets the kept result. That demand also reads an approximation, thus its own result is not final.
+- The next round evaluates the attribute again, because the kept result has the number of an earlier round.
+- Thus one memo with the number of the round holds the tentative results and the approximations of the circular attributes.
+- A stable fixed point writes only its circular attributes to the memo of their nodes, as before. Each other attribute that read an approximation evaluates again at its next demand after the fixed point (D113).
+- An instance of `tree.at` follows the same rule. With the cells of a host, an open fixed point also keeps a final instance until it ends. D113 already did this for a final plain attribute.
+- TREE.ONCE names the new row.
+
+**Alternatives.**
+
+- A point of work for each climb of the ladder in an open fixed point. Then `#WORK!` stops the chain, but the work below the limit stays exponential. A legal document of medium size then also gives `#WORK!`.
+- A final value for each attribute of the last round. That changes D113 and TREE.CIRCULAR-CELL, and K265 does not need it.
+- A record of the approximations that each tentative result read, and a new evaluation only when one of them changes. In a round, each circular attribute has one value (D113). Thus a second evaluation reads the same values, and the record gives no gain.
+
+**Why.** A circular attribute already evaluates one time in each round (D113). With D213, the same memo with the number of the round serves each attribute of the fixed point. In one round, the first evaluation of a tentative result sets the value of the round of each circular attribute that it reads. A second evaluation reads the same values, thus the memo gives the same result. The exception is a `#CYCLE!`, because its chain comes from the demands in evaluation (Limits).
+
+**Limits.**
+
+- A plain attribute that read an approximation still evaluates one more time after the fixed point, at its next demand (D113). Thus it evaluates one time in each round and one time after the rounds.
+- The kept result is the first result of the round. When that result is a `#CYCLE!` of a mixed cycle, a second reader in the round gets the same error and the same chain. Before, the second reader evaluated the attribute again. That evaluation found the cycle again with its own chain, or found no cycle when the attribute of the cycle had ended. Outside a fixed point, the plain memo already gave the first result to each reader (TREE.ONCE).
+- `markTentative` and `readApproximation` visit each demand above the leader at each read of an approximation. Thus a chain of n levels takes approximately n² steps in each round. That is polynomial.
+- An evaluator of the host in a fixed point gets fewer calls. A document that gave `#WORK!` for this work can give a value with D213.
+
+**SemVer.** No export changes. But the chain of a `#CYCLE!` in a mixed cycle can change, and an evaluator of the host gets fewer calls. A document that gave `#WORK!` can give a value. Thus the change counts as breaking: MINOR before 1.0.0.

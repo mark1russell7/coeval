@@ -9,10 +9,11 @@
  * `op("add", doc, 1)`. In each round, it fits the slope of log t against log n by least squares. A linear walk gives
  * a slope of 1, and a walk of the square of the size gives 2.
  *
- * Two more walks read the names of the scope rules (K257, D201). The type check reads a sequence of N to 8N named
- * steps, where each step reads the name of the step before it. It also reads a nest of N to 8N binders: `let`, and at
- * each tenth level a function that a call applies. Each level binds `x` again. Before K257, both documents gave each
- * part a copy of its names, thus a time and a memory of the square of the size.
+ * Two more walks read the names of the scope rules (K257, D201). The type check reads a sequence of N / 4 to 2N named
+ * steps, where each step reads the name of the step before it. It also reads a nest of N / 4 to 2N binders: `let`, and
+ * at each tenth level a function that a call applies. Each level binds `x` again. Before K257, both documents gave
+ * each part a copy of its names, thus a time and a memory of the square of the size. A step of the type check costs
+ * more than a level of the chain, thus these walks take a quarter of the levels, as the walks of `check` do (D209).
  *
  * All rungs run in one process, in turns. Each round has some passes, and each pass measures each arm one time. The
  * order of the arms turns by one place in each pass, and it goes back to front in each second round. Thus no rung
@@ -321,9 +322,10 @@ async function measure(): Promise<void> {
     { name: "check tree ref", make: (n) => panels(quarter(n), true), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
     // A wide tree: n / 4 references to one node of n / 4 boxes. Each reference reads one JSON vertex (K256, TREE.GRAPH-JSON).
     { name: "check shared", make: (n) => shared(quarter(n)), call: (doc) => kernel.check(deep, doc).length, work: (doc) => kernel.attributeGraph(deep, doc).edges.length },
-    // The names of the scope rules, through the check and the type check (K257, D201).
-    { name: "typeCheck of steps", make: sequence, call: (doc) => kernel.typeCheck(kernel.STD_MACHINE, doc).places.length },
-    { name: "typeCheck of binders", make: binders, call: (doc) => kernel.typeCheck(formulas, doc, { declaredType: "lit" }).places.length },
+    // The names of the scope rules, through the check and the type check (K257, D201). A step of the type check costs
+    // more than a level of the chain, thus a rung of n levels has n / 4 steps or binders (D209).
+    { name: "typeCheck of steps", make: (n) => sequence(quarter(n)), call: (doc) => kernel.typeCheck(kernel.STD_MACHINE, doc).places.length },
+    { name: "typeCheck of binders", make: (n) => binders(quarter(n)), call: (doc) => kernel.typeCheck(formulas, doc, { declaredType: "lit" }).places.length },
   ];
   const docs = walks.map((walk) => steps.map((step) => walk.make(step * base)));
   const results: WalkRun[] = [];
