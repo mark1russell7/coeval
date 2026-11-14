@@ -5997,6 +5997,8 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - The ladder runs with `--min-semi-space-size=64` and `--max-semi-space-size=64`. The script starts itself again with these flags when its process does not have them. Each run prints the size of the new space of V8, and its record keeps it.
 - The largest arm allocates approximately 33 MB in one call. With a semi-space of 64 MB, no object of one call lives through two scavenges.
 - One full collection by `gc()` follows the documents and goes before the first round. It moves each document to the old generation in the order of its addresses.
+- One full collection by `gc()` also goes before each timed pass. Thus each pass starts with the same heap, and each collection in a pass comes from the arm of that pass.
+- With `LADDER_TRACE=1`, the ladder records each collection of V8 in each timed pass. The flip sets it, and its job keeps the run files as the artifact `ladder-flip`.
 - The range of rigor-statistics in the package goes to `^0.1.29`, the version of the lock file, because `medianInterval` and `tQuantile` are new.
 
 **Alternatives.**
@@ -6005,6 +6007,9 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - The walk of steps at the full levels again. Its fault rows then take 8 times the time of its top rung, and the job of the flip has a limit of 10 minutes.
 - A semi-space of 1 MB. Then each arm moves most objects of a call to the old generation, and the ladder measures the old generation, not the walk.
 - The interval of the runs as the interval of the verdict. It has no value for one run, thus the flip row cannot read it.
+
+- The time of the collections taken out of each pass. Then the verdict depends on a record that Node gives in a later turn of the event loop. Also, a pass still starts with the garbage of the arm before it.
+- A minor collection before each pass. It empties the young generation, but the old generation still grows with the arms before the pass. In the traced run, the other collections changed the A/A ratio of `refsOf`.
 
 **Why.** STATIC.LINEAR is a claim about the slope. An interval of the median reads that slope, and it gets narrower with more rounds. A young generation of a fixed size keeps the cost of the collector of one call the same at each rung and in each process. The smallest slope that the rule of D205 blocks is the lower of `1.052 + half` and `1.2 - half`. With the interval of the median, the half width is 0.006 to 0.025 in most runs. Thus a walk of `n ln n` with the slope 1.154 gets a block.
 
@@ -6021,6 +6026,15 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - In D97, the A/A bands were 0.843 to 1.203. With the fixed young generation, most bands are narrower, and an offset of 3 % to 5 % of one document shows.
 - After the documents of the ladder are made, a local process with the flags of this decision has approximately 4.9 MB in the new space. One `gc()` moves all of it to the old space.
 - Thus the collection before the first round gives the two documents of 4N levels the same conditions. The next Measure run tells if it removes the offset.
+
+**Measures of the trace (2026-11-14).** The Measure run 43641276978 traced each pass of the flip on an AMD EPYC 7763, before the collection before each pass.
+
+- Each row counted its first run. In the row of slope 2, the A/A ratio of `refsOf` was 0.909, with the band 0.813 to 1.010.
+- In that row, the first document of 4N levels had 38 scavenges and 2 other collections, 3.261 ms for each call. The second had 35 scavenges and no other collection, 1.808 ms for each call.
+- Without the time of the collections of each pass, the A/A ratio of `refsOf` was 1.003.
+- In each row, the A/A ratio of `check shared` in the reverse rounds was 1.29 to 1.34. Without the time of the collections, it was 1.004 to 1.037.
+- Thus the collections of a pass changed the A/A ratios. A pass got the collections of the garbage of the arms before it.
+- The linear row read the slope of `typeCheck of steps` as 0.981, with the interval 0.893 to 1.021.
 
 **SemVer.** No export of the package changes.
 

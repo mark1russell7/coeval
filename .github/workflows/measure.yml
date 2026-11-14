@@ -270,8 +270,10 @@ jobs:
     needs: ladder-changes
     if: needs.ladder-changes.outputs.match == 'true'
     runs-on: ubuntu-latest
-    # Three rows of up to 3 runs each took 9 min 40 s in the Measure run 43635689656 (K302).
-    timeout-minutes: 15
+    # Three rows of up to 3 runs each took 9 min 40 s in the Measure run 43635689656 (K302). A full collection before
+    # each timed pass adds 2,100 collections to each run. The memory phase makes 2,160 of them, and it took 36 to 117 s
+    # in the Measure run 43641276978.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pnpm version comes from "packageManager" in package.json

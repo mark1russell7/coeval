@@ -26,6 +26,12 @@
  * its addresses. Without it, all documents are in the young generation at the first round, and the scavenges of the
  * first rounds copy them. In the Measure run 43628377137, the A/A band of `refsOf` was then 0.923 to 0.977.
  *
+ * One full collection by `gc()` also goes before each timed pass (K302). Thus each pass starts with the same heap, and
+ * each collection in a pass comes from the arm of that pass. Without it, a pass got the collections of the garbage of
+ * the arm before it. In the flip row of slope 2 of the Measure run 43641276978, the A/A ratio of `refsOf` was 0.909, and
+ * 1.003 without the time of the collections. One pass of a linear walk allocates approximately the same bytes at each
+ * rung, 12 to 34 MB, and a semi-space has 64 MB. The trace of the flip gives the collections in each pass.
+ *
  * STATIC.LINEAR also says that a walk takes memory linear in the size of the document (K209, D105). After all timed
  * rounds, a second phase measures the bytes that one call allocates, in calls of their own. Thus the timed passes keep
  * the conditions of D97. The only flags of V8 at the start set the size of the young generation (D215). Each measured
@@ -565,6 +571,8 @@ async function measure(): Promise<void> {
       for (const index of orderOf(round, pass, arms.length)) {
         const arm = arms[index] as (typeof arms)[number];
         const count = calls[arm.d] as number;
+        // Each pass starts with the same heap (K302). The trace counts this collection between two passes.
+        gc();
         const opened = log === undefined ? 0 : performance.now();
         const start = process.hrtime.bigint();
         for (let call = 0; call < count; call += 1) arm.call(arm.doc);
