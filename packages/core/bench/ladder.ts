@@ -52,6 +52,11 @@
  * has no read. With `LADDER_INJECT=s`, each call walks more levels, so the levels of one call grow as `n^s`. The count of
  * calls does not change, so the fault of a flip keeps the setting of the plain gate.
  *
+ * With `LADDER_TRACE=1`, the script records each collection of V8 that starts in a timed pass (K302). The observer of
+ * Node gives the collections after the rounds, and the start of each collection puts it in one pass. The run file then
+ * has the time, the collections and their milliseconds of each pass, and the summary has one more table. It shows the
+ * A/A ratio of the forward rounds, of the reverse rounds, and of the time without the collections.
+ *
  * The statistics come from `@mark1russell7/rigor-statistics`: the median and its interval, the quantiles, the least
  * squares fit, the mean, the standard deviation and the t quantile (D114, D215). The verdicts stay here, because the
  * shared packages do not have them. A comment names the issue of each gap.
@@ -60,6 +65,7 @@ import { leastSquares, mean, median, medianInterval, quantile, sd, tQuantile } f
 import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
+import { constants as perfConstants, PerformanceObserver, type PerformanceEntry } from "node:perf_hooks";
 import { getHeapSpaceStatistics } from "node:v8";
 import { allocated, exposedGc } from "./memory.ts";
 
@@ -102,6 +108,50 @@ interface LadderRun {
   /** The median bytes of an empty measure, across the rounds. The bytes of each walk do not include them. */
   readonly baseBytes: number;
   readonly walks: readonly WalkRun[];
+  /** The collections of V8 in the timed passes, with `LADDER_TRACE=1` (K302). */
+  readonly trace?: Trace;
+}
+
+/**
+ * The record of one arm with `LADDER_TRACE=1` (K302). Each list has one entry for each counted round, and each entry has
+ * one value for each pass, in the order of the passes.
+ */
+interface TraceArm {
+  readonly walk: string;
+  readonly step: number;
+  /** True for the second document of the A/A rung. */
+  readonly second: boolean;
+  /** The calls of one pass. */
+  readonly calls: number;
+  /** The time of one call in each pass, in nanoseconds. */
+  readonly ns: readonly (readonly number[])[];
+  /** The scavenges that start in each pass. */
+  readonly minor: readonly (readonly number[])[];
+  /** The other collections that start in each pass. */
+  readonly other: readonly (readonly number[])[];
+  /** The milliseconds of the collections that start in each pass. */
+  readonly gcMs: readonly (readonly number[])[];
+}
+
+/** The collections of V8 in the timed rounds of one run (K302). */
+interface Trace {
+  readonly arms: readonly TraceArm[];
+  /** The collections that start between two timed passes, from the start of the first pass to the end of the last pass. */
+  readonly between: { readonly count: number; readonly ms: number };
+}
+
+/** The passes of the timed rounds and the collections of V8, as the trace records them (K302). */
+interface TraceLog {
+  /** `windows[2 b]` and `windows[2 b + 1]`: the start and the end of pass `b`, from `performance.now()`. */
+  readonly windows: Float64Array;
+  /** The arm of each pass. */
+  readonly owners: Int32Array;
+  /** The time of one call in each pass, in nanoseconds. */
+  readonly ns: Float64Array;
+  /** The count of the recorded passes. */
+  size: number;
+  readonly entries: PerformanceEntry[];
+  readonly observer: PerformanceObserver;
 }
 
 /** The steps of the rungs, as multiples of N. */
@@ -295,6 +345,145 @@ function injectedSlope(): number | undefined {
   return slope;
 }
 
+/** This function starts the record of the collections of V8 for `passes` timed passes (K302). */
+function startTrace(passes: number): TraceLog {
+  const entries: PerformanceEntry[] = [];
+  const observer = new PerformanceObserver((list) => {
+    entries.push(...list.getEntries());
+  });
+  observer.observe({ entryTypes: ["gc"] });
+  return { windows: new Float64Array(passes * 2), owners: new Int32Array(passes), ns: new Float64Array(passes), size: 0, entries, observer };
+}
+
+/** This function records one timed pass. It reads the end of the pass from `performance.now()`. */
+function recordPass(log: TraceLog, opened: number, owner: number, ns: number): void {
+  const end = performance.now();
+  log.windows[log.size * 2] = opened;
+  log.windows[log.size * 2 + 1] = end;
+  log.owners[log.size] = owner;
+  log.ns[log.size] = ns;
+  log.size += 1;
+}
+
+/**
+ * This function stops the record. Node gives each collection to the observer in a later turn of the event loop, and
+ * the rounds do not give a turn. Thus it waits for some turns, then it takes the records that the observer still holds.
+ */
+async function stopTrace(log: TraceLog): Promise<void> {
+  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  log.entries.push(...log.observer.takeRecords());
+  log.observer.disconnect();
+}
+
+/** This function gives the pass that holds the time `at`, or -1 when no pass holds it. */
+function passAt(log: TraceLog, at: number): number {
+  let low = 0;
+  let high = log.size - 1;
+  let found = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if ((log.windows[middle * 2] as number) <= at) {
+      found = middle;
+      low = middle + 1;
+    } else high = middle - 1;
+  }
+  return found !== -1 && at < (log.windows[found * 2 + 1] as number) ? found : -1;
+}
+
+/** This function puts each collection in its pass, and gives the record of the counted rounds (K302). */
+function traceOf(
+  log: TraceLog,
+  arms: readonly { readonly w: number; readonly d: number }[],
+  names: readonly string[],
+  steps: readonly number[],
+  calls: readonly number[],
+  rounds: number,
+): Trace {
+  const grid = (): number[][][] => arms.map(() => Array.from({ length: rounds }, () => new Array<number>(PASSES).fill(0)));
+  const [ns, minor, other, gcMs] = [grid(), grid(), grid(), grid()];
+  const place = (pass: number): { readonly round: number; readonly at: number; readonly owner: number } => ({
+    round: Math.floor(pass / (PASSES * arms.length)) - WARM_ROUNDS,
+    at: Math.floor(pass / arms.length) % PASSES,
+    owner: log.owners[pass] as number,
+  });
+  const add = (target: number[][][], owner: number, round: number, at: number, value: number): void => {
+    const row = (target[owner] as number[][])[round] as number[];
+    row[at] = (row[at] as number) + value;
+  };
+  for (let pass = 0; pass < log.size; pass += 1) {
+    const { round, at, owner } = place(pass);
+    if (round >= 0) add(ns, owner, round, at, fixed(log.ns[pass] as number, 0));
+  }
+  const first = log.size === 0 ? 0 : (log.windows[0] as number);
+  const last = log.size === 0 ? 0 : (log.windows[log.size * 2 - 1] as number);
+  let count = 0;
+  let ms = 0;
+  for (const entry of log.entries) {
+    if (entry.startTime < first || entry.startTime >= last) continue;
+    const pass = passAt(log, entry.startTime);
+    if (pass === -1) {
+      count += 1;
+      ms += entry.duration;
+      continue;
+    }
+    const { round, at, owner } = place(pass);
+    if (round < 0) continue;
+    const kind = (entry.detail as { readonly kind?: number } | null | undefined)?.kind;
+    add(kind === perfConstants.NODE_PERFORMANCE_GC_MINOR ? minor : other, owner, round, at, 1);
+    add(gcMs, owner, round, at, entry.duration);
+  }
+  const lastDoc = steps.length - 1;
+  return {
+    arms: arms.map((arm, index) => ({
+      walk: names[arm.w] as string,
+      step: steps[arm.d] as number,
+      second: arm.d === lastDoc,
+      calls: calls[arm.d] as number,
+      ns: ns[index] as number[][],
+      minor: minor[index] as number[][],
+      other: other[index] as number[][],
+      gcMs: (gcMs[index] as number[][]).map((row) => row.map((value) => fixed(value))),
+    })),
+    between: { count, ms: fixed(ms) },
+  };
+}
+
+/**
+ * This function gives the table of the trace (K302): for each walk, the collections in the passes of the two documents
+ * of the A/A rung, and the A/A ratio in three forms. A forward round has an even index from the first warm round.
+ */
+function traceLines(trace: Trace, arity: number, aaIndex: number): string[] {
+  const perCall = (arm: TraceArm): number => sum(arm.gcMs.flat()) / (arm.gcMs.flat().length * arm.calls);
+  const clean = (arm: TraceArm, round: number): number =>
+    median((arm.ns[round] as number[]).map((ns, pass) => ns - ((arm.gcMs[round] as number[])[pass] as number) * 1e6 / arm.calls));
+  const ratios = (first: TraceArm, second: TraceArm, keep: (round: number) => boolean, of: (arm: TraceArm, round: number) => number): number[] =>
+    first.ns.flatMap((_, round) => (keep(round) ? [of(second, round) / of(first, round)] : []));
+  const plain = (arm: TraceArm, round: number): number => median(arm.ns[round] as number[]);
+  const forward = (round: number): boolean => (round + WARM_ROUNDS) % 2 === 0;
+  const text = (values: readonly number[]): string => (values.length === 0 ? "none" : median(values).toFixed(3));
+  const lines = [
+    "",
+    "Collections of V8 in the timed passes (K302). A collection counts in the pass where it starts.",
+    `The collections between two passes: ${trace.between.count}, ${trace.between.ms.toFixed(1)} ms.`,
+    "",
+    "| Walk | First 4N document: scavenges, others | Collection time per call (ms) | Second 4N document: scavenges, others | Collection time per call (ms) | A/A, forward rounds | A/A, reverse rounds | A/A without the collections |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  ];
+  for (let w = 0; w * arity < trace.arms.length; w += 1) {
+    const first = trace.arms[w * arity + aaIndex] as TraceArm;
+    const second = trace.arms[w * arity + arity - 1] as TraceArm;
+    const all = (): boolean => true;
+    lines.push(
+      `| \`${first.walk}\` | ${sum(first.minor.flat())}, ${sum(first.other.flat())} | ${perCall(first).toFixed(3)} | ${sum(second.minor.flat())}, ${sum(second.other.flat())} | ${perCall(second).toFixed(3)} | ${text(ratios(first, second, forward, plain))} | ${text(ratios(first, second, (round) => !forward(round), plain))} | ${text(ratios(first, second, all, clean))} |`,
+    );
+  }
+  return lines;
+}
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
 async function measure(): Promise<void> {
   const kernel: Kernel = await import("../src/index.ts");
   const base = Number(process.argv[2] ?? 250);
@@ -365,6 +554,8 @@ async function measure(): Promise<void> {
   // them after they are made, and a full collection moves each one in the order of its addresses.
   const gc = exposedGc();
   gc();
+  // The record of the collections, with LADDER_TRACE=1 (K302). It starts after the full collection.
+  const log = process.env["LADDER_TRACE"] === "1" ? startTrace((WARM_ROUNDS + rounds) * PASSES * arms.length) : undefined;
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {
@@ -373,14 +564,18 @@ async function measure(): Promise<void> {
       for (const index of orderOf(round, pass, arms.length)) {
         const arm = arms[index] as (typeof arms)[number];
         const count = calls[arm.d] as number;
+        const opened = log === undefined ? 0 : performance.now();
         const start = process.hrtime.bigint();
         for (let call = 0; call < count; call += 1) arm.call(arm.doc);
         const ns = Number(process.hrtime.bigint() - start) / count;
+        if (log !== undefined) recordPass(log, opened, index, ns);
         (passes[index] as number[]).push(ns);
       }
     }
     if (round >= WARM_ROUNDS) passes.forEach((samples, index) => (times[index] as number[]).push(median(samples)));
   }
+  if (log !== undefined) await stopTrace(log);
+  const trace = log === undefined ? undefined : traceOf(log, arms, walks.map((walk) => walk.name), steps, calls, rounds);
   // The memory phase (K209, D105). It starts after all timed rounds, thus the timed passes keep the conditions of D97.
   const memoryStarted = performance.now();
   const empty = (): number => 0;
@@ -433,6 +628,7 @@ async function measure(): Promise<void> {
     young: youngMb(),
     baseBytes: median(bases),
     walks: results,
+    ...(trace === undefined ? {} : { trace }),
   };
   const lines = [
     `### Ladder run ${run.run}`,
@@ -469,6 +665,7 @@ async function measure(): Promise<void> {
       `| \`${walk.name}\` | ${walk.bytes.map((value) => (value / 1024).toFixed(1)).join(" | ")} | ${(top / (levels[levels.length - 1] as number)).toFixed(1)} | ${m.slope.toFixed(3)} | ${m.low.toFixed(3)} to ${m.high.toFixed(3)} | ${m.p05.toFixed(3)} to ${m.p95.toFixed(3)} | ${m.aa.toFixed(3)} (${m.aaP05.toFixed(3)} to ${m.aaP95.toFixed(3)}) | ${m.verdict} |`,
     );
   }
+  if (trace !== undefined) lines.push(...traceLines(trace, steps.length, aaIndex));
   writeSummary(lines);
   process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", run: run.run, ci: run.ci, levels, rounds, seconds: run.seconds, walks: measures })}\n`);
   const out = process.env["LADDER_JSON"];
