@@ -5647,6 +5647,77 @@ The walks of types read each way to a shared term, thus a chain of n records too
 
 **Results.** The 8 walks of the probe at a chain of 40 take at most 10 ms each. Before the change, a chain of 16 took up to 357 ms. On the source of main, each of the 8 new tests fails. 5 tests do not end in 120 s, and 3 tests end with a failure.
 
+## D201 (2026-11-12): a walk keeps no copy of the names of the scope rules
+
+**Context.** K257. From a review. STATIC.LINEAR and the TSDoc of `walk` said that a walk takes time linear in the size of the document. A wide sequence of named steps and a deep nest of binders broke this claim:
+
+- `scopesOf` made a list of names for each part. In a sequence, each step got the names of all the steps before it.
+- The walk made a new set of names for each part with a binder. The type check copied its maps of names for each part.
+- `freeOf` of the plan and the check C7 of `conforms` read the lists of `scopesOf`.
+
+Thus the time and the memory grew as the square of the count of the steps or of the binders. The check of a sequence of 20000 named steps used more memory than the heap had.
+
+**Decision.**
+
+- `ScopeLayer` of `parts.ts` reads the scope rules of a kind one time for each document. It tells if the rules give a name to a part. It also gives the names that change from one part to the next part.
+- The walk keeps a count of each name that the current visit sees, and a count of each later name. When the walk goes to the next part, the layer changes only the counts of the names that change.
+- `DocVisit.names` and `DocVisit.later` are views with no list of names. At the visit of the document, `has` reads the counts of the walk. At other times, `has` reads one layer for each binder around the document.
+- The size and the items of a view come from a set that the view makes for each read. The order of the names is the order of the old sets.
+- The type check keeps the types of the names as a chain of layers. For each name, a stack holds the frames that give it a type, with the deepest frame last.
+- `freeOf` and the check C7 read the layer. `refsOf`, `attributeGraph` and the check of cycles read `has` at the visit of a reference, when `has` reads the counts.
+
+**Alternatives.**
+
+- Persistent sets, for example a hash trie, for the names of each part. Each part then costs a time and a memory of the order of the logarithm of the count of the names.
+- A set of names for each visit that the walk makes only when a reader asks for it. A reader at each visit then gets the square of the size all the same.
+- A limit on the count of the steps of a sequence. This changes the language, and a nest of binders stays as slow as before.
+
+**Why.** Each answer stays the same, and the cost of the names is the count of the names that change from one part to the next. A view keeps the type `ReadonlySet<string>`, thus the API report does not change. A visit that a reader keeps after the walk still gives the right names.
+
+**Limits.**
+
+- Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are not instances of `Set`. Each read of their size or of their items makes a new set.
+- After the visit of a document, `has` of its names takes time linear in the count of the binders around it.
+- The runner `control.seq` of the standard machine copies the names of its context at each step. Thus the evaluation of a wide sequence still takes time of the order of the square of the count of the steps. A change of this runner changes `Context.names` for the evaluators, thus it is a different item.
+- `prepare` compiles a document with a recursion of the host. With a higher limit of the depth, a nest of 20000 binders gives `#DEPTH!` from `prepare`. The reason is that the stack of the host is too short.
+- The ladder holds the slope of the type check only at 250 to 2000 levels. Larger sizes have no gate.
+
+**Results.**
+
+These times come from one shared laptop on battery. Each time is one measurement after a warm measurement. They are not a bench.
+
+| Document on the head | `check` | `typeCheck` | `prepare` |
+| --- | ---: | ---: | ---: |
+| A sequence of 20000 named steps | 173 ms | 546 ms | 261 ms |
+| A nest of 20000 binders, with a higher limit of the depth | 255 ms | 1795 ms | `#DEPTH!` after 43 ms, with the evaluation |
+
+The table below gives the same documents on the source of the base `57e8be9` and of the head, in the same conditions. Each cell gives the times at 1000, 2000, 4000 and 8000 levels, in ms.
+
+| Measure | Base | Head |
+| --- | --- | --- |
+| `check` of steps | 158 / 598 / 2761 / 22319 | 43 / 40 / 116 / 177 |
+| `typeCheck` of steps | 676 / 2095 / 7812 / 25738 | 38 / 119 / 168 / 279 |
+| `prepare` of steps | 17 / 27 / 76 / 87 | 16 / 22 / 89 / 114 |
+| `check` of binders | 147 / 313 / 725 / 3576 | 38 / 69 / 107 / 173 |
+| `typeCheck` of binders | 175 / 488 / 1753 / 9585 | 109 / 129 / 301 / 737 |
+
+On the head, the size went from 2500 to 40000 levels, 16 times more. The time of `typeCheck` grew 17.9 times on the sequence and 17.6 times on the nest. The time of `check` grew 7.2 times and 9.6 times.
+
+The evaluation of a sequence keeps its square cost on the base and on the head. One process measured the two sources in turns, 6 times each. The medians were 1628 ms and 1720 ms at 2000 steps, and 8847 ms and 8120 ms at 4000 steps.
+
+The flip check put the source of the base back and started each new test in its own process of vitest. Each process had a heap of 1024 MB and a limit of 120 s. A time in the table includes the start of vitest.
+
+| Test of `scopes.test.ts` | Base | Head |
+| --- | --- | --- |
+| A sequence of 20000 named steps | out of memory after 28 s | pass in 4.6 s |
+| A nest of 20000 binders | out of memory after 6 s | pass in 5.9 s |
+| A plan of a sequence of 2000 named steps | pass | pass |
+| A nest of 900 binders | pass | pass |
+| The names of each visit, for the sequences and for the binders | pass | pass |
+| The answers on generated documents | pass | pass |
+
+Vitest tells only that its worker stopped with the exit code 1. The same two documents in a thread with the same heap gave `ERR_WORKER_OUT_OF_MEMORY` in `check`, after 34 s and 8 s. The answers on generated documents come from the base, thus this test passes on the base by construction.
+
 ## D202 (2026-11-12): the graph of attribute instances keeps the depth limit of check
 
 **Context.** K255, from a review. `check` stops its first walk at the depth limit and gives `#DEPTH!`. Then the cycle walk read the whole document again, with no limit.
@@ -5771,6 +5842,34 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
 
 **SemVer.** No export of the package changes.
+
+## D209 (2026-11-12): the two walks of the type check in the ladder take a quarter of the levels
+
+**Context.** K300, from K257 (D201). K257 added two walks to the ladder: the type check of a sequence of named steps, and the type check of a nest of binders. Both used the levels of the chain, N to 8N with N = 250.
+
+A step of the type check costs much more than a level of the chain. In Measure run 43355754865 (head 57f754a), the two walks took 52 and 72 ms a round at the top rung of 2000 levels. The five other walks took 52 ms together. Thus each step of a walk in a job of the ladder took approximately 3.3 times as long as before. The linear step of `ladder-plain` run 3 took 278 s, against 85 s in Measure run 43355266862 (head 1dead60). The five other walks ran at the same speed on both heads, thus the runner was not slower. The jobs of the ladder are the critical path of Measure, and Measure is a check of each PR.
+
+**Decision.**
+
+- The two walks take a quarter of the levels of each rung: N / 4 to 2N, with `quarter(n)`, as the walks of `check` do (D202).
+- The band of D205, the rungs, the rounds and the verdict do not change.
+
+**Alternatives.**
+
+- Half of the levels. A local probe gave about the same slopes at half and at a quarter, and a quarter saves more time.
+- Fewer rounds for the two walks. The rounds are common to all walks in a pass, thus the change touches the design of D97.
+- More jobs at once. The shared limit of the runners is 3 jobs at once for each matrix.
+
+**Why.** The verdict reads the slope, not the size. A quarter of the levels keeps the slope of a fault in view. On the source before K257, a local probe at a quarter of the levels gave slopes of 1.57 (steps) and 1.39 (binders). Both are far over the band.
+
+On the source of K257, the same probe gave slopes from 0.94 to 1.15 at a quarter and from 0.98 to 1.07 at full levels. The local machine is shared, thus these local slopes are noisy. The bottom rung takes approximately 1 ms, as the bottom rung of the walks of `check` does.
+
+**Limits.**
+
+- The Measure run of the first head gives the slopes of the two walks on a CI runner. If their verdict is not linear, they take half of the levels.
+- A fault with a large constant and a small slope is less visible in a smaller document. The flip of the ladder still tests the gate with a fault of known slope.
+
+**Results.** The Measure run of the PR gives the step times and the slopes.
 
 ## D214 (2026-11-13): a field of the playground keeps the text of the reader, and it reads a value only from a complete text
 
