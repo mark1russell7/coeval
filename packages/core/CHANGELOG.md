@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.37.1
+
+PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes, and the answers of `check` do not change.
+
+### Changes
+
+- **`check` splits the value of each document one time in each walk (D211).** A visit of `walk` keeps the parts of its split, and `selvesOf` reads them. The functions of a split are module functions, thus a split makes no closure. At 2000 levels, one check of the ladder arm `check shared` allocates 58.4 % fewer bytes under tsx, and 51.1 % fewer under Node 24. The issues and the graph of 5 documents have the same digests as before.
+
 ## 0.37.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes, and the two new fields are optional. But a list of reads can have more entries, thus this release counts as a breaking change.

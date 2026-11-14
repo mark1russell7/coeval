@@ -1,6 +1,6 @@
 import { type Envelope, type Json, type Key, field, isEnvelope, isKey, isRecord, typeName } from "./doc.ts";
 import { type CapsRule, type Kind, type LazyRule, type World, type WorldEntry, atArgsOf, atRuleOf, circularOf, collectOf, eachKind, effectsOfVerb, equationType, isKind, isNamespace } from "./world.ts";
-import { answerOf, ask } from "./ladder.ts";
+import { type QuickAnswer, answerOf } from "./ladder.ts";
 import { type NameCount, type PartSlot, ScopeLayer, partsOf, rulesCover } from "./parts.ts";
 import { type Cap, type Context, type Root, ROOTS, context, isRef, walkerOf, worldThing } from "./deref.ts";
 import type { ErrorCode } from "./errors.ts";
@@ -252,6 +252,7 @@ class Visit implements DocVisit {
   readonly #scope: ScopeLayer | undefined;
   readonly #part: number;
   readonly #expect: ValueType | undefined;
+  readonly #parts: readonly PartSlot[] | undefined;
 
   constructor(
     place: Trail | undefined,
@@ -271,6 +272,7 @@ class Visit implements DocVisit {
     part: number,
     expect: ValueType | undefined,
     handled: readonly Cap[] | undefined,
+    parts: readonly PartSlot[] | undefined,
   ) {
     this.doc = doc;
     this.declared = declared;
@@ -289,6 +291,7 @@ class Visit implements DocVisit {
     this.#scope = scope;
     this.#part = part;
     this.#expect = expect;
+    this.#parts = parts;
   }
 
   /** The layer of the scope rules of the parent. With `part`, it gives the names that the parent binds for this document. */
@@ -304,6 +307,14 @@ class Visit implements DocVisit {
   /** The type that the shape of the parent declares for this part. The check of types reads it. */
   get expect(): ValueType | undefined {
     return this.#expect;
+  }
+
+  /**
+   * The parts of the split of the document by the shape of its kind. A value without that shape has none. The selves of
+   * a walk read them, thus a node does not split its value again (K297).
+   */
+  get parts(): readonly PartSlot[] | undefined {
+    return this.#parts;
   }
 
   get place(): readonly Key[] {
@@ -414,10 +425,11 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
         item.part,
         item.expect,
         item.handled,
+        split.ok ? split.parts : undefined,
       );
       const answer = visit(here);
       if (answer === "skip" || kind === undefined) continue;
-      const base: Trail | undefined = read.declared ? item.at : { up: item.at, keys: ["value"] };
+      const base: Trail | undefined = read.declared ? item.at : { up: item.at, keys: VALUE_KEYS };
       if (!split.ok) {
         options.problem?.({ place: keysOf(item.place), at: keysOf({ up: base, keys: split.at }), code: "#VALUE!", reason: split.reason });
         continue;
@@ -426,7 +438,7 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
       const layer = ScopeLayer.of(kind.scope, doc.value, split.parts);
       if (layer !== undefined) frames[item.depth] = { layer, at: -1 };
       // The rules of a grant are read one time for each kind, not for each part. A kind without such a rule gives no list (K238).
-      const grantRules = kind.caps !== undefined && kind.caps.some((rule) => rule.rule === "grant") ? kind.caps : undefined;
+      const grantRules = kind.caps !== undefined && kind.caps.some(isGrant) ? kind.caps : undefined;
       for (let index = split.parts.length - 1; index >= 0; index -= 1) {
         const slot = split.parts[index] as PartSlot;
         const grants = grantRules === undefined ? undefined : partGrants(grantRules, slot.path, doc.value);
@@ -456,6 +468,14 @@ export function walk(world: World, doc: unknown, visit: (visit: DocVisit) => voi
   } finally {
     live.active = false;
   }
+}
+
+/** The keys from an envelope to its value. One frozen list serves each visit of a walk (K297). */
+const VALUE_KEYS: readonly Key[] = /* @__PURE__ */ Object.freeze(["value"]);
+
+/** This function tells if a capability rule is a grant. The walk uses it for each kind, without a new function (K297). */
+function isGrant(rule: CapsRule): boolean {
+  return rule.rule === "grant";
 }
 
 /**
@@ -1065,6 +1085,37 @@ export interface Selves {
 }
 
 /**
+ * This function gives the parts of the split of a visit, or `undefined` when its value does not have the shape of its
+ * kind. A visit of `walk` keeps the parts of its split, thus the function splits only the value of another visit (K297).
+ */
+function partsOfVisit(world: World, v: DocVisit): readonly PartSlot[] | undefined {
+  if (v instanceof Visit) return v.parts;
+  const read = partsOf(world, v.declared ? v.doc.value : v.doc, v.declared ? typeName(v.doc.type) : undefined);
+  return read.ok && read.split.ok ? read.split.parts : undefined;
+}
+
+/**
+ * This function finds the evaluator of the code of a visit for a verb, as `ask` finds it, without the record of the
+ * rungs (K297). The kind of the visit is the kind that `ask` finds for the type of the document. A visit without a kind
+ * has a type that the world does not have. Then only an own entry can answer, as in `ask`.
+ *
+ * @param world - The world, for its defaults.
+ * @param v - The visit of the document.
+ * @param verb - The verb, for example `eval`.
+ * @returns The evaluator name and its rung, or `undefined` when no rung answers.
+ */
+export function visitAnswer(world: World, v: DocVisit, verb: string): QuickAnswer | undefined {
+  return answerOf(world, v.declared ? undefined : v.doc.own, v.kind ?? null, verb);
+}
+
+/** This function gives the set of the keys of a list of parts, in the order of the parts. */
+function partKeys(parts: readonly PartSlot[]): Set<string> {
+  const keys = new Set<string>();
+  for (const part of parts) keys.add(part.key);
+  return keys;
+}
+
+/**
  * This function makes the selves of one walk (D106). Only `eval` reads attributes, and only when the root `self` is
  * open. A node gets the self of its code as its parent. The standard code that keeps self gives its parts its own self.
  * Other code gives its parts a self that the walk does not know.
@@ -1088,8 +1139,8 @@ export function selvesOf(machine: Machine, verb: string, root: SeenNode | undefi
         return { self, node: undefined };
       }
       // The own parts are the parts of the split, as in a run. A field without a part is data, and no step reads it.
-      const read = partsOf(machine.world, v.declared ? v.doc.value : v.doc, v.declared ? typeName(v.doc.type) : undefined);
-      const own = read.ok && read.split.ok ? new Set(read.split.parts.map((part) => part.key)) : undefined;
+      const parts = partsOfVisit(machine.world, v);
+      const own = parts === undefined ? undefined : partKeys(parts);
       const node: SeenNode = { kind: v.kind, text: typeName(v.doc.type), own, parent: self };
       selves.set(v, node);
       return { self, node };
@@ -1239,19 +1290,29 @@ function contractIssues(kind: Kind, kindText: string): readonly Issue[] {
  */
 function nodeIssues(machine: Machine, node: SeenNode, state: TreeState, v: DocVisit): readonly Issue[] {
   const out: Issue[] = [];
-  const at = (key: string): readonly Key[] => [...v.at, ...(v.declared ? [] : ["value"]), key];
   for (const name of node.own ?? []) {
     const why = Object.hasOwn(STRUCTURAL, name) ? STRUCTURAL[name] : undefined;
-    if (why !== undefined) out.push({ code: "#NAME?", place: v.place, reason: `The part ${name} of the kind ${node.text} has a reserved name: ${why}.`, at: at(name) });
+    if (why !== undefined) out.push({ code: "#NAME?", place: v.place, reason: `The part ${name} of the kind ${node.text} has a reserved name: ${why}.`, at: ownPartAt(v, name) });
   }
+  // A kind without needs makes no set of the names that the loop examined (K297).
+  const needs = state.needs.get(node.kind);
+  if (needs === undefined || needs.length === 0) return out;
   const done = new Set<string>();
-  for (const need of state.needs.get(node.kind) ?? []) {
+  for (const need of needs) {
     if (done.has(need.name) || (need.hidden !== undefined && node.own?.has(need.hidden) === true)) continue;
     done.add(need.name);
     if (answered(machine.world, node, need.name)) continue;
     out.push({ code: "#N/A", place: v.place, reason: `No rung gives the attribute ${need.name} of the kind ${node.text}, and ${need.why}.`, at: v.at });
   }
   return out;
+}
+
+/**
+ * This function gives the keys from the root JSON value to an own part of a node. The name of the part is the last
+ * key. It is a module function, thus a node makes no function for its issues (K297).
+ */
+function ownPartAt(v: DocVisit, key: string): readonly Key[] {
+  return [...v.at, ...(v.declared ? [] : ["value"]), key];
 }
 
 /**
@@ -1391,24 +1452,23 @@ function checkAll(
         push({ code: "#DEPTH!", place: v.place, reason: `The nesting is deeper than ${maxDepth} documents.`, at: v.at });
         return "skip";
       }
-      const header = v.declared ? {} : v.doc;
-      const answer = ask(machine.world, header, verb, v.declared ? { declaredType: typeName(v.doc.type) } : {});
-      if (answer.error === "unknown-kind") {
+      const answer = visitAnswer(machine.world, v, verb);
+      if (answer === undefined && v.kind === undefined) {
         push({ code: "#KIND?", place: v.place, reason: `The world has no kind ${typeName(v.doc.type)}.`, at: v.at });
         return "skip";
       }
       // The equations of a kind are code of the kind. The check walks them at the first document of the kind (D42).
-      const node = selves.isNode(v, answer.evaluator);
+      const name = answer?.name;
+      const node = selves.isNode(v, name);
       if (v.kind !== undefined && (v.kind.tree !== undefined || node) && !seen.has(v.kind)) {
         seen.add(v.kind);
         const kindText = typeName(v.doc.type);
         for (const issue of [...contractIssues(v.kind, kindText), ...equationIssues(machine, v.kind, kindText, options, state)]) push({ ...issue, place: v.place, at: v.at });
       }
       // The self of the code of this document, and the self that its parts get (D106).
-      const { self, node: here } = selves.enter(v, answer.evaluator);
+      const { self, node: here } = selves.enter(v, name);
       if (here !== undefined) trees = true;
       if (here?.own !== undefined) for (const issue of nodeIssues(machine, here, state, v)) push(issue);
-      const name = answer.evaluator;
       if (current !== undefined) current.evaluator = name;
       // A runner hides the evaluator of its name (MACHINE.RUNNER), as in the compilation of a plan.
       const runner = name !== undefined && has(machine.runners, name);
@@ -1448,7 +1508,7 @@ function checkAll(
         }
         waits.set(v, chain);
         if (runner && v.kind !== undefined) {
-          const own = driveRules(machine, v, v.kind, name, answer.rung, verb);
+          const own = driveRules(machine, v, v.kind, name, answer?.rung, verb);
           if (own !== undefined && own.length > 0) driven.set(v, own);
         }
         // A runner waits only for an effect that reaches the host (C6). A refused effect gives #CAP! without a wait. A

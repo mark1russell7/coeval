@@ -1,6 +1,5 @@
-import { type Json, type Key, field, isKey, isRecord, typeName } from "./doc.ts";
+import { type Json, type Key, field, isKey, isRecord } from "./doc.ts";
 import { type CollectRule, type Kind, argsKey, collectOf, equationType } from "./world.ts";
-import { ask } from "./ladder.ts";
 import { isRef, walkerOf } from "./deref.ts";
 import type { Machine } from "./evaluate.ts";
 import { type Above, codeFactsOf, partLazy } from "./facts.ts";
@@ -21,6 +20,7 @@ import {
   isStructural,
   keepsSelf,
   selvesOf,
+  visitAnswer,
   walk,
 } from "./static.ts";
 
@@ -121,8 +121,11 @@ export function attributeVertexId(place: readonly Key[], attribute: string): str
  */
 interface PlaceIds {
   readonly plain: Map<string, number>;
-  /** The instances of attributes with parameters, by the JSON text of the name and the key of the arguments. */
-  readonly at: Map<string, number>;
+  /**
+   * The instances of attributes with parameters, by the JSON text of the name and the key of the arguments. Most places
+   * have no such instance, thus the map starts at the first instance (K297).
+   */
+  at?: Map<string, number>;
   /** The count of the nodes at the place. Each node has its own JSON vertex, thus its name has its index. */
   nodes: number;
 }
@@ -151,8 +154,8 @@ interface DocInfo {
   readonly visit: DocVisit;
   readonly evaluator: string | undefined;
   readonly node: NodeInfo | undefined;
-  /** The documents of the items of a list, by their index. */
-  readonly items: Map<number, DocInfo>;
+  /** The documents of the items of a list, by their index. Only a list document has the map (K297). */
+  readonly items: Map<number, DocInfo> | undefined;
   /** The items in the order of their indices, after the first read of the list. */
   sorted?: readonly DocInfo[];
 }
@@ -291,11 +294,11 @@ function vertexOf(b: Builder, node: NodeInfo, attribute: string): number {
  */
 function atVertexOf(b: Builder, node: NodeInfo, at: AtStep & { readonly kind: "exact" }): number {
   const key = JSON.stringify([at.attr, at.key]);
-  const known = node.ids.at.get(key);
+  const known = node.ids.at?.get(key);
   if (known !== undefined) return known;
   const id = b.vertices.length;
   b.vertices.push({ node, attribute: at.attr, circular: false, at: { names: at.names, key: at.key } });
-  node.ids.at.set(key, id);
+  (node.ids.at ??= new Map()).set(key, id);
   b.work.push(id);
   return id;
 }
@@ -327,7 +330,7 @@ function vertexName(vertex: VertexInfo): string {
 
 /** This function gives the items of a list document, in the order of their indices. The list sorts them one time. */
 function itemsOf(list: DocInfo): readonly DocInfo[] {
-  list.sorted ??= [...list.items].sort(([x], [y]) => x - y).map(([, item]) => item);
+  list.sorted ??= [...(list.items ?? [])].sort(([x], [y]) => x - y).map(([, item]) => item);
   return list.sorted;
 }
 
@@ -426,7 +429,7 @@ function follow(b: Builder, start: Value, path: readonly Json[], from: number, r
         continue;
       }
       const at = typeof step === "number" ? step : /^\d+$/.test(step) ? Number(step) : -1;
-      const item = here.list.items.get(at);
+      const item = here.list.items?.get(at);
       if (item === undefined) return;
       here = valueOf(item);
       continue;
@@ -482,13 +485,13 @@ function termRefs(b: Builder, kind: Kind, label: string, term: Json): readonly T
     b.machine.world,
     term,
     (v) => {
-      const answer = ask(b.machine.world, v.declared ? {} : v.doc, "eval", v.declared ? { declaredType: typeName(v.doc.type) } : {});
-      if (answer.error === "unknown-kind") return "skip";
+      const answer = visitAnswer(b.machine.world, v, "eval");
+      if (answer === undefined && v.kind === undefined) return "skip";
       const up = v.parent === undefined ? undefined : above.get(v.parent);
       const lazy = up !== undefined && v.parent !== undefined && (up.lazy || partLazy(up, v.parent, v.slot));
       above.set(v, { lazy, rules: v.kind === undefined ? undefined : codeFactsOf(b.machine, v, v.kind, "eval").rules });
-      const { self } = selves.enter(v, answer.evaluator);
-      const evaluator = answer.evaluator;
+      const evaluator = answer?.name;
+      const { self } = selves.enter(v, evaluator);
       if (evaluator === REF_CODE && isRef(v.doc)) {
         if (v.address !== true) out.push({ path: v.doc.value, lazy, self: self === EQUATION_SELF, bound: namedRef(v), opaque: false });
       } else if (self === EQUATION_SELF && evaluator !== TREE_NODE && !keepsSelf(evaluator)) {
@@ -549,8 +552,8 @@ function prevOf(parent: NodeInfo, child: NodeInfo): Value {
   if (list === undefined || list.evaluator !== LIST) return "unknown";
   const slot = child.visit.slot;
   const index = child.visit.parent === list.visit && slot.length === 1 && typeof slot[0] === "number" ? slot[0] : -1;
-  if (list.items.get(index)?.node !== child) return "data";
-  return index === 0 ? "data" : valueOf(list.items.get(index - 1));
+  if (list.items?.get(index)?.node !== child) return "data";
+  return index === 0 ? "data" : valueOf(list.items?.get(index - 1));
 }
 
 /**
@@ -701,7 +704,7 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
   // This function puts the document of a visit in its parent: an own part of a node, or an item of a list.
   const attach = (parent: VisitState | undefined, v: DocVisit, info: DocInfo): void => {
     if (parent?.info.node !== undefined) parent.info.node.parts.set(slotKey(v.slot), info);
-    else if (parent?.info.evaluator === LIST && v.slot.length === 1 && typeof v.slot[0] === "number") parent.info.items.set(v.slot[0], info);
+    else if (parent?.info.items !== undefined && v.slot.length === 1 && typeof v.slot[0] === "number") parent.info.items.set(v.slot[0], info);
   };
   walk(
     machine.world,
@@ -718,13 +721,13 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
       // The graph keeps the depth limit of check (TREE.GRAPH-DEPTH). A document deeper than the limit has no vertex
       // and no part. Its reads are not known, as the reads of code that the check does not know.
       if (v.depth > maxDepth) {
-        attach(parent, v, { visit: v, evaluator: undefined, node: undefined, items: new Map() });
+        attach(parent, v, { visit: v, evaluator: undefined, node: undefined, items: undefined });
         if (owner !== undefined) reads.push({ owner, v, lazy, self: "unknown", opaque: true, bound: false });
         return "skip";
       }
-      const answer = ask(machine.world, v.declared ? {} : v.doc, "eval", v.declared ? { declaredType: typeName(v.doc.type) } : {});
-      if (answer.error === "unknown-kind") return "skip";
-      const evaluator = answer.evaluator;
+      const answer = visitAnswer(machine.world, v, "eval");
+      if (answer === undefined && v.kind === undefined) return "skip";
+      const evaluator = answer?.name;
       const { self, node: seen } = selves.enter(v, evaluator);
       const place = v.slot.length === 0 && parent !== undefined ? parent.place : v;
       let node: NodeInfo | undefined;
@@ -732,7 +735,7 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
         const up = self === OUTSIDE ? null : self === undefined ? undefined : nodes.get(self);
         let ids = places.get(place);
         if (ids === undefined) {
-          ids = { plain: new Map(), at: new Map(), nodes: 0 };
+          ids = { plain: new Map(), nodes: 0 };
           places.set(place, ids);
         }
         node = { visit: v, kind: v.kind, text: seen.text, own: [...(seen.own ?? [])], parts: new Map(), up, ids, index: ids.nodes };
@@ -742,7 +745,7 @@ function build(machine: Machine, doc: unknown, declaredType: string | undefined)
         // The run reads each own part of a tree root that an eager position holds (TREE.RESULT).
         if (up === null && !lazy) roots.push(node);
       }
-      const info: DocInfo = { visit: v, evaluator, node, items: new Map() };
+      const info: DocInfo = { visit: v, evaluator, node, items: evaluator === LIST ? new Map() : undefined };
       attach(parent, v, info);
       states.set(v, { info, owner, lazy, above: { lazy, rules: v.kind === undefined ? undefined : codeFactsOf(machine, v, v.kind, "eval").rules }, place });
       if (owner === undefined || node !== undefined) return undefined;

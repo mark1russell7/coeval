@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  type DocVisit,
   type HostThing,
   type Json,
   type Machine,
   type Result,
   type Runner,
+  type World,
   STD_CAPS,
   STD_MACHINE,
   STD_WORLD,
   THING,
+  ask,
   check,
   checkWorld,
   context,
@@ -31,8 +34,11 @@ import {
   sameValue,
   splitParts,
   stored,
+  typeName,
+  typed,
   walk,
 } from "./index.ts";
+import { visitAnswer } from "./static.ts";
 
 const world = { kinds: formulaKinds(), defaults: {} };
 const machine = formulaMachine({ ops: { add: (a: number, b: number) => a + b } });
@@ -49,6 +55,28 @@ describe("shapes", () => {
     expect(split.parts[0]).toMatchObject({ path: ["bind", "a"], of: "lit", item: 1 });
     expect(split.data).toEqual({ bind: {}, note: "data" });
     expect(split.fill(["A", "B", "BODY"])).toEqual({ bind: { a: "A", b: "B" }, body: "BODY", note: "data" });
+  });
+
+  it("[SHAPE.RECORD] a record with a list of field names gives the same parts at each split of the shape (K297)", () => {
+    const shape = { shape: "record", fields: ["a", "b"], of: "lit", expect: "number", closed: true } as const;
+    const one = splitParts(shape, { a: 1, note: "data" });
+    expect(one).toMatchObject({ ok: false, reason: "The field note is not a field of this kind.", at: ["note"] });
+    for (let round = 0; round < 2; round += 1) {
+      const both = splitParts(shape, { b: 2, a: { type: "ref", value: ["names", "x"] } });
+      expect(both.ok).toBe(true);
+      if (!both.ok) return;
+      expect(both.parts).toEqual([
+        { path: ["b"], key: "b", item: 2, of: "lit", expect: "number" },
+        { path: ["a"], key: "a", item: { type: "ref", value: ["names", "x"] }, of: "lit", expect: "number" },
+      ]);
+      expect(both.data).toEqual({});
+      expect(both.fill(["B", "A"])).toEqual({ b: "B", a: "A" });
+      const single = splitParts(shape, { a: 3 });
+      expect(single.ok && single.parts.map((part) => part.key)).toEqual(["a"]);
+    }
+    const open = splitParts({ ...shape, closed: false }, { a: 1, note: "data" });
+    expect(open.ok && open.parts.map((part) => part.key)).toEqual(["a"]);
+    expect(open.ok && open.data).toEqual({ note: "data" });
   });
 
   it("[SHAPE.REQUIRED] a missing required field is a reason, with its place", () => {
@@ -544,6 +572,49 @@ describe("the static kit", () => {
     for (const [name, entry] of Object.entries(STD_WORLD.kinds)) {
       if (isKind(entry) && entry.side === "run") expect(entry.effects, name).toBeDefined();
     }
+  });
+
+  it("[LADDER.OWN] [LADDER.UNKNOWN] [LADDER.NO-ANSWER] the answer of each visit of a walk is the answer of ask (K297)", () => {
+    const small: World = {
+      kinds: {
+        group: { verbs: { eval: "group.eval" }, parts: { shape: "record", fields: ["a", "b", "c", "d", "e"], of: "leaf" } },
+        leaf: { verbs: { view: "leaf.view" } },
+      },
+      defaults: { view: "json.view" },
+    };
+    const doc = typed("group", {
+      a: typed("leaf", 1, { own: { eval: "my.eval" } }),
+      b: typed("leaf", 2),
+      c: typed("nope", 3),
+      d: typed("nope", 4, { own: { eval: "nope.eval" } }),
+      e: 5,
+    });
+    const seen: string[] = [];
+    walk(small, doc, (v: DocVisit) => {
+      for (const verb of ["eval", "view"]) {
+        const asked = ask(small, v.declared ? {} : v.doc, verb, v.declared ? { declaredType: typeName(v.doc.type) } : {});
+        const quick = visitAnswer(small, v, verb);
+        expect(quick === undefined ? undefined : { name: quick.name, rung: quick.rung }).toEqual(
+          asked.evaluator === undefined ? undefined : { name: asked.evaluator, rung: asked.rung },
+        );
+        expect(quick === undefined && v.kind === undefined).toBe(asked.error === "unknown-kind");
+        seen.push(`${v.slot.join(".")}:${verb}:${quick?.name ?? asked.error ?? ""}`);
+      }
+    });
+    expect(seen).toEqual([
+      ":eval:group.eval",
+      ":view:json.view",
+      "a:eval:my.eval",
+      "a:view:leaf.view",
+      "b:eval:no-answer",
+      "b:view:leaf.view",
+      "c:eval:unknown-kind",
+      "c:view:unknown-kind",
+      "d:eval:nope.eval",
+      "d:view:unknown-kind",
+      "e:eval:no-answer",
+      "e:view:leaf.view",
+    ]);
   });
 
   it("[STATIC.COVERAGE] checkWorld lists each kind with no entry and no default for a verb of the language", () => {
