@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Json, JsonRecord } from "@mark1russell7/coeval";
 
 /**
  * This hook tells if the reader asks for less motion. It is `false` on the server.
@@ -46,14 +47,39 @@ export function useStepper(total: number, key: string, interval = 520): number {
   return Math.min(shown, total);
 }
 
+/** The longest text between the braces of a record that goes on one line. The printer counts the indented text, as before K274. */
+const RECORD_LINE = 40;
+
+/** A value with no parts: a number, a text, a boolean or `null`. */
+function isLeaf(value: Json): boolean {
+  return value === null || typeof value !== "object";
+}
+
+function printJson(value: Json, pad: string): string {
+  if (isLeaf(value)) return JSON.stringify(value);
+  const inner = `${pad}  `;
+  if (Array.isArray(value)) {
+    const items = value as readonly Json[];
+    if (items.length === 0) return "[]";
+    const texts = items.map((item) => printJson(item, inner));
+    return items.every(isLeaf) ? `[${texts.join(", ")}]` : `[\n${inner}${texts.join(`,\n${inner}`)}\n${pad}]`;
+  }
+  const entries = Object.entries(value as JsonRecord);
+  if (entries.length === 0) return "{}";
+  const texts = entries.map(([key, item]) => `${JSON.stringify(key)}: ${printJson(item, inner)}`);
+  const lines = texts.join(`,\n${inner}`);
+  return entries.every(([, item]) => isLeaf(item)) && lines.length <= RECORD_LINE ? `{ ${texts.join(", ")} }` : `{\n${inner}${lines}\n${pad}}`;
+}
+
 /**
- * This function writes a JSON value with two spaces of indent, and keeps short arrays and records on one line.
+ * This function writes a JSON value with two spaces of indent. An array of values with no parts goes on one line. A
+ * record of such values goes on one line when it is short. The function walks the structure, thus it does not change
+ * the text of a string (K274).
  *
- * @param value - The value to write.
- * @returns The text.
+ * @param value - The value to write. The function reads it through `JSON.stringify`, thus it drops what JSON drops.
+ * @returns The text, or an empty text for a value that has no JSON text.
  */
 export function prettyJson(value: unknown): string {
-  const text = JSON.stringify(value, null, 2);
-  return text.replace(/\[\s+([^[\]{}]*?)\s+\]/g, (_match, inner: string) => `[${inner.replace(/\s*\n\s*/g, " ")}]`)
-    .replace(/\{\s+([^[\]{}]{0,40}?)\s+\}/g, (_match, inner: string) => `{ ${inner.replace(/\s*\n\s*/g, " ")} }`);
+  const text = JSON.stringify(value);
+  return text === undefined ? "" : printJson(JSON.parse(text) as Json, "");
 }
