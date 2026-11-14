@@ -40,7 +40,7 @@
   "devDependencies": {
     "@mark1russell7/cue": "^2.1.1",
     "@mark1russell7/rigor-bench": "^0.2.34",
-    "@mark1russell7/rigor-statistics": "^0.1.16",
+    "@mark1russell7/rigor-statistics": "^0.1.29",
     "@types/node": "^26.6.4",
     "@vitest/coverage-v8": "^5.0.3",
     "esbuild": "^0.28.2",

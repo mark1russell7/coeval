@@ -210,7 +210,7 @@ importers:
         specifier: ^0.2.34
         version: 0.2.37(esbuild@0.28.2)
       '@mark1russell7/rigor-statistics':
-        specifier: ^0.1.16
+        specifier: ^0.1.29
         version: 0.1.29
       '@types/node':
         specifier: ^26.6.4

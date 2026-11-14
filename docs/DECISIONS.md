@@ -5980,6 +5980,64 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 
 **SemVer.** `packages/site` is private, thus no version changes.
 
+## D215 (2026-11-14): the ladder reads the interval of the median slope, with a fixed young generation
+
+**Context.** K302. The job `ladder-flip` failed 3 of 41 times since 2026-11-10 on its linear row, and it held K297 and K261. The records of the ladder runs show two causes.
+
+- The verdict read the 5th to the 95th percentile of the round slopes. That is the spread of one round, not an interval of the slope. More rounds do not make it narrower, and a pool of runs moves its ends out. In the last 40 Measure runs, it blocked 26 of 136 single runs of the ladder.
+- Since K300, the walk `typeCheck of steps` read a slope of 1.06 to 1.13. At the full levels of K257 it read 1.00 to 1.03 in 10 runs. Its bytes stay linear, but its top rung takes 3.1 times the time of the rung under it.
+- On a Xeon 6975P, the same documents of 250 and 500 steps took 4.74 and 9.38 ms in a process with the arms of K257. In a process with the arms of K300, they took 3.53 and 11.03 ms. Thus the time of one arm changed with the other arms of the process.
+- V8 starts the semi-space of the young generation at 1 MB, and it grows it by the rate of survival of all arms. When a call allocates more than a semi-space, its objects live through two scavenges and go to the old generation. Thus the cost of the collector for one arm depends on the size that the other arms gave the semi-space.
+
+**Decision.**
+
+- Each time and memory verdict reads the distribution-free 90 % interval of the median of the round slopes: `medianInterval` of rigor-statistics. The rule of D205 reads that interval with no other change.
+- The mode `merge` reads the same interval of the median of the rounds of all counted runs. The interval of the runs stays in the table, with `tQuantile` of rigor-statistics in place of a table of t values.
+- The tables also print the 5th to 95th percentile of the rounds as the spread of one round. The A/A check of a run does not change.
+- The ladder runs with `--min-semi-space-size=64` and `--max-semi-space-size=64`. The script starts itself again with these flags when its process does not have them. Each run prints the size of the new space of V8, and its record keeps it.
+- The largest arm allocates approximately 33 MB in one call. With a semi-space of 64 MB, no object of one call lives through two scavenges.
+- One full collection by `gc()` follows the documents and goes before the first round. It moves each document to the old generation in the order of its addresses.
+- One full collection by `gc()` also goes before each timed pass. Thus each pass starts with the same heap, and each collection in a pass comes from the arm of that pass.
+- With `LADDER_TRACE=1`, the ladder records each collection of V8 in each timed pass. The flip sets it, and its job keeps the run files as the artifact `ladder-flip`.
+- The range of rigor-statistics in the package goes to `^0.1.29`, the version of the lock file, because `medianInterval` and `tQuantile` are new.
+
+**Alternatives.**
+
+- Three runs in the linear row of the flip, pooled by the merge. The 5-run pools of K297 and K261 also read block, at 1.231 and 1.244, so the pool makes the false blocks more frequent.
+- The walk of steps at the full levels again. Its fault rows then take 8 times the time of its top rung, and the job of the flip has a limit of 10 minutes.
+- A semi-space of 1 MB. Then each arm moves most objects of a call to the old generation, and the ladder measures the old generation, not the walk.
+- The interval of the runs as the interval of the verdict. It has no value for one run, thus the flip row cannot read it.
+
+- The time of the collections taken out of each pass. Then the verdict depends on a record that Node gives in a later turn of the event loop. Also, a pass still starts with the garbage of the arm before it.
+- A minor collection before each pass. It empties the young generation, but the old generation still grows with the arms before the pass. In the traced run, the other collections changed the A/A ratio of `refsOf`.
+
+**Why.** STATIC.LINEAR is a claim about the slope. An interval of the median reads that slope, and it gets narrower with more rounds. A young generation of a fixed size keeps the cost of the collector of one call the same at each rung and in each process. The smallest slope that the rule of D205 blocks is the lower of `1.052 + half` and `1.2 - half`. With the interval of the median, the half width is 0.006 to 0.025 in most runs. Thus a walk of `n ln n` with the slope 1.154 gets a block.
+
+**Limits.**
+
+- The rounds of one run come from one runner, and they are not independent of it. Thus the pooled interval of the merge is narrower than an interval across runners. The interval of the runs shows that spread.
+- With the old records, the new interval blocks 6 of the 136 single runs. Three are the walk of steps, two are `refsOf` with a slope under 0.948, and one is a run of K259 on an EPYC 9V74. The fixed young generation can change these values. The Measure run of the pull request gives the first values.
+- A walk that allocates more than 64 MB in one call crosses the semi-space again. The table of the memory phase gives the bytes of each rung.
+
+**Measures (2026-11-14).** The first Measure run with the fixed young generation, 43628377137, had no collection before the first round.
+
+- The 3 runs of the linear flip row read the slope of `refsOf` as 1.016, 1.004 and 1.003. The verdict of each walk was linear in each run.
+- No run counted. The A/A bands of `refsOf` were 0.923 to 0.977, 0.952 to 0.977 and 0.970 to 1.644. The bands of `walk` were 1.001 to 1.040, 0.999 to 1.051 and 1.001 to 1.219.
+- In D97, the A/A bands were 0.843 to 1.203. With the fixed young generation, most bands are narrower, and an offset of 3 % to 5 % of one document shows.
+- After the documents of the ladder are made, a local process with the flags of this decision has approximately 4.9 MB in the new space. One `gc()` moves all of it to the old space.
+- Thus the collection before the first round gives the two documents of 4N levels the same conditions. The next Measure run tells if it removes the offset.
+
+**Measures of the trace (2026-11-14).** The Measure run 43641276978 traced each pass of the flip on an AMD EPYC 7763, before the collection before each pass.
+
+- Each row counted its first run. In the row of slope 2, the A/A ratio of `refsOf` was 0.909, with the band 0.813 to 1.010.
+- In that row, the first document of 4N levels had 38 scavenges and 2 other collections, 3.261 ms for each call. The second had 35 scavenges and no other collection, 1.808 ms for each call.
+- Without the time of the collections of each pass, the A/A ratio of `refsOf` was 1.003.
+- In each row, the A/A ratio of `check shared` in the reverse rounds was 1.29 to 1.34. Without the time of the collections, it was 1.004 to 1.037.
+- Thus the collections of a pass changed the A/A ratios. A pass got the collections of the garbage of the arms before it.
+- The linear row read the slope of `typeCheck of steps` as 0.981, with the interval 0.893 to 1.021.
+
+**SemVer.** No export of the package changes.
+
 ## D216 (2026-11-14): the walks of a fold keep their own stack
 
 **Context.** K303, from a host that renders deep records. The fold of a pure part makes one frozen copy of its result (PLAN.SHARED). The copy `copyPlain` called itself for each level of the value. The test `frozenPlain` of a fixed name did the same (PLAN.FIXED).

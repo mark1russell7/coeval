@@ -270,7 +270,10 @@ jobs:
     needs: ladder-changes
     if: needs.ladder-changes.outputs.match == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Three rows of up to 3 runs each took 9 min 40 s in the Measure run 43635689656 (K302). A full collection before
+    # each timed pass adds 2,100 collections to each run. The memory phase makes 2,160 of them, and it took 36 to 117 s
+    # in the Measure run 43641276978.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pnpm version comes from "packageManager" in package.json
@@ -295,8 +298,8 @@ jobs:
             read -r name slope want gate <<< "$row"
             files=()
             for attempt in 1 2 3; do
-              LADDER_INJECT="$slope" LADDER_RUN="$attempt" LADDER_JSON="$RUNNER_TEMP/$name-$attempt.json" pnpm exec tsx packages/core/bench/ladder.ts 250 10
-              files+=("$RUNNER_TEMP/$name-$attempt.json")
+              LADDER_INJECT="$slope" LADDER_RUN="$attempt" LADDER_TRACE=1 LADDER_JSON="$RUNNER_TEMP/flip-$name-$attempt.json" pnpm exec tsx packages/core/bench/ladder.ts 250 10
+              files+=("$RUNNER_TEMP/flip-$name-$attempt.json")
               code=0
               LADDER_BLOCK=1 LADDER_ANNOTATE=1 node packages/core/bench/ladder.ts merge "${files[@]}" > "$name.txt" 2>&1 || code=$?
               grep -q 'No run counts\.' "$name.txt" || break
@@ -330,6 +333,14 @@ jobs:
             done
           done
           exit "$fail"
+      # The run files keep the time and the collections of each pass (K302). They show the cause of an A/A ratio away from 1.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: ladder-flip
+          path: ${{ runner.temp }}/flip-*.json
+          if-no-files-found: warn
+          retention-days: 90
 
   mode:
     needs: changes
