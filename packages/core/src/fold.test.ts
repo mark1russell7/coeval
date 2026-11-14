@@ -21,6 +21,7 @@ import {
   sameValue,
   typesOf,
 } from "./index.ts";
+import { sharedCopy } from "./evaluate.ts";
 
 /* The folds of closed pure parts (K13, D43). */
 
@@ -302,7 +303,80 @@ describe("the shared values of a plan", () => {
     const two = boxed.evaluate();
     expect(one.ok && two.ok && one.value !== two.value && !Object.isFrozen(one.value)).toBe(true);
   });
+
+  it("[PLAN.DEEP] the copy of a fold walks a value of 100,000 levels with its own stack, keeps its cycle and its shared object, and a copy of a part of the copy is that part", () => {
+    const { root, bottom } = chain(100_000);
+    const leaf = { leaf: [1, "two"] };
+    root.leaf = leaf;
+    bottom.leaf = leaf;
+    bottom.back = root;
+    const copy = sharedCopy(root) as Level | undefined;
+    expect(copy).toBeDefined();
+    const levels = walkDown(copy as Level);
+    expect(levels.count).toBe(100_000);
+    expect(levels.frozen).toBe(true);
+    expect(levels.bottom.back).toBe(copy);
+    expect(levels.bottom.leaf).toBe((copy as Level).leaf);
+    expect(Object.isFrozen((copy as Level).leaf)).toBe(true);
+    // Each object of the copy is shared, thus a copy of a part is that part and no work.
+    expect(sharedCopy((copy as Level).next)).toBe((copy as Level).next);
+    expect(sharedCopy(levels.middle)).toBe(levels.middle);
+    // The data of the host does not change.
+    expect(Object.isFrozen(root) || Object.isFrozen(bottom) || Object.isFrozen(leaf)).toBe(false);
+  });
+
+  it("[PLAN.DEEP] a lit of 100,000 levels folds, and a prepare of each level of its result gives that level, without a copy", () => {
+    const { machine } = withCount(true);
+    const { root } = chain(100_000);
+    const result = prepare(machine, { type: "lit", value: root as unknown as Json }).evaluate();
+    expect(result.ok && result.value !== root && Object.isFrozen(result.value)).toBe(true);
+    // A host that shows a deep record prepares each level of the value that the plan gave (the pattern of a viewer).
+    let here = (result.ok ? result.value : undefined) as Level;
+    let same = 0;
+    while (here.next !== undefined) {
+      const level = prepare(machine, { type: "lit", value: here.next as unknown as Json }).evaluate();
+      if (level.ok && level.value === here.next) same += 1;
+      here = here.next;
+    }
+    expect(same).toBe(99_999);
+  });
 });
+
+/** A level of a deep record: each level holds a list and the next level. */
+interface Level {
+  at: number;
+  list: unknown[];
+  next?: Level;
+  leaf?: unknown;
+  back?: Level;
+}
+
+/** This function makes a record of `count` levels without the stack of the host, and it gives the first and the last level. */
+function chain(count: number): { readonly root: Level; readonly bottom: Level } {
+  const root: Level = { at: 0, list: [0, null] };
+  let bottom = root;
+  for (let at = 1; at < count; at += 1) {
+    const next: Level = { at, list: [at, null] };
+    bottom.next = next;
+    bottom = next;
+  }
+  return { root, bottom };
+}
+
+/** This function walks the levels of a record without the stack of the host. It tells if each level and its list are frozen. */
+function walkDown(root: Level): { readonly count: number; readonly frozen: boolean; readonly middle: Level; readonly bottom: Level } {
+  let count = 1;
+  let frozen = Object.isFrozen(root) && Object.isFrozen(root.list);
+  let middle = root;
+  let bottom = root;
+  while (bottom.next !== undefined) {
+    bottom = bottom.next;
+    count += 1;
+    frozen &&= Object.isFrozen(bottom) && Object.isFrozen(bottom.list);
+    if (count % 2 === 0) middle = middle.next as Level;
+  }
+  return { count, frozen, middle, bottom };
+}
 
 describe("folds on generated documents", () => {
   it("[PLAN.FOLD] the plan with folds and the plan without folds agree on generated formulas, and some parts fold", () => {
@@ -426,6 +500,25 @@ describe("the names that the host declares fixed", () => {
     const deep = prepare(machine, op("count", ref("names", "config", "inner", "scale")), { fixed: { names: { config: shallow } } });
     deep.evaluate(makeContext({ config: shallow }));
     expect(calls).toEqual([3, 6, 4]);
+  });
+
+  it("[PLAN.FIXED] [PLAN.DEEP] a deeply frozen value of 100,000 levels fixes its name, and a pure part that reads it folds", () => {
+    const { machine, calls } = withCount(true);
+    // The value is frozen level by level, as it is made, thus no walk of the test uses the stack of the host.
+    let config: object = Object.freeze({ scale: 0, list: Object.freeze([0]) });
+    for (let level = 1; level < 100_000; level += 1) config = Object.freeze({ inner: config, scale: level, list: Object.freeze([level]) });
+    const plan = prepare(machine, op("count", ref("names", "config", "scale")), { fixed: { names: { config } } });
+    expect(calls).toEqual([99_999]);
+    expect(plan.evaluate(makeContext({ config }))).toEqual({ ok: true, value: 99_999 });
+    expect(calls).toEqual([99_999]);
+    // A value with one object that is not frozen, at the bottom, does not fix its name.
+    let open: object = { scale: 0 };
+    for (let level = 1; level < 100_000; level += 1) open = Object.freeze({ inner: open, scale: level });
+    calls.length = 0;
+    const unfixed = prepare(machine, op("count", ref("names", "config", "scale")), { fixed: { names: { config: open } } });
+    expect(calls).toEqual([]);
+    expect(unfixed.evaluate(makeContext({ config: open }))).toEqual({ ok: true, value: 99_999 });
+    expect(calls).toEqual([99_999]);
   });
 
   it("[PLAN.FIXED] the plan with fixed names agrees with the reference on random formulas, with the fixed values and with other values, and more parts fold", () => {

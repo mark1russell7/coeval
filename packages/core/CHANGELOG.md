@@ -20,7 +20,21 @@ MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes, and
 
 ### Speed
 
-- A read that follows no reference costs approximately 4 ns more, with a list of reads (+4.0 % and +4.8 % on a formula of two reads). An evaluation without a list of reads runs the code of 0.36.0.
+- A read that follows no reference costs approximately 4 ns more, with a list of reads. A formula of two reads took 3.0 % to 5.4 % more in two Speed runs.
+- An evaluation without a list of reads runs the same steps as in 0.36.1. On one pair of Intel runners, a reference through an envelope took 2.4 % and 2.7 % more. On a pair of AMD runners, the same code took the same time (`bench/accepted/393.json`).
+
+## 0.36.1
+
+PATCH: a fix with no export changes.
+
+### Fixes
+
+- **A fold copies a value of any depth (D216).** The copy of a folded result and the test of a fixed name called themselves for each level of the value. At approximately 8,000 levels, they overflowed the stack of the host, and the part did not fold. Thus a host that prepared each level of a deep record copied each level again, and the heap ran out. Both walks keep their own stack. A lit of 100,000 levels folds, and a prepare of each level of its result gives that level, without a copy (PLAN.DEEP).
+
+### Changes of behavior
+
+- **A pure part with a deep value folds.** A plan gives one frozen result for it at each evaluation, as for each other folded part (PLAN.SHARED).
+- **A deeply frozen fixed name of any depth fixes (PLAN.FIXED).**
 
 ## 0.36.0
 
