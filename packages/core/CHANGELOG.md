@@ -2,6 +2,20 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.36.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes. But a caller can see three changes in an open fixed point, thus this release counts as a breaking change.
+
+### Fixes
+
+- **An open fixed point evaluates each plain attribute one time in each round (D213).** A plain attribute that read an approximation kept no value for its round. Thus each reader evaluated it again. In a chain of k such attributes with two readers each, the last level had 2^k evaluations in each round. The plan and the reference tier keep the tentative value of the round, and a later reader in the same round gets it (TREE.CIRCULAR-ONCE).
+
+### Changes of behavior
+
+- **A host evaluator gets fewer calls in an open fixed point.**
+- **A later reader in the same round gets the answer of the first evaluation.** A `#CYCLE!` keeps the chain of the first reader.
+- **A document that gave `#WORK!` can give a value**, because the evaluations of a round do not grow with the readers.
+
 ## 0.35.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are views and not instances of `Set`. A caller that tested them with `instanceof Set` gets another answer, thus this release counts as a breaking change. No export changes.

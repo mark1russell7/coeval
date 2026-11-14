@@ -589,13 +589,19 @@ interface Demand {
 /** The attributes in evaluation, in the order of their demands. An evaluation does not wait, thus one list serves. */
 const demands: Demand[] = [];
 
-/** One value of an attribute in an open fixed point (D113). */
+/** One value of an attribute in an open fixed point (D113, D213). */
 interface LoopValue {
   readonly result: Result | undefined;
   readonly by: AttributeRung | undefined;
-  /** The round of an approximation. The round `0` marks a final answer of a node with the cells of a host. */
+  /**
+   * The round of an approximation, or of a result that read an approximation (TREE.CIRCULAR-ONCE). The round `0` marks
+   * a final answer of a node with the cells of a host.
+   */
   readonly round: number;
-  /** The plain memo of the node. A stable fixed point writes its final value there. A node with host cells has none. */
+  /**
+   * The plain memo of the node of a circular attribute. A stable fixed point writes its final value there. A node with
+   * host cells and a result that read an approximation have none.
+   */
   readonly memo: Map<string, Cell> | undefined;
 }
 
@@ -609,7 +615,7 @@ interface FixedPoint {
   round: number;
   /** `true` when a circular attribute got a new value in this round. */
   changed: boolean;
-  /** The values of the fixed point, by the marks of a node and by the name of the attribute. */
+  /** The values of the fixed point, by the marks of a node or of its instances (TREE.AT), and by the key of the attribute. */
   readonly values: Map<Map<string, Cell>, Map<string, LoopValue>>;
   /** The demands of circular attributes, from the leader up. */
   readonly circular: Set<Demand>;
@@ -685,6 +691,19 @@ function loopValues(loop: FixedPoint, marks: Map<string, Cell>): Map<string, Loo
 /** This function marks each demand above the leader: each one read an approximation, thus its result is not final. */
 function markTentative(loop: FixedPoint): void {
   for (let index = loop.depth + 1; index < demands.length; index += 1) loop.tentative.add(demands[index] as Demand);
+}
+
+/**
+ * This function gives the value that an open fixed point keeps for an attribute that is not circular (D113, D213). It
+ * is a final answer of a node with host cells, or a result of this round that read an approximation. A demand that
+ * gets such a result also reads an approximation, thus each demand above the leader is not final.
+ */
+function keptIn(loop: FixedPoint, marks: Map<string, Cell>, key: string): LoopValue | undefined {
+  const kept = loop.values.get(marks)?.get(key);
+  if (kept === undefined || kept.round === 0) return kept;
+  if (kept.round !== loop.round) return undefined;
+  markTentative(loop);
+  return kept;
 }
 
 /** This function tells if two approximations are the same: two values by DOC.EQUALS, two errors by code and reason. */
@@ -783,7 +802,8 @@ function roundIn(loop: FixedPoint, n: LoopNode, key: string, rule: CircularRule 
 
 /**
  * This function evaluates an attribute without the cell of the host: with the plain memo, or in an open fixed point
- * (D113). A result that read an approximation is not final, thus no memo keeps it.
+ * (D113). A result that read an approximation is not final, thus no memo keeps it. The fixed point keeps it only for
+ * its round, and the next round evaluates it again (TREE.CIRCULAR-ONCE, D213).
  */
 function localIn(n: LoopNode, key: string, rule: (CircularRule & { readonly ok: true }) | undefined): Result | undefined {
   const demand: Demand = { cells: n.marks, key, text: attributeText(key, n.type, n.place) };
@@ -802,6 +822,7 @@ function localIn(n: LoopNode, key: string, rule: (CircularRule & { readonly ok: 
   }
   if (loop !== undefined && loop.tentative.has(demand)) {
     n.marks.delete(key);
+    loopValues(loop, n.marks).set(key, { result: answer.result, by: answer.by, round: loop.round, memo: undefined });
     return answer.result;
   }
   if (n.host !== undefined) {
@@ -868,10 +889,9 @@ function circularRead(n: LoopNode, key: string): Result | undefined {
   }
   const loop = openPoint;
   if (loop !== undefined) {
-    const kept = loop.values.get(n.marks)?.get(key);
-    if (rule !== undefined) return roundIn(loop, n, key, rule, kept);
-    if (kept !== undefined) return kept.result;
-    return localIn(n, key, undefined);
+    if (rule !== undefined) return roundIn(loop, n, key, rule, loop.values.get(n.marks)?.get(key));
+    const kept = keptIn(loop, n.marks, key);
+    return kept !== undefined ? kept.result : localIn(n, key, undefined);
   }
   if (rule === undefined || n.host === undefined) return localIn(n, key, rule);
   return leaderOnHost(n, key, rule, n.host);
@@ -1041,8 +1061,10 @@ function atRead(n: NodeState, attr: string, args: unknown): Result | undefined {
   const text = attributeText(`${attr} with ${given.key}`, n.type, n.place);
   const cell = marks.get(key);
   if (cell !== undefined) return cell.busy ? cycleAt(marks, key, text) : cell.result;
-  const demand: Demand = { cells: marks, key, text };
   const loop = openPoint;
+  const kept = loop === undefined ? undefined : keptIn(loop, marks, key);
+  if (kept !== undefined) return kept.result;
+  const demand: Demand = { cells: marks, key, text };
   const compute = (): AttributeAnswer => ({ result: n.equation(rule.equation, given.names), by: "kind" });
   marks.set(key, BUSY);
   demands.push(demand);
@@ -1070,8 +1092,14 @@ function atRead(n: NodeState, attr: string, args: unknown): Result | undefined {
     demands.pop();
   }
   // A result that read an approximation is not final. With the cells of a host, the cell is the memo.
-  if (n.host !== undefined || loop?.tentative.has(demand) === true) marks.delete(key);
+  const tentative = loop?.tentative.has(demand) === true;
+  if (n.host !== undefined || tentative) marks.delete(key);
   else marks.set(key, { busy: false, result: answer.result, by: answer.by });
+  // An open fixed point does not use the cells of the host. It keeps a tentative result for its round, and a final
+  // result until it ends (TREE.CIRCULAR-ONCE, D213).
+  if (loop !== undefined && (n.host !== undefined || tentative)) {
+    loopValues(loop, marks).set(key, { result: answer.result, by: answer.by, round: tentative ? loop.round : 0, memo: undefined });
+  }
   return answer.result;
 }
 
