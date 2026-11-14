@@ -323,7 +323,9 @@ jobs:
           echo "::$token::"
           for name in slope-2 slope-1.3; do
             case " $noread " in *" $name "*) continue ;; esac
-            for reason in 'refsOf is not linear' 'walk is not linear' 'memory of refsOf is over the bound' 'memory of walk is over the bound'; do
+            for reason in 'refsOf is not linear' 'walk is not linear' 'typeCheck of steps is not linear' 'typeCheck of binders is not linear' \
+              'memory of refsOf is over the bound' 'memory of walk is over the bound' 'memory of typeCheck of steps is over the bound' \
+              'memory of typeCheck of binders is over the bound'; do
               grep -q "$reason" "$name.txt" || { echo "Flip row $name has no reason: $reason."; fail=1; }
             done
           done
