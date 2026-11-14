@@ -3561,7 +3561,7 @@ The behavior changes for a caller only with the new field. A check with types th
 - A document that gives two nodes in one evaluation, for example in two contexts, gives one key to both nodes. With the cells of a host, the second node gets the answers of the first.
 - A node of an earlier evaluation computes again with its own context and in its own evaluation. Thus the reads of a kept attribute are not in the list of reads of a later evaluation.
 - A tree node inside an equation has the place of the cached plan of the equation (TREE.PLAN). That place is the same in each plan of the machine.
-- The kit cannot tell the cycle error of a signal library from another exception of the cell. Each such exception gives `#CYCLE!`.
+- The kit cannot tell the cycle error of a signal library from another exception of the cell. Each such exception gives `#CYCLE!`, except a `Failure` and a stack overflow (D208).
 
 ## D109 (2026-11-02): `encodeValue` uses the codec of the most specific domain
 
@@ -5771,3 +5771,53 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
 
 **SemVer.** No export of the package changes.
+
+## D208 (2026-11-12): a cache keeps no result of a stack overflow, and each engine keeps the code of a thrown error
+
+**Context.** K260, from a review. A stack overflow of the host gives `#DEPTH!` (VALUE.DEPTH). That result depends on the depth of the demand, not on the document. Some caches dropped such results, and others kept them:
+
+- `visit` of the schedule forgot a node with `#DEPTH!`, and `durable` kept no plan of a compilation with an overflow (D139).
+- `durable.evaluate` kept the result of an evaluation with an overflow. A document that catches the error gives a value, thus the code of the result does not show the overflow. A verification with an overflow kept the old result too.
+- After a walk, the schedule demands each node again. It kept each result of these demands, also after an overflow. A walk with an overflow kept its results, and a cycle that a caught overflow made set the error of each node.
+- `planner` kept a plan of a compilation with an overflow. A fold kept the value of a part that caught an overflow.
+
+The engines had more faults of the same family:
+
+- Each engine had its own copy of the code of a failed effect. It gave `#CALC!` for an overflow of the host, and the kernel did not count it. The mock of `conforms` gave `#DEPTH!` for the same exception.
+- Each engine found a `Failure` only with `instanceof`. Thus a `Failure` of another copy of the kernel lost its code and gave `#CALC!`.
+- The count of the overflows was a variable of one copy of the module. `parse` and `print` did not count their overflows.
+- A host cell that overflowed, or that threw a `Failure`, gave `#CYCLE!` (D108).
+
+**Decision.**
+
+- Each cache compares the count of the overflows before and after its work. A changed count keeps no result. This applies to `durable.evaluate`, its verification, `planner`, the fold and the schedule.
+- After a demand that follows a walk overflows, the schedule drops each node of these demands from its epoch and from `durable`. A reader of an overflowed node gets a result of the depth too (SCHED.DEEP-CYCLE-OVERFLOW).
+- A walk with an overflow of its own keeps no result and finds no cycle. A document that catches the error can read another node, thus the overflow can make a false cycle. The demands after the walk give each result.
+- One function, `effectFailed`, gives the error value of a failed effect. The plan engine, the reference and the stepper use it. A `Failure` gives its error value, and a stack overflow gives `#DEPTH!` (RUN.OUTCOME-OVERFLOW).
+- A `Failure` has a brand: the global symbol `coeval.failure`. The function `isFailure` finds a `Failure` by `instanceof` or by the brand, and each catch of the kernel uses it (FAILURE.SYMBOL).
+- The count of the overflows is one object on the global object, under the global symbol `coeval.overflows`. Each copy of the kernel shares it.
+- `parse` and `print` count their overflows (SYNTAX.DEPTH).
+- A `Failure` and a stack overflow of a host cell go on, as an exception of `compute` does. Thus each keeps its own code (TREE.CELL-CYCLE).
+
+**Alternatives.**
+
+- The code `#DEPTH!` of the result as the trigger. A document that catches the overflow gives a value, thus the code does not show it. A reader of a node with `#DEPTH!` can give a value too.
+- A mark on each result that an overflow touched. Each operation and each host value must then carry the mark. The count changes no value, and D139 already uses it.
+- A flag of the evaluation in place of a global count. A cache does not see the flag of a nested evaluation of another plan, for example a host thing that evaluates a formula.
+- Keep the cycles of a walk with an overflow. The overflow can add a read, thus such a cycle can be false.
+- The method `Symbol.hasInstance` on the class `Failure`. It changes `instanceof` for the code of the host too. The function `isFailure` changes only the catches of the kernel.
+
+**Why.** A result that depends on the depth of the stack is not a function of the document and the data. A cache that keeps it gives a wrong value at a later demand. Each catch of the kernel that changes an overflow into a value adds one to the count. Thus two reads of the count find each overflow in the work of a cache. This is also true in a nested evaluation and in another copy of the kernel.
+
+**Limits.**
+
+- A catch outside the kernel does not count. An example is a host function that catches an overflow and gives a value. Such a value can stay in a cache.
+- A copy of the kernel of version 0.34.0 or older has no brand and its own count. Its `Failure` gives `#CALC!` in a newer copy, and its overflows do not change the shared count.
+- A frozen global object refuses the shared count. Then each copy of the kernel keeps its own count.
+- The count does not tell which part of a demand overflowed. Thus an overflow keeps each result of that demand out of the cache. This costs evaluations, not correct values.
+- A walk with an overflow of its own keeps no result. Thus the bound of SCHED.DEEP-CYCLE-BOUND is only for the other walks. A node that overflows at each demand starts a walk at each demand.
+- The memo of a tree and the values of a loop (D113) last for one evaluation. In that evaluation they keep a result of an overflow.
+- A host cell keeps a value that `compute` gave after a caught overflow. The kit does not see the cache of the host, and the package does not export `overflowCount`.
+- Some catches of the kernel give a cautious answer and do not count. An example is the test that a value is plain data.
+
+**SemVer.** An overflow of the host in an effect gives `#DEPTH!` in place of `#CALC!`. A `Failure` or an overflow of a host cell gives its own code in place of `#CYCLE!`. A host can see these changes of behavior. Before 1.0.0 such a change raises MINOR: 0.38.0.

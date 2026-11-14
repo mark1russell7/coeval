@@ -537,6 +537,60 @@ describe("two levels of durability", () => {
     expect(runs).toBe(4);
     expect(store.counts).toMatchObject({ compiles: 2, evaluations: 4, reuses: 2, verifications: 0 });
   });
+
+  it("[DURABLE.OVERFLOW] the cache keeps no result of an evaluation or a verification with a stack overflow, also when the document catches the error", () => {
+    let armed = false;
+    // The operation deep throws the error of a stack overflow on demand, as the host does at the limit of its stack.
+    // Thus the test needs no deep document, and the result does not depend on the size of the stack.
+    const deep = (given: unknown): unknown => {
+      if (armed) throw new RangeError("Maximum call stack size exceeded");
+      return given;
+    };
+    // No operation is pure, thus no part folds, and the cache keeps each plan.
+    const machine = formulaMachine({ ops: { deep }, lazy: LAZY });
+    const caught: Json = { type: ["ops", "ifError"], value: [{ type: ["ops", "deep"], value: [1] }, -1] };
+    const bare: Json = { type: ["ops", "deep"], value: [1] };
+    const store = durable(machine);
+    armed = true;
+    expect(store.evaluate("c", caught, context())).toEqual(ok(-1));
+    expect(store.evaluate("b", bare, context())).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+    armed = false;
+    // In the same data epoch, each key evaluates again. Thus no result keeps the depth of the first demand.
+    expect(store.evaluate("c", caught, context())).toEqual(ok(1));
+    expect(store.evaluate("b", bare, context())).toEqual(ok(1));
+    expect(store.counts).toMatchObject({ compiles: 2, evaluations: 4, reuses: 0 });
+    // A result without an overflow stays.
+    expect(store.evaluate("c", caught, context())).toEqual(ok(1));
+    expect(store.counts).toMatchObject({ evaluations: 4, reuses: 1 });
+
+    // A host thing gives its field x from a formula that catches an overflow. The fallback of the formula is 1.
+    let value = 1;
+    const field: Json = { type: ["ops", "ifError"], value: [{ type: ["ops", "deep"], value: [ref("names", "v")] }, 1] };
+    const host: HostThing = {
+      [THING]: true,
+      label: "host",
+      deref: (key) => {
+        if (key !== "x") return undefined;
+        const result = prepare(machine, field).evaluate(context({ names: { v: value } }));
+        return result.ok ? result.value : undefined;
+      },
+      has: (key) => key === "x",
+      toJson: () => ({}),
+    };
+    const read: Json = ref("names", "t", "x");
+    const ctx = context({ names: { t: host } });
+    const reads = durable(machine);
+    expect(reads.evaluate("r", read, ctx)).toEqual(ok(1));
+    // The field changes to 2. The read again overflows and gives the fallback 1, thus the read looks the same.
+    value = 2;
+    reads.changeData();
+    armed = true;
+    expect(reads.evaluate("r", read, ctx)).toEqual(ok(1));
+    armed = false;
+    // The cache kept no result of that demand, thus the next demand reads 2.
+    expect(reads.evaluate("r", read, ctx)).toEqual(ok(2));
+    expect(reads.counts).toMatchObject({ evaluations: 3, verifications: 1, reuses: 0 });
+  });
 });
 
 describe("two levels of durability with generated documents", () => {

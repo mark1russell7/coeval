@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  Failure,
   STD_CAPS,
   STD_DEFINITIONS,
   STD_MACHINE,
@@ -490,6 +491,22 @@ describe("the memo cells of a host (L2c, D108)", () => {
       error: { code: "#CYCLE!", place: ["width"], reason: "The cells of the host found a cycle in the demands: width of panel at [] -> height of panel at []." },
     });
     expect(result.ok ? undefined : result.error.cause).toBe(own);
+  });
+
+  it("[TREE.CELL-CYCLE] a stack overflow or a Failure of the cell keeps its own code, not #CYCLE!", () => {
+    const doc = node("panel", { width: path("self", "height"), height: 1 });
+    const failing = (error: unknown): Machine => {
+      const cell: AttributeCell = (_place, attribute, compute) => {
+        if (attribute === "height") throw error;
+        return compute();
+      };
+      return { ...STD_MACHINE, evaluators: { ...STD_MACHINE.evaluators, "tree.node": treeNodeEvaluator({ cell }) } };
+    };
+    // The cell throws the error of a stack overflow, as a signal library does at the limit of the stack of the host.
+    const deep = prepare(failing(new RangeError("Maximum call stack size exceeded")), doc).evaluate();
+    expect(deep).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+    const full = prepare(failing(new Failure({ code: "#FULL", reason: "The store is full." })), doc).evaluate();
+    expect(full).toMatchObject({ ok: false, error: { code: "#FULL", reason: "The store is full." } });
   });
 
   // The equation `badge` of a card makes a node. The machine caches the plan of the equation (TREE.PLAN), thus the

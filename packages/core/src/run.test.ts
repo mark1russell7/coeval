@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type Effect,
+  type EvalError,
   type Json,
   type Machine,
   type CompiledRunner,
@@ -11,12 +12,15 @@ import {
   STD_CAPS,
   STD_MACHINE,
   check,
+  conforms,
   effectsOf,
   evaluate,
   fail,
+  formulaMachine,
   generate,
   ifRunner,
   makeContext,
+  mergeMachines,
   ok,
   permits,
   prepare,
@@ -24,8 +28,10 @@ import {
   referenceRun,
   run,
   sameResult,
+  stepper,
   typesOf,
 } from "./index.ts";
+import { overflowCount } from "./errors.ts";
 import { heldReason } from "./evaluate.ts";
 
 const ref = (...path: Json[]): Json => ({ type: "ref", value: path });
@@ -408,6 +414,64 @@ describe("a mock, the outcomes and the addresses", () => {
     const stopped = await pending;
     expect(stopped.result).toMatchObject({ ok: false, error: { code: "#ABORT" } });
     expect(stopped.effects.map((effect) => effect.outcome)).toEqual([undefined]);
+  });
+
+  it("[RUN.OUTCOME-OVERFLOW] a stack overflow of the host in an effect gives #DEPTH! in each engine, and the kernel counts it", async () => {
+    const ctx = makeContext({}, STD_CAPS);
+    // The mock throws the error of a stack overflow, as the host does at the limit of its stack. Thus the test needs no deep code.
+    const overflow = (): RangeError => new RangeError("Maximum call stack size exceeded");
+    const throws = (): never => {
+      throw overflow();
+    };
+    const rejects = (): Promise<never> => Promise.reject(overflow());
+    const deep = { ok: false, error: { code: "#DEPTH!", place: [0] } };
+    const before = overflowCount();
+    expect(evaluate(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform: throws }).result).toMatchObject(deep);
+    expect(prepare(STD_MACHINE, WRITE_THEN_LOG).evaluate(ctx, { perform: throws })).toMatchObject(deep);
+    expect(reference(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform: throws })).toMatchObject(deep);
+    // The stepper has no runner of seq, thus it takes the effect of an evaluator at the root.
+    const ping: Json = { type: "ping", value: null };
+    expect(stepper(machine, ping, ctx, { perform: throws })).toMatchObject({ ok: false, error: { code: "#DEPTH!", place: [] } });
+    for (const perform of [throws, rejects]) {
+      const ran = await run(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform });
+      expect(ran.result).toMatchObject(deep);
+      expect(ran.effects[0]?.outcome).toEqual(ran.result);
+      expect(await referenceRun(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform })).toMatchObject(deep);
+    }
+    // Each engine counts the overflow one time. Thus a cache that compares two counts finds it (DURABLE.OVERFLOW).
+    expect(overflowCount() - before).toBe(8);
+  });
+
+  it("[FAILURE.SYMBOL] a Failure of another copy of the kernel gives its own error value in each engine and in conforms", async () => {
+    // Another copy of the kernel has another class Failure with the same global brand.
+    const foreign = (error: EvalError): Error => {
+      const made = Object.assign(new Error(`${error.code} ${error.reason}`), { name: "Failure", error });
+      Object.defineProperty(made, Symbol.for("coeval.failure"), { value: true });
+      return made;
+    };
+    const full: EvalError = { code: "#FULL", reason: "The store is full." };
+    expect(foreign(full)).not.toBeInstanceOf(Failure);
+    const ctx = makeContext({}, STD_CAPS);
+    const throws = (): never => {
+      throw foreign(full);
+    };
+    const rejects = (): Promise<never> => Promise.reject(foreign(full));
+    const mine = { ok: false, error: { ...full, place: [0] } };
+    expect(evaluate(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform: throws }).result).toEqual(mine);
+    expect(prepare(STD_MACHINE, WRITE_THEN_LOG).evaluate(ctx, { perform: throws })).toEqual(mine);
+    expect(reference(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform: throws })).toEqual(mine);
+    // The stepper has no runner of seq, thus it takes the effect of an evaluator at the root.
+    expect(stepper(machine, { type: "ping", value: null }, ctx, { perform: throws })).toEqual({ ok: false, error: { ...full, place: [] } });
+    for (const perform of [throws, rejects]) {
+      expect((await run(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform })).result).toEqual(mine);
+      expect(await referenceRun(STD_MACHINE, WRITE_THEN_LOG, ctx, { perform })).toEqual(mine);
+    }
+    // An operation of the formula kit that throws it gives its error value too.
+    const ops = formulaMachine({ ops: { fill: () => throws() } });
+    expect(prepare(ops, { type: ["ops", "fill"], value: [] }).evaluate()).toMatchObject({ ok: false, error: full });
+    // For conforms, the Failure is the channel of the errors of a deref, not a throw of the host.
+    const held = mergeMachines(STD_MACHINE, { world: { kinds: { held: { verbs: { deref: "test.deref" } } } }, derefs: { "test.deref": throws } });
+    expect(conforms(held, "test.deref")).toEqual([]);
   });
 
   it("[RUN.ADDRESS] each effect has an address from its place and its scope, and the order of the host does not change it", async () => {

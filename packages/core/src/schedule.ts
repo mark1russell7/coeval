@@ -365,11 +365,19 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     const size = current().values.size;
     const result = visit(id);
     if (overflowCount() === before) return current().walk === undefined ? result : settle(id, result, []);
-    // A map keeps the order of its new keys. Thus the entries after the first `size` are the nodes of this demand (S2b).
-    const touched: string[] = [];
+    return settle(id, result, newer(size));
+  };
+
+  /**
+   * This function gives the nodes that got a result after the first `size` entries of the map of the epoch. A map
+   * keeps the order of its new keys. Thus these are the nodes of a demand that started at that size (S2b). A demand
+   * deletes only the entries that it made, thus the old entries keep their places.
+   */
+  const newer = (size: number): string[] => {
+    const nodes: string[] = [];
     let index = 0;
-    for (const node of current().values.keys()) if (index++ >= size) touched.push(node);
-    return settle(id, result, touched);
+    for (const node of current().values.keys()) if (index++ >= size) nodes.push(node);
+    return nodes;
   };
 
   /** This function demands one node, with the algorithm of Tarjan over the demands for the cycles of D31. */
@@ -533,6 +541,7 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
     close(0);
     looped.clear();
     enter(id);
+    const was = overflowCount();
     try {
       while (stack.length > 0) {
         const node = stack[stack.length - 1] as string;
@@ -562,6 +571,12 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       looped.clear();
       close(0);
     }
+    // A walk with a stack overflow gives results of the depth of the stack. A document that catches the error can
+    // also read another node, thus the overflow can make a cycle too. Each entered node keeps no result of such a walk (D208).
+    if (overflowCount() !== was) {
+      for (const node of entered) results.delete(node);
+      found = false;
+    }
     if (!found && touched.length === 0) return given;
     for (const node of touched) {
       cache.forget(node);
@@ -576,8 +591,18 @@ export function schedule(machine: Machine, options: ScheduleOptions = {}): Sched
       }
     }
     // Each demand starts with no node in evaluation, and the nodes that it reads already have their results.
+    // These demands keep no result after a stack overflow, as the demand of the host (D208).
+    const size = epoch.values.size;
+    const before = overflowCount();
     for (const node of finished) if (!epoch.values.has(node)) visit(node);
-    return epoch.values.get(id) ?? visit(id);
+    const final = epoch.values.get(id) ?? visit(id);
+    if (overflowCount() !== before) {
+      for (const node of newer(size)) {
+        cache.forget(node);
+        epoch.values.delete(node);
+      }
+    }
+    return final;
   };
 
   /** This function gives the record of the derive nodes, for a path that ends at the root `world`. */

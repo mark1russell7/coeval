@@ -82,6 +82,7 @@ export interface Durable {
    * - In the data epoch of its result, a key with the same plan gives that result again.
    * - After a change of data, a pure document verifies its reads, and it keeps its result when each read is the same.
    * - Each other document evaluates again.
+   * - The cache keeps no result of an evaluation with a stack overflow (DURABLE.OVERFLOW).
    *
    * @param key - The name of the node in the host, for example the name of a cell.
    * @param doc - The document of the node.
@@ -227,7 +228,10 @@ export function durable(machine: Machine, options: DurableOptions = {}): Durable
         if (entry.reads !== undefined) {
           counts.verifications += 1;
           const prints = printsOf?.get(entry);
-          if (verifyReads(plan, entry.reads, context, prints === undefined ? verifyOptions : { ...verifyOptions, prints }).same) {
+          const was = overflowCount();
+          const same = verifyReads(plan, entry.reads, context, prints === undefined ? verifyOptions : { ...verifyOptions, prints }).same;
+          // A read again with a stack overflow depends on the depth of the demand, thus it keeps no result (DURABLE.OVERFLOW).
+          if (same && overflowCount() === was) {
             entry.data = epochs.data;
             counts.reuses += 1;
             return entry.result;
@@ -237,7 +241,14 @@ export function durable(machine: Machine, options: DurableOptions = {}): Durable
       // Only a pure document is a function of its reads (FACTS.PURE), thus only its reads can keep its result.
       const reads: Read[] | undefined = facts(doc).pure ? [] : undefined;
       counts.evaluations += 1;
+      const before = overflowCount();
       const result = plan.evaluate(context, reads === undefined ? undefined : { reads });
+      // A result of an evaluation with a stack overflow depends on the depth of the demand, not on the document. A
+      // document that catches the error hides it from the code of the result, thus the cache compares two counts (DURABLE.OVERFLOW, D208).
+      if (overflowCount() !== before) {
+        results.delete(key);
+        return result;
+      }
       // A list that grows by push keeps room for more reads. A copy of a short list is smaller (PLAN.LEAN).
       const made: Entry = { plan, result, reads: reads === undefined ? undefined : reads.length === 0 ? NO_READS : reads.slice(), data: epochs.data };
       results.set(key, made);

@@ -19,7 +19,7 @@ import {
   planner,
   resolveCompiled,
 } from "./evaluate.ts";
-import { Failure } from "./errors.ts";
+import { Failure, isFailure, isStackOverflow } from "./errors.ts";
 import { type Cap, type HostThing, type Thing, type Walker, THING, compilePath, isHostThing, valueOfThing } from "./deref.ts";
 import type { World } from "./ladder.ts";
 import {
@@ -579,6 +579,14 @@ function keptAt<T>(map: WeakMap<readonly Key[], T>, place: readonly Key[], make:
 /** A value that no exception has. */
 const NOT_THROWN: unique symbol = /* @__PURE__ */ Symbol("coeval.tree.not-thrown") as never;
 
+/**
+ * This function tells if an exception of the cell of a host goes on (TREE.CELL-CYCLE, D208). An exception that
+ * `compute` threw goes on. A `Failure` and a stack overflow also go on, because each keeps its own code.
+ */
+function goesOn(error: unknown, computed: unknown): boolean {
+  return error === computed || isFailure(error) || isStackOverflow(error);
+}
+
 /** One attribute in evaluation. The text names it in the reason of a cycle. */
 interface Demand {
   readonly cells: Map<string, Cell>;
@@ -843,7 +851,7 @@ function leaderOnHost(n: LoopNode, key: string, rule: CircularRule & { readonly 
     });
   } catch (error) {
     // An exception of the kit or of the stack goes on, as without a host. Another exception is a cycle of the host.
-    if (error === thrown) throw error;
+    if (goesOn(error, thrown)) throw error;
     const chain = demands.map((demand) => demand.text).join(" -> ");
     answer = { result: fail("#CYCLE!", `The cells of the host found a cycle in the demands: ${chain}.`, { cause: error }), by: undefined };
   } finally {
@@ -1063,7 +1071,7 @@ function atRead(n: NodeState, attr: string, args: unknown): Result | undefined {
   } catch (error) {
     marks.delete(key);
     // An exception of the kit or of the stack goes on. Another exception of the cell is a cycle of the host (D108).
-    if (host === undefined || error === thrown) throw error;
+    if (host === undefined || goesOn(error, thrown)) throw error;
     const chain = demands.map((item) => item.text).join(" -> ");
     answer = { result: fail("#CYCLE!", `The cells of the host found a cycle in the demands: ${chain}.`, { cause: error }), by: undefined };
   } finally {
@@ -1272,7 +1280,7 @@ function treeThing(input: EvalInput, place: readonly Key[], build: TreeBuild, ou
             });
           } catch (error) {
             // An exception of the kit or of the stack goes on, as without a host. Another exception is a cycle of the host.
-            if (error === thrown) throw error;
+            if (goesOn(error, thrown)) throw error;
             const chain = demands.map((demand) => demand.text).join(" -> ");
             answer = { result: fail("#CYCLE!", `The cells of the host found a cycle in the demands: ${chain}.`, { cause: error }), by: undefined };
           } finally {

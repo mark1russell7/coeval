@@ -200,6 +200,33 @@ describe("the fold of a closed pure part", () => {
     expect(effects).toHaveLength(4);
   });
 
+  it("[PLAN.FOLD-OVERFLOW] a part that catches a stack overflow in its probe does not fold, and it evaluates at each evaluation", () => {
+    let armed = true;
+    // The operation deep throws the error of a stack overflow on demand. Thus the test needs no deep document.
+    const deep = (given: unknown): unknown => {
+      if (armed) throw new RangeError("Maximum call stack size exceeded");
+      return given;
+    };
+    const lazy: FormulaProfile["lazy"] = {
+      ifError: (args) => {
+        const first = args[0]?.() ?? fail("#ARGS", "ifError needs an argument.");
+        return first.ok ? first : (args[1]?.() ?? first);
+      },
+    };
+    const machine = formulaMachine({ ops: { deep }, lazy, pure: ["deep", "ifError"] });
+    // The operation reads a name of the let, thus only the let folds. The fallback hides the #DEPTH! of the probe from
+    // the result of the let. The count of the overflows still finds it.
+    const caught = (value: number): Json => ({ type: "let", value: { bind: { x: value }, body: op("ifError", op("deep", ref("names", "x")), -1) } });
+    const plan = prepare(machine, caught(1));
+    expect(plan.evaluate()).toEqual(ok(-1));
+    armed = false;
+    expect(plan.evaluate()).toEqual(ok(1));
+    // Without an overflow, the same document folds.
+    const folded = prepare(machine, caught(2));
+    armed = true;
+    expect(folded.evaluate()).toEqual(ok(2));
+  });
+
   it("[PLAN.FOLD] a part whose code reads a root of the context directly does not fold", () => {
     const machine: Machine = {
       world: { kinds: { who: { verbs: { eval: "t.who" }, pure: true } }, defaults: {} },

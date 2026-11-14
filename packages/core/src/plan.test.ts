@@ -161,6 +161,36 @@ describe("plans", () => {
     expect(plans(7)).toBe(plans(7));
   });
 
+  it("[PLAN.CACHE-OVERFLOW] a planner keeps no plan of a compilation with a stack overflow, thus the next call compiles again", () => {
+    let armed = false;
+    let compiles = 0;
+    // The compilation throws the error of a stack overflow on demand. Thus the test needs no deep document.
+    const deep: CompiledEvaluator = {
+      compile: () => {
+        compiles += 1;
+        if (armed) throw new RangeError("Maximum call stack size exceeded");
+        return () => ok(1);
+      },
+    };
+    const machine: Machine = { world: { kinds: { deep: { verbs: { eval: "deep" } } }, defaults: {} }, evaluators: { deep } };
+    for (const [doc, options] of [
+      [{ type: "deep", value: null }, {}],
+      ["x", { declaredType: "deep" }],
+    ] as const) {
+      const plans = planner(machine, options);
+      armed = true;
+      const first = plans(doc);
+      armed = false;
+      expect(first.evaluate()).toMatchObject({ ok: false, error: { code: "#DEPTH!" } });
+      // The plan of the overflow depends on the depth of the stack, not on the document. The next call compiles again.
+      const second = plans(doc);
+      expect(second).not.toBe(first);
+      expect(second.evaluate()).toEqual(ok(1));
+      expect(plans(doc)).toBe(second);
+    }
+    expect(compiles).toBe(4);
+  });
+
   it("[PLAN.CACHE-ZERO] a planner keeps -0 and 0 apart", () => {
     const plans = planner(STD_MACHINE, { declaredType: "number" });
     expect(plans(0).evaluate()).toEqual({ ok: true, value: 0 });

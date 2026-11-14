@@ -16,7 +16,7 @@ import {
   resolve,
   valueOfThing,
 } from "./deref.ts";
-import { type EvalError, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
+import { type EvalError, type Result, describe, fail, isFailure, ok, placed, thrown } from "./errors.ts";
 import {
   type AllOptions,
   type Code,
@@ -1350,7 +1350,7 @@ function attempt<T>(call: () => T, who: string): { readonly result: Result<T>; r
   try {
     return { result: ok(call()), threw: undefined };
   } catch (error) {
-    return { result: thrown(error, who), threw: error instanceof Failure ? undefined : describe(error) };
+    return { result: thrown(error, who), threw: isFailure(error) ? undefined : describe(error) };
   }
 }
 
