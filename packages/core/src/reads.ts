@@ -29,7 +29,7 @@ export type ReadsCheck =
       readonly inPlace?: true;
       /**
        * `true` when the read reaches the same thing by `sameResult`, but its new resolution follows a reference in
-       * the data, and the read has no mark `followed` (READS.BOUND-REF). That reference can resolve to another thing
+       * the data. The read has no mark `followed` (READS.BOUND-REF). That reference can resolve to another thing
        * in the context of the reader.
        */
       readonly followed?: true;

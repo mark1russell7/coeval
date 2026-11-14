@@ -5789,7 +5789,7 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The record of the reads, `verifyReads`, the reference evaluator and the fold use this one function. Thus they agree on the references of each resolution.
 - A read in a context with the `names` and the `self` of the root stays one read. When it is free and it follows a reference, it gets the mark `followed`.
 - A read in a context of a kind that follows a reference is not free. The path of each reference is its own read after it.
-- The read of a reference path is free when `isFree` says so in the context of the reader, and the path leads to no other reference.
+- The read of a reference path is free in two conditions. `isFree` says so in the context of the reader, and the path leads to no other reference.
 - When the read in the context of the kind has the binding of the root, its whole root stays as a kept read.
 - `verifyReads` resolves each free read that is not kept with `resolveFollowing`. A read without the mark `followed` is changed when its new resolution follows a reference.
 - The answer then has the mark `followed`. A kept read resolved in the context at the root, thus a reference on its path resolves as before.

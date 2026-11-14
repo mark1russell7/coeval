@@ -455,8 +455,8 @@ export interface Read {
    * example a name of `let`, is not free. A read of a `self` that a kind sets is not free either, for example a node
    * of a tree. A path without a root is not free. `verifyReads` resolves only the free reads again.
    *
-   * A reference in the data resolves in the context of the reader (DEREF.READER). When a read in a context of a kind
-   * follows such a reference, the path of each reference is its own read after this read (READS.BOUND-REF, D210).
+   * A reference in the data resolves in the context of the reader (DEREF.READER). A read in a context of a kind can
+   * follow such a reference. Then the path of each reference is its own read after this read (READS.BOUND-REF, D210).
    * This read is then not free, and the kernel keeps its whole root.
    */
   readonly free: boolean;
