@@ -428,7 +428,8 @@ function traceOf(
     }
     const { round, at, owner } = place(pass);
     if (round < 0) continue;
-    const kind = (entry.detail as { readonly kind?: number } | null | undefined)?.kind;
+    // The types of Node give no field detail to a PerformanceEntry, but Node gives the kind of a collection there.
+    const kind = (entry as unknown as { readonly detail?: { readonly kind?: number } | null }).detail?.kind;
     add(kind === perfConstants.NODE_PERFORMANCE_GC_MINOR ? minor : other, owner, round, at, 1);
     add(gcMs, owner, round, at, entry.duration);
   }
