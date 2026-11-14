@@ -253,6 +253,19 @@ export interface ResolveOptions {
   readonly hops?: boolean;
 }
 
+/**
+ * One reference that a resolution followed (DEREF.COLLAPSE): the path of the reference, and its depth. A reference on
+ * the path itself has the depth 0. A reference that the path of a reference reaches has the depth of that reference
+ * plus 1. The list of a resolution has the order of the walk, thus the references below a reference come after it.
+ */
+export interface Followed {
+  /** The path of the reference. It resolves in the context of the reader (DEREF.READER). */
+  readonly path: readonly unknown[];
+  readonly depth: number;
+  /** What the path of the reference reached, after the walk of that path. */
+  reached?: Resolution;
+}
+
 /** This function gives the own entries of an envelope, when it has a record of them. */
 function ownEntries(envelope: Envelope): Readonly<Record<string, string>> | undefined {
   const own = field(envelope as JsonRecord, "own");
@@ -582,14 +595,15 @@ class StaticPath implements CompiledPath {
     this.plain = plain;
   }
 
-  resolve(ctx: Context): Resolution {
+  /** The list `followed` gets each reference that the resolution follows. The short path follows no reference. */
+  resolve(ctx: Context, followed?: Followed[]): Resolution {
     const from = this.from;
     if (from !== FULL) {
       const start = from === FROM_NAMES ? ctx.names : from === FROM_WORLD ? ctx.world : from === FROM_SELF ? ctx.self : ctx.event;
       const quick = walkQuick(start, this.path, this.plain, true);
       if (quick !== undefined) return quick;
     }
-    return resolveFully(this.nav, ctx, this.path, undefined, this.known);
+    return resolveFully(this.nav, ctx, this.path, undefined, this.known, followed);
   }
 }
 
@@ -676,6 +690,29 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
   return resolveFully(nav, ctx, path, options.hops === false ? undefined : [], undefined);
 }
 
+/**
+ * This function resolves a path as `resolve` does, and it adds each reference that the resolution follows to the list
+ * `followed` (READS.BOUND-REF, D210). A reference resolves in the context of its reader (DEREF.READER). Thus the list
+ * tells which paths of the context a resolution read through the data. The record of the reads, `verifyReads` and the
+ * fold use this function.
+ *
+ * @param nav - The world and the code of the evaluators.
+ * @param ctx - The context.
+ * @param path - The steps.
+ * @param followed - The list that gets each reference, in the order of the walk.
+ * @param hops - `true` records each hop.
+ * @param compiled - The compiled path of the same steps, or `undefined`. A path of this function and of this navigator walks its short path first.
+ * @returns What the path reached and each hop, or an error.
+ */
+export function resolveFollowing(nav: Navigator, ctx: Context, path: readonly unknown[], followed: Followed[], hops: boolean, compiled?: CompiledPath): Resolution {
+  if (!hops) {
+    if (compiled instanceof StaticPath && compiled.nav === nav) return compiled.resolve(ctx, followed);
+    const quick = resolveQuick(nav, ctx, path);
+    if (quick !== undefined) return quick;
+  }
+  return resolveFully(nav, ctx, path, hops ? [] : undefined, undefined, followed);
+}
+
 /** The functions `deref` and `has` of the input of a walker, for one navigator. */
 interface WalkSteps {
   readonly nav: Navigator;
@@ -716,9 +753,17 @@ function walkSteps(nav: Navigator): WalkSteps {
  * @param path - The steps.
  * @param hops - The list that gets each hop, or `undefined` for no record.
  * @param known - The walker of each step document of the path, from `compilePath`. A reference that a step reaches has its own steps, and the ladder answers them.
+ * @param followed - The list that gets each reference that the resolution follows, or `undefined`.
  * @returns What the path reached and each hop, or an error.
  */
-function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], hops: Hop[] | undefined, known: KnownWalkers | undefined): Resolution {
+function resolveFully(
+  nav: Navigator,
+  ctx: Context,
+  path: readonly unknown[],
+  hops: Hop[] | undefined,
+  known: KnownWalkers | undefined,
+  followed?: Followed[],
+): Resolution {
   const done = hops ?? NO_HOPS;
   const failed = (code: ResolveCode | ErrorCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;
@@ -735,8 +780,11 @@ function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], ho
       if (collapses > MAX_COLLAPSE) return failed("#CYCLE!", CHAIN_REASON);
       open ??= [];
       open.push(here);
+      let entry: Followed | undefined;
+      if (followed !== undefined) followed.push((entry = { path: here.value, depth: open.length - 1 }));
       const inner = walk(here.value, undefined);
       open.pop();
+      if (entry !== undefined) entry.reached = inner;
       if (!inner.ok) return inner;
       here = adopt(inner.thing);
       hops?.push({ step: "collapse", thing: here, by: "collapse" });

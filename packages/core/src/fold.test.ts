@@ -182,6 +182,12 @@ describe("the fold of a closed pure part", () => {
     const held = prepare(machine, { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "y") } }, body: ref("names", "x") } });
     expect(held.evaluate(makeContext({ y: 7 }))).toEqual({ ok: true, value: 7 });
     expect(held.evaluate(makeContext({ y: 8 }))).toEqual({ ok: true, value: 8 });
+    // A reference in bound data to a name that the let binds reads no context, thus the let folds (READS.BOUND-REF).
+    calls.length = 0;
+    const own = prepare(machine, { type: "let", value: { bind: { y: 3, x: { type: "lit", value: ref("names", "y") } }, body: op("count", ref("names", "x")) } });
+    expect(calls).toEqual([3]);
+    expect(own.evaluate(makeContext({ y: 9 }))).toEqual({ ok: true, value: 3 });
+    expect(calls).toEqual([3]);
   });
 
   it("[PLAN.FOLD] a part with an effect does not fold, and the effect happens at each evaluation", () => {
@@ -375,6 +381,13 @@ describe("the names that the host declares fixed", () => {
     const ctx = makeContext({ config });
     expect(shadowed.evaluate(ctx)).toEqual({ ok: true, value: [7, 2] });
     expect(shadowed.evaluate(ctx)).toEqual(reference(machine, { type: "list", value: [shadow, ref("names", "config", "scale")] }, ctx, { definitions: formulaDefinitions(profile) }));
+    // A reference in bound data to a fixed name does not fold: the code of a fold compares only the names of its static reads.
+    calls.length = 0;
+    const via = prepare(machine, { type: "let", value: { bind: { x: { type: "lit", value: ref("names", "config", "scale") } }, body: op("count", ref("names", "x")) } }, { fixed: { names: { config } } });
+    expect(calls).toEqual([]);
+    expect(via.evaluate(makeContext({ config: { scale: 5 } }))).toEqual({ ok: true, value: 5 });
+    expect(via.evaluate(ctx)).toEqual({ ok: true, value: 2 });
+    expect(calls).toEqual([5, 2]);
   });
 
   it("[PLAN.FIXED] a value that is not deeply frozen plain data does not fix its name, and the default, fold: false and a trace keep the reads of each evaluation", () => {

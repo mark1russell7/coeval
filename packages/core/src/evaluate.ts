@@ -10,6 +10,7 @@ import {
   type Cap,
   type CompiledPath,
   type Context,
+  type Followed,
   type Hop,
   type Navigator,
   type Resolution,
@@ -22,6 +23,7 @@ import {
   isHostThing,
   isRef,
   resolve,
+  resolveFollowing,
   worldThing,
 } from "./deref.ts";
 
@@ -452,6 +454,10 @@ export interface Read {
    * `true` when the read reads the context of the evaluation (READS.FREE). A read of a name that a kind binds, for
    * example a name of `let`, is not free. A read of a `self` that a kind sets is not free either, for example a node
    * of a tree. A path without a root is not free. `verifyReads` resolves only the free reads again.
+   *
+   * A reference in the data resolves in the context of the reader (DEREF.READER). A read in a context of a kind can
+   * follow such a reference. Then the path of each reference is its own read after this read (READS.BOUND-REF, D210).
+   * This read is then not free, and the kernel keeps its whole root.
    */
   readonly free: boolean;
   /**
@@ -461,6 +467,12 @@ export interface Read {
   readonly kept?: true;
   /** The hops of the resolution, only when the code asked for them. `verifyReads` then compares each hop too. */
   readonly hops?: readonly Hop[];
+  /**
+   * `true` when the read is in the context at the root and its resolution followed a reference in the data
+   * (READS.BOUND-REF, D210). Each reference then resolves in the context at the root, thus `verifyReads` resolves the
+   * read again. A free read without this mark is changed when its new resolution follows a reference.
+   */
+  readonly followed?: true;
 }
 
 /** The text that names a resolution in the error of an exception of the host. */
@@ -485,11 +497,18 @@ export function reachedOf(found: Resolution): Result {
  * @param ctx - The context.
  * @param path - The path.
  * @param hops - `true` records each hop.
+ * @param followed - The list that gets each reference that the resolution follows, or `undefined`.
  * @returns What the path reached, and the hops when the resolution gave them.
  */
-export function readAgain(nav: Navigator, ctx: Context, path: readonly unknown[], hops: boolean): { readonly reached: Result; readonly hops?: readonly Hop[] } {
+export function readAgain(
+  nav: Navigator,
+  ctx: Context,
+  path: readonly unknown[],
+  hops: boolean,
+  followed?: Followed[],
+): { readonly reached: Result; readonly hops?: readonly Hop[] } {
   try {
-    const found = resolve(nav, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS);
+    const found = followed === undefined ? resolve(nav, ctx, path, hops ? WITH_HOPS : WITHOUT_HOPS) : resolveFollowing(nav, ctx, path, followed, hops);
     return hops ? { reached: reachedOf(found), hops: found.hops } : { reached: reachedOf(found) };
   } catch (error) {
     return { reached: thrown(error, READ_FAILED) };
@@ -1241,6 +1260,21 @@ export function keptAgain(nav: Navigator, ctx: Context, path: readonly unknown[]
   return nav.plain !== true && isRef(here) ? undefined : ok(here);
 }
 
+/**
+ * The references that the resolutions of the recorded reads follow (READS.BOUND-REF). One list serves each read, thus
+ * a read without a reference adds no object. A read takes the entries after its own start, and it removes them. A
+ * nested evaluation in a host thing adds its entries after the entries of the outer read, and removes them too.
+ */
+const FOLLOWED: Followed[] = [];
+
+/**
+ * This function tells if a context reads the roots `names` and `self` of the context at the root of the evaluation.
+ * A reference in the data of such a context resolves as in the context at the root.
+ */
+function rootLike(root: Context, ctx: Context): boolean {
+  return ctx === root || (ctx.names === root.names && Object.is(ctx.self, root.self));
+}
+
 /** This function makes the record of the reads of an evaluation, when the host gives a list. */
 function readingOf(list: Read[] | undefined, root: Context): Reading | undefined {
   return list === undefined ? undefined : { list, root, kept: false, self: false };
@@ -1380,18 +1414,70 @@ class Session implements Runtime {
     const free = isFree(reading.root, ctx, path);
     // A kind that sets another self can give the old self on, as the parent of a node of a tree does (READS.KEPT).
     if (!free && path[0] === "self" && !reading.self) this.keep(reading, ["self"]);
-    // A free read of the whole root self already holds what a kept read of self holds, as the root of a tree reads it.
-    else if (free && path.length === 1 && path[0] === "self") reading.self = true;
+    const start = FOLLOWED.length;
     let found: Resolution;
     try {
-      found = this.find(ctx, path, compiled, hops);
+      found = resolveFollowing(this.machine, ctx, path, FOLLOWED, hops, compiled);
     } catch (error) {
-      reading.list.push({ path, reached: thrown(error, READ_FAILED), free });
+      FOLLOWED.length = start;
+      this.push(reading, path, thrown(error, READ_FAILED), free, undefined, false);
       throw error;
     }
-    const asked = options?.hops === true;
-    reading.list.push(asked ? { path, reached: reachedOf(found), free, hops: found.hops } : { path, reached: reachedOf(found), free });
+    const asked = options?.hops === true ? found.hops : undefined;
+    if (FOLLOWED.length === start) {
+      this.push(reading, path, reachedOf(found), free, asked, false);
+      return found;
+    }
+    const followed = FOLLOWED.slice(start);
+    FOLLOWED.length = start;
+    // Each reference resolves as in the context at the root, thus verifyReads can resolve the read again (READS.BOUND-REF).
+    if (rootLike(reading.root, ctx)) {
+      this.push(reading, path, reachedOf(found), free, asked, free);
+      return found;
+    }
+    // A reference resolves in the context of its reader, thus verifyReads cannot resolve this read again in the context
+    // at the root. The whole root of the read stays, and the path of each reference is its own read (READS.BOUND-REF).
+    if (free) this.keepRoot(reading, path[0] as Root);
+    this.push(reading, path, reachedOf(found), false, asked, false);
+    for (let index = 0; index < followed.length; index += 1) {
+      const entry = followed[index] as Followed;
+      const inner = (followed[index + 1]?.depth ?? -1) > entry.depth;
+      let own = isFree(reading.root, ctx, entry.path);
+      if (!own && entry.path[0] === "self" && !reading.self) this.keep(reading, ["self"]);
+      else if (own && inner) {
+        own = false;
+        this.keepRoot(reading, entry.path[0] as Root);
+      }
+      // The walk of the path of each entry ended, thus the entry has what the path reached.
+      this.push(reading, entry.path, reachedOf(entry.reached as Resolution), own, undefined, false);
+    }
     return found;
+  }
+
+  /**
+   * This function adds one read to the list (READS.RECORD). A free read of the whole root `self` holds each path of
+   * self (READS.KEPT).
+   *
+   * @param followed - `true` gives the mark `followed`: the free read is in the context at the root, and its resolution followed a reference.
+   */
+  private push(reading: Reading, path: readonly unknown[], reached: Result, free: boolean, hops: readonly Hop[] | undefined, followed: boolean): void {
+    // A free read of the whole root self already holds what a kept read of self holds, as the root of a tree reads it.
+    if (free && path.length === 1 && path[0] === "self") reading.self = true;
+    if (hops === undefined) reading.list.push(followed ? { path, reached, free, followed: true } : { path, reached, free });
+    else reading.list.push(followed ? { path, reached, free, hops, followed: true } : { path, reached, free, hops });
+  }
+
+  /**
+   * This function keeps the whole root of a read once (READS.BOUND-REF). A kept read of the whole root already holds it.
+   * Thus a closure that reads in that root later adds no kept read (READS.CLOSURE).
+   */
+  private keepRoot(reading: Reading, root: Root): void {
+    if (reading.kept || (root === "self" && reading.self) || !(ROOTS as readonly unknown[]).includes(root)) return;
+    const paths = (reading.paths ??= new Set());
+    const text = JSON.stringify([root]);
+    if (paths.has(text)) return;
+    paths.add(text);
+    this.keep(reading, [root]);
   }
 
   /**
@@ -1416,7 +1502,8 @@ class Session implements Runtime {
   /**
    * This function adds the kept read of one static read of a closure (READS.CLOSURE). The read resolves from the
    * context at the root, one time in an evaluation. A name that a kind binds in the kept context gives no read,
-   * because the reads of its binding are already in the list.
+   * because the reads of its binding are already in the list. A reference in the data of the binding resolves in the
+   * context of the closure, thus such a read keeps each whole root (READS.BOUND-REF).
    *
    * @returns `false` when the path meets a reference in the data. Then the closure keeps each whole root.
    */
@@ -1424,6 +1511,8 @@ class Session implements Runtime {
     const root = read.root;
     const exact: readonly unknown[] = [root, ...read.keys];
     if (!isFree(reading.root, ctx, exact)) {
+      // A step document can walk outside the keys of its path, thus the walk cannot see each reference in the binding.
+      if (!read.exact || keptPath(this.machine, ctx, exact) === undefined) return false;
       // A kind that sets another self can give the old self on, as for a direct read (READS.KEPT).
       if (root === "self" && !reading.self) this.keep(reading, ["self"]);
       return true;
@@ -2168,13 +2257,27 @@ class Probe implements Runtime {
     return (this.withFixed ??= { ...this.root, names: fixed });
   }
 
+  /** The fixed names of the part in the fold, or `undefined` for a part without fixed names. */
+  fixed: Readonly<Record<string, unknown>> | undefined;
+
+  /** This function tells if a path reads a name that the folded part binds, and not a fixed name. */
+  private binds(ctx: Context, path: readonly unknown[]): boolean {
+    const name = path[1];
+    if (path[0] !== "names" || !isKey(name)) return false;
+    const key = String(name);
+    return Object.hasOwn(ctx.names, key) && (this.fixed === undefined || !Object.hasOwn(this.fixed, key));
+  }
+
   resolve(ctx: Context, path: readonly unknown[]): Resolution {
     const name = path[1];
     if (path[0] === "names" && isKey(name) && Object.hasOwn(ctx.names, String(name))) {
       this.reads += 1;
-      const found = resolve(this.machine, ctx, path, WITH_HOPS);
-      // A reference in the data resolves in the context of its reader, thus it can read a free name (DEREF.READER).
-      if (found.hops.some((hop) => hop.by === "collapse" || isRef(hop.thing))) this.refused = true;
+      const followed: Followed[] = [];
+      const found = resolveFollowing(this.machine, ctx, path, followed, true);
+      // A reference in the data resolves in the context of its reader, thus it can read a free name (DEREF.READER). A
+      // reference to a name that the part binds reads no context (READS.BOUND-REF). The code of a fold with fixed
+      // names compares only the names of its static reads, thus a reference to a fixed name refuses the fold.
+      if (!followed.every((entry) => this.binds(ctx, entry.path))) this.refused = true;
       return found;
     }
     this.refused = true;
@@ -2242,6 +2345,7 @@ function folded(c: Compiler, done: Compiled, fixed: readonly string[] | undefine
   const probe = (c.probe ??= new Probe(c.machine));
   probe.refused = false;
   probe.reads = 0;
+  probe.fixed = fixed === undefined ? undefined : c.fixed;
   let constant: Result | undefined;
   try {
     const root = fixed === undefined ? probe.root : probe.fixedRoot(c.fixed as Readonly<Record<string, unknown>>);

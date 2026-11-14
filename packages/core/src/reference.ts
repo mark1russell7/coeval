@@ -16,7 +16,22 @@ import {
   lookupKind,
 } from "./world.ts";
 import { type PartSlot, type Split, partsOf, pathMatches } from "./parts.ts";
-import { type Cap, type Context, type HostThing, type Resolution, type ResolveOptions, type Thing, ROOTS, THING, isHostThing, resolve, valueOfThing, worldThing } from "./deref.ts";
+import {
+  type Cap,
+  type Context,
+  type Followed,
+  type HostThing,
+  type Resolution,
+  type ResolveOptions,
+  type Thing,
+  ROOTS,
+  THING,
+  isHostThing,
+  resolve,
+  resolveFollowing,
+  valueOfThing,
+  worldThing,
+} from "./deref.ts";
 import { type AttributeRung, AT_READERS, STD_EVALUATORS } from "./stdlib.ts";
 import { type EvalError, type Failed, type Result, Failure, describe, fail, ok, placed, thrown } from "./errors.ts";
 import {
@@ -314,19 +329,37 @@ const READ_FAILED = "the resolution of a path";
 /**
  * This function resolves a path for a document, and records the read when the evaluation has a list (REF.READS,
  * READS.RECORD). An exception of the host gives the error value of the read, and the exception goes on.
+ *
+ * A reference in the data resolves in the context of the reader (READS.BOUND-REF). In a context with the names and
+ * the `self` of the root, the read gets the mark `followed`. In each other context, the read is not free, and the path
+ * of each reference is its own read. A path whose resolution followed more references is not free either.
  */
 function readAt(env: Env, ctx: Context, path: readonly unknown[], options?: ResolveOptions): Resolution {
   const reading = env.reading;
   if (reading === undefined) return resolveFully(env.machine, ctx, path, options);
   const free = freeIn(reading.root, ctx, path);
+  const followed: Followed[] = [];
   let found: Resolution;
   try {
-    found = resolveFully(env.machine, ctx, path, options);
+    found = resolveFollowing(env.machine, ctx, path, followed, true);
   } catch (error) {
     reading.list.push({ path, reached: thrown(error, READ_FAILED), free });
     throw error;
   }
-  reading.list.push(options?.hops === true ? { path, reached: reachedOf(found), free, hops: found.hops } : { path, reached: reachedOf(found), free });
+  if (options?.hops !== true) found = { ...found, hops: [] };
+  const hops = options?.hops === true ? { hops: found.hops } : {};
+  const root = reading.root;
+  if (followed.length === 0) {
+    reading.list.push({ path, reached: reachedOf(found), free, ...hops });
+  } else if (ctx === root || (ctx.names === root.names && Object.is(ctx.self, root.self))) {
+    reading.list.push({ path, reached: reachedOf(found), free, ...hops, ...(free ? { followed: true as const } : {}) });
+  } else {
+    reading.list.push({ path, reached: reachedOf(found), free: false, ...hops });
+    followed.forEach((entry, index) => {
+      const inner = (followed[index + 1]?.depth ?? -1) > entry.depth;
+      reading.list.push({ path: entry.path, reached: reachedOf(entry.reached as Resolution), free: !inner && freeIn(root, ctx, entry.path) });
+    });
+  }
   return found;
 }
 
