@@ -439,6 +439,7 @@ R4 leaves some choices open. Which equality decides that a read is the same? Whi
 - A read has the path that code resolved, what it reached as a `Result`, and the mark `free`. A host thing stays a thing. An exception of the host gives the error value of the read, and the exception goes on to the code.
 - A read is free when it reads the context at the root of the evaluation. A read of `names` is free when its first name has the binding of the root. A read of `self` is free when it reads the root `self`. A path without a root is not free. Each other read is free.
 - A read that is not free reads a binding that a kind made from earlier reads. Examples are a name of `let` and a parameter of `fn`. `verifyReads` does not resolve it again.
+- Changed by D210 (K262): the path of a reference in the data of a binding is its own read. A read in a context of a kind that follows a reference is not free.
 - A node of a tree is the `self` of its attributes, and its parent is the `self` of its context. Thus the first read of a `self` that a kind set adds a read of the root `self`, with the mark `kept`.
 - A closure of `fn` keeps the context for later uses. The formula kit tells the runtime through the optional function `Runtime.keepsContext`. The list then gets a read of each whole root, one time in an evaluation.
 - A reference of the formula kit tests the binding of its first name for a held error. When the binding holds one, the reference resolves the name for the list. `verifyReads` gives a changed read for a longer path through a held name in the new context.
@@ -5870,6 +5871,66 @@ On the source of K257, the same probe gave slopes from 0.94 to 1.15 at a quarter
 - A fault with a large constant and a small slope is less visible in a smaller document. The flip of the ladder still tests the gate with a fault of known slope.
 
 **Results.** The Measure run of the PR gives the step times and the slopes.
+
+## D210 (2026-11-13): the path of a reference in the data of a binding is its own read
+
+**Context.** K262, from a review. A reference document in the data resolves in the context of its reader (DEREF.READER). D26 records the read of a name that a kind binds with `free: false`, and `verifyReads` skips that read.
+
+- That rule fails when the bound value is data with a reference. The reference resolves in the context of the reader, and it can reach a free name.
+- An example: `let x = lit(ref names.a)` with the body `ref names.x` gives 1. After a change of `a` to 2, `verifyReads` said "same".
+- Thus `durable.evaluate` and a schedule kept the old 1. A named step of `seq` with a quoted reference has the same fault.
+- A free read in a context of a kind has a related fault. Its reference can reach a name that the kind binds.
+- `verifyReads` resolves such a read again in the context at the root, and that context can give another value.
+
+**Decision.**
+
+- The function `resolveFollowing` resolves a path as `resolve` does. It also gives the path of each reference that the resolution follows, with its depth and what it reached.
+- The record of the reads, `verifyReads`, the reference evaluator and the fold use this one function. Thus they agree on the references of each resolution.
+- A read in a context with the `names` and the `self` of the root stays one read. When it is free and it follows a reference, it gets the mark `followed`.
+- A read in a context of a kind that follows a reference is not free. The path of each reference is its own read after it.
+- The read of a reference path is free in two conditions. `isFree` says so in the context of the reader, and the path leads to no other reference.
+- When the read in the context of the kind has the binding of the root, its whole root stays as a kept read.
+- `verifyReads` resolves each free read that is not kept with `resolveFollowing`. A read without the mark `followed` is changed when its new resolution follows a reference.
+- The answer then has the mark `followed`. A kept read resolved in the context at the root, thus a reference on its path resolves as before.
+- A closure keeps no read of a bound name only when the static read is exact and `keptPath` finds no reference on the path. Each other such read keeps each whole root.
+- The probe of the fold refuses a part when a reference reaches a name that the part does not bind, or a fixed name. A reference to a bound name folds.
+- The two marks `Read.followed` and `ReadsCheck.followed` are optional fields. `resolveFollowing` and `Followed` are not exports of the package.
+
+**Alternatives.**
+
+- A whole root for each read through a binding. Then a change of each other name of that root discards a result with a `let`.
+- A free mark on the read of the bound name. The context at the root does not have the binding, thus each new resolution gives another answer.
+- A copy of the context of the kind in the read. D26 rejects copies, because they cost time and memory.
+- A second walk only in `verifyReads`. The record then does not know the references, thus the verification has no read of their targets.
+- The mark `followed` on each read in the context at the root. Then each read gets one more field, also with no reference.
+- Kept paths of a closure through each reference. A closure resolves later in its own context, thus the references of a later call are not known at the record.
+
+**Why.** The paths of the references are the exact reads of the data. A change of another name keeps the result, and a change of a target discards it. One function gives these paths to the four parts, thus they cannot disagree on a hop.
+
+The test READS.SOUND gets two configurations that bind names to data with references: `let` with literals, and named steps of `seq` with quotes. On the old sources they gave 7 and 3 stale results in 1000 documents. The test needs reads of the targets in each configuration.
+
+**Limits.**
+
+- A free read in a context of a kind that follows a reference keeps its whole root. A change of another name of that root then discards the result.
+- A free read without the mark `followed` is changed when new data puts a reference on its path, also in the context at the root. This costs only work.
+- The test of the context at the root compares `names` and `self`, as `isFree` does. A kind that sets another `event` or `world` is outside this model.
+- A bound read of a closure that is not exact keeps each whole root.
+- `keptPath` stops at a host thing, as SCHED.CLOSURE tells. A reference that a host thing gives is not on the kept path.
+- A free read of a closure that is not exact keeps only its root. A reference in that root to another root gets no kept read. This was so before this decision.
+- A chain of more than 64 references gives `#CYCLE!`. The record then has the reference paths up to that point.
+
+**Speed.**
+
+- The Speed gate of the first head read five cases slower (run 43616710604). `the same formula, with a list of reads` read +11.6 % and +13.3 % in the two jobs.
+- `the same tree, with a list of reads` read +28.0 % and +1.6 %. Three cases without reads read +1.0 % to +2.6 %.
+- The method `resolve` of a compiled path keeps the code before K262. A second method, `follow`, gives the list `followed` to the full algorithm. Only `resolveFollowing` calls it.
+- The short path follows no reference. Thus a read that the short path answers adds no entry to the list of the references.
+- The function `read` records such a read with the code before K262. The function `bound` records a read that followed a reference, outside the common code.
+- The probe of the fold examines the references in a loop, and it makes no function for each read. The result of each case stays the same.
+- The Speed gate after these changes read `the same formula, with a list of reads` at +4.0 % and +4.8 % (run 43623796347). The case takes approximately 200 ns, thus the cost is approximately 4 ns for each read.
+- A read that follows no reference adds one call and two tests: the class of the compiled path, and the length of the list. `bench/accepted/393.json` accepts this cost.
+
+**SemVer.** MINOR. Before 1.0.0, a breaking change increases MINOR. No export changes, and the two new fields are optional. But a list of reads can have more entries and the mark `followed`, and a closure or a fold can keep more roots. A caller can see these changes, thus this release counts as a breaking change.
 
 ## D211 (2026-11-13): `check` splits the value of each document one time in each walk
 

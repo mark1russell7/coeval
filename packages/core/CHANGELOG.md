@@ -2,13 +2,35 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
-## 0.36.2
+## 0.37.1
 
 PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes, and the answers of `check` do not change.
 
 ### Changes
 
 - **`check` splits the value of each document one time in each walk (D211).** A visit of `walk` keeps the parts of its split, and `selvesOf` reads them. The functions of a split are module functions, thus a split makes no closure. At 2000 levels, one check of the ladder arm `check shared` allocates 58.4 % fewer bytes under tsx, and 51.1 % fewer under Node 24. The issues and the graph of 5 documents have the same digests as before.
+
+## 0.37.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes, and the two new fields are optional. But a list of reads can have more entries, thus this release counts as a breaking change.
+
+### Fixes
+
+- **`verifyReads` finds a change behind a reference in bound data (D210).** A reference in the data of a binding resolves in the context of its reader. Before, the read of the bound name had no read of the target of the reference. After a change of that target, `verifyReads` said "same", and `durable.evaluate` and a schedule kept the old result.
+- **A free read in the context of a kind that follows a reference keeps its whole root.** `verifyReads` resolves the reads in the context at the root, and that context can give another value.
+- **The fold refuses a part when a reference reaches a name that the part does not bind, or a fixed name.**
+
+### Changes of behavior
+
+- **A read in the context of a kind that follows a reference is not free.** The path of each reference is its own read after it.
+- **A free read in the context at the root that follows a reference gets the mark `followed`** (`Read.followed`). `ReadsCheck.followed` tells that a new resolution followed a reference.
+- **A closure or a fold can keep more roots.** A closure keeps no read of a bound name only when the static read is exact and its path has no reference.
+
+### Speed
+
+- A read that follows no reference costs approximately 4 ns more, with a list of reads. A formula of two reads took 3.0 % to 5.9 % more in three Speed runs.
+- An evaluation without a list of reads runs the same steps as in 0.36.1. On one pair of Intel runners, a reference through an envelope took 2.4 % and 2.7 % more. On a pair of AMD runners, the same code took the same time (`bench/accepted/393.json`).
+- A compilation by `prepare` that folds a part took approximately 2 % more in 6 of 8 Speed jobs. These runs do not show the cause.
 
 ## 0.36.1
 
