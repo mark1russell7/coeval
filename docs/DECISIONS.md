@@ -5820,4 +5820,13 @@ The test READS.SOUND gets two configurations that bind names to data with refere
 - A free read of a closure that is not exact keeps only its root. A reference in that root to another root gets no kept read. This was so before this decision.
 - A chain of more than 64 references gives `#CYCLE!`. The record then has the reference paths up to that point.
 
+**Speed.**
+
+- The Speed gate of the first head read five cases slower (run 43616710604). `the same formula, with a list of reads` read +11.6 % and +13.3 % in the two jobs.
+- `the same tree, with a list of reads` read +28.0 % and +1.6 %. Three cases without reads read +1.0 % to +2.6 %.
+- The method `resolve` of a compiled path keeps the code before K262. A second method, `follow`, gives the list `followed` to the full algorithm. Only `resolveFollowing` calls it.
+- The short path follows no reference. Thus a read that the short path answers adds no entry to the list of the references.
+- The function `read` records such a read with the code before K262. The function `bound` records a read that followed a reference, outside the common code.
+- The probe of the fold examines the references in a loop, and it makes no function for each read. The result of each case stays the same.
+
 **SemVer.** PATCH. Before 1.0.0, a fix is a PATCH. The two new fields are optional. A list of reads can have more entries and the mark `followed`, and a closure or a fold can keep more roots.

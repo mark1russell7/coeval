@@ -595,8 +595,22 @@ class StaticPath implements CompiledPath {
     this.plain = plain;
   }
 
-  /** The list `followed` gets each reference that the resolution follows. The short path follows no reference. */
-  resolve(ctx: Context, followed?: Followed[]): Resolution {
+  resolve(ctx: Context): Resolution {
+    const from = this.from;
+    if (from !== FULL) {
+      const start = from === FROM_NAMES ? ctx.names : from === FROM_WORLD ? ctx.world : from === FROM_SELF ? ctx.self : ctx.event;
+      const quick = walkQuick(start, this.path, this.plain, true);
+      if (quick !== undefined) return quick;
+    }
+    return resolveFully(this.nav, ctx, this.path, undefined, this.known);
+  }
+
+  /**
+   * This function resolves the path as `resolve` does, and the list `followed` gets each reference that the full
+   * algorithm follows (READS.BOUND-REF). The short path follows no reference. A resolution without a list of reads
+   * uses `resolve`, thus its code stays the code before K262 (D210).
+   */
+  follow(ctx: Context, followed: Followed[]): Resolution {
     const from = this.from;
     if (from !== FULL) {
       const start = from === FROM_NAMES ? ctx.names : from === FROM_WORLD ? ctx.world : from === FROM_SELF ? ctx.self : ctx.event;
@@ -706,7 +720,7 @@ export function resolve(nav: Navigator, ctx: Context, path: readonly unknown[], 
  */
 export function resolveFollowing(nav: Navigator, ctx: Context, path: readonly unknown[], followed: Followed[], hops: boolean, compiled?: CompiledPath): Resolution {
   if (!hops) {
-    if (compiled instanceof StaticPath && compiled.nav === nav) return compiled.resolve(ctx, followed);
+    if (compiled !== undefined && compiled.nav === nav && compiled instanceof StaticPath) return compiled.follow(ctx, followed);
     const quick = resolveQuick(nav, ctx, path);
     if (quick !== undefined) return quick;
   }

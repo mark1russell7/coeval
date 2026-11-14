@@ -1423,22 +1423,35 @@ class Session implements Runtime {
       this.push(reading, path, thrown(error, READ_FAILED), free, undefined, false);
       throw error;
     }
-    const asked = options?.hops === true ? found.hops : undefined;
-    if (FOLLOWED.length === start) {
-      this.push(reading, path, reachedOf(found), free, asked, false);
-      return found;
-    }
+    // Only the full algorithm follows a reference in the data. Such a read gives more reads (READS.BOUND-REF).
+    if (FOLLOWED.length !== start) return this.bound(reading, ctx, path, found, free, options?.hops === true, start);
+    // A free read of the whole root self already holds what a kept read of self holds, as the root of a tree reads it.
+    if (free && path.length === 1 && path[0] === "self") reading.self = true;
+    const asked = options?.hops === true;
+    reading.list.push(asked ? { path, reached: reachedOf(found), free, hops: found.hops } : { path, reached: reachedOf(found), free });
+    return found;
+  }
+
+  /**
+   * This function records a read whose resolution followed a reference in the data (READS.BOUND-REF). The list
+   * `FOLLOWED` holds each such reference after the index `start`. The function removes these entries.
+   *
+   * @param asked - `true` when the code asked for the hops. The read then keeps them.
+   * @returns What the path reached.
+   */
+  private bound(reading: Reading, ctx: Context, path: readonly unknown[], found: Resolution, free: boolean, asked: boolean, start: number): Resolution {
     const followed = FOLLOWED.slice(start);
     FOLLOWED.length = start;
+    const hops = asked ? found.hops : undefined;
     // Each reference resolves as in the context at the root, thus verifyReads can resolve the read again (READS.BOUND-REF).
     if (rootLike(reading.root, ctx)) {
-      this.push(reading, path, reachedOf(found), free, asked, free);
+      this.push(reading, path, reachedOf(found), free, hops, free);
       return found;
     }
     // A reference resolves in the context of its reader, thus verifyReads cannot resolve this read again in the context
     // at the root. The whole root of the read stays, and the path of each reference is its own read (READS.BOUND-REF).
     if (free) this.keepRoot(reading, path[0] as Root);
-    this.push(reading, path, reachedOf(found), false, asked, false);
+    this.push(reading, path, reachedOf(found), false, hops, false);
     for (let index = 0; index < followed.length; index += 1) {
       const entry = followed[index] as Followed;
       const inner = (followed[index + 1]?.depth ?? -1) > entry.depth;
@@ -2277,7 +2290,9 @@ class Probe implements Runtime {
       // A reference in the data resolves in the context of its reader, thus it can read a free name (DEREF.READER). A
       // reference to a name that the part binds reads no context (READS.BOUND-REF). The code of a fold with fixed
       // names compares only the names of its static reads, thus a reference to a fixed name refuses the fold.
-      if (!followed.every((entry) => this.binds(ctx, entry.path))) this.refused = true;
+      for (let index = 0; index < followed.length; index += 1) {
+        if (!this.binds(ctx, (followed[index] as Followed).path)) this.refused = true;
+      }
       return found;
     }
     this.refused = true;
