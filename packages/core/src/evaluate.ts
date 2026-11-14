@@ -2331,26 +2331,31 @@ function fixedNamesOf(given: Readonly<Record<string, unknown>> | undefined): Rea
   return out;
 }
 
-/** This function tells if a value is plain data, as `sharedCopy` reads it, and if each of its objects is frozen. */
+/**
+ * This function tells if a value is plain data, as `sharedCopy` reads it, and if each of its objects is frozen. The walk
+ * keeps its own stack, thus a value of any depth gets an answer (PLAN.DEEP).
+ */
 function frozenPlain(value: unknown): boolean {
   const seen = new Set<object>();
-  const walk = (here: unknown): boolean => {
-    if (typeof here === "function") return false;
-    if (typeof here !== "object" || here === null || SHARED.has(here) || seen.has(here)) return true;
-    if (!Object.isFrozen(here)) return false;
-    seen.add(here);
-    const proto: unknown = Object.getPrototypeOf(here);
-    if (Array.isArray(here) ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) return false;
-    for (const key of Reflect.ownKeys(here)) {
-      const field = Object.getOwnPropertyDescriptor(here, key);
-      if (typeof key !== "string" || field === undefined || !("value" in field) || !walk(field.value)) return false;
+  const stack: unknown[] = [value];
+  try {
+    while (stack.length > 0) {
+      const here = stack.pop();
+      if (typeof here === "function") return false;
+      if (typeof here !== "object" || here === null || SHARED.has(here) || seen.has(here)) continue;
+      if (!Object.isFrozen(here)) return false;
+      seen.add(here);
+      const proto: unknown = Object.getPrototypeOf(here);
+      if (Array.isArray(here) ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) return false;
+      for (const key of Reflect.ownKeys(here)) {
+        const field = Object.getOwnPropertyDescriptor(here, key);
+        if (typeof key !== "string" || field === undefined || !("value" in field)) return false;
+        stack.push(field.value);
+      }
     }
     return true;
-  };
-  try {
-    return walk(value);
   } catch {
-    // A very deep value overflows the stack of the host.
+    // A trap of a proxy can throw.
     return false;
   }
 }
@@ -2367,6 +2372,9 @@ const NOT_PLAIN: unique symbol = /* @__PURE__ */ Symbol("not plain");
  * or no prototype. The copy keeps cycles and shared objects. The objects of the host do not change. The tier `fixed`
  * of `agree` uses it. The package does not export it.
  *
+ * The walk keeps its own stack, thus a value of any depth gets its copy (PLAN.DEEP). Each object of the copy is in
+ * `SHARED`, thus a later copy of a part of it is that part, and no work.
+ *
  * @param value - The value.
  * @returns The frozen copy, or `undefined`.
  */
@@ -2375,52 +2383,94 @@ export function sharedCopy(value: unknown): unknown {
     const out = copyPlain(value, new Map());
     return out === NOT_PLAIN ? undefined : out;
   } catch {
-    // A very deep value overflows the stack of the host.
+    // A trap of a proxy can throw.
     return undefined;
   }
 }
 
-/** This function copies one value for `sharedCopy`. The map holds the copy of each object that the copy saw. */
+/** The mark of an object that the walk of `copyPlain` opens: it is not shared, and the walk did not see it. */
+const OPEN: unique symbol = /* @__PURE__ */ Symbol("open");
+
+/** An object in the walk of `copyPlain`: the source, its copy, and the index of the key that the walk copies. */
+interface CopyFrame {
+  readonly source: object;
+  readonly out: Record<string, unknown> | unknown[];
+  /** The keys of a record. A list has `undefined`, and the walk reads its indexes. */
+  readonly keys: readonly (string | symbol)[] | undefined;
+  readonly size: number;
+  at: number;
+}
+
+/**
+ * This function copies one value for `sharedCopy`. The map holds the copy of each object that the copy saw. The walk
+ * reads the fields in the order of a recursive walk, and it freezes each copy after the copies of its fields.
+ */
 function copyPlain(value: unknown, memo: Map<object, unknown>): unknown {
+  const first = copyLeaf(value, memo);
+  if (first !== OPEN) return first;
+  const root = openCopy(value as object, memo);
+  if (root === undefined) return NOT_PLAIN;
+  const stack: CopyFrame[] = [root];
+  for (;;) {
+    const top = stack[stack.length - 1] as CopyFrame;
+    if (top.at === top.size) {
+      Object.freeze(top.out);
+      SHARED.add(top.out);
+      stack.pop();
+      const parent = stack[stack.length - 1];
+      if (parent === undefined) return top.out;
+      putCopy(parent, top.out);
+      continue;
+    }
+    const key = top.keys === undefined ? top.at : (top.keys[top.at] as string | symbol);
+    if (typeof key === "symbol") return NOT_PLAIN;
+    const field = Object.getOwnPropertyDescriptor(top.source, key);
+    if (field === undefined || !("value" in field) || field.enumerable !== true) return NOT_PLAIN;
+    const item = copyLeaf(field.value, memo);
+    if (item === NOT_PLAIN) return NOT_PLAIN;
+    if (item !== OPEN) {
+      putCopy(top, item);
+      continue;
+    }
+    const child = openCopy(field.value as object, memo);
+    if (child === undefined) return NOT_PLAIN;
+    stack.push(child);
+  }
+}
+
+/** This function gives the copy of a value without a walk, `NOT_PLAIN` for a function, or `OPEN` for a new object. */
+function copyLeaf(value: unknown, memo: Map<object, unknown>): unknown {
   if (typeof value === "function") return NOT_PLAIN;
-  if (typeof value !== "object" || value === null) return value;
-  if (SHARED.has(value)) return value;
-  const seen = memo.get(value);
-  if (seen !== undefined) return seen;
+  if (typeof value !== "object" || value === null || SHARED.has(value)) return value;
+  return memo.get(value) ?? OPEN;
+}
+
+/** This function starts the copy of an object, or it gives `undefined` when the object is not plain data. */
+function openCopy(value: object, memo: Map<object, unknown>): CopyFrame | undefined {
   const proto: unknown = Object.getPrototypeOf(value);
   const keys = Reflect.ownKeys(value);
-  let out: Record<string, unknown> | unknown[];
   if (Array.isArray(value)) {
-    if (proto !== Array.prototype || keys.length !== value.length + 1) return NOT_PLAIN;
+    if (proto !== Array.prototype || keys.length !== value.length + 1) return undefined;
     const list: unknown[] = [];
     memo.set(value, list);
-    for (let index = 0; index < value.length; index += 1) {
-      const field = Object.getOwnPropertyDescriptor(value, index);
-      if (field === undefined || !("value" in field) || field.enumerable !== true) return NOT_PLAIN;
-      const item = copyPlain(field.value, memo);
-      if (item === NOT_PLAIN) return NOT_PLAIN;
-      list.push(item);
-    }
-    out = list;
-  } else {
-    if (proto !== Object.prototype && proto !== null) return NOT_PLAIN;
-    const record: Record<string, unknown> = proto === null ? (Object.create(null) as Record<string, unknown>) : {};
-    memo.set(value, record);
-    for (const key of keys) {
-      if (typeof key !== "string") return NOT_PLAIN;
-      const field = Object.getOwnPropertyDescriptor(value, key);
-      if (field === undefined || !("value" in field) || field.enumerable !== true) return NOT_PLAIN;
-      const item = copyPlain(field.value, memo);
-      if (item === NOT_PLAIN) return NOT_PLAIN;
-      // The key __proto__ is a field of the data, thus it does not set the prototype of the copy.
-      if (key === "__proto__") Object.defineProperty(record, key, { value: item, enumerable: true, writable: true, configurable: true });
-      else record[key] = item;
-    }
-    out = record;
+    return { source: value, out: list, keys: undefined, size: value.length, at: 0 };
   }
-  Object.freeze(out);
-  SHARED.add(out);
-  return out;
+  if (proto !== Object.prototype && proto !== null) return undefined;
+  const record: Record<string, unknown> = proto === null ? (Object.create(null) as Record<string, unknown>) : {};
+  memo.set(value, record);
+  return { source: value, out: record, keys, size: keys.length, at: 0 };
+}
+
+/** This function puts the copy of the field at the index `at` of a frame into the copy of the frame, and steps on. */
+function putCopy(frame: CopyFrame, item: unknown): void {
+  if (frame.keys === undefined) (frame.out as unknown[]).push(item);
+  else {
+    const key = frame.keys[frame.at] as string;
+    // The key __proto__ is a field of the data, thus it does not set the prototype of the copy.
+    if (key === "__proto__") Object.defineProperty(frame.out, key, { value: item, enumerable: true, writable: true, configurable: true });
+    else (frame.out as Record<string, unknown>)[key] = item;
+  }
+  frame.at += 1;
 }
 
 /*
