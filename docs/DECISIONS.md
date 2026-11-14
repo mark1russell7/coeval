@@ -5932,6 +5932,40 @@ At 2000 levels under tsx, `check shared` allocated approximately 34 KB for each 
 
 **SemVer.** PATCH. No export of the package changes, and no result changes.
 
+## D212 (2026-11-13): a dispatch of the Speed gate can read the records of an earlier run
+
+**Context.** K225. The A/A series of the Speed gate needs the verdict log of each unit of two control dispatches (D179). The dispatch run 43322755938 had 74 bench jobs at 48 rounds on main, and each of them passed.
+
+- Its job `verdict` stopped at its limit of 5 minutes, at unit 12 of 37.
+- The step for the further pairs read one unit in approximately 24 s. Thus the 37 units need approximately 15 minutes.
+- Speed OK then read no state and went red.
+- The bench jobs of that run took 10.06 hours of runner time, from the times of the 74 jobs. Their records stay 90 days (K214).
+
+**Decision.**
+
+- The job `verdict` gets 60 minutes on a dispatch. A pull request keeps the limit of 5 minutes.
+- A dispatch takes the input `records`, the id of an earlier run of the workflow. Then no bench job starts.
+- The job `verdict` downloads the records of that run with the token of the run, and reads them with the `merge.ts` of the dispatched commit.
+- The job `verdict` gets the scope `actions: read` for that download.
+- On such a dispatch, the summary job permits the skip of the job `bench`. A pull request still needs each bench job.
+- The concurrency group holds the input, so a new read does not stop a dispatch that measures.
+
+**Alternatives.**
+
+- A new dispatch of 74 jobs with the new limit. That takes the runner time of the first dispatch again, and it measures new rounds, not the rounds of the series.
+- A local read of the 74 records. The verdict log of the series is a CI log with a run id. A local read gives no such record.
+- A job for each pair, in a matrix. Each job then installs the packages again, and the read of 37 units is short work.
+
+**Why.** The records of a run are its measurement. The verdict is a calculation on them. Thus a new calculation needs no new measurement, and a change of `merge.ts` can read the old records again.
+
+**Limits.**
+
+- A read with records gives the verdict of the new `merge.ts` on the old rounds. The log names the run of the records, and the series cites both runs.
+- The records of a run older than 90 days are gone.
+- The limit of 60 minutes holds approximately 140 units at 48 rounds.
+
+**SemVer.** No file of the package changes.
+
 ## D213 (2026-11-13): an open fixed point keeps each tentative result for its round
 
 **Context.** K265, from a review. D113 says that each attribute that read an approximation evaluates again at its next demand. Thus a value from an approximation does not stay as a final value. But the fixed point also kept no value for the current round. Thus two readers in one round evaluated a plain attribute two times, and each evaluation evaluated its own tentative reads again.
@@ -5969,3 +6003,72 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - An evaluator of the host in a fixed point gets fewer calls. A document that gave `#WORK!` for this work can give a value with D213.
 
 **SemVer.** No export changes. But the chain of a `#CYCLE!` in a mixed cycle can change, and an evaluator of the host gets fewer calls. A document that gave `#WORK!` can give a value. Thus the change counts as breaking: MINOR before 1.0.0.
+
+## D214 (2026-11-13): a field of the playground keeps the text of the reader, and it reads a value only from a complete text
+
+**Context.** K274, from a review. The structured editor (C11, D151) read its inputs at each key press, and the JSON field had a printer of text. Four faults came from this.
+
+- The path field read its text at each key press. A comma at the end gave an empty key, and the read removed it. Thus the text `names,a` became the one key `namesa`.
+- A step document of a path showed as `…`. The next key press changed it to the text `…`, thus the document was lost.
+- An empty number field wrote `0`.
+- `prettyJson` ran two regular expressions over the JSON text, also inside strings. Thus the string `"a [ b ] c"` became `"a [b] c"` in the JSON field.
+
+**Decision.**
+
+- The functions of `fields.ts` hold the state of a field: the value of the document and the text of the input. They are pure, thus plain unit tests read them.
+- The path field keeps the text that the reader types. It reads the path on blur or Enter.
+- A step that its text does not give back is a chip between two texts. Examples are a step document, a key with a comma and a text of digits. An edit of a text keeps each chip at its place, and a button removes it.
+- A number field writes a value only when its text is a number that the contract accepts. Such a number is finite, whole if the contract tells so, and between `min` and `max`.
+- While the text is empty or is not such a number, the document keeps its last value. On blur, the field shows the text of that value again.
+- A new value from outside replaces the text of a field, for example after a click on a name. The same value keeps the text.
+- `prettyJson` walks the structure. An array of values with no parts goes on one line, as before. A record of such values goes on one line when its indented text has 40 characters or fewer, as before.
+
+**Alternatives.**
+
+- `null` in an empty number field. A necessary number field then holds a value that its contract refuses, and the check shows an issue while the reader types.
+- The least number of the contract in an empty field, as `emptyDoc` gives it. Then the field writes a number that the reader did not type.
+- An escape for a comma in the text of a path. The chip keeps such a key with no new syntax.
+- Regular expressions that skip strings. A walk of the structure is shorter, and it has no rules for escapes.
+
+**Why.** A field reads a value only from a complete text. Thus the document holds only values that the reader typed or that it held before. Each such value agrees with the contract of its field (D151).
+
+**Limits.**
+
+- The text of a path cannot make a key with a comma, a text of digits or a step document. The JSON field stays their editor.
+- A number that the contract refuses writes no value. The input shows that the text is not valid, but no message tells the reason.
+- The tests read the pure functions. No test renders the components, because the site has no setup for DOM tests. K276 plans render tests.
+- `prettyJson` gives an empty text for a value with no JSON text, for example `undefined`. The old function threw an error.
+
+**SemVer.** `packages/site` is private, thus no version changes.
+
+## D216 (2026-11-14): the walks of a fold keep their own stack
+
+**Context.** K303, from a host that renders deep records. The fold of a pure part makes one frozen copy of its result (PLAN.SHARED). The copy `copyPlain` called itself for each level of the value. The test `frozenPlain` of a fixed name did the same (PLAN.FIXED).
+
+- At approximately 8,000 levels, the copy overflowed the stack of the host. `sharedCopy` caught the overflow and gave `undefined`, thus the part did not fold.
+- Thus no object of the value became shared. A host that prepared each level of the value got a new copy of the whole level at each prepare. That work was quadratic, and the heap ran out at approximately 10,000 levels.
+- A host with a stack of 256 MB expanded 20,000 levels in 0.5 seconds. Thus the cost came only from the stack.
+- `frozenPlain` also gave `false` for a deep value. Thus a deep fixed name did not fix, but no work grew.
+
+**Decision.**
+
+- `copyPlain` keeps an explicit stack of frames. A frame holds the source object, its copy, its keys and the index of the key that the walk copies.
+- The walk reads the fields in the order of the recursive walk. It freezes each copy after the copies of its fields, and it adds the copy to `SHARED` (PLAN.DEEP).
+- The memo of the walk, the rules of plain data, the field `__proto__`, the cycles and the shared objects do not change.
+- `frozenPlain` keeps a stack of the values that it did not read. Its answer does not depend on the order of the reads.
+- Both functions still catch an exception, because a trap of a proxy can throw.
+
+**Alternatives.**
+
+- A larger stack for the host. A library cannot set the stack of its host, and each depth still has a limit.
+- A limit of depth for a fold, with `#DEPTH!` above it. A value is data, not a document, thus no limit of documents applies. The work stays quadratic below the limit.
+- A copy that freezes the objects of the host and does not copy them. The host keeps its own data open, thus the fold must copy (PLAN.SHARED).
+
+**Why.** Each object of a value goes through the walk one time, thus the copy is linear in the size of the value. A copy of a part of a shared copy finds the part in `SHARED`, thus it does no work. The tests copy a value of 100,000 levels, with a cycle and a shared object. They also prepare each level of a lit of 100,000 levels, and they fix a name with a frozen value of 100,000 levels.
+
+**Limits.**
+
+- Other walks of a host value still call themselves for each level. These are `encodeValue`, the JSON of a tree and the values of the stepper for the host. Also the data of a language and the JSON of a node in the reference. K304 gives each one its own stack.
+- A host that prepares each level of the original value, not of the folded copy, still copies each level again. The host gets the shared copy from the result of the plan.
+
+**SemVer.** No export changes. A deep value folds, and before it did not fold. Thus a plan gives one frozen result for it at each evaluation, as PLAN.SHARED states for each other value. A host must not change a result in place. Thus this is a fix: PATCH.

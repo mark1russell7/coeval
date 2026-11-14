@@ -2,13 +2,26 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
-## 0.36.1
+## 0.36.2
 
 PATCH: before `1.0.0`, a fix or a change with no effect on the public API increases PATCH. No export changes, and the answers of `check` do not change.
 
 ### Changes
 
 - **`check` splits the value of each document one time in each walk (D211).** A visit of `walk` keeps the parts of its split, and `selvesOf` reads them. The functions of a split are module functions, thus a split makes no closure. At 2000 levels, one check of the ladder arm `check shared` allocates 58.4 % fewer bytes under tsx, and 51.1 % fewer under Node 24. The issues and the graph of 5 documents have the same digests as before.
+
+## 0.36.1
+
+PATCH: a fix with no export changes.
+
+### Fixes
+
+- **A fold copies a value of any depth (D216).** The copy of a folded result and the test of a fixed name called themselves for each level of the value. At approximately 8,000 levels, they overflowed the stack of the host, and the part did not fold. Thus a host that prepared each level of a deep record copied each level again, and the heap ran out. Both walks keep their own stack. A lit of 100,000 levels folds, and a prepare of each level of its result gives that level, without a copy (PLAN.DEEP).
+
+### Changes of behavior
+
+- **A pure part with a deep value folds.** A plan gives one frozen result for it at each evaluation, as for each other folded part (PLAN.SHARED).
+- **A deeply frozen fixed name of any depth fixes (PLAN.FIXED).**
 
 ## 0.36.0
 
