@@ -37,13 +37,18 @@ on:
       slow:
         description: The seeded slowdown of the head, as a multiple of the margin of each family
         default: ""
+      # A new read of an earlier run: the verdict reads the records of that run, and no bench job starts (K225, D212).
+      # The records stay 90 days. The read uses the merge.ts of this commit.
+      records:
+        description: The id of an earlier run of this workflow, to read its records again with no bench job
+        default: ""
 
 permissions:
   contents: read
 
-# Two dispatches on one branch with different bases or different seeded slowdowns do not cancel each other (K225).
+# Two dispatches on one branch with different bases, seeded slowdowns or records do not cancel each other (K225).
 concurrency:
-  group: bench-${{ github.ref }}-${{ inputs.base }}-${{ inputs.slow }}
+  group: bench-${{ github.ref }}-${{ inputs.base }}-${{ inputs.slow }}-${{ inputs.records }}
   cancel-in-progress: true
 
 defaults:
@@ -90,7 +95,7 @@ jobs:
 
   bench:
     needs: changes
-    if: needs.changes.outputs.match == 'true'
+    if: needs.changes.outputs.match == 'true' && !inputs.records
     name: bench (run ${{ matrix.run }})
     runs-on: ubuntu-latest
     # The fresh runner starts four processes for each case and round (D114), thus the job gets more time.
@@ -150,7 +155,13 @@ jobs:
     needs: [changes, bench]
     if: ${{ needs.changes.outputs.match == 'true' && (!cancelled()) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # A dispatch reads each further pair of jobs, approximately 24 s for each pair at 48 rounds, thus it gets 60 minutes.
+    # A dispatch of 74 jobs needed approximately 15 minutes, and the old limit of 5 stopped it (run 43322755938, D212).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 5 }}
+    # The read of the records of an earlier run needs the actions scope (D212).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       state: ${{ steps.merge.outputs.state }}
       reason: ${{ steps.merge.outputs.reason }}
@@ -168,10 +179,20 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ !inputs.records }}
         with:
           pattern: bench-run-*
           merge-multiple: true
           path: ${{ runner.temp }}/bench
+      # The records of an earlier run (K225, D212). The token lets the action read a run that is not this run.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ inputs.records }}
+        with:
+          pattern: bench-run-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/bench
+          run-id: ${{ inputs.records }}
+          github-token: ${{ github.token }}
       - name: Merge the two runs
         id: merge
         if: ${{ !cancelled() }}
@@ -224,4 +245,5 @@ jobs:
         if: always()
         with:
           needs: ${{ toJSON(needs) }}
-          allow-skip: verdict
+          # A dispatch with records starts no bench job, thus that skip is part of its gate (D212).
+          allow-skip: ${{ inputs.records && 'verdict bench' || 'verdict' }}
