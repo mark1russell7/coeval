@@ -6023,3 +6023,35 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - Thus the collection before the first round gives the two documents of 4N levels the same conditions. The next Measure run tells if it removes the offset.
 
 **SemVer.** No export of the package changes.
+
+## D216 (2026-11-14): the walks of a fold keep their own stack
+
+**Context.** K303, from a host that renders deep records. The fold of a pure part makes one frozen copy of its result (PLAN.SHARED). The copy `copyPlain` called itself for each level of the value. The test `frozenPlain` of a fixed name did the same (PLAN.FIXED).
+
+- At approximately 8,000 levels, the copy overflowed the stack of the host. `sharedCopy` caught the overflow and gave `undefined`, thus the part did not fold.
+- Thus no object of the value became shared. A host that prepared each level of the value got a new copy of the whole level at each prepare. That work was quadratic, and the heap ran out at approximately 10,000 levels.
+- A host with a stack of 256 MB expanded 20,000 levels in 0.5 seconds. Thus the cost came only from the stack.
+- `frozenPlain` also gave `false` for a deep value. Thus a deep fixed name did not fix, but no work grew.
+
+**Decision.**
+
+- `copyPlain` keeps an explicit stack of frames. A frame holds the source object, its copy, its keys and the index of the key that the walk copies.
+- The walk reads the fields in the order of the recursive walk. It freezes each copy after the copies of its fields, and it adds the copy to `SHARED` (PLAN.DEEP).
+- The memo of the walk, the rules of plain data, the field `__proto__`, the cycles and the shared objects do not change.
+- `frozenPlain` keeps a stack of the values that it did not read. Its answer does not depend on the order of the reads.
+- Both functions still catch an exception, because a trap of a proxy can throw.
+
+**Alternatives.**
+
+- A larger stack for the host. A library cannot set the stack of its host, and each depth still has a limit.
+- A limit of depth for a fold, with `#DEPTH!` above it. A value is data, not a document, thus no limit of documents applies. The work stays quadratic below the limit.
+- A copy that freezes the objects of the host and does not copy them. The host keeps its own data open, thus the fold must copy (PLAN.SHARED).
+
+**Why.** Each object of a value goes through the walk one time, thus the copy is linear in the size of the value. A copy of a part of a shared copy finds the part in `SHARED`, thus it does no work. The tests copy a value of 100,000 levels, with a cycle and a shared object. They also prepare each level of a lit of 100,000 levels, and they fix a name with a frozen value of 100,000 levels.
+
+**Limits.**
+
+- Other walks of a host value still call themselves for each level. These are `encodeValue`, the JSON of a tree and the values of the stepper for the host. Also the data of a language and the JSON of a node in the reference. K304 gives each one its own stack.
+- A host that prepares each level of the original value, not of the folded copy, still copies each level again. The host gets the shared copy from the result of the plan.
+
+**SemVer.** No export changes. A deep value folds, and before it did not fold. Thus a plan gives one frozen result for it at each evaluation, as PLAN.SHARED states for each other value. A host must not change a result in place. Thus this is a fix: PATCH.
