@@ -5942,3 +5942,38 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - An evaluator of the host in a fixed point gets fewer calls. A document that gave `#WORK!` for this work can give a value with D213.
 
 **SemVer.** No export changes. But the chain of a `#CYCLE!` in a mixed cycle can change, and an evaluator of the host gets fewer calls. A document that gave `#WORK!` can give a value. Thus the change counts as breaking: MINOR before 1.0.0.
+
+## D215 (2026-11-14): the ladder reads the interval of the median slope, with a fixed young generation
+
+**Context.** K302. The job `ladder-flip` failed 3 of 41 times since 2026-11-10 on its linear row, and it held K297 and K261. The records of the ladder runs show two causes.
+
+- The verdict read the 5th to the 95th percentile of the round slopes. That is the spread of one round, not an interval of the slope. More rounds do not make it narrower, and a pool of runs moves its ends out. In the last 40 Measure runs, it blocked 26 of 136 single runs of the ladder.
+- Since K300, the walk `typeCheck of steps` read a slope of 1.06 to 1.13. At the full levels of K257 it read 1.00 to 1.03 in 10 runs. Its bytes stay linear, but its top rung takes 3.1 times the time of the rung under it.
+- On a Xeon 6975P, the same documents of 250 and 500 steps took 4.74 and 9.38 ms in a process with the arms of K257. In a process with the arms of K300, they took 3.53 and 11.03 ms. Thus the time of one arm changed with the other arms of the process.
+- V8 starts the semi-space of the young generation at 1 MB, and it grows it by the rate of survival of all arms. When a call allocates more than a semi-space, its objects live through two scavenges and go to the old generation. Thus the cost of the collector for one arm depends on the size that the other arms gave the semi-space.
+
+**Decision.**
+
+- Each time and memory verdict reads the distribution-free 90 % interval of the median of the round slopes: `medianInterval` of rigor-statistics. The rule of D205 reads that interval with no other change.
+- The mode `merge` reads the same interval of the median of the rounds of all counted runs. The interval of the runs stays in the table, with `tQuantile` of rigor-statistics in place of a table of t values.
+- The tables also print the 5th to 95th percentile of the rounds as the spread of one round. The A/A check of a run does not change.
+- The ladder runs with `--min-semi-space-size=64` and `--max-semi-space-size=64`. The script starts itself again with these flags when its process does not have them. Each run prints the size of the new space of V8, and its record keeps it.
+- The largest arm allocates approximately 33 MB in one call. With a semi-space of 64 MB, no object of one call lives through two scavenges.
+- The range of rigor-statistics in the package goes to `^0.1.29`, the version of the lock file, because `medianInterval` and `tQuantile` are new.
+
+**Alternatives.**
+
+- Three runs in the linear row of the flip, pooled by the merge. The 5-run pools of K297 and K261 also read block, at 1.231 and 1.244, so the pool makes the false blocks more frequent.
+- The walk of steps at the full levels again. Its fault rows then take 8 times the time of its top rung, and the job of the flip has a limit of 10 minutes.
+- A semi-space of 1 MB. Then each arm moves most objects of a call to the old generation, and the ladder measures the old generation, not the walk.
+- The interval of the runs as the interval of the verdict. It has no value for one run, thus the flip row cannot read it.
+
+**Why.** STATIC.LINEAR is a claim about the slope. An interval of the median reads that slope, and it gets narrower with more rounds. A young generation of a fixed size keeps the cost of the collector of one call the same at each rung and in each process. The smallest slope that the rule of D205 blocks is the lower of `1.052 + half` and `1.2 - half`. With the interval of the median, the half width is 0.006 to 0.025 in most runs. Thus a walk of `n ln n` with the slope 1.154 gets a block.
+
+**Limits.**
+
+- The rounds of one run come from one runner, and they are not independent of it. Thus the pooled interval of the merge is narrower than an interval across runners. The interval of the runs shows that spread.
+- With the old records, the new interval blocks 6 of the 136 single runs. Three are the walk of steps, two are `refsOf` with a slope under 0.948, and one is a run of K259 on an EPYC 9V74. The fixed young generation can change these values. The Measure run of the pull request gives the first values.
+- A walk that allocates more than 64 MB in one call crosses the semi-space again. The table of the memory phase gives the bytes of each rung.
+
+**SemVer.** No export of the package changes.

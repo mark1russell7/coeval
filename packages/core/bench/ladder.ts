@@ -25,10 +25,10 @@
  *
  * STATIC.LINEAR also says that a walk takes memory linear in the size of the document (K209, D105). After all timed
  * rounds, a second phase measures the bytes that one call allocates, in calls of their own. Thus the timed passes keep
- * the conditions of D97, and the process starts with no flags of V8. Each measured call starts after a full collection
- * by `gc()`. The bytes are the change of `heapUsed` across the call, plus the bytes that each collection in the call
- * frees. A `GCProfiler` gives those collections. Thus a scavenge in the call loses no bytes. The script subtracts the
- * bytes of an empty measure. The memory phase uses the same rungs, the same turns, the same A/A arm and the same rounds.
+ * the conditions of D97. The only flags of V8 at the start set the size of the young generation (D215). Each measured
+ * call starts after a full collection by `gc()`. The bytes are the change of `heapUsed` across the call, plus the bytes
+ * that each collection in the call frees. A `GCProfiler` gives those collections. Thus a scavenge in the call loses no
+ * bytes. The script subtracts the bytes of an empty measure. The memory phase uses the same rungs, the same turns, the same A/A arm and the same rounds.
  * Each round fits the slope of log bytes against log n. The memory verdict is only an upper bound. A slope well under 1
  * shows a large fixed part of the bytes of a call, and that slope also passes.
  *
@@ -39,19 +39,25 @@
  * a shared machine gives unreliable numbers.
  *
  * The time verdict reads a band around 1, because the collector of the heap adds a small slope on a real machine (D205).
+ * Each verdict reads the distribution-free 90 % interval of the median slope, not the spread of single rounds (D215).
+ * The process runs with a young generation of a fixed size, because V8 sizes it from the rate of all walks. Thus the
+ * time of one walk does not change with the other walks of the process (D215). The script starts itself again with
+ * the flags of that size when its process does not have them.
  *
  * The mode `merge` prints the gate of the verdicts as report only (K227, D164). With `LADDER_BLOCK=1`, a block gives the
  * exit code 3. It also prints the smallest slope that gives a block with the spread of its own runs. Under that size, it
  * has no read. With `LADDER_INJECT=s`, each call walks more levels, so the levels of one call grow as `n^s`. The count of
  * calls does not change, so the fault of a flip keeps the setting of the plain gate.
  *
- * The statistics come from `@mark1russell7/rigor-statistics`: the median, the quantiles, the least squares fit, the
- * mean and the standard deviation (D114). The verdicts and the t quantile stay here, because the shared packages do not
- * have them. A comment names the issue of each gap.
+ * The statistics come from `@mark1russell7/rigor-statistics`: the median and its interval, the quantiles, the least
+ * squares fit, the mean, the standard deviation and the t quantile (D114, D215). The verdicts stay here, because the
+ * shared packages do not have them. A comment names the issue of each gap.
  */
-import { leastSquares, mean, median, quantile, sd } from "@mark1russell7/rigor-statistics";
+import { leastSquares, mean, median, medianInterval, quantile, sd, tQuantile } from "@mark1russell7/rigor-statistics";
+import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
+import { getHeapSpaceStatistics } from "node:v8";
 import { allocated, exposedGc } from "./memory.ts";
 
 type Kernel = typeof import("../src/index.ts");
@@ -88,6 +94,8 @@ interface LadderRun {
   readonly seconds: number;
   /** The seconds of the memory phase. `seconds` includes them. */
   readonly memorySeconds: number;
+  /** The size of the young generation of the process, in MB, from the new space of V8 (D215). Runs before D215 have none. */
+  readonly young?: number;
   /** The median bytes of an empty measure, across the rounds. The bytes of each walk do not include them. */
   readonly baseBytes: number;
   readonly walks: readonly WalkRun[];
@@ -110,12 +118,17 @@ const UPPER = 1.2;
  * largest sum. The runs are the 5 jobs `ladder` and the 5 linear jobs of `ladder-plain` of the Measure run 43350977054.
  */
 const BAND = 0.052;
+/** The level of each interval of a slope: the distribution-free interval of the median of the rounds (D215). */
+const LEVEL = 0.9;
 /**
- * The one-sided quantile of 0.95 of the t distribution for 1 to 10 degrees of freedom: a 90 % interval.
- *
- * GAP (mark1russell7/rigor#36): rigor-statistics has no t quantile. Thus this table stays.
+ * The size of each semi-space of the young generation of V8, in MB (D215). The largest arm of the walks allocates
+ * approximately 33 MB in one call. With a larger semi-space, no object of one call lives through two scavenges, thus
+ * no arm moves its garbage to the old generation. With the default, V8 grows the semi-space from 1 MB by the rate of
+ * all arms, and the same document of 500 steps took 9.4 ms in one process and 11.0 ms in another.
  */
-const T95 = [6.314, 2.92, 2.353, 2.132, 2.015, 1.943, 1.895, 1.86, 1.833, 1.812] as const;
+const SEMI_SPACE_MB = 64;
+/** The flags of V8 that fix the size of the young generation. */
+const YOUNG_FLAGS = [`--min-semi-space-size=${SEMI_SPACE_MB}`, `--max-semi-space-size=${SEMI_SPACE_MB}`] as const;
 
 /** This function gives the slope of the least squares line of log y against log x: `leastSquares` of rigor-statistics. */
 function slope(xs: readonly number[], ys: readonly number[]): number {
@@ -130,7 +143,7 @@ function slope(xs: readonly number[], ys: readonly number[]): number {
 function meanInterval(values: readonly number[]): { readonly mean: number; readonly half: number } {
   const center = mean(values);
   if (values.length < 2) return { mean: center, half: Number.NaN };
-  const t = T95[Math.min(values.length - 1, T95.length) - 1] as number;
+  const t = tQuantile(0.95, values.length - 1);
   return { mean: center, half: (t * sd(values)) / Math.sqrt(values.length) };
 }
 
@@ -156,18 +169,23 @@ function memoryVerdict(_low: number, high: number): string {
   return high <= UPPER ? "at most linear" : "over the bound";
 }
 
-/** The summary of the slopes of one walk: the median and the 90 % interval (the 5th and the 95th percentile). */
+/**
+ * The summary of the slopes of one walk: the median, and the distribution-free 90 % interval of that median (D215). The
+ * verdict reads that interval. The 5th and the 95th percentile of the rounds show the spread of one round. Before
+ * D215, the verdict read them, so one slow round blocked a linear walk. The A/A ratio keeps its percentiles.
+ */
 function summarize(walk: { readonly slopes: readonly number[]; readonly aa: readonly number[] }, judge = verdict) {
-  const p05 = quantile(walk.slopes, 0.05);
-  const p95 = quantile(walk.slopes, 0.95);
+  const { low, high } = medianInterval(walk.slopes, LEVEL);
   return {
     slope: fixed(median(walk.slopes)),
-    p05: fixed(p05),
-    p95: fixed(p95),
+    low: fixed(low),
+    high: fixed(high),
+    p05: fixed(quantile(walk.slopes, 0.05)),
+    p95: fixed(quantile(walk.slopes, 0.95)),
     aa: fixed(median(walk.aa)),
     aaP05: fixed(quantile(walk.aa, 0.05)),
     aaP95: fixed(quantile(walk.aa, 0.95)),
-    verdict: judge(p05, p95),
+    verdict: judge(low, high),
   };
 }
 
@@ -406,6 +424,7 @@ async function measure(): Promise<void> {
     passes: PASSES,
     seconds: fixed((performance.now() - started) / 1000, 1),
     memorySeconds,
+    young: youngMb(),
     baseBytes: median(bases),
     walks: results,
   };
@@ -413,11 +432,12 @@ async function measure(): Promise<void> {
     `### Ladder run ${run.run}`,
     "",
     `${run.cpu}, Node ${run.node}. ${rounds} rounds of ${PASSES} passes, after ${WARM_ROUNDS} rounds to warm up. The ladder took ${run.seconds} s.`,
-    "The slope is the median of the rounds, and the interval is the 5th to the 95th percentile of the rounds.",
+    `Young generation: ${run.young} MB (D215). The slope is the median of the rounds. The verdict reads the distribution-free 90 % interval of that median (D215).`,
+    "The spread is the 5th to the 95th percentile of the rounds. It shows the noise of one round.",
     "The A/A ratio compares two documents of the same size in the same passes. It must be near 1.",
     "",
-    `| Walk | ${levels.map((n) => `${n} levels (ms)`).join(" | ")} | Work at each rung | Slope | 90 % interval | A/A ratio | Verdict |`,
-    `| --- | ${levels.map(() => "---:").join(" | ")} | --- | ---: | ---: | ---: | --- |`,
+    `| Walk | ${levels.map((n) => `${n} levels (ms)`).join(" | ")} | Work at each rung | Slope | 90 % interval | Spread | A/A ratio | Verdict |`,
+    `| --- | ${levels.map(() => "---:").join(" | ")} | --- | ---: | ---: | ---: | ---: | --- |`,
   ];
   const measures: Record<string, unknown>[] = [];
   for (const walk of results) {
@@ -425,7 +445,7 @@ async function measure(): Promise<void> {
     const m = memorySummary(walk);
     measures.push({ walk: walk.name, ...s, ms: walk.ns.map((ns) => fixed(ns / 1e6)), memory: { ...m, kb: walk.bytes.map((value) => fixed(value / 1024, 1)) } });
     lines.push(
-      `| \`${walk.name}\` | ${walk.ns.map((ns) => (ns / 1e6).toFixed(3)).join(" | ")} | ${walk.counts.join(", ")} | ${s.slope.toFixed(3)} | ${s.p05.toFixed(3)} to ${s.p95.toFixed(3)} | ${s.aa.toFixed(3)} (${s.aaP05.toFixed(3)} to ${s.aaP95.toFixed(3)}) | ${s.verdict} |`,
+      `| \`${walk.name}\` | ${walk.ns.map((ns) => (ns / 1e6).toFixed(3)).join(" | ")} | ${walk.counts.join(", ")} | ${s.slope.toFixed(3)} | ${s.low.toFixed(3)} to ${s.high.toFixed(3)} | ${s.p05.toFixed(3)} to ${s.p95.toFixed(3)} | ${s.aa.toFixed(3)} (${s.aaP05.toFixed(3)} to ${s.aaP95.toFixed(3)}) | ${s.verdict} |`,
     );
   }
   lines.push(
@@ -433,14 +453,14 @@ async function measure(): Promise<void> {
     `The memory phase took ${run.memorySeconds} s, after the timed rounds. Each value is the bytes that one call allocates, less the ${run.baseBytes} bytes of an empty measure.`,
     `The memory verdict is an upper bound only: the upper end of the interval is at most ${UPPER}. A slope under 1 also passes.`,
     "",
-    `| Walk | ${levels.map((n) => `${n} levels (KB)`).join(" | ")} | Bytes per level at ${levels[levels.length - 1]} | Slope | 90 % interval | A/A ratio | Verdict |`,
-    `| --- | ${levels.map(() => "---:").join(" | ")} | ---: | ---: | ---: | ---: | --- |`,
+    `| Walk | ${levels.map((n) => `${n} levels (KB)`).join(" | ")} | Bytes per level at ${levels[levels.length - 1]} | Slope | 90 % interval | Spread | A/A ratio | Verdict |`,
+    `| --- | ${levels.map(() => "---:").join(" | ")} | ---: | ---: | ---: | ---: | ---: | --- |`,
   );
   for (const walk of results) {
     const m = memorySummary(walk);
     const top = walk.bytes[walk.bytes.length - 1] as number;
     lines.push(
-      `| \`${walk.name}\` | ${walk.bytes.map((value) => (value / 1024).toFixed(1)).join(" | ")} | ${(top / (levels[levels.length - 1] as number)).toFixed(1)} | ${m.slope.toFixed(3)} | ${m.p05.toFixed(3)} to ${m.p95.toFixed(3)} | ${m.aa.toFixed(3)} (${m.aaP05.toFixed(3)} to ${m.aaP95.toFixed(3)}) | ${m.verdict} |`,
+      `| \`${walk.name}\` | ${walk.bytes.map((value) => (value / 1024).toFixed(1)).join(" | ")} | ${(top / (levels[levels.length - 1] as number)).toFixed(1)} | ${m.slope.toFixed(3)} | ${m.low.toFixed(3)} to ${m.high.toFixed(3)} | ${m.p05.toFixed(3)} to ${m.p95.toFixed(3)} | ${m.aa.toFixed(3)} (${m.aaP05.toFixed(3)} to ${m.aaP95.toFixed(3)}) | ${m.verdict} |`,
     );
   }
   writeSummary(lines);
@@ -479,7 +499,7 @@ function merge(files: readonly string[]): void {
   }
   lines.push(
     "",
-    "The pooled interval is the 5th to the 95th percentile of the slopes of all rounds of the counted runs. The verdict reads it.",
+    "The pooled interval is the distribution-free 90 % interval of the median of all rounds of the counted runs (D215). The verdict reads it.",
     "The interval of the runs is the mean of the medians of the counted runs, plus or minus t times the standard error (90 %).",
     `The claim is linear when the pooled interval meets the band ${(1 - BAND).toFixed(3)} to ${(1 + BAND).toFixed(3)} (D205), and its upper end is less than ${UPPER}.`,
     "",
@@ -505,11 +525,11 @@ function merge(files: readonly string[]): void {
     const pooled = summarize({ slopes: of.flatMap((walk) => walk.slopes), aa: of.flatMap((walk) => walk.aa) });
     const medians = of.map((walk) => median(walk.slopes));
     const { mean, half } = meanInterval(medians);
-    if (pooled.verdict !== "linear") blocks.push(`${name} is ${pooled.verdict}: ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)}.`);
-    sights.push(`${name} ${seenTime(pooled.p05, pooled.p95).toFixed(2)} on time`);
-    measures.push({ walk: name, seen: seenTime(pooled.p05, pooled.p95), ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half) });
+    if (pooled.verdict !== "linear") blocks.push(`${name} is ${pooled.verdict}: ${pooled.low.toFixed(3)} to ${pooled.high.toFixed(3)}.`);
+    sights.push(`${name} ${seenTime(pooled.low, pooled.high).toFixed(2)} on time`);
+    measures.push({ walk: name, seen: seenTime(pooled.low, pooled.high), ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half) });
     lines.push(
-      `| \`${name}\` | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
+      `| \`${name}\` | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.low.toFixed(3)} to ${pooled.high.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
   }
   lines.push(
@@ -525,12 +545,12 @@ function merge(files: readonly string[]): void {
     const medians = of.map((walk) => median(walk.byteSlopes));
     const { mean, half } = meanInterval(medians);
     const rungs = (all[0]?.levels ?? []).map((_, d) => median(of.map((walk) => walk.bytes[d] as number)));
-    if (pooled.verdict !== "at most linear") blocks.push(`The memory of ${name} is ${pooled.verdict}: the upper end is ${pooled.p95.toFixed(3)}.`);
-    sights.push(`${name} ${seenMemory(pooled.p05, pooled.p95).toFixed(2)} on memory`);
+    if (pooled.verdict !== "at most linear") blocks.push(`The memory of ${name} is ${pooled.verdict}: the upper end is ${pooled.high.toFixed(3)}.`);
+    sights.push(`${name} ${seenMemory(pooled.low, pooled.high).toFixed(2)} on memory`);
     const record = measures[index] as Record<string, unknown>;
-    record["memory"] = { seen: seenMemory(pooled.p05, pooled.p95), ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half), bytes: rungs.map((value) => Math.round(value)) };
+    record["memory"] = { seen: seenMemory(pooled.low, pooled.high), ...pooled, runs: medians.map((value) => fixed(value)), mean: fixed(mean), half: fixed(half), bytes: rungs.map((value) => Math.round(value)) };
     lines.push(
-      `| \`${name}\` | ${rungs.map((value) => Math.round(value)).join(", ")} | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.p05.toFixed(3)} to ${pooled.p95.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
+      `| \`${name}\` | ${rungs.map((value) => Math.round(value)).join(", ")} | ${medians.map((value) => value.toFixed(3)).join(", ")} | ${pooled.slope.toFixed(3)} | ${pooled.low.toFixed(3)} to ${pooled.high.toFixed(3)} | ${mean.toFixed(3)} ± ${half.toFixed(3)} | ${pooled.aa.toFixed(3)} (${pooled.aaP05.toFixed(3)} to ${pooled.aaP95.toFixed(3)}) | ${pooled.verdict} |`,
     );
   });
   const gateLine = `Gate (report only, D164): ${blocks.length === 0 ? "pass." : `block. ${blocks.join(" ")}`}`;
@@ -546,5 +566,17 @@ function merge(files: readonly string[]): void {
   process.stdout.write(`MEASURE ${JSON.stringify({ id: "STATIC.LINEAR", counted: runs.map(runName), excluded, walks: measures })}\n`);
 }
 
+/** This function gives the size of the new space of V8 in this process, in MB. */
+function youngMb(): number {
+  const space = getHeapSpaceStatistics().find((item) => item.space_name === "new_space");
+  return space === undefined ? Number.NaN : fixed(space.space_size / 2 ** 20, 1);
+}
+
 if (process.argv[2] === "merge") merge(process.argv.slice(3));
-else await measure();
+else if (YOUNG_FLAGS.every((flag) => process.execArgv.includes(flag))) await measure();
+else {
+  // The size of the young generation is a flag of the start of V8, thus the script starts itself again with it (D215).
+  const child = spawnSync(process.execPath, [...process.execArgv, ...YOUNG_FLAGS, ...process.argv.slice(1)], { stdio: "inherit" });
+  if (child.error !== undefined) throw child.error;
+  process.exitCode = child.status ?? 1;
+}
