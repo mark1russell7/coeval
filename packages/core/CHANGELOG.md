@@ -2,6 +2,26 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.37.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes, and the two new fields are optional. But a list of reads can have more entries, thus this release counts as a breaking change.
+
+### Fixes
+
+- **`verifyReads` finds a change behind a reference in bound data (D210).** A reference in the data of a binding resolves in the context of its reader. Before, the read of the bound name had no read of the target of the reference. After a change of that target, `verifyReads` said "same", and `durable.evaluate` and a schedule kept the old result.
+- **A free read in the context of a kind that follows a reference keeps its whole root.** `verifyReads` resolves the reads in the context at the root, and that context can give another value.
+- **The fold refuses a part when a reference reaches a name that the part does not bind, or a fixed name.**
+
+### Changes of behavior
+
+- **A read in the context of a kind that follows a reference is not free.** The path of each reference is its own read after it.
+- **A free read in the context at the root that follows a reference gets the mark `followed`** (`Read.followed`). `ReadsCheck.followed` tells that a new resolution followed a reference.
+- **A closure or a fold can keep more roots.** A closure keeps no read of a bound name only when the static read is exact and its path has no reference.
+
+### Speed
+
+- A read that follows no reference costs approximately 4 ns more, with a list of reads (+4.0 % and +4.8 % on a formula of two reads). An evaluation without a list of reads runs the code of 0.36.0.
+
 ## 0.36.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes. But a caller can see three changes in an open fixed point, thus this release counts as a breaking change.

@@ -1,0 +1,9 @@
+[
+  {
+    "case": "the same formula, with a list of reads",
+    "head": "5028921cae9c",
+    "cost": "+4.0 % (noise +0.3 %) and +4.8 % (noise -0.0 %), slower in each job: Speed run 43623796347. +11.6 % and +13.3 % on the head before the fix of the cost: Speed run 43616710604. The case takes approximately 200 to 260 ns with two reads, thus the cost is approximately 4 ns for each read.",
+    "reason": "K262 records each reference that a read follows, because a reference in bound data resolves in the context of its reader (READS.BOUND-REF, D210). Without it, verifyReads said 'same' after a change of the target, and a durable result stayed stale. A read that follows no reference runs the code before K262, with one more call, a test of the class of the compiled path and a test of the length of the list. The fix of the cost removed the rest (+13.3 % to +4.8 %). An evaluation without a list of reads does not change.",
+    "owner": "coeval session (K262)"
+  }
+]
