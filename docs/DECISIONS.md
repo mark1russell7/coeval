@@ -5842,3 +5842,64 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The band is a constant in `bench/ladder.ts`. A new CPU model can give a larger slope with no change of the code.
 
 **SemVer.** No export of the package changes.
+
+## D211 (2026-11-13): `check` splits the value of each document one time in each walk
+
+**Context.** K297, after D205. The ladder arm `check shared` allocated approximately 35 KB for each node at 2000 levels. A larger heap gives more work to the collector of the heap, and its share grew with the size (D205).
+
+A sampling profile of the heap found the sources of the bytes. The profile used Node 24 without tsx, and one check of that document at 2000 levels allocated 24.3 MB.
+
+| Source of the bytes | Share |
+| --- | ---: |
+| `partsOf` and `splitParts`: the closures, the templates and the parts of each split | 54.6 % |
+| The second split of each node, in `enter` of `selvesOf` (a part of the row above) | 21.2 % |
+| The records of `walk`: its items, visits and trails | approximately 15 % |
+| `ask`: the record of the rungs for each document | 7.2 % |
+| The maps of `build` and of the graph, and their growth | 7.7 % |
+| `cycles` of the graph | 6.5 % |
+| `nodeGraph`, `jsonEdges` and `nodeIssues` | 6.4 % |
+
+`check` walks the document two times: one walk for the issues and one walk for the graph of attribute instances. Each walk split the value of each node two times, in `walk` and in `selvesOf`. Thus each node got four splits in one check.
+
+Each split made five closures. The ladder in CI uses tsx, and tsx gives each closure a name through a helper function. Thus a closure costs more there.
+
+**Decision.**
+
+- A visit of `walk` keeps the parts of its split. `selvesOf` reads them. It splits the value again only for a visit that another walk made.
+- `checkAll`, the visit of `build` and `termRefs` get the evaluator from the new internal function `visitAnswer`. It reads the rungs of `ask` in the same order with `answerOf`, without the record of the rungs.
+- The functions of `splitParts` are module functions. Thus a split makes no closure for each value.
+- A record shape with a list of field names keeps its table of the field shapes in a `WeakMap`. A split makes the table only at the first value of the shape.
+- A part gets its optional fields `of`, `address` and `expect` with an assignment, not with a spread copy.
+- In `build`, only a list document gets a map of its items. A place gets its map of the instances with parameters at the first instance.
+- `walk` uses one frozen list for the key `value`, and a module function for the test of a grant. `nodeIssues` makes no function for each node, and no set for a kind without needs.
+
+**Alternatives.**
+
+- A cache of the splits by value, in a `WeakMap`. A split depends on the shape and on the value, and a value can be a number or a text. Thus the cache needs two keys, and it keeps the bytes longer.
+- A lazy `data` of a split. `walk` does not read it. But `splitParts` is public, and its result is a plain record. A getter changes that record for each caller.
+- One walk for the issues and for the graph. The two visitors stop at different documents. Thus that change is larger, and this decision keeps the two walks.
+
+**Why.** Each change removes whole allocations on the path of each node, and no result changes. The parts that `selvesOf` reads come from the split of the same value with the same type. `visitAnswer` gives the evaluator and the rung that `ask` gives. A visit gets `#KIND?` when `ask` gives `unknown-kind`: the visit has no kind, and no own entry answers.
+
+**Limits.**
+
+- The counts are local counts of one machine. A bench run in the pull request measures the gain in CI.
+- This decision has no local time measure. The speed gate in CI shows if a case is slower.
+- The table of a record shape is correct while the list `fields` of the shape does not change. The types of a world declare that list as read-only.
+- After the change, one check of `check shared` at 2000 levels allocates 12.8 MB in the same profile. Each share includes the calls of the function. `build` takes 50 %, the templates of the splits take 22 %, and `cycles` takes 12 %.
+
+**Results.** The bytes that one call allocates, from the median of 7 measures after 3 warm calls, on the base commit and after the change. The arm `check shared` gets `quarter(levels)` boxes and the same count of readers. The table also shows the other arms at 2000 levels.
+
+| Arm | Levels | tsx, before | tsx, after | Change | Node 24, before | Node 24, after | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `check shared` | 250 | 4,669,240 | 2,252,240 | -51.8 % | 3,605,384 | 1,928,352 | -46.5 % |
+| `check shared` | 500 | 9,073,656 | 4,013,816 | -55.8 % | 7,038,104 | 3,807,640 | -45.9 % |
+| `check shared` | 1000 | 17,660,688 | 7,456,992 | -57.8 % | 13,479,992 | 6,744,632 | -50.0 % |
+| `check shared` | 2000 | 34,510,216 | 14,357,248 | -58.4 % | 26,565,520 | 12,981,512 | -51.1 % |
+| `attributeGraph` of the same document | 2000 | 22,435,936 | 11,893,440 | -47.0 % | 18,451,848 | 11,534,656 | -37.5 % |
+| `walk` of the same document | 2000 | 7,448,248 | 3,862,232 | -48.1 % | 5,282,848 | 3,178,664 | -39.8 % |
+| `check tree` | 2000 | 18,614,624 | 6,815,096 | -63.4 % | 13,094,280 | 6,250,464 | -52.3 % |
+
+At 2000 levels under tsx, `check shared` allocated approximately 34 KB for each node before the change, and approximately 14 KB after it. The issues and the graph of 5 documents with issues and without issues have the same digests before and after.
+
+**SemVer.** PATCH. No export of the package changes, and no result changes.
