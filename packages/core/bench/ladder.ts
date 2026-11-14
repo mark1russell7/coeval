@@ -21,7 +21,10 @@
  * its passes. Each sample walks 8N levels: 8 calls at N, 4 at 2N, 2 at 4N and 1 at 8N.
  *
  * The A/A arm is a second document of 4N levels, made in the same way, and measured in the same passes. Its ratio to
- * the first document of 4N levels is the noise of one rung. It must be near 1.
+ * the first document of 4N levels is the noise of one rung. It must be near 1. One full collection by `gc()` follows
+ * the documents and goes before the first round (D215). It moves each document to the old generation in the order of
+ * its addresses. Without it, all documents are in the young generation at the first round, and the scavenges of the
+ * first rounds copy them. In the Measure run 43628377137, the A/A band of `refsOf` was then 0.923 to 0.977.
  *
  * STATIC.LINEAR also says that a walk takes memory linear in the size of the document (K209, D105). After all timed
  * rounds, a second phase measures the bytes that one call allocates, in calls of their own. Thus the timed passes keep
@@ -358,6 +361,10 @@ async function measure(): Promise<void> {
     return times === 0 && rest === 0 ? walk.call : faulted(walk.call, times, rest === 0 ? undefined : walk.make(rest));
   };
   const arms = walks.flatMap((walk, w) => (docs[w] as unknown[]).map((doc, d) => ({ w, d, call: callOf(walk, steps[d] as number), doc })));
+  // The documents settle in the old generation before the first round (D215). The semi-space of 64 MB holds all of
+  // them after they are made, and a full collection moves each one in the order of its addresses.
+  const gc = exposedGc();
+  gc();
   // times[arm][round] in nanoseconds for one call
   const times: number[][] = arms.map(() => []);
   for (let round = 0; round < WARM_ROUNDS + rounds; round += 1) {
@@ -376,7 +383,6 @@ async function measure(): Promise<void> {
   }
   // The memory phase (K209, D105). It starts after all timed rounds, thus the timed passes keep the conditions of D97.
   const memoryStarted = performance.now();
-  const gc = exposedGc();
   const empty = (): number => 0;
   // bytes[arm][round]: the bytes of one call, less the bytes of an empty measure in the same round
   const bytes: number[][] = arms.map(() => []);

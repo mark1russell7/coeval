@@ -5996,6 +5996,7 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - The tables also print the 5th to 95th percentile of the rounds as the spread of one round. The A/A check of a run does not change.
 - The ladder runs with `--min-semi-space-size=64` and `--max-semi-space-size=64`. The script starts itself again with these flags when its process does not have them. Each run prints the size of the new space of V8, and its record keeps it.
 - The largest arm allocates approximately 33 MB in one call. With a semi-space of 64 MB, no object of one call lives through two scavenges.
+- One full collection by `gc()` follows the documents and goes before the first round. It moves each document to the old generation in the order of its addresses.
 - The range of rigor-statistics in the package goes to `^0.1.29`, the version of the lock file, because `medianInterval` and `tQuantile` are new.
 
 **Alternatives.**
@@ -6012,5 +6013,13 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - The rounds of one run come from one runner, and they are not independent of it. Thus the pooled interval of the merge is narrower than an interval across runners. The interval of the runs shows that spread.
 - With the old records, the new interval blocks 6 of the 136 single runs. Three are the walk of steps, two are `refsOf` with a slope under 0.948, and one is a run of K259 on an EPYC 9V74. The fixed young generation can change these values. The Measure run of the pull request gives the first values.
 - A walk that allocates more than 64 MB in one call crosses the semi-space again. The table of the memory phase gives the bytes of each rung.
+
+**Measures (2026-11-14).** The first Measure run with the fixed young generation, 43628377137, had no collection before the first round.
+
+- The 3 runs of the linear flip row read the slope of `refsOf` as 1.016, 1.004 and 1.003. The verdict of each walk was linear in each run.
+- No run counted. The A/A bands of `refsOf` were 0.923 to 0.977, 0.952 to 0.977 and 0.970 to 1.644. The bands of `walk` were 1.001 to 1.040, 0.999 to 1.051 and 1.001 to 1.219.
+- In D97, the A/A bands were 0.843 to 1.203. With the fixed young generation, most bands are narrower, and an offset of 3 % to 5 % of one document shows.
+- After the documents of the ladder are made, a local process with the flags of this decision has approximately 4.9 MB in the new space. One `gc()` moves all of it to the old space.
+- Thus the collection before the first round gives the two documents of 4N levels the same conditions. The next Measure run tells if it removes the offset.
 
 **SemVer.** No export of the package changes.
