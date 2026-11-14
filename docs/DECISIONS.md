@@ -5843,6 +5843,44 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 
 **SemVer.** No export of the package changes.
 
+## D206 (2026-11-12): the short path follows each form of a reference, and it asks a host thing one time
+
+**Context.** K261, from a review. The short path of a resolution (DEREF.QUICK) found a reference only by the text type `ref`. `isRef` also accepts the type `["ref"]` and a reference to the kind `ref`. At the end of a path, the short path gave such a document, and the full algorithm followed it. Thus a plan and a traced evaluation gave two results for one document (PLAN.PATH-SAME, DEREF.COLLAPSE).
+
+A host thing can also answer the keys with a reference. The short path then stopped, and the full algorithm asked the thing again for the same keys.
+
+**Decision.**
+
+- The test `mayBeRef` of the short path accepts the text type `ref`, and the collapse tests the rest. For each type that is not a text, `isRef` decides.
+- A reference at the end of the short path goes to the full algorithm, with the thing that the short path reached. The full algorithm only follows it (collapse). It does not walk the path again.
+- Thus one resolution without hops asks a host thing one time for the keys of its path. A reference in the answer has its own path, and the resolution asks for those keys one time.
+- `resolveQuick` and each compiled path keep one step function, `walkQuick`. Thus the two get the rule together.
+
+**Alternatives.**
+
+- Give each value whose type is not a text to the full algorithm. The result is correct, but an envelope with a list type at the end of a path then loses the short path.
+- Follow the reference in the short path. Then the short path has a second copy of the collapse, with its test of a cycle and its bound of 64.
+- Keep the second read, and state it in DEREF.QUICK. A store then reads the keys two times for each reference that it gives.
+
+**Why.** The full algorithm gives the meaning of a path, thus the short path must give its result. At the end of the short path, the full algorithm has no hops, no collapse and no open reference. The handoff starts the collapse in that state. Thus the result does not change, and the host sees one read less.
+
+**Limits.**
+
+- The short path still stops at a reference in the middle of a path. The full algorithm then walks the path again from its root. A host thing ends the short path, thus the short path asked no host thing before that stop. The second walk asks no host thing again.
+- A plain navigation reads each form of a reference as data, as before (DEREF.PLAIN).
+
+**Results.** The first Speed run (43355708743) held one case on both CPU models: a reference with a step document, +3.5 % and +5.7 %. On the Intel job, three more cases of references read slower (+1.4 % to +9.8 %). The other job could not decide them.
+
+These cases do not take the new handoff. They see only a larger `walkQuick` with six parameters, and a `resolveFully` that gets five of its six arguments. Thus `walkQuick` gets its four parameters back. At a reference at its end, it gives a small `QuickEnd`, and the caller starts the collapse. Each call of `resolveFully` gives all six arguments. The Speed run of the next head tells if the cost goes.
+
+The second Speed run (43371656319) held three cases on both jobs:
+
+- a reference with a step document: +9.3 % and +4.4 %
+- resolve without hops, five steps: +2.1 % and +2.1 %
+- PLAN.FIXED a formula with a fixed name and a free name: +6.5 % and +1.5 %
+
+The two short cases call `walkQuick` and then test its answer with `instanceof QuickEnd`. Thus the third design has no class. At a reference at its end, `walkQuick` puts the thing in a variable of the module and gives the frozen answer `QUICK_END`. The caller tests the identity of the answer, and it takes and clears the thing. `resolveFully` gets the thing directly. The case with a step document does not call `walkQuick`. When it stays slower, an accepted record holds its cost with the reason of D206.
+
 ## D209 (2026-11-12): the two walks of the type check in the ladder take a quarter of the levels
 
 **Context.** K300, from K257 (D201). K257 added two walks to the ladder: the type check of a sequence of named steps, and the type check of a nest of binders. Both used the levels of the chain, N to 8N with N = 250.

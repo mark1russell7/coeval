@@ -2,6 +2,15 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.36.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. A plan, `resolve` without hops and a compiled path follow a reference whose type is `["ref"]` or a reference to the kind `ref`. Before, they gave the document. No export changes.
+
+### Fixes
+
+- **The short path of a resolution follows each form of a reference (D206).** A path can end at a document with the type `["ref"]`, or with a reference to the kind `ref`. That path gives the value that the reference reaches. A plan and a traced evaluation give the same result (PLAN.PATH-SAME, DEREF.COLLAPSE).
+- **A resolution without hops asks a host thing one time for the keys of its path (DEREF.QUICK).** When the answer is a reference, the resolution follows it from that answer. Before, it asked the thing again for the same keys.
+
 ## 0.35.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are views and not instances of `Set`. A caller that tested them with `instanceof Set` gets another answer, thus this release counts as a breaking change. No export changes.

@@ -20,6 +20,7 @@ import {
   type Walker,
   type World,
   Held,
+  STD_MACHINE,
   THING,
   agree,
   agreeRun,
@@ -152,9 +153,13 @@ const NAMES: Readonly<Record<string, unknown>> = {
   hop: ref("names", "a"),
   loop: ref("names", "loop"),
   deep: ref("names", "x", "b"),
-  h: host("h", { a: { b: 1 }, u: undefined, r: ref("names", "a") }, { resolve: true, has: true }),
+  // The other forms of the type of a reference: a list of keys and a reference to the kind (DEREF.QUICK).
+  lref: { type: ["ref"], value: ["names", "x", "b"] },
+  kref: { type: { type: "ref", value: ["world", "ref"] }, value: ["names", "b"] },
+  h: host("h", { a: { b: 1 }, u: undefined, r: ref("names", "a"), lref: { type: ["ref"], value: ["names", "a"] } }, { resolve: true, has: true }),
   k: host("k", { a: 3, u: undefined }),
   r: host("r", {}, { resolve: true, gives: ref("names", "x") }),
+  rl: host("rl", {}, { resolve: true, gives: { type: ["ref"], value: ["names", "b"] } }),
   held: new Held({ code: "#HELD", reason: "The binding failed." }),
   arr: [[1, [2]], { a: [3] }],
 };
@@ -339,6 +344,16 @@ describe("compiled paths", () => {
     // The paths reach values and errors in each navigator.
     expect(quick).toBeGreaterThan(COUNT / 10);
     expect(quick).toBeLessThan(COUNT - COUNT / 10);
+  });
+
+  it("[PLAN.PATH-SAME] [DEREF.COLLAPSE] a plan and a traced evaluation follow a reference whose type is a list, to the same value", () => {
+    const ctx = context({ names: { a: { type: ["ref"], value: ["names", "b"] }, b: 7 } });
+    const doc = { type: "ref", value: ["names", "a"] };
+    // A trace takes the full algorithm, and a plan takes the short path of its compiled path.
+    expect(evaluate(STD_MACHINE, doc, ctx).result).toEqual({ ok: true, value: 7 });
+    expect(prepare(STD_MACHINE, doc).evaluate(ctx)).toEqual({ ok: true, value: 7 });
+    expect(resolve(STD_MACHINE, ctx, ["names", "a"], { hops: false })).toEqual({ ok: true, thing: 7, hops: [] });
+    expect(compilePath(STD_MACHINE, ["names", "a"]).resolve(ctx)).toEqual({ ok: true, thing: 7, hops: [] });
   });
   it("[DEREF.KIND-UNDEFINED] [DEREF.WALKER-UNDEFINED] a compiled path and resolve agree on a field that holds undefined, in each navigator", () => {
     const at = (key: string): Json => ({ type: ["moves", "at"], value: key });

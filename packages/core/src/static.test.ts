@@ -11,6 +11,7 @@ import {
   THING,
   check,
   checkWorld,
+  compilePath,
   context,
   docEquals,
   formulaDefinitions,
@@ -244,8 +245,41 @@ describe("references", () => {
     expect(resolve({ world }, ctx, ["world", "n2"], { hops: false })).toEqual({ ok: false, code: "#N/A", reason: "The path n2 reaches nothing.", hops: [] });
     expect(calls).toEqual(["n1.value", "n1", "n2"]);
     expect(resolve({ world }, ctx, ["world", "r"], { hops: false })).toMatchObject({ ok: true, thing: 7 });
+    // The answer holds a reference. The resolution follows it from that answer, thus it does not ask the store again.
+    expect(calls).toEqual(["n1.value", "n1", "n2", "r"]);
+    expect(compilePath({ world }, ["world", "r"]).resolve(ctx)).toEqual({ ok: true, thing: 7, hops: [] });
+    expect(calls).toEqual(["n1.value", "n1", "n2", "r", "r"]);
     expect(resolve({ world, plain: true }, ctx, ["world", "r"], { hops: false })).toMatchObject({ ok: true, thing: { type: "ref", value: ["names", "x"] } });
     expect(resolve({ world }, context({ world: store }), ["world"], { hops: false })).toMatchObject({ ok: true, thing: store });
+  });
+
+  it("[DEREF.QUICK] [DEREF.COLLAPSE] the short path follows each form of a reference at the end of a path, as the full algorithm does", () => {
+    // The type of a reference can be a text, a list of keys, or a reference to the kind. Each form gives the path ref.
+    const listed = { type: ["ref"], value: ["names", "b"] };
+    const typed = { type: { type: "ref", value: ["world", "ref"] }, value: ["names", "b"] };
+    const calls: string[] = [];
+    const store: HostThing = {
+      [THING]: true,
+      label: "store",
+      deref: () => undefined,
+      toJson: () => null,
+      resolve: (keys) => {
+        calls.push(keys.join("."));
+        return keys[0] === "l" ? { thing: listed } : keys[0] === "t" ? { thing: typed } : undefined;
+      },
+    };
+    const ctx = context({ names: { a: listed, c: typed, b: 7, s: store }, world: store });
+    const paths = [["names", "a"], ["names", "c"], ["names", "s", "l"], ["names", "s", "t"], ["world", "l"], ["world", "t"]];
+    for (const path of paths) {
+      expect(resolve({ world }, ctx, path)).toMatchObject({ ok: true, thing: 7 });
+      expect(resolve({ world }, ctx, path, { hops: false })).toEqual({ ok: true, thing: 7, hops: [] });
+      expect(compilePath({ world }, path).resolve(ctx)).toEqual({ ok: true, thing: 7, hops: [] });
+    }
+    // Each of the 4 paths into the store asks it one time in each of the 3 resolutions.
+    expect(calls).toEqual(["l", "l", "l", "t", "t", "t", "l", "l", "l", "t", "t", "t"]);
+    // A plain navigation reads each form as data (DEREF.PLAIN).
+    expect(resolve({ world, plain: true }, ctx, ["names", "a"], { hops: false })).toEqual({ ok: true, thing: listed, hops: [] });
+    expect(resolve({ world, plain: true }, ctx, ["world", "t"], { hops: false })).toEqual({ ok: true, thing: typed, hops: [] });
   });
 
   it("[TREE.NEAREST-MATCH] a host gives the walker nearest its own test of a type", () => {
