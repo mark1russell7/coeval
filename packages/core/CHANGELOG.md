@@ -2,7 +2,7 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
-## 0.36.0
+## 0.37.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. A plan, `resolve` without hops and a compiled path follow a reference whose type is `["ref"]` or a reference to the kind `ref`. Before, they gave the document. No export changes.
 
@@ -10,6 +10,33 @@ MINOR: before `1.0.0`, a breaking change increases MINOR. A plan, `resolve` with
 
 - **The short path of a resolution follows each form of a reference (D206).** A path can end at a document with the type `["ref"]`, or with a reference to the kind `ref`. That path gives the value that the reference reaches. A plan and a traced evaluation give the same result (PLAN.PATH-SAME, DEREF.COLLAPSE).
 - **A resolution without hops asks a host thing one time for the keys of its path (DEREF.QUICK).** When the answer is a reference, the resolution follows it from that answer. Before, it asked the thing again for the same keys.
+
+## 0.36.1
+
+PATCH: a fix with no export changes.
+
+### Fixes
+
+- **A fold copies a value of any depth (D216).** The copy of a folded result and the test of a fixed name called themselves for each level of the value. At approximately 8,000 levels, they overflowed the stack of the host, and the part did not fold. Thus a host that prepared each level of a deep record copied each level again, and the heap ran out. Both walks keep their own stack. A lit of 100,000 levels folds, and a prepare of each level of its result gives that level, without a copy (PLAN.DEEP).
+
+### Changes of behavior
+
+- **A pure part with a deep value folds.** A plan gives one frozen result for it at each evaluation, as for each other folded part (PLAN.SHARED).
+- **A deeply frozen fixed name of any depth fixes (PLAN.FIXED).**
+
+## 0.36.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes. But a caller can see three changes in an open fixed point, thus this release counts as a breaking change.
+
+### Fixes
+
+- **An open fixed point evaluates each plain attribute one time in each round (D213).** A plain attribute that read an approximation kept no value for its round. Thus each reader evaluated it again. In a chain of k such attributes with two readers each, the last level had 2^k evaluations in each round. The plan and the reference tier keep the tentative value of the round, and a later reader in the same round gets it (TREE.CIRCULAR-ONCE).
+
+### Changes of behavior
+
+- **A host evaluator gets fewer calls in an open fixed point.**
+- **A later reader in the same round gets the answer of the first evaluation.** A `#CYCLE!` keeps the chain of the first reader.
+- **A document that gave `#WORK!` can give a value**, because the evaluations of a round do not grow with the readers.
 
 ## 0.35.0
 
