@@ -5786,7 +5786,7 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 - The functions of `fields.ts` hold the state of a field: the value of the document and the text of the input. They are pure, thus plain unit tests read them.
 - The path field keeps the text that the reader types. It reads the path on blur or Enter.
 - A step that its text does not give back is a chip between two texts. Examples are a step document, a key with a comma and a text of digits. An edit of a text keeps each chip at its place, and a button removes it.
-- A number field writes a value only when its text is a number of the contract. Such a number is finite, whole if the contract tells so, and between `min` and `max`.
+- A number field writes a value only when its text is a number that the contract accepts. Such a number is finite, whole if the contract tells so, and between `min` and `max`.
 - While the text is empty or is not such a number, the document keeps its last value. On blur, the field shows the text of that value again.
 - A new value from outside replaces the text of a field, for example after a click on a name. The same value keeps the text.
 - `prettyJson` walks the structure. An array of values with no parts goes on one line, as before. A record of such values goes on one line when its indented text has 40 characters or fewer, as before.

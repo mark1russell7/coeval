@@ -7,7 +7,7 @@ import { stepText } from "../lib/moves.ts";
 
 /**
  * The input of a number. It keeps the text that the reader types, and it writes a value only when the text is a number
- * of the contract. Thus an empty field stays empty, and the document keeps its last number (K274, D214).
+ * that the contract accepts. Thus an empty field stays empty, and the document keeps its last number (K274, D214).
  */
 function NumberInput({ editor, value, onValue }: { readonly editor: NumberEditor; readonly value: Json | undefined; readonly onValue: (next: Json) => void }) {
   const [field, setField] = useState(() => dataField(value));

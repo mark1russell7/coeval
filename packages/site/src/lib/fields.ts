@@ -164,7 +164,7 @@ export function numberOfText(text: string, editor: NumberEditor): number | undef
 
 /**
  * This function keeps the text that the reader types into a number field. The value changes only when the text is a
- * number of the contract. Thus an empty field stays empty, and the document keeps its last number.
+ * number that the contract accepts. Thus an empty field stays empty, and the document keeps its last number.
  *
  * @param field - The field.
  * @param text - The new text.
