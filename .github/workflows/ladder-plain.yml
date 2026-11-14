@@ -101,8 +101,9 @@ jobs:
           node packages/core/bench/ladder.ts merge "$RUNNER_TEMP"/plain/fault-*.json 2>&1 | tee fault.txt || code=$?
           echo "The slope of $FAULT: exit code $code, expected 3."
           test "$code" = 3 || { echo "No read at the plain setting: the printed size is wrong."; fail=1; }
-          reasons=('refsOf is not linear' 'walk is not linear')
-          memory=('memory of refsOf is over the bound' 'memory of walk is over the bound')
+          reasons=('refsOf is not linear' 'walk is not linear' 'typeCheck of steps is not linear' 'typeCheck of binders is not linear')
+          memory=('memory of refsOf is over the bound' 'memory of walk is over the bound' 'memory of typeCheck of steps is over the bound'
+            'memory of typeCheck of binders is over the bound')
           # Over the memory limit of 1.2, a fault blocks on time and on memory. At or under it, a memory reason is a block on the wrong reason.
           if awk -v slope="$FAULT" 'BEGIN { exit !(slope + 0 > 1.2) }'; then
             reasons+=("${memory[@]}")

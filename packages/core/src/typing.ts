@@ -1,5 +1,6 @@
 import { type Envelope, type Key, isRecord, typeName } from "./doc.ts";
 import type { Machine } from "./evaluate.ts";
+import type { NameCount, ScopeLayer } from "./parts.ts";
 import type { DocVisit, Issue, WorldIssue } from "./static.ts";
 import { type Domain, type Proof, type ValueType, domainOf, fits, isPrecise, isUnknown, narrowType, typeIssues, typeText } from "./types.ts";
 import { type Kind, type Shape, eachKind, kindAt } from "./world.ts";
@@ -251,8 +252,10 @@ export function boundariesOf(typing: { readonly places: readonly Typed[] }, doma
 /** One document that the walk of a check visited, with what the pass of types needs. The package does not export it. */
 export interface TypeNode {
   readonly visit: DocVisit;
-  /** The names that the scope rules of the parent bind for this document. */
-  readonly bound: readonly string[];
+  /** The layer of the scope rules of the parent. With `part`, it gives the names that the parent binds for this document. */
+  readonly scope: ScopeLayer | undefined;
+  /** The index of this document among the parts of its parent. The root has -1. */
+  readonly part: number;
   /** The type that the shape of the parent declares for this part. */
   readonly expect: ValueType | undefined;
   /** The indices of the parts that the walk visited, in the order of the value. */
@@ -292,6 +295,32 @@ const CHANGING = ["self", "world", "event"] as const;
 /** The roots of the parts of an evaluator without a rule: such an evaluator can change each root. */
 const UNKNOWN_ROOTS: Roots = { self: "unknown", world: "unknown", event: "unknown" };
 
+/**
+ * The types of the names at one place of the pass, as a chain (STATIC.LINEAR). A narrowing adds the types of its
+ * proofs, and a scope layer adds the names that it binds for one part. A chain keeps no copy of the names around it.
+ */
+type NameChain =
+  | { readonly t: "host"; readonly types: ReadonlyMap<string, ValueType> }
+  | { readonly t: "narrow"; readonly up: NameChain; readonly own: ReadonlyMap<string, ValueType> }
+  | { readonly t: "bind"; readonly up: NameChain; readonly layer: ScopeLayer; readonly index: number; readonly types: Readonly<Record<string, ValueType>> | undefined };
+
+/** This function gives the type of a name that a scope rule binds. A name without a type from the rule gets `unknown`. */
+function boundType(types: Readonly<Record<string, ValueType>> | undefined, name: string): ValueType {
+  return types !== undefined && Object.hasOwn(types, name) ? (types[name] as ValueType) : "unknown";
+}
+
+/** This function gives the type of a name in a chain. The time is linear in the length of the chain. */
+function chainType(chain: NameChain, name: string): ValueType | undefined {
+  let here = chain;
+  for (;;) {
+    if (here.t === "host") return here.types.get(name);
+    if (here.t === "narrow") {
+      if (here.own.has(name)) return here.own.get(name);
+    } else if (here.layer.sees(here.index, name)) return boundType(here.types, name);
+    here = here.up;
+  }
+}
+
 /** One document on the stack of the pass. */
 interface Frame {
   readonly index: number;
@@ -301,11 +330,22 @@ interface Frame {
   next: number;
   readonly typed: Map<string, ValueType>;
   readonly needs: readonly Need[];
-  /** The types of the names for the parts. A part with `keep` changes them for the later parts. */
-  names: ReadonlyMap<string, ValueType>;
+  /** The types of the names for the parts. A part with `keep` adds its proofs for the later parts. */
+  kept: NameChain;
   roots: Roots;
   /** The proofs of the typed parts, for a rule with `usesProofs`. */
   proven: Map<string, Proven> | undefined;
+  /** The last type of each name that the proofs of a part with `keep` narrow. */
+  keptTypes: Map<string, ValueType> | undefined;
+  /** The types of the proofs of the current part, when the part does not keep them. */
+  partTypes: Map<string, ValueType> | undefined;
+  /** The layer of the scope rules of the document, the index of the current part, and the types that the rule gives the part. */
+  layer: ScopeLayer | undefined;
+  at: number;
+  bound: Readonly<Record<string, ValueType>> | undefined;
+  /** The count of the reasons for which this frame gives a type to each name, and the function that changes it. */
+  counts: Map<string, number> | undefined;
+  count: NameCount | undefined;
 }
 
 function pathKey(path: readonly Key[]): string {
@@ -365,22 +405,53 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
   // A document with an effect can change a root between two reads, thus only its names narrow (STATIC.OCCURRENCE-EFFECT).
   const rootsChange = (): boolean => (changes ??= nodes.some(hasEffect));
 
-  const narrowed = (names: ReadonlyMap<string, ValueType>, roots: Roots, proofs: readonly Proof[]): { readonly names: ReadonlyMap<string, ValueType>; readonly roots: Roots } => {
-    let nextNames = names;
-    let nextRoots = roots;
-    for (const proof of proofs) {
-      const head = proof.path[0];
-      if (head === "names") {
-        const name = proof.path[1];
-        if (name === undefined) continue;
-        if (nextNames === names) nextNames = new Map(names);
-        (nextNames as Map<string, ValueType>).set(name, narrowType(nextNames.get(name) ?? "unknown", proof, 2, domains));
-      } else if ((head === "self" || head === "world" || head === "event") && !rootsChange()) {
-        nextRoots = { ...nextRoots, [head]: narrowType(nextRoots[head], proof, 1, domains) };
-      }
-    }
-    return { names: nextNames, roots: nextRoots };
+  // The frames on the stack that give a type to a name, by the name, with the deepest frame last (STATIC.LINEAR). A
+  // frame gives a type to a name when its layer binds the name for its current part, or when a proof narrows the name.
+  // Thus the type of a name at the top of the stack needs no copy of the names around it.
+  const owners = new Map<string, Frame[]>();
+  const unown = (frame: Frame, name: string): void => {
+    const list = owners.get(name);
+    if (list === undefined) return;
+    // Only the frame on the top of the stack changes, thus its entry is the last.
+    if (list[list.length - 1] === frame) list.pop();
+    else list.splice(list.lastIndexOf(frame), 1);
+    if (list.length === 0) owners.delete(name);
   };
+  const define = (frame: Frame, name: string, change: 1 | -1): void => {
+    const counts = (frame.counts ??= new Map());
+    const was = counts.get(name) ?? 0;
+    const now = was + change;
+    if (now === 0) counts.delete(name);
+    else counts.set(name, now);
+    if (was === 0) {
+      const list = owners.get(name);
+      if (list === undefined) owners.set(name, [frame]);
+      else list.push(frame);
+    } else if (now === 0) unown(frame, name);
+  };
+  const leave = (frame: Frame): void => {
+    if (frame.counts !== undefined) for (const name of frame.counts.keys()) unown(frame, name);
+    frame.counts = undefined;
+  };
+  // The type that a frame gives a name for its current part: the binding hides the proofs of the part, and they hide the kept proofs.
+  const typeIn = (owner: Frame, name: string): ValueType | undefined => {
+    if (owner.layer !== undefined && owner.layer.sees(owner.at, name)) return boundType(owner.bound, name);
+    if (owner.partTypes?.has(name) === true) return owner.partTypes.get(name);
+    if (owner.keptTypes?.has(name) === true) return owner.keptTypes.get(name);
+    return chainType(owner.kept, name);
+  };
+  // The type of a name at the document of the frame on the top of the stack: the deepest frame below it decides.
+  const typeBelow = (frame: Frame, name: string): ValueType | undefined => {
+    const list = owners.get(name);
+    if (list !== undefined) {
+      const top = list.length - 1;
+      const owner = list[list[top] === frame ? top - 1 : top];
+      if (owner !== undefined) return typeIn(owner, name);
+    }
+    return hostNames.get(name);
+  };
+  // The type of a name for the parts of the frame on the top of the stack, before the proofs of the current part.
+  const keptType = (frame: Frame, name: string): ValueType | undefined => (frame.keptTypes?.has(name) === true ? frame.keptTypes.get(name) : typeBelow(frame, name));
 
   const issueAt = (index: number, problem: TypeProblem): void => {
     const visit = (nodes[index] as TypeNode).visit;
@@ -404,7 +475,7 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
     return type as ValueType;
   };
 
-  const enter = (index: number, needs: readonly Need[], names: ReadonlyMap<string, ValueType>, roots: Roots): Frame => {
+  const enter = (index: number, needs: readonly Need[], names: NameChain, roots: Roots): Frame => {
     const node = nodes[index] as TypeNode;
     const visit = node.visit;
     const typed = new Map<string, ValueType>();
@@ -417,7 +488,8 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
       address: visit.address === true,
       machine,
       typeOf: (path) => typed.get(pathKey(path)) ?? "unknown",
-      nameType: (name) => names.get(name),
+      // On the top of the stack, the frames below decide. A rule that reads the input later reads the chain.
+      nameType: (name) => (stack[stack.length - 1] === frame ? typeBelow(frame, name) : chainType(names, name)),
       rootType: (root) => (root === "caps" ? CAPS_TYPE : root === "self" || root === "world" || root === "event" ? roots[root] : "unknown"),
       contract: (type, what) => contract(index, type, what),
       readOf: (path) => {
@@ -430,7 +502,25 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
     };
     inputs[index] = input;
     const rule = node.marked ? undefined : ruleOf(machine, node.evaluator);
-    const frame: Frame = { index, rule, input, order: orderOf(node, nodes, rule?.first), next: 0, typed, needs, names, roots, proven: undefined };
+    const frame: Frame = {
+      index,
+      rule,
+      input,
+      order: orderOf(node, nodes, rule?.first),
+      next: 0,
+      typed,
+      needs,
+      kept: names,
+      roots,
+      proven: undefined,
+      keptTypes: undefined,
+      partTypes: undefined,
+      layer: undefined,
+      at: -1,
+      bound: undefined,
+      counts: undefined,
+      count: undefined,
+    };
     return frame;
   };
 
@@ -451,7 +541,8 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
   const given: Readonly<Record<string, ValueType>> = isRecord(rootTypes.names) ? rootTypes.names : {};
   for (const name of Object.keys(given)) hostNames.set(name, contract(0, given[name], `type of the name ${name} of the host`));
   const hostRoot = (root: (typeof CHANGING)[number]): ValueType => (rootTypes[root] === undefined ? "unknown" : contract(0, rootTypes[root], `type of the root ${root}`));
-  const stack: Frame[] = [enter(0, rootNeeds, hostNames, { self: hostRoot("self"), world: hostRoot("world"), event: hostRoot("event") })];
+  const stack: Frame[] = [];
+  stack.push(enter(0, rootNeeds, { t: "host", types: hostNames }, { self: hostRoot("self"), world: hostRoot("world"), event: hostRoot("event") }));
   while (stack.length > 0) {
     const frame = stack[stack.length - 1] as Frame;
     if (frame.next < frame.order.length) {
@@ -460,6 +551,11 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
       const node = nodes[child] as TypeNode;
       const slot = node.visit.slot;
       const what = `part ${slot.join(".")} of ${typeName((nodes[frame.index] as TypeNode).visit.doc.type)}`;
+      // The proofs of the part before this part end.
+      if (frame.partTypes !== undefined) {
+        for (const name of frame.partTypes.keys()) define(frame, name, -1);
+        frame.partTypes = undefined;
+      }
       let part: PartType = {};
       if (frame.rule?.part !== undefined) {
         try {
@@ -475,22 +571,45 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
       };
       if (contracts && node.expect !== undefined) need(contract(child, node.expect, `expected type of the ${what}`), what);
       if (part.expect !== undefined) need(part.expect, part.what ?? what);
-      let names = frame.names;
+      let names = frame.kept;
       let kept = frame.roots;
       if (part.narrow !== undefined && part.narrow.length > 0) {
-        const after = narrowed(names, kept, part.narrow);
-        names = after.names;
-        kept = after.roots;
+        let own: Map<string, ValueType> | undefined;
+        for (const proof of part.narrow) {
+          const head = proof.path[0];
+          if (head === "names") {
+            const name = proof.path[1];
+            if (name === undefined) continue;
+            own ??= new Map();
+            const before = own.has(name) ? own.get(name) : keptType(frame, name);
+            own.set(name, narrowType(before ?? "unknown", proof, 2, domains));
+          } else if ((head === "self" || head === "world" || head === "event") && !rootsChange()) {
+            kept = { ...kept, [head]: narrowType(kept[head], proof, 1, domains) };
+          }
+        }
+        if (own !== undefined) names = { t: "narrow", up: names, own };
         if (part.keep === true) {
-          frame.names = names;
+          frame.kept = names;
           frame.roots = kept;
+          const types = (frame.keptTypes ??= new Map());
+          for (const [name, type] of own ?? []) {
+            if (!types.has(name)) define(frame, name, 1);
+            types.set(name, type);
+          }
+        } else if (own !== undefined) {
+          frame.partTypes = own;
+          for (const name of own.keys()) define(frame, name, 1);
         }
       }
-      if (node.bound.length > 0) {
-        // Each name that the scope rules bind hides the name around it. A name without a type from the rule gets `unknown`.
-        const copy = new Map(names);
-        for (const name of node.bound) copy.set(name, part.names !== undefined && Object.hasOwn(part.names, name) ? (part.names[name] as ValueType) : "unknown");
-        names = copy;
+      const layer = node.scope;
+      if (layer !== undefined) {
+        // Each name that the scope rules bind hides the name around it. A name without a type from the rule gets
+        // `unknown`. The layer changes only the names that differ from the part before (STATIC.LINEAR).
+        layer.move(frame.at, node.part, (frame.count ??= (name, change) => define(frame, name, change)));
+        frame.layer = layer;
+        frame.at = node.part;
+        frame.bound = part.names;
+        if (layer.seesAny(node.part)) names = { t: "bind", up: names, layer, index: node.part, types: part.names };
       }
       // No contract tells how an evaluator changes the roots, thus only a rule keeps their types for its parts (TYPE.ROOTS).
       let roots = frame.rule === undefined ? UNKNOWN_ROOTS : kept;
@@ -503,7 +622,7 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
       stack.push(enter(child, needs, names, roots));
       continue;
     }
-    stack.pop();
+    // The frame stays on the top of the stack until its rules end, thus they read the names without a chain.
     const node = nodes[frame.index] as TypeNode;
     let type: ValueType = "unknown";
     if (!node.marked) {
@@ -527,17 +646,20 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
     }
     types[frame.index] = type;
     needed[frame.index] = frame.needs.length === 0 ? undefined : (frame.needs[frame.needs.length - 1] as Need).type;
-    const parent = stack[stack.length - 1];
-    if (parent === undefined) continue;
-    const key = pathKey(node.visit.slot);
-    parent.typed.set(key, type);
-    if (parent.rule?.usesProofs === true && frame.rule?.proves !== undefined) {
-      try {
-        (parent.proven ??= new Map()).set(key, frame.rule.proves(frame.input));
-      } catch (error) {
-        ruleFailed(frame, error);
+    const parent = stack[stack.length - 2];
+    if (parent !== undefined) {
+      const key = pathKey(node.visit.slot);
+      parent.typed.set(key, type);
+      if (parent.rule?.usesProofs === true && frame.rule?.proves !== undefined) {
+        try {
+          (parent.proven ??= new Map()).set(key, frame.rule.proves(frame.input));
+        } catch (error) {
+          ruleFailed(frame, error);
+        }
       }
     }
+    leave(frame);
+    stack.pop();
   }
 
   const places = nodes.map((node, index) => {

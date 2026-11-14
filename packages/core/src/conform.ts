@@ -44,7 +44,7 @@ import {
   permits,
   rootContext,
 } from "./evaluate.ts";
-import { type PartSlot, type Split, pathMatches, scopesOf, splitParts } from "./parts.ts";
+import { type PartSlot, type Split, ScopeLayer, pathMatches, splitParts } from "./parts.ts";
 import { type Definitions, STD_DEFINITIONS } from "./reference.ts";
 import { STD_EVALUATORS } from "./stdlib.ts";
 import { sameValue } from "./agree.ts";
@@ -264,8 +264,8 @@ interface Sample {
   readonly lazy: readonly boolean[];
   /** `true` for each part that a rule `drives` covers: the runner can evaluate it with its code (D119). */
   readonly driven: readonly boolean[];
-  /** The names that the scope rules give each part. */
-  readonly names: readonly (readonly string[])[];
+  /** The layer of the scope rules: it gives the names of each part, with no list for each part (STATIC.LINEAR). */
+  readonly scope: ScopeLayer | undefined;
 }
 
 /** The results, the waits and the capabilities of one evaluation of a probe document. */
@@ -778,7 +778,7 @@ function samplesOf(type: TypeRef, typePath: readonly Key[], kind: Kind, contract
       otherSplit,
       lazy: split.parts.map((_slot, index) => contract.lazy?.some((rule) => covers(rule, split.parts, index)) === true),
       driven: split.parts.map((_slot, index) => contract.drives?.some((rule) => covers(rule, split.parts, index)) === true),
-      names: scopesOf(kind.scope, value, split.parts).sees,
+      scope: ScopeLayer.of(kind.scope, value, split.parts),
     });
   }
   return out;
@@ -1098,7 +1098,7 @@ function checkShot(env: Env, sample: Sample, contract: Contract, scenario: Scena
   const outer = shot.context.names;
   for (const call of shot.calls) {
     const given = call.context.names;
-    const allowed = new Set(sample.names[call.part] ?? []);
+    const allowed = new Set(sample.scope?.seesOf(call.part) ?? []);
     const bound = Object.keys(given).filter((key) => !Object.hasOwn(outer, key) || !Object.is(given[key], outer[key]));
     const extra = bound.filter((key) => !allowed.has(key));
     const lost = Object.keys(outer).filter((key) => !Object.hasOwn(given, key));

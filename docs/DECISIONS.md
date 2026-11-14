@@ -5648,6 +5648,77 @@ The walks of types read each way to a shared term, thus a chain of n records too
 
 **Results.** The 8 walks of the probe at a chain of 40 take at most 10 ms each. Before the change, a chain of 16 took up to 357 ms. On the source of main, each of the 8 new tests fails. 5 tests do not end in 120 s, and 3 tests end with a failure.
 
+## D201 (2026-11-12): a walk keeps no copy of the names of the scope rules
+
+**Context.** K257. From a review. STATIC.LINEAR and the TSDoc of `walk` said that a walk takes time linear in the size of the document. A wide sequence of named steps and a deep nest of binders broke this claim:
+
+- `scopesOf` made a list of names for each part. In a sequence, each step got the names of all the steps before it.
+- The walk made a new set of names for each part with a binder. The type check copied its maps of names for each part.
+- `freeOf` of the plan and the check C7 of `conforms` read the lists of `scopesOf`.
+
+Thus the time and the memory grew as the square of the count of the steps or of the binders. The check of a sequence of 20000 named steps used more memory than the heap had.
+
+**Decision.**
+
+- `ScopeLayer` of `parts.ts` reads the scope rules of a kind one time for each document. It tells if the rules give a name to a part. It also gives the names that change from one part to the next part.
+- The walk keeps a count of each name that the current visit sees, and a count of each later name. When the walk goes to the next part, the layer changes only the counts of the names that change.
+- `DocVisit.names` and `DocVisit.later` are views with no list of names. At the visit of the document, `has` reads the counts of the walk. At other times, `has` reads one layer for each binder around the document.
+- The size and the items of a view come from a set that the view makes for each read. The order of the names is the order of the old sets.
+- The type check keeps the types of the names as a chain of layers. For each name, a stack holds the frames that give it a type, with the deepest frame last.
+- `freeOf` and the check C7 read the layer. `refsOf`, `attributeGraph` and the check of cycles read `has` at the visit of a reference, when `has` reads the counts.
+
+**Alternatives.**
+
+- Persistent sets, for example a hash trie, for the names of each part. Each part then costs a time and a memory of the order of the logarithm of the count of the names.
+- A set of names for each visit that the walk makes only when a reader asks for it. A reader at each visit then gets the square of the size all the same.
+- A limit on the count of the steps of a sequence. This changes the language, and a nest of binders stays as slow as before.
+
+**Why.** Each answer stays the same, and the cost of the names is the count of the names that change from one part to the next. A view keeps the type `ReadonlySet<string>`, thus the API report does not change. A visit that a reader keeps after the walk still gives the right names.
+
+**Limits.**
+
+- Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are not instances of `Set`. Each read of their size or of their items makes a new set.
+- After the visit of a document, `has` of its names takes time linear in the count of the binders around it.
+- The runner `control.seq` of the standard machine copies the names of its context at each step. Thus the evaluation of a wide sequence still takes time of the order of the square of the count of the steps. A change of this runner changes `Context.names` for the evaluators, thus it is a different item.
+- `prepare` compiles a document with a recursion of the host. With a higher limit of the depth, a nest of 20000 binders gives `#DEPTH!` from `prepare`. The reason is that the stack of the host is too short.
+- The ladder holds the slope of the type check only at 250 to 2000 levels. Larger sizes have no gate.
+
+**Results.**
+
+These times come from one shared laptop on battery. Each time is one measurement after a warm measurement. They are not a bench.
+
+| Document on the head | `check` | `typeCheck` | `prepare` |
+| --- | ---: | ---: | ---: |
+| A sequence of 20000 named steps | 173 ms | 546 ms | 261 ms |
+| A nest of 20000 binders, with a higher limit of the depth | 255 ms | 1795 ms | `#DEPTH!` after 43 ms, with the evaluation |
+
+The table below gives the same documents on the source of the base `57e8be9` and of the head, in the same conditions. Each cell gives the times at 1000, 2000, 4000 and 8000 levels, in ms.
+
+| Measure | Base | Head |
+| --- | --- | --- |
+| `check` of steps | 158 / 598 / 2761 / 22319 | 43 / 40 / 116 / 177 |
+| `typeCheck` of steps | 676 / 2095 / 7812 / 25738 | 38 / 119 / 168 / 279 |
+| `prepare` of steps | 17 / 27 / 76 / 87 | 16 / 22 / 89 / 114 |
+| `check` of binders | 147 / 313 / 725 / 3576 | 38 / 69 / 107 / 173 |
+| `typeCheck` of binders | 175 / 488 / 1753 / 9585 | 109 / 129 / 301 / 737 |
+
+On the head, the size went from 2500 to 40000 levels, 16 times more. The time of `typeCheck` grew 17.9 times on the sequence and 17.6 times on the nest. The time of `check` grew 7.2 times and 9.6 times.
+
+The evaluation of a sequence keeps its square cost on the base and on the head. One process measured the two sources in turns, 6 times each. The medians were 1628 ms and 1720 ms at 2000 steps, and 8847 ms and 8120 ms at 4000 steps.
+
+The flip check put the source of the base back and started each new test in its own process of vitest. Each process had a heap of 1024 MB and a limit of 120 s. A time in the table includes the start of vitest.
+
+| Test of `scopes.test.ts` | Base | Head |
+| --- | --- | --- |
+| A sequence of 20000 named steps | out of memory after 28 s | pass in 4.6 s |
+| A nest of 20000 binders | out of memory after 6 s | pass in 5.9 s |
+| A plan of a sequence of 2000 named steps | pass | pass |
+| A nest of 900 binders | pass | pass |
+| The names of each visit, for the sequences and for the binders | pass | pass |
+| The answers on generated documents | pass | pass |
+
+Vitest tells only that its worker stopped with the exit code 1. The same two documents in a thread with the same heap gave `ERR_WORKER_OUT_OF_MEMORY` in `check`, after 34 s and 8 s. The answers on generated documents come from the base, thus this test passes on the base by construction.
+
 ## D202 (2026-11-12): the graph of attribute instances keeps the depth limit of check
 
 **Context.** K255, from a review. `check` stops its first walk at the depth limit and gives `#DEPTH!`. Then the cycle walk read the whole document again, with no limit.
@@ -5773,6 +5844,34 @@ The old verdict asked for an interval that contains the point 1. A narrow interv
 
 **SemVer.** No export of the package changes.
 
+## D209 (2026-11-12): the two walks of the type check in the ladder take a quarter of the levels
+
+**Context.** K300, from K257 (D201). K257 added two walks to the ladder: the type check of a sequence of named steps, and the type check of a nest of binders. Both used the levels of the chain, N to 8N with N = 250.
+
+A step of the type check costs much more than a level of the chain. In Measure run 43355754865 (head 57f754a), the two walks took 52 and 72 ms a round at the top rung of 2000 levels. The five other walks took 52 ms together. Thus each step of a walk in a job of the ladder took approximately 3.3 times as long as before. The linear step of `ladder-plain` run 3 took 278 s, against 85 s in Measure run 43355266862 (head 1dead60). The five other walks ran at the same speed on both heads, thus the runner was not slower. The jobs of the ladder are the critical path of Measure, and Measure is a check of each PR.
+
+**Decision.**
+
+- The two walks take a quarter of the levels of each rung: N / 4 to 2N, with `quarter(n)`, as the walks of `check` do (D202).
+- The band of D205, the rungs, the rounds and the verdict do not change.
+
+**Alternatives.**
+
+- Half of the levels. A local probe gave about the same slopes at half and at a quarter, and a quarter saves more time.
+- Fewer rounds for the two walks. The rounds are common to all walks in a pass, thus the change touches the design of D97.
+- More jobs at once. The shared limit of the runners is 3 jobs at once for each matrix.
+
+**Why.** The verdict reads the slope, not the size. A quarter of the levels keeps the slope of a fault in view. On the source before K257, a local probe at a quarter of the levels gave slopes of 1.57 (steps) and 1.39 (binders). Both are far over the band.
+
+On the source of K257, the same probe gave slopes from 0.94 to 1.15 at a quarter and from 0.98 to 1.07 at full levels. The local machine is shared, thus these local slopes are noisy. The bottom rung takes approximately 1 ms, as the bottom rung of the walks of `check` does.
+
+**Limits.**
+
+- The Measure run of the first head gives the slopes of the two walks on a CI runner. If their verdict is not linear, they take half of the levels.
+- A fault with a large constant and a small slope is less visible in a smaller document. The flip of the ladder still tests the gate with a fault of known slope.
+
+**Results.** The Measure run of the PR gives the step times and the slopes.
+
 ## D210 (2026-11-13): the path of a reference in the data of a binding is its own read
 
 **Context.** K262, from a review. A reference document in the data resolves in the context of its reader (DEREF.READER). D26 records the read of a name that a kind binds with `free: false`, and `verifyReads` skips that read.
@@ -5830,3 +5929,41 @@ The test READS.SOUND gets two configurations that bind names to data with refere
 - The probe of the fold examines the references in a loop, and it makes no function for each read. The result of each case stays the same.
 
 **SemVer.** PATCH. Before 1.0.0, a fix is a PATCH. The two new fields are optional. A list of reads can have more entries and the mark `followed`, and a closure or a fold can keep more roots.
+
+## D213 (2026-11-13): an open fixed point keeps each tentative result for its round
+
+**Context.** K265, from a review. D113 says that each attribute that read an approximation evaluates again at its next demand. Thus a value from an approximation does not stay as a final value. But the fixed point also kept no value for the current round. Thus two readers in one round evaluated a plain attribute two times, and each evaluation evaluated its own tentative reads again.
+
+- A chain of k plain attributes with two readers at each level evaluated the last attribute 2^k times in each round.
+- The work limit counts the applications of closures, the nodes that an equation makes and the second visits of JSON (WORK.LIMIT). Thus no `#WORK!` stopped such a chain.
+- A chain of 40 levels, in a document of approximately 2.5 KB, did not end in a practical time. Its value was correct when it came.
+- Both tiers had the fault, thus `agree` did not find it.
+
+The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial.
+
+**Decision.**
+
+- The values of an open fixed point also keep each result that read an approximation, with the number of its round (TREE.CIRCULAR-ONCE). In the plan, these values are `loop.values`. In the reference, they are `point.values`.
+- A second demand in the same round gets the kept result. That demand also reads an approximation, thus its own result is not final.
+- The next round evaluates the attribute again, because the kept result has the number of an earlier round.
+- Thus one memo with the number of the round holds the tentative results and the approximations of the circular attributes.
+- A stable fixed point writes only its circular attributes to the memo of their nodes, as before. Each other attribute that read an approximation evaluates again at its next demand after the fixed point (D113).
+- An instance of `tree.at` follows the same rule. With the cells of a host, an open fixed point also keeps a final instance until it ends. D113 already did this for a final plain attribute.
+- TREE.ONCE names the new row.
+
+**Alternatives.**
+
+- A point of work for each climb of the ladder in an open fixed point. Then `#WORK!` stops the chain, but the work below the limit stays exponential. A legal document of medium size then also gives `#WORK!`.
+- A final value for each attribute of the last round. That changes D113 and TREE.CIRCULAR-CELL, and K265 does not need it.
+- A record of the approximations that each tentative result read, and a new evaluation only when one of them changes. In a round, each circular attribute has one value (D113). Thus a second evaluation reads the same values, and the record gives no gain.
+
+**Why.** A circular attribute already evaluates one time in each round (D113). With D213, the same memo with the number of the round serves each attribute of the fixed point. In one round, the first evaluation of a tentative result sets the value of the round of each circular attribute that it reads. A second evaluation reads the same values, thus the memo gives the same result. The exception is a `#CYCLE!`, because its chain comes from the demands in evaluation (Limits).
+
+**Limits.**
+
+- A plain attribute that read an approximation still evaluates one more time after the fixed point, at its next demand (D113). Thus it evaluates one time in each round and one time after the rounds.
+- The kept result is the first result of the round. When that result is a `#CYCLE!` of a mixed cycle, a second reader in the round gets the same error and the same chain. Before, the second reader evaluated the attribute again. That evaluation found the cycle again with its own chain, or found no cycle when the attribute of the cycle had ended. Outside a fixed point, the plain memo already gave the first result to each reader (TREE.ONCE).
+- `markTentative` and `readApproximation` visit each demand above the leader at each read of an approximation. Thus a chain of n levels takes approximately n² steps in each round. That is polynomial.
+- An evaluator of the host in a fixed point gets fewer calls. A document that gave `#WORK!` for this work can give a value with D213.
+
+**SemVer.** No export changes. But the chain of a `#CYCLE!` in a mixed cycle can change, and an evaluator of the host gets fewer calls. A document that gave `#WORK!` can give a value. Thus the change counts as breaking: MINOR before 1.0.0.
