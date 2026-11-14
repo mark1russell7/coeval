@@ -5873,6 +5873,14 @@ A host thing can also answer the keys with a reference. The short path then stop
 
 These cases do not take the new handoff. They see only a larger `walkQuick` with six parameters, and a `resolveFully` that gets five of its six arguments. Thus `walkQuick` gets its four parameters back. At a reference at its end, it gives a small `QuickEnd`, and the caller starts the collapse. Each call of `resolveFully` gives all six arguments. The Speed run of the next head tells if the cost goes.
 
+The second Speed run (43371656319) held three cases on both jobs:
+
+- a reference with a step document: +9.3 % and +4.4 %
+- resolve without hops, five steps: +2.1 % and +2.1 %
+- PLAN.FIXED a formula with a fixed name and a free name: +6.5 % and +1.5 %
+
+The two short cases call `walkQuick` and then test its answer with `instanceof QuickEnd`. Thus the third design has no class. At a reference at its end, `walkQuick` puts the thing in a variable of the module and gives the frozen answer `QUICK_END`. The caller tests the identity of the answer, and it takes and clears the thing. `resolveFully` gets the thing directly. The case with a step document does not call `walkQuick`. When it stays slower, an accepted record holds its cost with the reason of D206.
+
 ## D209 (2026-11-12): the two walks of the type check in the ladder take a quarter of the levels
 
 **Context.** K300, from K257 (D201). K257 added two walks to the ladder: the type check of a sequence of named steps, and the type check of a nest of binders. Both used the levels of the chain, N to 8N with N = 250.

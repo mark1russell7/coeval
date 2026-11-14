@@ -460,15 +460,20 @@ const CHAIN_REASON = "The path follows more than 64 references. One resolution f
 const NO_HOPS: readonly Hop[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
- * The end of a short walk at a value that can be a reference document (DEREF.QUICK). The caller gives it to the
- * collapse of the full algorithm. Thus the walk keeps four parameters, and only this rare end makes an object.
+ * The answer of a short walk that ends at a value that can be a reference document (DEREF.QUICK). The walk puts that
+ * value in `quickThing`, and the caller gives it to the collapse of the full algorithm. The caller finds this answer
+ * by its identity. Thus the walk makes no object, and each other answer keeps the type `Resolution`.
  */
-class QuickEnd {
-  declare readonly thing: Thing;
+const QUICK_END: Resolution = /* @__PURE__ */ Object.freeze({ ok: false, code: "#REF!", reason: "The short path ends at a reference.", hops: NO_HOPS });
 
-  constructor(thing: Thing) {
-    this.thing = thing;
-  }
+/** The value at the end of the last short walk that gave `QUICK_END`. The caller reads it at once and clears it. */
+let quickThing: Thing | undefined;
+
+/** This function gives the value of the end of the short walk to the caller, and clears it. */
+function takeQuickThing(): Thing {
+  const thing = quickThing as Thing;
+  quickThing = undefined;
+  return thing;
 }
 
 /**
@@ -505,21 +510,22 @@ function resolveQuick(nav: Navigator, ctx: Context, path: readonly unknown[]): R
   if (nav.roots !== undefined && !(nav.roots as readonly string[]).includes(root)) return undefined;
   if (nav.adopt !== undefined) return undefined;
   const quick = walkQuick(ctx[root], path, nav.plain === true, false);
-  return quick instanceof QuickEnd ? resolveFully(nav, ctx, path, undefined, undefined, quick) : quick;
+  return quick === QUICK_END ? resolveFully(nav, ctx, path, undefined, undefined, takeQuickThing()) : quick;
 }
 
 /**
  * This function walks the steps of the short path from the value of the root (DEREF.QUICK). `resolveQuick` and each
  * compiled path use it, thus the two cannot disagree. It gives `undefined` when the path needs the full algorithm.
- * At a reference at the end of the path, it gives a `QuickEnd` with the thing that the walk reached. The caller
- * gives it to the collapse of the full algorithm. Thus a host thing answers the keys of the path one time.
+ * At a reference at the end of the path, it gives `QUICK_END`, and `quickThing` holds the thing that the walk reached.
+ * The caller gives that thing to the collapse of the full algorithm. Thus a host thing answers the keys of the path one
+ * time.
  *
  * @param start - The value of the root.
  * @param path - The steps. The walk starts at the index 1.
  * @param plain - `true` for a plain navigation.
  * @param keyed - `true` when each step after the root is a key. The walk then does not test the steps again.
  */
-function walkQuick(start: unknown, path: readonly unknown[], plain: boolean, keyed: boolean): Resolution | QuickEnd | undefined {
+function walkQuick(start: unknown, path: readonly unknown[], plain: boolean, keyed: boolean): Resolution | undefined {
   let here = start;
   for (let index = 1; index < path.length; index += 1) {
     if (typeof here !== "object" || here === null) return undefined;
@@ -533,7 +539,10 @@ function walkQuick(start: unknown, path: readonly unknown[], plain: boolean, key
       const reached = thing.resolve(keys);
       if (reached === undefined) return { ok: false, code: "#N/A", reason: `The path ${keys.join(".")} reaches nothing.`, hops: NO_HOPS };
       // The collapse starts from this answer, thus the thing does not answer the same keys again.
-      if (!plain && mayBeRef(reached.thing)) return new QuickEnd(reached.thing);
+      if (!plain && mayBeRef(reached.thing)) {
+        quickThing = reached.thing;
+        return QUICK_END;
+      }
       return { ok: true, thing: reached.thing, hops: NO_HOPS };
     }
     const step = path[index];
@@ -546,7 +555,10 @@ function walkQuick(start: unknown, path: readonly unknown[], plain: boolean, key
     if (type !== undefined && isEnvelope(here)) return undefined;
     here = (here as Readonly<Record<string, unknown>>)[step];
   }
-  if (!plain && mayBeRef(here)) return new QuickEnd(here);
+  if (!plain && mayBeRef(here)) {
+    quickThing = here as Thing;
+    return QUICK_END;
+  }
   return { ok: true, thing: here, hops: NO_HOPS };
 }
 
@@ -609,7 +621,7 @@ class StaticPath implements CompiledPath {
     if (from !== FULL) {
       const start = from === FROM_NAMES ? ctx.names : from === FROM_WORLD ? ctx.world : from === FROM_SELF ? ctx.self : ctx.event;
       const quick = walkQuick(start, this.path, this.plain, true);
-      if (quick !== undefined) return quick instanceof QuickEnd ? resolveFully(this.nav, ctx, this.path, undefined, undefined, quick) : quick;
+      if (quick !== undefined) return quick === QUICK_END ? resolveFully(this.nav, ctx, this.path, undefined, undefined, takeQuickThing()) : quick;
     }
     return resolveFully(this.nav, ctx, this.path, undefined, this.known, undefined);
   }
@@ -741,7 +753,7 @@ function walkSteps(nav: Navigator): WalkSteps {
  * @param end - The thing at the end of the path, when the short path reached it without hops. The algorithm then only follows it (collapse).
  * @returns What the path reached and each hop, or an error.
  */
-function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], hops: Hop[] | undefined, known: KnownWalkers | undefined, end: QuickEnd | undefined): Resolution {
+function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], hops: Hop[] | undefined, known: KnownWalkers | undefined, end: Thing): Resolution {
   const done = hops ?? NO_HOPS;
   const failed = (code: ResolveCode | ErrorCode, reason: string): Resolution => ({ ok: false, code, reason, hops: done });
   let collapses = 0;
@@ -822,7 +834,7 @@ function resolveFully(nav: Navigator, ctx: Context, path: readonly unknown[], ho
   };
 
   // DEREF.QUICK: the walk of the path gives this state at its end: no hops, no collapse and no open reference.
-  if (end !== undefined) return collapse(end.thing);
+  if (end !== undefined) return collapse(end);
   if (path.length === 0) return failed("#REF!", "A path has at least one step: its root.");
   return walk(path, known);
 }
