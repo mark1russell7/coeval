@@ -1,8 +1,9 @@
 import { type Envelope, type Key, isRecord, typeName } from "./doc.ts";
 import type { Machine } from "./evaluate.ts";
+import { type EvalError, WORK_LIMIT } from "./errors.ts";
 import type { NameCount, ScopeLayer } from "./parts.ts";
 import type { DocVisit, Issue, WorldIssue } from "./static.ts";
-import { type Domain, type Proof, type ValueType, domainOf, fits, isPrecise, isUnknown, narrowType, typeIssues, typeText } from "./types.ts";
+import { type Domain, type Proof, type ValueType, domainOf, fits, isPrecise, isUnknown, narrowType, typeIssues, typeText, typeWorkSpent, withTypeWork } from "./types.ts";
 import { type Kind, type Shape, eachKind, kindAt } from "./world.ts";
 
 /*
@@ -525,6 +526,8 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
   };
 
   const ruleFailed = (frame: Frame, error: unknown): void => {
+    // The end of the count of work stops the pass, thus a rule does not keep it.
+    if (typeWorkSpent()) throw error;
     issueAt(frame.index, { reason: `The type rule of ${(nodes[frame.index] as TypeNode).evaluator ?? "the evaluator"} fails: ${message(error)}` });
   };
 
@@ -535,131 +538,144 @@ export function typePass(machine: Machine, nodes: readonly TypeNode[], verb: str
     issueAt(part ?? frame.index, problem);
   };
 
-  const rootNeeds: Need[] = expect === undefined || isUnknown(contract(0, expect, "expected type of the check"), domains) ? [] : [{ type: expect, what: "document" }];
   // The check examines each type of the host at the root, one time. A kind that binds a name hides the name of the host.
   const hostNames = new Map<string, ValueType>();
-  const given: Readonly<Record<string, ValueType>> = isRecord(rootTypes.names) ? rootTypes.names : {};
-  for (const name of Object.keys(given)) hostNames.set(name, contract(0, given[name], `type of the name ${name} of the host`));
-  const hostRoot = (root: (typeof CHANGING)[number]): ValueType => (rootTypes[root] === undefined ? "unknown" : contract(0, rootTypes[root], `type of the root ${root}`));
   const stack: Frame[] = [];
-  stack.push(enter(0, rootNeeds, { t: "host", types: hostNames }, { self: hostRoot("self"), world: hostRoot("world"), event: hostRoot("event") }));
-  while (stack.length > 0) {
-    const frame = stack[stack.length - 1] as Frame;
-    if (frame.next < frame.order.length) {
-      const child = frame.order[frame.next] as number;
-      frame.next += 1;
-      const node = nodes[child] as TypeNode;
-      const slot = node.visit.slot;
-      const what = `part ${slot.join(".")} of ${typeName((nodes[frame.index] as TypeNode).visit.doc.type)}`;
-      // The proofs of the part before this part end.
-      if (frame.partTypes !== undefined) {
-        for (const name of frame.partTypes.keys()) define(frame, name, -1);
-        frame.partTypes = undefined;
-      }
-      let part: PartType = {};
-      if (frame.rule?.part !== undefined) {
-        try {
-          part = frame.rule.part(frame.input, slot) ?? {};
-        } catch (error) {
-          ruleFailed(frame, error);
+  // The pass has a count of work (TYPE.WORK, D207). Past the limit, the document on the top of the stack gets `#WORK!`.
+  const stop = withTypeWork<EvalError | undefined>(
+    machine.maxWork ?? WORK_LIMIT,
+    () => {
+      const rootNeeds: Need[] = expect === undefined || isUnknown(contract(0, expect, "expected type of the check"), domains) ? [] : [{ type: expect, what: "document" }];
+      const given: Readonly<Record<string, ValueType>> = isRecord(rootTypes.names) ? rootTypes.names : {};
+      for (const name of Object.keys(given)) hostNames.set(name, contract(0, given[name], `type of the name ${name} of the host`));
+      const hostRoot = (root: (typeof CHANGING)[number]): ValueType => (rootTypes[root] === undefined ? "unknown" : contract(0, rootTypes[root], `type of the root ${root}`));
+      stack.push(enter(0, rootNeeds, { t: "host", types: hostNames }, { self: hostRoot("self"), world: hostRoot("world"), event: hostRoot("event") }));
+      while (stack.length > 0) {
+        const frame = stack[stack.length - 1] as Frame;
+        if (frame.next < frame.order.length) {
+          const child = frame.order[frame.next] as number;
+          frame.next += 1;
+          const node = nodes[child] as TypeNode;
+          const slot = node.visit.slot;
+          const what = `part ${slot.join(".")} of ${typeName((nodes[frame.index] as TypeNode).visit.doc.type)}`;
+          // The proofs of the part before this part end.
+          if (frame.partTypes !== undefined) {
+            for (const name of frame.partTypes.keys()) define(frame, name, -1);
+            frame.partTypes = undefined;
+          }
+          let part: PartType = {};
+          if (frame.rule?.part !== undefined) {
+            try {
+              part = frame.rule.part(frame.input, slot) ?? {};
+            } catch (error) {
+              ruleFailed(frame, error);
+            }
+          }
+          const needs: Need[] = [];
+          // A need of the type `unknown` needs nothing, thus the pass leaves it out.
+          const need = (type: ValueType, text: string): void => {
+            if (!isUnknown(type, domains)) needs.push({ type, what: text });
+          };
+          if (contracts && node.expect !== undefined) need(contract(child, node.expect, `expected type of the ${what}`), what);
+          if (part.expect !== undefined) need(part.expect, part.what ?? what);
+          let names = frame.kept;
+          let kept = frame.roots;
+          if (part.narrow !== undefined && part.narrow.length > 0) {
+            let own: Map<string, ValueType> | undefined;
+            for (const proof of part.narrow) {
+              const head = proof.path[0];
+              if (head === "names") {
+                const name = proof.path[1];
+                if (name === undefined) continue;
+                own ??= new Map();
+                const before = own.has(name) ? own.get(name) : keptType(frame, name);
+                own.set(name, narrowType(before ?? "unknown", proof, 2, domains));
+              } else if ((head === "self" || head === "world" || head === "event") && !rootsChange()) {
+                kept = { ...kept, [head]: narrowType(kept[head], proof, 1, domains) };
+              }
+            }
+            if (own !== undefined) names = { t: "narrow", up: names, own };
+            if (part.keep === true) {
+              frame.kept = names;
+              frame.roots = kept;
+              const types = (frame.keptTypes ??= new Map());
+              for (const [name, type] of own ?? []) {
+                if (!types.has(name)) define(frame, name, 1);
+                types.set(name, type);
+              }
+            } else if (own !== undefined) {
+              frame.partTypes = own;
+              for (const name of own.keys()) define(frame, name, 1);
+            }
+          }
+          const layer = node.scope;
+          if (layer !== undefined) {
+            // Each name that the scope rules bind hides the name around it. A name without a type from the rule gets
+            // `unknown`. The layer changes only the names that differ from the part before (STATIC.LINEAR).
+            layer.move(frame.at, node.part, (frame.count ??= (name, change) => define(frame, name, change)));
+            frame.layer = layer;
+            frame.at = node.part;
+            frame.bound = part.names;
+            if (layer.seesAny(node.part)) names = { t: "bind", up: names, layer, index: node.part, types: part.names };
+          }
+          // No contract tells how an evaluator changes the roots, thus only a rule keeps their types for its parts (TYPE.ROOTS).
+          let roots = frame.rule === undefined ? UNKNOWN_ROOTS : kept;
+          const changes = part.roots;
+          if (typeof changes === "object" && changes !== null) {
+            const copy: Record<(typeof CHANGING)[number], ValueType> = { ...roots };
+            for (const root of CHANGING) if (changes[root] !== undefined) copy[root] = changes[root] as ValueType;
+            roots = copy;
+          }
+          stack.push(enter(child, needs, names, roots));
+          continue;
         }
-      }
-      const needs: Need[] = [];
-      // A need of the type `unknown` needs nothing, thus the pass leaves it out.
-      const need = (type: ValueType, text: string): void => {
-        if (!isUnknown(type, domains)) needs.push({ type, what: text });
-      };
-      if (contracts && node.expect !== undefined) need(contract(child, node.expect, `expected type of the ${what}`), what);
-      if (part.expect !== undefined) need(part.expect, part.what ?? what);
-      let names = frame.kept;
-      let kept = frame.roots;
-      if (part.narrow !== undefined && part.narrow.length > 0) {
-        let own: Map<string, ValueType> | undefined;
-        for (const proof of part.narrow) {
-          const head = proof.path[0];
-          if (head === "names") {
-            const name = proof.path[1];
-            if (name === undefined) continue;
-            own ??= new Map();
-            const before = own.has(name) ? own.get(name) : keptType(frame, name);
-            own.set(name, narrowType(before ?? "unknown", proof, 2, domains));
-          } else if ((head === "self" || head === "world" || head === "event") && !rootsChange()) {
-            kept = { ...kept, [head]: narrowType(kept[head], proof, 1, domains) };
+        // The frame stays on the top of the stack until its rules end, thus they read the names without a chain.
+        const node = nodes[frame.index] as TypeNode;
+        let type: ValueType = "unknown";
+        if (!node.marked) {
+          let synthesized: ValueType = "unknown";
+          if (frame.rule !== undefined) {
+            try {
+              synthesized = frame.rule.synth(frame.input, (problem) => report(frame, problem));
+            } catch (error) {
+              ruleFailed(frame, error);
+            }
+          }
+          const result = contracts ? node.visit.kind?.result : undefined;
+          type = result === undefined ? synthesized : contract(frame.index, result, `result of the kind ${typeName(node.visit.doc.type)}`);
+        }
+        for (const need of frame.needs) {
+          if (fits(type, need.type, domains)) continue;
+          issueAt(frame.index, { reason: `The ${need.what} has the type ${typeText(type)}. It must have the type ${typeText(need.type)}.`, expected: need.type, found: type });
+          // A part with an issue gets the type `unknown`, thus one problem does not give a chain of issues.
+          type = "unknown";
+          break;
+        }
+        types[frame.index] = type;
+        needed[frame.index] = frame.needs.length === 0 ? undefined : (frame.needs[frame.needs.length - 1] as Need).type;
+        const parent = stack[stack.length - 2];
+        if (parent !== undefined) {
+          const key = pathKey(node.visit.slot);
+          parent.typed.set(key, type);
+          if (parent.rule?.usesProofs === true && frame.rule?.proves !== undefined) {
+            try {
+              (parent.proven ??= new Map()).set(key, frame.rule.proves(frame.input));
+            } catch (error) {
+              ruleFailed(frame, error);
+            }
           }
         }
-        if (own !== undefined) names = { t: "narrow", up: names, own };
-        if (part.keep === true) {
-          frame.kept = names;
-          frame.roots = kept;
-          const types = (frame.keptTypes ??= new Map());
-          for (const [name, type] of own ?? []) {
-            if (!types.has(name)) define(frame, name, 1);
-            types.set(name, type);
-          }
-        } else if (own !== undefined) {
-          frame.partTypes = own;
-          for (const name of own.keys()) define(frame, name, 1);
-        }
+        leave(frame);
+        stack.pop();
       }
-      const layer = node.scope;
-      if (layer !== undefined) {
-        // Each name that the scope rules bind hides the name around it. A name without a type from the rule gets
-        // `unknown`. The layer changes only the names that differ from the part before (STATIC.LINEAR).
-        layer.move(frame.at, node.part, (frame.count ??= (name, change) => define(frame, name, change)));
-        frame.layer = layer;
-        frame.at = node.part;
-        frame.bound = part.names;
-        if (layer.seesAny(node.part)) names = { t: "bind", up: names, layer, index: node.part, types: part.names };
-      }
-      // No contract tells how an evaluator changes the roots, thus only a rule keeps their types for its parts (TYPE.ROOTS).
-      let roots = frame.rule === undefined ? UNKNOWN_ROOTS : kept;
-      const changes = part.roots;
-      if (typeof changes === "object" && changes !== null) {
-        const copy: Record<(typeof CHANGING)[number], ValueType> = { ...roots };
-        for (const root of CHANGING) if (changes[root] !== undefined) copy[root] = changes[root] as ValueType;
-        roots = copy;
-      }
-      stack.push(enter(child, needs, names, roots));
-      continue;
-    }
-    // The frame stays on the top of the stack until its rules end, thus they read the names without a chain.
-    const node = nodes[frame.index] as TypeNode;
-    let type: ValueType = "unknown";
-    if (!node.marked) {
-      let synthesized: ValueType = "unknown";
-      if (frame.rule !== undefined) {
-        try {
-          synthesized = frame.rule.synth(frame.input, (problem) => report(frame, problem));
-        } catch (error) {
-          ruleFailed(frame, error);
-        }
-      }
-      const result = contracts ? node.visit.kind?.result : undefined;
-      type = result === undefined ? synthesized : contract(frame.index, result, `result of the kind ${typeName(node.visit.doc.type)}`);
-    }
-    for (const need of frame.needs) {
-      if (fits(type, need.type, domains)) continue;
-      issueAt(frame.index, { reason: `The ${need.what} has the type ${typeText(type)}. It must have the type ${typeText(need.type)}.`, expected: need.type, found: type });
-      // A part with an issue gets the type `unknown`, thus one problem does not give a chain of issues.
-      type = "unknown";
-      break;
-    }
-    types[frame.index] = type;
-    needed[frame.index] = frame.needs.length === 0 ? undefined : (frame.needs[frame.needs.length - 1] as Need).type;
-    const parent = stack[stack.length - 2];
-    if (parent !== undefined) {
-      const key = pathKey(node.visit.slot);
-      parent.typed.set(key, type);
-      if (parent.rule?.usesProofs === true && frame.rule?.proves !== undefined) {
-        try {
-          (parent.proven ??= new Map()).set(key, frame.rule.proves(frame.input));
-        } catch (error) {
-          ruleFailed(frame, error);
-        }
-      }
-    }
-    leave(frame);
-    stack.pop();
+      return undefined;
+    },
+    (error) => error,
+  );
+  if (stop !== undefined) {
+    const index = stack[stack.length - 1]?.index ?? 0;
+    const visit = (nodes[index] as TypeNode).visit;
+    found.push({ index, issue: { code: stop.code, place: visit.place, reason: stop.reason, at: visit.at } });
   }
 
   const places = nodes.map((node, index) => {

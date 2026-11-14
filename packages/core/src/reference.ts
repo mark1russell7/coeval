@@ -7,6 +7,7 @@ import {
   type Kind,
   type TreeContract,
   GENERATION_LIMIT,
+  MAX_KEY_LENGTH,
   atArgsOf,
   atRuleOf,
   circularOf,
@@ -1046,7 +1047,7 @@ function higherOf(node: RefNode, name: string, term: Json): Result {
   const value = equationOf(node, term, {});
   if (!value.ok) return value;
   const text = nameOfAttribute(node, name);
-  if (documentKey(value.value) === undefined) return fail("#VALUE!", `The equation of the higher-order attribute ${text} gives a value that is not JSON data.`);
+  if (documentKey(value.value) === undefined) return fail("#VALUE!", `The equation of the higher-order attribute ${text} gives a value that is not JSON data, or a value with a key of more than ${MAX_KEY_LENGTH} characters.`);
   const depth = generationIn(node) + 1;
   if (depth > GENERATION_LIMIT) return fail("#DEPTH!", `The higher-order attribute ${text} is under more than ${GENERATION_LIMIT} generated documents.`);
   const root = equationOf(node, value.value as Json, {});

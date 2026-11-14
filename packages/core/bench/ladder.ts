@@ -14,6 +14,10 @@
  * each tenth level a function that a call applies. Each level binds `x` again. Before K257, both documents gave each
  * part a copy of its names, thus a time and a memory of the square of the size.
  *
+ * Two more walks read values that share their parts (K259, D207). Each level of such a value holds the level below it
+ * in two fields. `docEquals` compares two such values that are not one object, and `encodeValue` writes such a value
+ * with `NaN` at its leaf. Before K259, `encodeValue` read each way to the leaf, thus a time of 2^n for n levels.
+ *
  * All rungs run in one process, in turns. Each round has some passes, and each pass measures each arm one time. The
  * order of the arms turns by one place in each pass, and it goes back to front in each second round. Thus no rung
  * gets the start or the end of a round more often than another rung. The time of a rung in a round is the median of
@@ -220,6 +224,13 @@ function binders(levels: number): unknown {
   return body;
 }
 
+/** This function gives a value of `levels` records. Each record holds the record below it in the fields `a` and `b` (K259). */
+function sharedValue(levels: number, leaf: unknown): unknown {
+  let value = leaf;
+  for (let index = 0; index < levels; index += 1) value = { a: value, b: value };
+  return value;
+}
+
 /**
  * This function gives a deep tree of the standard machine: `levels` panels, each in the list `children` of the panel
  * above it (K255, TREE.GRAPH-DEPTH). With `ref`, the root reads the JSON of its first child, thus each panel under it.
@@ -324,6 +335,13 @@ async function measure(): Promise<void> {
     // The names of the scope rules, through the check and the type check (K257, D201).
     { name: "typeCheck of steps", make: sequence, call: (doc) => kernel.typeCheck(kernel.STD_MACHINE, doc).places.length },
     { name: "typeCheck of binders", make: binders, call: (doc) => kernel.typeCheck(formulas, doc, { declaredType: "lit" }).places.length },
+    // Values that share their parts (K259, D207). The two values of docEquals are equal, thus the walk reads each pair.
+    {
+      name: "docEquals shared",
+      make: (n) => [sharedValue(n, 1), sharedValue(n, 1)],
+      call: (doc) => (kernel.docEquals((doc as readonly unknown[])[0], (doc as readonly unknown[])[1]) ? 1 : 0),
+    },
+    { name: "encodeValue shared", make: (n) => sharedValue(n, Number.NaN), call: (doc) => (kernel.encodeValue({}, doc) === undefined ? 0 : 1) },
   ];
   const docs = walks.map((walk) => steps.map((step) => walk.make(step * base)));
   const results: WalkRun[] = [];
