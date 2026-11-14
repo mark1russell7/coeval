@@ -20,8 +20,9 @@ MINOR: before `1.0.0`, a breaking change increases MINOR. No export changes, and
 
 ### Speed
 
-- A read that follows no reference costs approximately 4 ns more, with a list of reads. A formula of two reads took 3.0 % to 5.4 % more in two Speed runs.
+- A read that follows no reference costs approximately 4 ns more, with a list of reads. A formula of two reads took 3.0 % to 5.9 % more in three Speed runs.
 - An evaluation without a list of reads runs the same steps as in 0.36.1. On one pair of Intel runners, a reference through an envelope took 2.4 % and 2.7 % more. On a pair of AMD runners, the same code took the same time (`bench/accepted/393.json`).
+- A compilation by `prepare` that folds a part took approximately 2 % more in 6 of 8 Speed jobs. These runs do not show the cause.
 
 ## 0.36.1
 

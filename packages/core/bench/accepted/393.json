@@ -1,16 +1,23 @@
 [
   {
     "case": "the same formula, with a list of reads",
-    "head": "5028921cae9c",
-    "cost": "+4.0 % (noise +0.3 %) and +4.8 % (noise -0.0 %), slower in each job of an AMD pair: Speed run 43623796347. +5.4 % (noise +0.2 %) and +3.0 % (noise +0.3 %), slower in each job of an Intel pair: Speed run 43629096534. The two runs timed the same two bundles. +11.6 % and +13.3 % on the head before the fix of the cost: Speed run 43616710604. The case takes approximately 200 to 260 ns with two reads, thus the cost is approximately 4 ns for each read.",
+    "head": "db03a4fbede5",
+    "cost": "+5.7 % (noise -0.9 %) and +5.9 % (noise -0.1 %), slower in each job of a pair of AMD EPYC 7763, after the merge of main: Speed run 43638590424. +4.0 % (noise +0.3 %) and +4.8 % (noise -0.0 %), slower in each job of an AMD pair: Speed run 43623796347. +5.4 % (noise +0.2 %) and +3.0 % (noise +0.3 %), slower in each job of an Intel pair: Speed run 43629096534. The two runs timed the same two bundles. +11.6 % and +13.3 % on the head before the fix of the cost: Speed run 43616710604. The case takes approximately 200 to 260 ns with two reads, thus the cost is approximately 4 ns for each read.",
     "reason": "K262 records each reference that a read follows, because a reference in bound data resolves in the context of its reader (READS.BOUND-REF, D210). Without it, verifyReads said 'same' after a change of the target, and a durable result stayed stale. A read that follows no reference runs the code before K262, with one more call, a test of the class of the compiled path and a test of the length of the list. The fix of the cost removed the rest (+13.3 % to +4.8 %). The record of the case 'a reference through an envelope' gives the cost of an evaluation without a list of reads.",
     "owner": "coeval session (K262)"
   },
   {
     "case": "a reference through an envelope",
-    "head": "5028921cae9c",
-    "cost": "+2.7 % (noise +0.3 %) and +2.4 % (noise -0.2 %), slower in each job of an Intel pair (Xeon Platinum 8370C and Xeon 6975P-C): Speed run 43629096534. The same two bundles read +0.1 % (noise -0.2 %) and -0.8 % (noise -0.3 %), the same, on an AMD pair (EPYC 9V74 and EPYC 7763): Speed run 43623796347.",
+    "head": "db03a4fbede5",
+    "cost": "+2.7 % (noise +0.3 %) and +2.4 % (noise -0.2 %), slower in each job of an Intel pair (Xeon Platinum 8370C and Xeon 6975P-C): Speed run 43629096534. The same two bundles read +0.1 % (noise -0.2 %) and -0.8 % (noise -0.3 %), the same, on an AMD pair (EPYC 9V74 and EPYC 7763): Speed run 43623796347. After the merge of main, -0.8 % (noise +0.0 %) and -0.8 % (noise +0.1 %), faster, on a pair of AMD EPYC 7763: Speed run 43638590424.",
     "reason": "This evaluation has no list of reads, thus resolveFully gets no list followed. The context of the case holds no reference, thus the loop of collapse in resolveFully does not start, and the lines of K262 in that loop do not run. The other change on this path is a sixth parameter of resolveFully, and the closure collapse keeps it. The bytecode of collapse goes from 269 to 332 bytes. A trace of the inlining of V8 (--trace-turbo-inlining, 3,000,000 evaluations of the case) gives the same decisions on the two arms: collapse inlines into walk, and resolveFully into the resolve of the compiled path. Thus these runs do not show the cause of the cost on the Intel pair. K262 stops a stale durable result (D210), and this cost shows on one of two CPU families.",
+    "owner": "coeval session (K262)"
+  },
+  {
+    "case": "PLAN.COMPILE-SPEED prepare",
+    "head": "db03a4fbede5",
+    "cost": "+2.0 % (noise +0.1 %) and +2.1 % (noise -0.4 %), slower in each job of a pair of AMD EPYC 7763: Speed run 43638590424. +1.8 % (noise +0.1 %), slower, and -0.2 % (noise +0.1 %), cannot decide, on an AMD pair (EPYC 9V74 and EPYC 7763): Speed run 43623796347. +2.1 % (noise -0.5 %), slower, and -0.1 % (noise -0.0 %), same, on an Intel pair: Speed run 43629096534. +2.1 % and +2.6 %, slower, before the fix of the cost of reads: Speed run 43616710604. One compilation takes approximately 15 to 16 us on these runners, thus the cost is approximately 0.3 us.",
+    "reason": "The case compiles a record with one reference and one addition, and it evaluates nothing. The addition has no free name, thus the compilation folds it with the Probe (PLAN.FOLD). Each compilation makes a new Probe. K262 adds the field fixed to the Probe, and each fold sets that field one time. The case does not call the resolve of the Probe, where K262 changes more lines. These runs do not show the cause of the cost. K262 stops a stale durable result (D210), and this cost is approximately 2 % of one compilation.",
     "owner": "coeval session (K262)"
   }
 ]
