@@ -377,6 +377,22 @@ describe("the names that the host declares fixed", () => {
     expect(shadowed.evaluate(ctx)).toEqual(reference(machine, { type: "list", value: [shadow, ref("names", "config", "scale")] }, ctx, { definitions: formulaDefinitions(profile) }));
   });
 
+  it("[PLAN.FIXED] [STATIC.LINEAR] a part that reads more than eight fixed names, each name twice, keeps each name in its list", () => {
+    const { machine, profile } = withCount(true);
+    // The list of free names finds a name with a scan up to eight names, and with a set after. n3 repeats before the
+    // limit, and n9 repeats after the limit.
+    const order = ["n0", "n1", "n2", "n3", "n3", "n4", "n5", "n6", "n7", "n8", "n9", "n9"];
+    const doc: Json = { type: "record", value: Object.fromEntries(order.map((name, index) => [`f${index}`, op("count", ref("names", name))])) };
+    const names: Record<string, number> = Object.fromEntries(order.map((name) => [name, Number(name.slice(1))]));
+    const plan = prepare(machine, doc, { fixed: { names: deepFreeze({ ...names }) } });
+    const definitions = formulaDefinitions(profile);
+    for (const change of [{}, { n3: 30 }, { n8: 80 }, { n9: 90 }]) {
+      const ctx = makeContext({ ...names, ...change });
+      expect(plan.evaluate(ctx)).toEqual(reference(machine, doc, ctx, { definitions }));
+    }
+    expect(plan.evaluate(makeContext({ ...names, n9: 90 }))).toMatchObject({ ok: true, value: { f10: 90, f11: 90 } });
+  });
+
   it("[PLAN.FIXED] a value that is not deeply frozen plain data does not fix its name, and the default, fold: false and a trace keep the reads of each evaluation", () => {
     const { machine, calls } = withCount(true);
     const doc = op("count", ref("names", "config", "scale"));
