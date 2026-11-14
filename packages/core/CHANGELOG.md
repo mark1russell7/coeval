@@ -11,6 +11,20 @@ MINOR: before `1.0.0`, a breaking change increases MINOR. A plan, `resolve` with
 - **The short path of a resolution follows each form of a reference (D206).** A path can end at a document with the type `["ref"]`, or with a reference to the kind `ref`. That path gives the value that the reference reaches. A plan and a traced evaluation give the same result (PLAN.PATH-SAME, DEREF.COLLAPSE).
 - **A resolution without hops asks a host thing one time for the keys of its path (DEREF.QUICK).** When the answer is a reference, the resolution follows it from that answer. Before, it asked the thing again for the same keys.
 
+## 0.35.0
+
+MINOR: before `1.0.0`, a breaking change increases MINOR. Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are views and not instances of `Set`. A caller that tested them with `instanceof Set` gets another answer, thus this release counts as a breaking change. No export changes.
+
+### Fixes
+
+- **A walk keeps no copy of the names of the scope rules (D201).** In a sequence, each named step got the names of all the steps before it. A nest of binders copied its names at each level. Thus `walk`, `check`, `refsOf`, `attributeGraph` and `typeCheck` took a time and a memory of the square of the size. The check of a sequence of 20000 named steps used more memory than the heap had. After this fix, they are linear in the size of the document, and their answers do not change (STATIC.LINEAR).
+- **`freeOf` of the plan and the check C7 of `conforms` read the scope rules one time for each document (D201).** Before, they read a list of names for each part.
+
+### Changes of behavior
+
+- **Below a kind with scope rules, `DocVisit.names` and `DocVisit.later` are views of the type `ReadonlySet<string>` (STATIC.LINEAR).** Each read of their size or of their items makes a new set. The names and their order do not change.
+- **After the visit of a document, `has` of its names takes time linear in the count of the binders around it.** At the visit, `has` reads the counts of the walk.
+
 ## 0.34.0
 
 MINOR: before `1.0.0`, a breaking change increases MINOR. `attributeGraph` gives a JSON vertex for each node that a reference reads. A caller that read each vertex as an attribute sees new vertices, thus this release counts as a breaking change. No new exports.
