@@ -128,6 +128,44 @@ expect(codecLaws(machine, "date", { samples: [new Date(0)], equal: sameDate })).
 - The laws are `samples`, `encode`, `json`, `stable`, `decode` and `roundtrip`. Each finding has a `probe`: the domain, the member and its data.
 - Does a member hold an object? Give the rule `equal`, because `sameValue` compares an object only with itself.
 
+## Layers: a core and its add-ons
+
+The entry `@mark1russell7/coeval/layers` is for a library with one core and many add-ons. It imports nothing.
+
+- The core has one JSON document. Each add-on has one layer in the field `layers`, under the name of its format.
+- The core keeps each layer, and it does not read one. Thus the add-ons do not know each other.
+- An add-on gives `schema`, `parse` and `check`. A core can extend the type `AddOn` with more functions.
+
+```ts
+import { type AddOn, checkLayers, readLayer } from "@mark1russell7/coeval/layers";
+
+interface Core { readonly ids: readonly string[] }
+interface Cost { readonly prices: Readonly<Record<string, number>> }
+
+const cost: AddOn<Cost, Core> = {
+  schema: "cost/1",
+  parse: (value) => ({ ok: true, layer: value as Cost }),
+  check: (layer, core) =>
+    Object.keys(layer.prices)
+      .filter((id) => !core.ids.includes(id))
+      .map((id) => ({ level: "error", code: "price-record", at: id, message: `No record has the id "${id}".` })),
+};
+
+const doc = { layers: { "cost/1": { prices: { a: 2, z: 5 } }, "light/1": {} } };
+checkLayers(doc, [cost], { ids: ["a"] });
+// => the error `price-record` at "z" of the layer `cost/1`, then the warning `layer-unknown` of the layer `light/1`
+readLayer(doc, cost);
+// => { ok: true, layer: { prices: { a: 2, z: 5 } } }
+```
+
+| Export | What it does |
+| --- | --- |
+| `AddOn`, `Layered`, `LayerParse`, `LayerFault`, `LayerFinding` | The contract of an add-on, a document with layers, and the results |
+| `checkLayers` | The findings of each layer: the faults of its name and its form, then the faults from its add-on |
+| `readLayer` | The read of the layer of one add-on, or `undefined` when the document has no such layer |
+| `isLayerName` | The test of a name: a word, a slash and a version, for example `spend/1` |
+| `LAYER_CODES`, `LAYER_LEVELS` | The codes `layer-name`, `layer-unknown` and `layer-form`, and the levels `error` and `warning` |
+
 ## License
 
 MIT

@@ -740,6 +740,23 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | STEPPER.NEXT-STATE | Each call of `stepperNext` has a new program. Thus a configuration from it holds the count of work, the count of the effects at each place and the number of effects. Steps give each effect the address and the index of `stepper`, also through JSON. |
 | STEPPER.PURE | `stepperNext` leaves its configuration as it is. A host can step one configuration twice, and it gets equal configurations. |
 
+## Layers
+
+These are the rules of the entry `@mark1russell7/coeval/layers`. A layer holds the records of one add-on in a document.
+
+| ID | Rule |
+| --- | --- |
+| LAYERS.NAME | The name of a layer is a word, a slash and a version, for example `spend/1`. The word starts with a lowercase letter, and it has lowercase letters, digits and hyphens. A layer with a different name gets the error `layer-name`, and no add-on reads it. |
+| LAYERS.UNKNOWN | A layer of no add-on of the check gets the warning `layer-unknown`. `checkLayers` does not change the document, so the document keeps the layer. |
+| LAYERS.FORM | A layer that its add-on cannot read gets one error `layer-form` for each fault of its form. Its `check` does not start. |
+| LAYERS.CHECK | The faults of the meaning of a layer come from `check` of its add-on, with the context of the caller. Each finding gets the name of its layer, and the faults keep the order of the add-on. |
+| LAYERS.ORDER | The findings are in the order of the layer names by code units. Thus the order of the fields of `layers` and the order of the add-ons do not change the findings. |
+| LAYERS.FIRST | The first add-on of a name in the list reads the layer of that name. |
+| LAYERS.NONE | A document with no field `layers`, or with no layer, has no finding. `readLayer` gives `undefined` for a layer that the document does not have. |
+| LAYERS.READ | `readLayer` gives the read of the layer of one add-on. It reads only an own field of `layers`. |
+| LAYERS.CODES | `LAYER_CODES` lists the codes that `checkLayers` gives itself, and `LAYER_LEVELS` lists the levels of a fault. |
+| LAYERS.ALONE | The module of the entry imports nothing. Thus a core that uses the entry gets no other code of the package. |
+
 ## The calculus
 
 | ID | Rule |

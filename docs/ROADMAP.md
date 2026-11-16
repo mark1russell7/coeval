@@ -348,6 +348,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | L3 | The reaction kit: an event starts a run, and a change of data does not repeat a run | later | L1 |
 | L4 | The formula kit: the shared constructs and the operations of a language, through a profile (D13) | done (2026-10-21) | K2 |
 | L5 | The storage adapter: one query language for the world, with an adapter for each store | later | K2 |
+| L6 | The layers of a document, as the entry `@mark1russell7/coeval/layers`: the contract of an add-on on a core (`schema`, `parse`, `check`), `readLayer` and `checkLayers`. Two libraries had the same contract, each with its own copy. The entry imports nothing. | done (2026-11-16, version 0.37.1, D217) | none |
 
 ## The schedule layer
 

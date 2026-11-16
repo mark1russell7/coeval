@@ -437,6 +437,21 @@ verifyReads: build/index.d.ts#verifyReads
 walk: build/index.d.ts#walk
 worldThing: build/index.d.ts#worldThing
 
+## ./layers (build/layers.d.ts): names
+
+AddOn: build/layers.d.ts#AddOn
+LAYER_CODES: build/layers.d.ts#LAYER_CODES
+LAYER_LEVELS: build/layers.d.ts#LAYER_LEVELS
+LayerCode: build/layers.d.ts#LayerCode
+LayerFault: build/layers.d.ts#LayerFault
+LayerFinding: build/layers.d.ts#LayerFinding
+LayerLevel: build/layers.d.ts#LayerLevel
+LayerParse: build/layers.d.ts#LayerParse
+Layered: build/layers.d.ts#Layered
+checkLayers: build/layers.d.ts#checkLayers
+isLayerName: build/layers.d.ts#isLayerName
+readLayer: build/layers.d.ts#readLayer
+
 ## Declarations
 
 ### build/index.d.ts#ATTRIBUTE_RUNGS
@@ -2992,3 +3007,59 @@ export declare function walk(world: World, doc: unknown, visit: (visit: DocVisit
 
 ### build/index.d.ts#worldThing
 export declare function worldThing(world: World): Json;
+
+### build/layers.d.ts#AddOn
+export interface AddOn<Layer, Context> {
+  readonly schema: string;
+  parse(value: unknown): LayerParse<Layer>;
+  check(layer: Layer, context: Context): readonly LayerFault[];
+}
+
+### build/layers.d.ts#LAYER_CODES
+export declare const LAYER_CODES: readonly ["layer-name", "layer-unknown", "layer-form"];
+
+### build/layers.d.ts#LAYER_LEVELS
+export declare const LAYER_LEVELS: readonly ["error", "warning"];
+
+### build/layers.d.ts#LayerCode
+export type LayerCode = (typeof LAYER_CODES)[number];
+
+### build/layers.d.ts#LayerFault
+export interface LayerFault {
+  readonly level: LayerLevel;
+  readonly code: string;
+  readonly at: string;
+  readonly message: string;
+  readonly other?: string | undefined;
+}
+
+### build/layers.d.ts#LayerFinding
+export interface LayerFinding extends LayerFault {
+  readonly layer: string;
+}
+
+### build/layers.d.ts#LayerLevel
+export type LayerLevel = (typeof LAYER_LEVELS)[number];
+
+### build/layers.d.ts#LayerParse
+export type LayerParse<Layer> = {
+  readonly ok: true;
+  readonly layer: Layer;
+} | {
+  readonly ok: false;
+  readonly errors: readonly string[];
+};
+
+### build/layers.d.ts#Layered
+export interface Layered {
+  readonly layers?: Readonly<Record<string, unknown>> | undefined;
+}
+
+### build/layers.d.ts#checkLayers
+export declare function checkLayers<Context>(doc: Layered, addOns: readonly AddOn<unknown, Context>[], context: Context): readonly LayerFinding[];
+
+### build/layers.d.ts#isLayerName
+export declare function isLayerName(text: string): boolean;
+
+### build/layers.d.ts#readLayer
+export declare function readLayer<Layer>(doc: Layered, addOn: Pick<AddOn<Layer, never>, "schema" | "parse">): LayerParse<Layer> | undefined;
