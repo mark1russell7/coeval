@@ -1,12 +1,13 @@
 {
   "$schema": "https://json.schemastore.org/package",
   "name": "@mark1russell7/coeval",
-  "version": "0.37.0",
+  "version": "0.37.1",
   "description": "coeval: the kernel of declarative languages. Documents in envelopes, a ladder that finds the evaluator, kind contracts, compiled plans, a static kit, a formula kit and a run side with capabilities.",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./layers": "./src/layers.ts",
     "./package.json": "./package.json"
   },
   "files": [
@@ -55,6 +56,10 @@
       ".": {
         "types": "./build/index.d.ts",
         "default": "./build/index.js"
+      },
+      "./layers": {
+        "types": "./build/layers.d.ts",
+        "default": "./build/layers.js"
       },
       "./package.json": "./package.json"
     }

@@ -6011,3 +6011,39 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - A host that prepares each level of the original value, not of the folded copy, still copies each level again. The host gets the shared copy from the result of the plan.
 
 **SemVer.** No export changes. A deep value folds, and before it did not fold. Thus a plan gives one frozen result for it at each evaluation, as PLAN.SHARED states for each other value. A host must not change a result in place. Thus this is a fix: PATCH.
+
+## D217 (2026-11-16): the contract of a layer is one entry that imports nothing
+
+**Context.** L6. Two libraries have one topic-free core and many add-ons: a model of rooms, and a model of the parts of a system. Each one keeps one JSON document. Each add-on has one layer in the field `layers`, under the name of its format.
+
+- The two cores had the same contract of an add-on.
+- Each core had its own copy of the read and the check of the layers.
+- A third library of this form makes a third copy.
+- The contract names no topic. It is a rule of documents and their formats, so its home is this package.
+
+**Decision.**
+
+- The new entry `@mark1russell7/coeval/layers` has the contract. Its module `src/layers.ts` imports nothing (LAYERS.ALONE).
+- `AddOn<Layer, Context>` has `schema`, `parse` and `check`. The context is what a core gives to each add-on, for example its own records.
+- `checkLayers` gives the codes `layer-name`, `layer-unknown` and `layer-form` itself. Each other code comes from an add-on.
+- An unknown layer is a warning, not an error. A document can have the layer of an add-on that one host does not load.
+- The findings are in the order of the layer names. The faults of one layer keep the order of its add-on (LAYERS.ORDER, LAYERS.CHECK).
+- A core extends `AddOn` for its own needs. For example, a core of space adds the function that gives the anchors of the records.
+
+**Alternatives.**
+
+- The contract in each core. That is the state before, with two copies.
+- A new package for the contract. The contract is 150 lines with no dependency, and a package for it adds a release and a version to each core.
+- An export of the root entry. A core of plain records then imports the kernel, and its users load a module graph that they do not use.
+- A layer as an envelope with a `type`. The kernel then needs a kind for each layer, and a core with no evaluation has no world.
+- A sort of the faults of one layer by `at`. The order of an add-on can have a meaning, for example the order of the records of the core. A core that wants a different order sorts in its own `check`.
+
+**Why.** One home holds the rule (the name of a layer, the three codes, the order of the findings), and each core keeps only its own topic. The entry imports nothing, so the boundary rules of a core can permit it with no exception.
+
+**Limits.**
+
+- The entry does not catch an exception of `parse` or `check`. An add-on gives a fault of the form as a result, and it does not throw.
+- The entry has no function that writes a layer. A core writes `layers` as it writes each other field.
+- The two cores do not use the entry yet. Each one changes to it in its own release, with no change of its findings.
+
+**SemVer.** A new entry `./layers` with new exports. The root entry does not change. Before 1.0.0, a feature increases PATCH: 0.37.1.

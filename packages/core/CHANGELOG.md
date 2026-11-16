@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.37.1
+
+PATCH: a new entry. Before 1.0.0, a feature increases PATCH. The root entry does not change.
+
+### Features
+
+- **The entry `@mark1russell7/coeval/layers` (D217, L6).** A library with one core and many add-ons keeps the records of each add-on as one layer of its document. The entry has the contract `AddOn`, with `schema`, `parse` and `check`. `checkLayers` gives the faults of the name and the form of each layer, then the faults from its add-on. `readLayer` reads the layer of one add-on. The module imports nothing (LAYERS.ALONE).
+
 ## 0.37.0
 
 The release train changes the range of `@mark1russell7/collections` to a version outside the old range. The public types name @mark1russell7/collections, so its new version outside the old range can change them.
