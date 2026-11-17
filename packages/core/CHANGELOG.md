@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.38.0
+
+The release train changes the range of `@mark1russell7/rigor-generators` to a version outside the old range. The public types name @mark1russell7/rigor-generators, so its new version outside the old range can change them.
+
+### Breaking
+
+- The range `^0.1.8` of `@mark1russell7/rigor-generators` in `dependencies` does not hold `0.2.0`, so it changes.
+
 ## 0.37.2
 
 PATCH: new exports of the entry `./layers`. Before 1.0.0, a feature increases PATCH. No export that exists changes.
