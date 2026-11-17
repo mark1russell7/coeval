@@ -2,6 +2,15 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.37.2
+
+PATCH: new exports of the entry `./layers`. Before 1.0.0, a feature increases PATCH. No export that exists changes.
+
+### Features
+
+- **`joinLayers` of the entry `@mark1russell7/coeval/layers` (D218, L7).** A document can have many fragments, for example one file for each owner. `joinLayers` gives the layers of the one document. A layer of one fragment stays as it is. A layer of two or more fragments goes to `join` of its add-on, which has the new contract `LayerJoiner`. With no add-on, such a layer is the error `layer-twice`: the entry joins no records itself.
+- **`joinRecords` and `joinSetting`, the tools of `join` of an add-on (D218).** `joinRecords` puts one list of records of the fragments in sequence. A key that two or more fragments have is a fault, so each record has one fragment. `joinSetting` gives the one value of a setting of the whole layer. A different value in a fragment is a fault.
+
 ## 0.37.1
 
 PATCH: a new entry. Before 1.0.0, a feature increases PATCH. The root entry does not change.

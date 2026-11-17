@@ -6047,3 +6047,52 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - The two cores do not use the entry yet. Each one changes to it in its own release, with no change of its findings.
 
 **SemVer.** A new entry `./layers` with new exports. The root entry does not change. Before 1.0.0, a feature increases PATCH: 0.37.1.
+
+## D218 (2026-11-16): an add-on joins its layer, and the entry joins no records
+
+**Context.** L7. A document of a core with add-ons can have many fragments: one file for each owner, or one file for each topic. Each fragment is a document with its own layers.
+
+- A check reads one document, so a host joins the fragments first.
+- The core joins its own records. It does not read the layers, so it cannot join them.
+- Two fragments can have a layer of the same name. Only the add-on of that layer knows if their records agree.
+- Without a shared rule, each core writes the same loop over the fragments and the layer names.
+
+**Decision.**
+
+- The entry `@mark1russell7/coeval/layers` gets `joinLayers(fragments, joiners)`. The module still imports nothing (LAYERS.ALONE).
+- A fragment is a name and a document. The name tells the source of a layer in a finding, for example the path of a file.
+- `LayerJoiner<Layer>` has `schema`, `parse` and `join`. It has the `schema` and the `parse` of `AddOn`, so one value can be an add-on and its join.
+- A layer of one fragment stays as it is, and no add-on reads it (LAYERS.JOIN-ONE). `checkLayers` examines it afterward.
+- A layer of two or more fragments goes to `join` of its add-on, in the order of the fragments. Each piece has the name of its fragment and the layer that `parse` gave.
+- A layer of two or more fragments with a name that `isLayerName` refuses is the error `layer-name`, and no add-on reads it. This is the rule and the message of `checkLayers`.
+- With no add-on of its name, such a layer is the error `layer-twice`. The entry joins no records itself.
+- The result is all the layers or the findings. A join with a finding gives no part of the layers (LAYERS.JOIN-ALL).
+- The codes of a join are a new list, `JOIN_CODES`. `LAYER_CODES` does not change.
+- The entry has two tools for `join` of an add-on. The add-on gives the list and the key of its records, so the tools know no topic.
+- `joinRecords` puts one list of records in sequence. Its rule is that each record has one fragment. A key that two or more fragments have is a fault, also when the records are equal.
+- `joinSetting` gives the one value of a setting of the whole layer, for example a currency. A fragment with a different value is a fault.
+
+**Alternatives.**
+
+- A join in each core. That is the copy that L6 removed for the check.
+- A deep merge of the JSON of the layers. A merge of two lists can hide two records with one `id`, or two different limits. Only the add-on knows the meaning.
+- The last fragment replaces the layer. A file then removes the records of a different owner with no finding.
+- A join of equal values with no add-on. Two equal lists of records can be one list in two files, or two lists. The entry cannot tell, so it gives `layer-twice`.
+- The function `join` as a field that each `AddOn` must have. That breaks each add-on that exists, and an add-on of a document with one fragment needs no join.
+- A join that also checks the layers. A check needs the context of the core, and the core makes the context from the joined records.
+- Equal records of one key in two fragments become one record. The two copies are equal only until one file changes. Thus `joinRecords` keeps one home for each record.
+- No tools, so each add-on writes the loop over the pieces. Each add-on then has its own text for the same fault, and its own order of the faults.
+
+**Why.** One home holds the rule of the fragments. The rule tells which layer needs a join, the order of the pieces, the codes and the order of the findings. Each add-on keeps only the meaning of its own records, and the add-ons still do not know each other.
+
+**Limits.**
+
+- The entry does not examine the names of the fragments. A core gives a different name to each fragment.
+- The entry does not read the joined layer again. `checkLayers` reads it afterward, and a joined layer that `parse` cannot read shows there as `layer-form`.
+- A fault of `join` is a text with no `at`. The text names the record and its fragments.
+- The entry does not catch an exception of `parse` or `join`.
+- The entry joins only the layers. A core joins its own records, and it gives its own faults. A core can use `joinRecords` for them.
+- `joinSetting` compares a text, a number or a boolean. An add-on compares a setting that is a record itself.
+- An add-on with a different rule for its records writes its own `join`. The tools are not a part of the contract.
+
+**SemVer.** New exports of the entry `./layers`: `joinLayers`, `joinRecords`, `joinSetting`, `JOIN_CODES`, and the types `LayerFragment`, `LayerPiece`, `LayerJoiner`, `JoinCode`, `JoinFinding`, `LayersJoin`, `RecordTwice`, `RecordsJoin` and `SettingJoin`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.37.2.

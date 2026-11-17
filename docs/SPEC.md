@@ -757,6 +757,34 @@ These are the rules of the entry `@mark1russell7/coeval/layers`. A layer holds t
 | LAYERS.CODES | `LAYER_CODES` lists the codes that `checkLayers` gives itself, and `LAYER_LEVELS` lists the levels of a fault. |
 | LAYERS.ALONE | The module of the entry imports nothing. Thus a core that uses the entry gets no other code of the package. |
 
+A document can have many fragments, for example one file for each owner. Each fragment is a document with its own layers. `joinLayers` gives the layers of the one document, or the findings of the join.
+
+| ID | Rule |
+| --- | --- |
+| LAYERS.JOIN-ONE | A layer of one fragment stays as it is in the joined layers. `joinLayers` does not examine it, and no add-on reads it. |
+| LAYERS.JOIN-MANY | A layer of two or more fragments goes to `join` of the first add-on of its name. The pieces are in the order of the fragments. Each piece has the name of its fragment and the layer that `parse` gave. |
+| LAYERS.JOIN-NAME | A layer of two or more fragments with a name that `isLayerName` refuses gets the error `layer-name`, with the message of `checkLayers`. No add-on reads it. |
+| LAYERS.JOIN-TWICE | A layer of two or more fragments with no add-on of its name gets the error `layer-twice`. `joinLayers` joins no records itself, also when the values are equal. |
+| LAYERS.JOIN-FORM | A layer that its add-on cannot read gets one error `layer-form` for each fault of its form, with the name of its fragment. Then `join` does not start for that layer. |
+| LAYERS.JOIN-FAULT | Each fault of `join` of an add-on is one error `layer-join`, with the names of the fragments of the layer. |
+| LAYERS.JOIN-ALL | A join with a finding gives the findings of each layer, and it gives no layers. |
+| LAYERS.JOIN-ORDER | The joined layers and the findings are in the order of the layer names by code units. Thus the order of the fields of `layers` and the order of the add-ons do not change the result. |
+| LAYERS.JOIN-OWN | `joinLayers` reads only an own field of `layers`. A layer with the name `__proto__` stays an own field of the joined layers. |
+| LAYERS.JOIN-PURE | `joinLayers` does not change a fragment. A join of no fragment, or of fragments with no layer, gives no layer and no finding. |
+| LAYERS.JOIN-CHECK | `checkLayers` examines the joined layers as the layers of each other document. One value can be an add-on and its join. |
+| LAYERS.JOIN-CODES | `JOIN_CODES` lists the codes that `joinLayers` gives. Each finding of a join is an error. |
+
+`joinRecords` and `joinSetting` are tools for `join` of an add-on. The add-on gives the list and the key of its records, so the tools know no topic.
+
+| ID | Requirement |
+| --- | --- |
+| LAYERS.RECORDS | `joinRecords` gives the records of one list of each piece, in the order of the pieces. Each piece keeps the order of its records. A layer with no list gives no record. The function does not change a piece. |
+| LAYERS.RECORDS-TWICE | A key that two or more fragments have is one item of `twice`, also when the records are equal. The items are in the order of the first record of each key. `from` has each fragment one time, in the order of the fragments. `errors` has the message of each item. |
+| LAYERS.RECORDS-ONE | A key that one fragment has two times is no fault of the join: `check` of the add-on reads the joined layer. The function counts the fragments by their position, so two fragments with one name are two fragments. |
+| LAYERS.SETTING | `joinSetting` gives the value of the first piece that gives the setting. A piece with `undefined` gives no value. The values 0, `false` and the empty text are values. With no such piece, the value is `undefined` and no message comes. |
+| LAYERS.SETTING-DIFF | Each piece with a value that is not the first value is one message, with the two fragments and the two values. |
+| LAYERS.TOOLS | The messages of the tools are faults for the result of `join`. Thus `joinLayers` gives each one as the error `layer-join`. |
+
 ## The calculus
 
 | ID | Rule |

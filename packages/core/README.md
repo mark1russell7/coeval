@@ -158,6 +158,38 @@ readLayer(doc, cost);
 // => { ok: true, layer: { prices: { a: 2, z: 5 } } }
 ```
 
+### The fragments of a document
+
+A document can have many fragments, for example one file for each owner. `joinLayers` gives the layers of the one document.
+
+- A layer of one fragment stays as it is.
+- A layer of two or more fragments goes to `join` of its add-on. Only the add-on knows if the records agree.
+- With no add-on of its name, such a layer is the error `layer-twice`. The entry joins no records itself.
+- `joinRecords` and `joinSetting` are tools for `join`. The add-on gives the list and the key of its records.
+
+```ts
+import { type LayerJoiner, joinLayers, joinRecords } from "@mark1russell7/coeval/layers";
+
+const costJoin: LayerJoiner<Cost> = {
+  schema: cost.schema,
+  parse: cost.parse,
+  join(pieces) {
+    // Each price has one fragment. A price of one record in two fragments is a fault.
+    const prices = joinRecords(pieces, (layer) => Object.entries(layer.prices), ([id]) => id, "price of the record");
+    return prices.errors.length === 0 ? { ok: true, layer: { prices: Object.fromEntries(prices.items) } } : { ok: false, errors: prices.errors };
+  },
+};
+
+const a = { name: "a.json", doc: { layers: { "cost/1": { prices: { a: 2 } }, "light/1": {} } } };
+joinLayers([a, { name: "b.json", doc: { layers: { "cost/1": { prices: { z: 5 } } } } }], [costJoin]);
+// => { ok: true, layers: { "cost/1": { prices: { a: 2, z: 5 } }, "light/1": {} } }
+joinLayers([a, { name: "c.json", doc: { layers: { "cost/1": { prices: { a: 3 } } } } }], [costJoin]);
+// => no layers, and the error `layer-join` of the layer `cost/1`:
+//    The fragments "a.json", "c.json" each have the price of the record "a".
+```
+
+A join with a finding gives no layers. Each finding has the field `from`, with the names of its fragments. `checkLayers` examines the joined layers afterward.
+
 | Export | What it does |
 | --- | --- |
 | `AddOn`, `Layered`, `LayerParse`, `LayerFault`, `LayerFinding` | The contract of an add-on, a document with layers, and the results |
@@ -165,6 +197,12 @@ readLayer(doc, cost);
 | `readLayer` | The read of the layer of one add-on, or `undefined` when the document has no such layer |
 | `isLayerName` | The test of a name: a word, a slash and a version, for example `spend/1` |
 | `LAYER_CODES`, `LAYER_LEVELS` | The codes `layer-name`, `layer-unknown` and `layer-form`, and the levels `error` and `warning` |
+| `joinLayers` | The layers of one document from its fragments, or the findings of the join |
+| `LayerJoiner`, `LayerFragment`, `LayerPiece`, `LayersJoin`, `JoinFinding` | The contract of the join of an add-on, a fragment, the layer of one fragment, and the results |
+| `JOIN_CODES` | The codes `layer-name`, `layer-twice`, `layer-form` and `layer-join` of a join |
+| `joinRecords` | For `join` of an add-on: one list of records of the fragments in sequence. A key that two or more fragments have is a fault |
+| `joinSetting` | For `join` of an add-on: the one value of a setting of the whole layer. A different value in a fragment is a fault |
+| `RecordsJoin`, `RecordTwice`, `SettingJoin` | The results of the two tools |
 
 ## License
 
