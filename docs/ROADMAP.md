@@ -349,6 +349,7 @@ On the site, C10 is done (2026-10-24, R4). Each other proposal of the six studie
 | L4 | The formula kit: the shared constructs and the operations of a language, through a profile (D13) | done (2026-10-21) | K2 |
 | L5 | The storage adapter: one query language for the world, with an adapter for each store | later | K2 |
 | L6 | The layers of a document, as the entry `@mark1russell7/coeval/layers`: the contract of an add-on on a core (`schema`, `parse`, `check`), `readLayer` and `checkLayers`. Two libraries had the same contract, each with its own copy. The entry imports nothing. | done (2026-11-16, version 0.37.1, D217) | none |
+| L7 | The join of the layers of the fragments of a document, in the same entry: `joinLayers` and the contract `LayerJoiner` (`schema`, `parse`, `join`). A layer of one fragment stays as it is, and an add-on joins a layer of two or more fragments. The tools `joinRecords` and `joinSetting` give the usual rules of such a join. | done (2026-11-16, version 0.37.2, D218) | L6 |
 
 ## The schedule layer
 
