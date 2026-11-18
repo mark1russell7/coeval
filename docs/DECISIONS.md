@@ -2999,7 +2999,7 @@ Thus a later case ran on the heap and the type feedback of the earlier cases. An
 
 **Decision.**
 
-- The bench follows the default of the fleet strategy: each case of a gate runs alone in its own fresh processes.
+- The bench follows this default: each case of a gate runs alone in its own fresh processes.
 - A mode run is optional. It only saves processes, and it can keep a case in order only when it has enough processes for the budget.
 - The bench thus runs each of the 16 cases in its own processes. The list `TOGETHER` of `paths.ts` names the cases that run in one process. It is empty.
 - In each round, each group of cases runs for the three copies in the order of the round. Then the next group starts.
@@ -3015,7 +3015,7 @@ Thus a later case ran on the heap and the type feedback of the earlier cases. An
 - The halves change places in each second round. The case order and the places of IN ORDER and GROUP turn in each round.
 - The workflow `measure.yml` runs the script in 2 parts of 8 cases, each part on its own runner. The job `mode-verdict` pools the parts with Node only.
 
-**The verdict.** The mode run gives each case the equivalence verdict of the fleet strategy (O83 amendment, with the amendment of the A/A term).
+**The verdict.** The mode run gives each case the equivalence verdict (O83 amendment, with the amendment of the A/A term).
 
 - The ratios of a case are its 20 ratios IN ORDER / A1, one for each round.
 - The interval of the median is the 6th to the 15th of the 20 sorted ratios. It is free of a distribution.
