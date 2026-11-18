@@ -6102,14 +6102,14 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 **Context.** L8. `STD_SYNTAX` writes the kinds `ops.not`, `ops.eq`, `ops.add`, `ops.div` and the others, but no standard profile gives these operations. Each language writes its own table again, with its own rules for a wrong value.
 
 - A host that keeps the values of an API as terms needs only a few operations, for example `floor(div(ms, 1000))` for seconds.
-- A term that joins texts needs `concat`. A term that takes the first given field of two needs a coalesce.
+- A term that joins texts needs `concat`. A reason that holds an HTTP status needs the text of a number. A term that takes the first given field of two needs a coalesce.
 - A reference to an absent field of a record gives `#N/A`. A strict operation stops at that error, so a coalesce must be lazy.
 
 **Decision.**
 
 - `STD_OPS` is the standard table. It has `ops`, `lazy`, `sigs` and `pure`, each a frozen plain record. Its type is `StdOps`.
-- It has an operation for each operator of `STD_SYNTAX`, and `floor`, `concat` and `coalesce` (STDOPS.SYNTAX).
-- The table does not convert a value. A wrong shape gives `#VALUE!`, and a wrong count gives `#ARGS` (STDOPS.VALUE, STDOPS.ARGS).
+- It has an operation for each operator of `STD_SYNTAX`, and `floor`, `concat`, `text` and `coalesce` (STDOPS.SYNTAX).
+- Only `text` converts a value: it gives the text of a number, a text or a truth value (STDOPS.TEXT). Each other operation converts no value. A wrong shape gives `#VALUE!`, and a wrong count gives `#ARGS` (STDOPS.VALUE, STDOPS.ARGS).
 - A result `NaN`, or an infinite result of finite numbers, gives `#NUM!` (STDOPS.NUM). Thus a division by zero is an error.
 - `eq` and `ne` use `docEquals`, the one equality of the kernel (D20).
 - `mod` keeps the remainder of the host, with the sign of the first argument.

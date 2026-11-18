@@ -118,6 +118,18 @@ describe("the standard table of operations", () => {
     expect(value(evalStd(op("concat", "/v1/", name("id"), ".json"), { id: "AC1" }))).toBe("/v1/AC1.json");
   });
 
+  it("[STDOPS.TEXT] text gives the text of a number, a text or a truth value", () => {
+    expect(value(evalStd(op("text", 429)))).toBe("429");
+    expect(value(evalStd(op("text", 0.1)))).toBe("0.1");
+    expect(value(evalStd(op("text", 1e21)))).toBe("1e+21");
+    expect(value(evalText("text(-0)"))).toBe("0");
+    expect(value(evalStd(op("text", "a")))).toBe("a");
+    expect(value(evalStd(op("text", false)))).toBe("false");
+    expect(value(evalStd(op("concat", "HTTP ", op("text", name("status"))), { status: 503 }))).toBe("HTTP 503");
+    expect(evalStd(op("text", null))).toMatchObject({ ok: false, error: { code: "#VALUE!", reason: "The operation text takes a number, a text or a truth value, and it got null." } });
+    expect(code(evalStd(op("text")))).toBe("#ARGS");
+  });
+
   it("[STDOPS.COALESCE] coalesce gives the first argument with a value, and #N/A counts as no value", () => {
     // A reference to an absent field gives #N/A. Thus coalesce reads the next argument.
     expect(value(evalStd(op("coalesce", name("credential", "keySid"), name("credential", "accountSid")), { credential: { accountSid: "AC1" } }))).toBe("AC1");
@@ -149,6 +161,7 @@ describe("the standard table of operations", () => {
     expect(typeCheck(machine, op("floor", op("div", 7500, 1000)), lit)).toMatchObject({ type: "number", issues: [] });
     expect(typeCheck(machine, op("lt", "a", "b"), lit)).toMatchObject({ type: "bool", issues: [] });
     expect(typeCheck(machine, op("concat", "a", "b"), lit)).toMatchObject({ type: "text", issues: [] });
+    expect(typeCheck(machine, op("text", 1), lit)).toMatchObject({ type: "text", issues: [] });
     expect(typeCheck(machine, op("add", 1, "a"), lit).issues.length).toBeGreaterThan(0);
     expect(typeCheck(machine, op("lt", 1, "a"), lit).issues.length).toBeGreaterThan(0);
   });

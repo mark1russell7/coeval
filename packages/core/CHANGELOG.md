@@ -8,7 +8,7 @@ The formula kit gets a standard table of operations (D219).
 
 ### Added
 
-- `STD_OPS` and its type `StdOps`: an operation for each operator of `STD_SYNTAX`, and `floor`, `concat` and the lazy `coalesce`, with a signature for each one.
+- `STD_OPS` and its type `StdOps`: an operation for each operator of `STD_SYNTAX`, and `floor`, `concat`, `text` and the lazy `coalesce`. Each one has a signature.
 
 ## 0.38.0
 

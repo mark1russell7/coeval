@@ -607,6 +607,7 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | STDOPS.EQUAL | `eq` and `ne` compare with `docEquals`. Thus `-0` is not `0`, `NaN` is `NaN`, and two lists with equal items are equal. |
 | STDOPS.ORDER | `lt`, `le`, `gt` and `ge` take two numbers or two texts. Texts compare by code units. A comparison with `NaN` is false. |
 | STDOPS.CONCAT | `concat` joins zero or more texts. With no argument, it gives the empty text. |
+| STDOPS.TEXT | `text` gives the text of a number, a text or a truth value. A number gives the shortest text that reads back as the same number, as in JavaScript, thus `-0` gives `0`. Each other value gives `#VALUE!`. |
 | STDOPS.COALESCE | The lazy operation `coalesce` evaluates its arguments in order. It gives the first value that is not `null` or `undefined`. An argument with the error `#N/A` has no value. Each other error stops it, also `#NAME?` of an unbound name. With no value, it gives `#N/A`, so a record with `omit` of `#N/A` leaves out the field. |
 | STDOPS.TYPES | Each operation has a signature in `sigs`, and `conforms` finds no fault in the table. A comparison has one signature for numbers and one for texts. |
 | STDOPS.PURE | Each operation of the table is pure, and `pure` names each one. Thus a formula of the table folds in a plan. |

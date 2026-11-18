@@ -93,7 +93,7 @@ const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); /
 - An issue of `parse` has `offset`, `length` and `message`. Show it at its span in an editor.
 - Test your profile with a round trip: `parse(print(doc))` gives `doc` again. `STD_SYNTAX` is the standard profile of the formula kit.
 - Start `checkSyntax(profile)` before you use a new profile. Each finding has a `code`, a `place` in the profile and a `reason` (D140).
-- `STD_OPS` gives the operations of `STD_SYNTAX`, and `floor`, `concat` and `coalesce`. Thus `formulaMachine(STD_OPS)` evaluates each text of `STD_SYNTAX`. Does your language need more operations? Spread each table of `STD_OPS` into your profile (D219).
+- `STD_OPS` gives the operations of `STD_SYNTAX`, and `floor`, `concat`, `text` and `coalesce`. Thus `formulaMachine(STD_OPS)` evaluates each text of `STD_SYNTAX`. Does your language need more operations? Spread each table of `STD_OPS` into your profile (D219).
 - `WORLD_SYNTAX` is the profile of `STD_WORLD`, for example `seq(a = 1 + 2, log(a))`. Is your world the standard world with more kinds? Spread `WORLD_SYNTAX` and add your forms to `calls.forms`.
 
 ## Check the code of a language

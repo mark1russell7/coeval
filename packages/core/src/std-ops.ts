@@ -73,7 +73,7 @@ const EQUAL: Signature = { params: ["unknown", "unknown"], to: "bool" };
 /**
  * The standard table of operations of the formula kit (D219). It has an operation for each operator of `STD_SYNTAX`:
  * `not`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `add`, `sub`, `mul`, `div`, `mod`, `neg` and `pow`. It also has `floor`,
- * `concat` and the lazy operation `coalesce`.
+ * `concat`, `text` and the lazy operation `coalesce`.
  *
  * - The operations on numbers take only numbers, and a comparison takes two numbers or two texts. A different value
  *   gives `#VALUE!`. A different count of arguments gives `#ARGS`.
@@ -81,6 +81,8 @@ const EQUAL: Signature = { params: ["unknown", "unknown"], to: "bool" };
  * - `eq` and `ne` compare with `docEquals`. Thus `-0` is not `0`, and `NaN` is `NaN`.
  * - `mod` gives the remainder of a truncated division, with the sign of the first argument.
  * - `concat` joins zero or more texts.
+ * - `text` gives the text of a number, a text or a truth value. A number gives the shortest text that reads back as
+ *   the same number, as in JavaScript. Thus `-0` gives `0`.
  * - `coalesce` gives the first argument with a value that is not `null` or `undefined`. An argument with the error `#N/A`
  *   has no value, and each other error stops it. With no such argument, it gives `#N/A`.
  *
@@ -117,6 +119,13 @@ export const STD_OPS: StdOps = /* @__PURE__ */ Object.freeze({
       if (!args.every((value) => typeof value === "string")) refuse("concat", "texts", args);
       return args.join("");
     },
+    text: (...args: unknown[]) => {
+      arity("text", args, 1);
+      const [value] = args;
+      if (typeof value === "string") return value;
+      if (typeof value !== "number" && typeof value !== "boolean") refuse("text", "a number, a text or a truth value", args);
+      return String(value);
+    },
   }),
   lazy: /* @__PURE__ */ Object.freeze({
     coalesce: (args) => {
@@ -148,7 +157,12 @@ export const STD_OPS: StdOps = /* @__PURE__ */ Object.freeze({
     neg: NUMBER_1,
     floor: NUMBER_1,
     concat: { params: [], rest: "text", to: "text" },
+    text: [
+      { params: ["number"], to: "text" },
+      { params: ["text"], to: "text" },
+      { params: ["bool"], to: "text" },
+    ],
     coalesce: { params: [], rest: "unknown", to: "unknown" },
   } satisfies Record<string, Signature | readonly Signature[]>),
-  pure: /* @__PURE__ */ Object.freeze(["not", "eq", "ne", "lt", "le", "gt", "ge", "add", "sub", "mul", "div", "mod", "pow", "neg", "floor", "concat", "coalesce"]),
+  pure: /* @__PURE__ */ Object.freeze(["not", "eq", "ne", "lt", "le", "gt", "ge", "add", "sub", "mul", "div", "mod", "pow", "neg", "floor", "concat", "text", "coalesce"]),
 });
