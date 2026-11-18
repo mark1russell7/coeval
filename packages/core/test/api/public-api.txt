@@ -198,6 +198,7 @@ STD_DOMAINS: build/index.d.ts#STD_DOMAINS
 STD_EVALUATORS: build/index.d.ts#STD_EVALUATORS
 STD_EXT: build/index.d.ts#STD_EXT
 STD_MACHINE: build/index.d.ts#STD_MACHINE
+STD_OPS: build/index.d.ts#STD_OPS
 STD_RUNNERS: build/index.d.ts#STD_RUNNERS
 STD_SYNTAX: build/index.d.ts#STD_SYNTAX
 STD_WALKERS: build/index.d.ts#STD_WALKERS
@@ -217,6 +218,7 @@ type Side: build/index.d.ts#Side
 type Signature: build/index.d.ts#Signature
 type Split: build/index.d.ts#Split
 type StaticRead: build/index.d.ts#StaticRead
+type StdOps: build/index.d.ts#StdOps
 type Step: build/index.d.ts#Step
 type StepKey: build/index.d.ts#StepKey
 type StepLadder: build/index.d.ts#StepLadder
@@ -1885,6 +1887,9 @@ export declare const STD_EXT: Readonly<Record<string, ExtFn>>;
 ### build/index.d.ts#STD_MACHINE
 export declare const STD_MACHINE: Machine;
 
+### build/index.d.ts#STD_OPS
+export declare const STD_OPS: StdOps;
+
 ### build/index.d.ts#STD_RUNNERS
 export declare const STD_RUNNERS: Readonly<Record<string, Runner>>;
 
@@ -2075,6 +2080,14 @@ interface StaticRead {
   readonly path: readonly Json[];
   readonly place: readonly Key[];
   readonly at: readonly Key[];
+}
+
+### build/index.d.ts#StdOps
+interface StdOps {
+  readonly ops: Readonly<Record<string, OpFn>>;
+  readonly lazy: Readonly<Record<string, LazyOp>>;
+  readonly sigs: Readonly<Record<string, Signature | readonly Signature[]>>;
+  readonly pure: readonly string[];
 }
 
 ### build/index.d.ts#Step
