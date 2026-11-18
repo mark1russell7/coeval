@@ -15,11 +15,11 @@ on:
 permissions:
   contents: read
 
-# The account runs at most 40 jobs at one time. A newer run cancels an older run of the same event, and at most 3 parts
-# run at one time. A dispatch takes its own count of documents, thus it does not cancel a run of the schedule.
+# The account runs at most 40 jobs at one time, and at most 3 parts run at one time. A run of the default branch
+# finishes: a newer run does not cancel it, because then its work stops halfway.
 concurrency:
   group: agree-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   agree:
