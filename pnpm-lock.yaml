@@ -168,10 +168,10 @@ importers:
     devDependencies:
       '@mark1russell7/api-report':
         specifier: ^0.5.3
-        version: 0.5.8
+        version: 0.5.14
       '@mark1russell7/conventions':
-        specifier: ^0.42.1
-        version: 0.42.4
+        specifier: ^0.47.0
+        version: 0.47.0
       '@mark1russell7/cue':
         specifier: ^2.1.1
         version: 2.1.4
@@ -246,8 +246,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@mark1russell7/site-pages':
-        specifier: ^0.7.0
-        version: 0.7.0
+        specifier: ^0.8.0
+        version: 0.8.0
       astro:
         specifier: ^7.3.8
         version: 7.4.7(@types/node@26.6.6)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
@@ -939,8 +939,8 @@ packages:
       zod:
         optional: true
 
-  '@mark1russell7/api-report@0.5.8':
-    resolution: {integrity: sha512-HS395EG0QBs2uA4EZ8gLak2m6YMqkC8XqPagNuE36uY8F6YZmb9Xz5SEr52Gv/6fb6J8JTXpw/zfkZeDAXcdHQ==}
+  '@mark1russell7/api-report@0.5.14':
+    resolution: {integrity: sha512-W3b1cEF9x+j6VMEUvPi/Lo2DEj7vBUW9pN+smJhY0FrM3sNDVMcXGeMe/cSk+ehoAF+SUgNrCPW53ksww1PSzQ==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -948,8 +948,8 @@ packages:
     resolution: {integrity: sha512-s2DyC8i8JhP0Ue6oG+dLUHrjwvUjz+UQrrSIViLkDdU0t+LhLChLrkRpcwr/eof62ffOSPXifLVYuzM7alEEPw==}
     engines: {node: '>=22.12'}
 
-  '@mark1russell7/conventions@0.42.4':
-    resolution: {integrity: sha512-DUmivF0KS4QhzWbizv1GtfL45bBohGioMK4dBg5+QnZkS41xlm9AuvzZ1h0ZpUmwUgmrmQxGsDESKOpg6g/7Qw==}
+  '@mark1russell7/conventions@0.47.0':
+    resolution: {integrity: sha512-voho9dFecG7KVpGyg2FwRT6O5r0S76EDegmIzZsk9+B/llM4xW3idGd0xLvMPOC+w+lRV6K1zlyXsqIxhbmU0A==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -985,10 +985,6 @@ packages:
       esbuild:
         optional: true
 
-  '@mark1russell7/rigor-generators@0.1.18':
-    resolution: {integrity: sha512-z5Ia9gDuS/I9pV/4rOoRx3o2DAhW2VE2UYoqIlHo88pmLPX7SWJcympg2N+QS9sSA6Dn0vTPcicxeDX6oXzAGw==}
-    engines: {node: '>=22'}
-
   '@mark1russell7/rigor-generators@0.2.0':
     resolution: {integrity: sha512-eTyJhK4Nowx1KQ3QrsQqLiAlhFoL+8m1OT6He+X0Lf0G/0f9OyQC8ponQLViQKRkP/ef10B6oACFjtjnKErobg==}
     engines: {node: '>=22'}
@@ -997,12 +993,8 @@ packages:
     resolution: {integrity: sha512-2YQKwuR9DHh5l98U8G9ADvVpjBfsZ/smMslBuPf4ryYUVSefS+xl06pulhoeH+Ya7s5uUsS7yEovg8h64E3jOw==}
     engines: {node: '>=22'}
 
-  '@mark1russell7/rigor-statistics@0.2.8':
-    resolution: {integrity: sha512-wPRQe/5351Xr16MIzgHTJyUYeaMh4ScadJ2AHCHZDf5NQdEDD6pG8zhWc0UPKbApTPWU/f7tDqnotSoyWmCqMQ==}
-    engines: {node: '>=22'}
-
-  '@mark1russell7/site-pages@0.7.0':
-    resolution: {integrity: sha512-nFiaxs1D/IAxj54KUow0AkU35fxWj6iCHAcQ2GG2ISv0yD+YwnOoDHNmO1mV1g+roRV7G5czJNZlzv+3lcT2vg==}
+  '@mark1russell7/site-pages@0.8.0':
+    resolution: {integrity: sha512-OlqsZfj5yNovI1ysfPJEIVsRnON3KgEP9ELMIH5CO+kP9FY5Vu873oCY+Zja5dKB8wTVgU3YewEcTqH9ncDurg==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -1018,6 +1010,10 @@ packages:
 
   '@mark1russell7/text@0.0.13':
     resolution: {integrity: sha512-8Tu7DTTpfmpXIy0F2JCyOW1RD91X7tm38c5xiqz3cLdmEkUQViH/06kTBLj+hrzuQPMBGVyxd7snqVG6EpNLdQ==}
+    engines: {node: '>=22.12'}
+
+  '@mark1russell7/text@0.0.15':
+    resolution: {integrity: sha512-aNOINmlpbbHIO1VOVfZkMZf8Ts346sz7Y+iQOsclQPet4etHNjKm0KM1EW9K0UuxpbZEkUW2+qjrVFcoL1Juyw==}
     engines: {node: '>=22.12'}
 
   '@napi-rs/wasm-runtime@1.2.5':
@@ -3276,9 +3272,9 @@ snapshots:
     optionalDependencies:
       zod: 4.6.7
 
-  '@mark1russell7/api-report@0.5.8':
+  '@mark1russell7/api-report@0.5.14':
     dependencies:
-      '@mark1russell7/conventions': 0.42.4
+      '@mark1russell7/conventions': 0.47.0
 
   '@mark1russell7/collections@0.11.0(zod@4.6.7)':
     dependencies:
@@ -3288,8 +3284,9 @@ snapshots:
     transitivePeerDependencies:
       - zod
 
-  '@mark1russell7/conventions@0.42.4':
+  '@mark1russell7/conventions@0.47.0':
     dependencies:
+      '@mark1russell7/text': 0.0.15
       yaml: 2.9.1
 
   '@mark1russell7/cue@2.1.4': {}
@@ -3312,21 +3309,15 @@ snapshots:
     optionalDependencies:
       esbuild: 0.28.2
 
-  '@mark1russell7/rigor-generators@0.1.18': {}
-
   '@mark1russell7/rigor-generators@0.2.0': {}
 
   '@mark1russell7/rigor-statistics@0.2.10':
     dependencies:
       '@mark1russell7/rigor-generators': 0.2.0
 
-  '@mark1russell7/rigor-statistics@0.2.8':
+  '@mark1russell7/site-pages@0.8.0':
     dependencies:
-      '@mark1russell7/rigor-generators': 0.1.18
-
-  '@mark1russell7/site-pages@0.7.0':
-    dependencies:
-      '@mark1russell7/rigor-statistics': 0.2.8
+      '@mark1russell7/rigor-statistics': 0.2.10
 
   '@mark1russell7/ste-lint@0.3.2':
     dependencies:
@@ -3337,6 +3328,8 @@ snapshots:
       '@clack/prompts': 1.8.1
 
   '@mark1russell7/text@0.0.13': {}
+
+  '@mark1russell7/text@0.0.15': {}
 
   '@napi-rs/wasm-runtime@1.2.5(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
