@@ -592,6 +592,27 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. The bench measures the time (K200). |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
 
+## The standard operations
+
+`STD_OPS` is the standard table of operations of the formula kit (D219). A language uses it as its profile, or it spreads each table into its own profile.
+
+| ID | Rule |
+| --- | --- |
+| STDOPS.SYNTAX | The table has an operation for each operator of `STD_SYNTAX`. Thus a text of the standard syntax evaluates with `formulaMachine(STD_OPS)`. |
+| STDOPS.NUMBERS | `add`, `sub`, `mul`, `div`, `pow`, `neg` and `floor` give the result of the operator or the function of the host. |
+| STDOPS.MOD | `mod` gives the remainder of a truncated division. The remainder has the sign of the first argument. |
+| STDOPS.NUM | A result `NaN` of an operation on numbers gives `#NUM!`. An infinite result of finite arguments also gives `#NUM!`. Thus `1 / 0` is an error, and `Infinity + 1` is `Infinity`. |
+| STDOPS.VALUE | An argument of the wrong shape gives `#VALUE!`, with the shapes of the arguments in the reason. The table does not convert a value. Thus `"1" + 2` is an error. |
+| STDOPS.ARGS | A different count of arguments gives `#ARGS`. Only `concat` and `coalesce` take any count. |
+| STDOPS.EQUAL | `eq` and `ne` compare with `docEquals`. Thus `-0` is not `0`, `NaN` is `NaN`, and two lists with equal items are equal. |
+| STDOPS.ORDER | `lt`, `le`, `gt` and `ge` take two numbers or two texts. Texts compare by code units. A comparison with `NaN` is false. |
+| STDOPS.CONCAT | `concat` joins zero or more texts. With no argument, it gives the empty text. |
+| STDOPS.TEXT | `text` gives the text of a number, a text or a truth value. A number gives the shortest text that reads back as the same number, as in JavaScript, thus `-0` gives `0`. Each other value gives `#VALUE!`. |
+| STDOPS.COALESCE | The lazy operation `coalesce` evaluates its arguments in order. It gives the first value that is not `null` or `undefined`. An argument with the error `#N/A` has no value. Each other error stops it, also `#NAME?` of an unbound name. With no value, it gives `#N/A`, so a record with `omit` of `#N/A` leaves out the field. |
+| STDOPS.TYPES | Each operation has a signature in `sigs`, and `conforms` finds no fault in the table. A comparison has one signature for numbers and one for texts. |
+| STDOPS.PURE | Each operation of the table is pure, and `pure` names each one. Thus a formula of the table folds in a plan. |
+| STDOPS.SPREAD | Each table is a frozen plain record. A language spreads it into its own profile and adds its operations. The tables do not change. |
+
 ## The limit of work
 
 | ID | Rule |

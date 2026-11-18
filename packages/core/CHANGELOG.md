@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.38.1
+
+The formula kit gets a standard table of operations (D219).
+
+### Added
+
+- `STD_OPS` and its type `StdOps`: an operation for each operator of `STD_SYNTAX`, and `floor`, `concat`, `text` and the lazy `coalesce`. Each one has a signature.
+
 ## 0.38.0
 
 The release train changes the range of `@mark1russell7/rigor-generators` to a version outside the old range. The public types name @mark1russell7/rigor-generators, so its new version outside the old range can change them.

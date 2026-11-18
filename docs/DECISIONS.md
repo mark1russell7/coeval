@@ -6096,3 +6096,30 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - An add-on with a different rule for its records writes its own `join`. The tools are not a part of the contract.
 
 **SemVer.** New exports of the entry `./layers`: `joinLayers`, `joinRecords`, `joinSetting`, `JOIN_CODES`, and the types `LayerFragment`, `LayerPiece`, `LayerJoiner`, `JoinCode`, `JoinFinding`, `LayersJoin`, `RecordTwice`, `RecordsJoin` and `SettingJoin`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.37.2.
+
+## D219 (2026-11-17): a standard table of operations for the formula kit
+
+**Context.** L8. `STD_SYNTAX` writes the kinds `ops.not`, `ops.eq`, `ops.add`, `ops.div` and the others, but no standard profile gives these operations. Each language writes its own table again, with its own rules for a wrong value.
+
+- A host that keeps the values of an API as terms needs only a few operations, for example `floor(div(ms, 1000))` for seconds.
+- A term that joins texts needs `concat`. A reason that holds an HTTP status needs the text of a number. A term that takes the first given field of two needs a coalesce.
+- A reference to an absent field of a record gives `#N/A`. A strict operation stops at that error, so a coalesce must be lazy.
+
+**Decision.**
+
+- `STD_OPS` is the standard table. It has `ops`, `lazy`, `sigs` and `pure`, each a frozen plain record. Its type is `StdOps`.
+- It has an operation for each operator of `STD_SYNTAX`, and `floor`, `concat`, `text` and `coalesce` (STDOPS.SYNTAX).
+- Only `text` converts a value: it gives the text of a number, a text or a truth value (STDOPS.TEXT). Each other operation converts no value. A wrong shape gives `#VALUE!`, and a wrong count gives `#ARGS` (STDOPS.VALUE, STDOPS.ARGS).
+- A result `NaN`, or an infinite result of finite numbers, gives `#NUM!` (STDOPS.NUM). Thus a division by zero is an error.
+- `eq` and `ne` use `docEquals`, the one equality of the kernel (D20).
+- `mod` keeps the remainder of the host, with the sign of the first argument.
+- `coalesce` counts `#N/A` as no value, and each other error stops it. An unbound name stays an error of the program.
+- The table is data only. `formulaMachine` does not change, and no profile gets the table without a spread.
+
+**Alternatives.**
+
+- The table as the default of `formulaMachine`. Each language then gets operations that it did not ask for, and an operation of the same name changes meaning.
+- The rules of JavaScript for `+` and `<`. Then `"1" + 2` is `"12"`, and a wrong input gives no error.
+- A division by zero that gives `Infinity`. A host that sends the value to an API then sends a text that the API refuses.
+- A coalesce that skips each error. It then hides a typing fault, for example `"a" + 1`.
+- A table in the package of each host. That is a copy for each host.
