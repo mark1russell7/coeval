@@ -28,7 +28,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | Parts | `partsOf`, `splitParts` | The kind and the parts of one document, with the declared type for a bare value. The plan, the reference and the static kit use it |
 | World | `lookupKind`, `Kind`, `Namespace`, `PartShape`, `ScopeRule`, `CapsRule`, `VerbEffects`, `effectsOfVerb` | The kinds, with their contracts: the shape of the parts, the type of the data, the kinds that a position permits, the names that a kind binds, the capabilities that it gives its parts, and its effects for each verb. A namespace can have a fallback kind |
 | Languages | `defineLanguage`, `compose`, `Language`, `LanguageDefinition`, `LanguageCode` | One language as one frozen value, with a name, a version, a data half and a code half. `compose` checks what each language needs and merges them. |
-| Merges | `mergeWorlds`, `mergeMachines`, `MergeError`, `VerbEntries`, `restrictWorld`, `restrictMachine` | The one merge of worlds and machines. Equal entries merge, and namespaces merge key by key. Each other clash is a conflict, unless the later part names its path in `replaces`. A restriction removes entries and their code. [`docs/COMPOSITION.md`](https://github.com/mark1russell7/coeval/blob/main/docs/COMPOSITION.md) shows each mode of composition |
+| Merges | `mergeWorlds`, `mergeMachines`, `MergeError`, `VerbEntries`, `restrictWorld`, `restrictMachine` | The one merge of worlds and machines. Equal entries merge, and namespaces merge key by key. Each other clash is a conflict, unless the later part names its path in `replaces`. A restriction removes entries and their code. [`docs/COMPOSITION.md`](https://github.com/metrograph-labs/coeval/blob/main/docs/COMPOSITION.md) shows each mode of composition |
 | Ladder | `ask` | The evaluator of a verb: the own entry, then the kind, then the default. Each verb has this ladder, also `deref` and `step` |
 | References | `resolve`, `HostThing`, `Navigator` | A path from a root of the context: `self`, `names`, `world`, `event` or `caps`. A step document can have computed parts, and a walker can give the code of its failure. The optional `has` of a host thing, of a `deref` code and of a walker input tells a field that holds `undefined` from a missing field |
 | Plans | `prepare`, `planner`, `evaluate`, `run`, `PrepareOptions`, `EvalOptions`, `EvaluateOptions`, `RunOptions`, `PlanRunOptions` | A document compiles one time into code. An evaluator is a function or a compiler. The option `perform` of `evaluate` and `plan.evaluate` is a mock: it answers each effect at once. The option `verb` of `prepare`, `evaluate` and `run` asks the ladder for another verb than `eval`, for example `format` |
@@ -56,7 +56,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | The check of types | `typeCheck`, `Typing`, `Typed`, `TypeRule`, `TypeInput`, `PartType`, `TypeProblem`, `Declared`, `Signature` | A check that synthesizes the type of each document and checks it against the type that its position needs. The type rule of an evaluator, the signatures of a formula profile, and `result` and `expect` of a contract give the types. A wrong type gives the static issue `#TYPE!`, and an evaluation does not change |
 | The types of the roots | `RootTypes`, `CAPS_TYPE`, `typeFromSchema`, `typeFromSamples`, `TypeReading`, `SampleOptions` | The host gives the types of its names and of the roots in the option `rootTypes`. A reference then gets the type that its path reaches, and a missing field of a closed record gives `#TYPE!`. A host makes such a type from a JSON Schema or from sample values |
 
-Each rule has an ID in [`docs/SPEC.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://mark1russell7.github.io/coeval/) explains each idea with a live diagram.
+Each rule has an ID in [`docs/SPEC.md`](https://github.com/metrograph-labs/coeval/blob/main/docs/SPEC.md), and each ID has a test. [The site](https://metrograph-labs.github.io/coeval/) explains each idea with a live diagram.
 
 ## Give your language a text syntax
 
@@ -97,7 +97,7 @@ const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); /
 
 ## Check the code of a language
 
-`conforms` examines the code of an evaluator, a runner, a walker or a `deref` against the obligations of host code, C1 to C8 of [`docs/SEMANTICS.md`](https://github.com/mark1russell7/coeval/blob/main/docs/SEMANTICS.md). Start it in a test for each name of your machine. An empty list means that the code conforms.
+`conforms` examines the code of an evaluator, a runner, a walker or a `deref` against the obligations of host code, C1 to C8 of [`docs/SEMANTICS.md`](https://github.com/metrograph-labs/coeval/blob/main/docs/SEMANTICS.md). Start it in a test for each name of your machine. An empty list means that the code conforms.
 
 ```ts
 import { conforms, formulaDefinitions } from "@mark1russell7/coeval";

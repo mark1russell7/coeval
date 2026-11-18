@@ -1,7 +1,7 @@
 /*
  * The refresh of the limits of the bench verdict (K214, D117).
  *
- *   gh run download <run id> -R mark1russell7/coeval -D <dir>/<run id>     (for each Speed run, 5 or more jobs in all)
+ *   gh run download <run id> -R metrograph-labs/coeval -D <dir>/<run id>     (for each Speed run, 5 or more jobs in all)
  *   node packages/core/bench/refresh.ts <dir>
  *
  * The script reads the record `bench-<n>.json` of each job of each run in `<dir>`. It gives the A/A statistics of each

@@ -5,7 +5,7 @@ name: One meaning
 
 on:
   schedule:
-    - cron: "46 3 * * *"
+    - cron: "41 3 * * *"
   workflow_dispatch:
     inputs:
       count:
@@ -17,9 +17,10 @@ permissions:
 
 # The account runs at most 40 jobs at one time. A newer run cancels an older run of the same event, and at most 3 parts
 # run at one time. A dispatch takes its own count of documents, thus it does not cancel a run of the schedule.
+# A run of main finishes: a newer run of main waits for it. A newer run of another ref cancels the run of that ref.
 concurrency:
   group: agree-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   agree:
