@@ -26,10 +26,17 @@ defaults:
 
 jobs:
   ci:
-    uses: mark1russell7/template/.github/workflows/reusable-ci.yml@eb7f3517aa8614e338a46acd37ab0c49395be5f9 # main
+    uses: mark1russell7/template/.github/workflows/reusable-ci.yml@8384e885a3cb304498a858c531cd86641956480c # main
     with:
       # The property test of one meaning (K9) examines more documents in CI than in a local run
       env: '{"COEVAL_AGREE_COUNT": "2000"}'
+
+  # The site of .github/site.json: the build, the site check and the probe, with no deploy (CI.md of the
+  # template, "The site config"). The Pages workflow deploys the same site from main.
+  site:
+    uses: mark1russell7/template/.github/workflows/reusable-pages-check.yml@8384e885a3cb304498a858c531cd86641956480c # main
+    permissions:
+      contents: read
 
   # The one check that the ruleset of main names (CI.md of the template, "The check of the ruleset").
   # It needs each job of the merge gate. Security, AI review and the bench stay in their own files:
@@ -37,7 +44,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: ${{ !cancelled() }}
-    needs: [ci]
+    needs: [ci, site]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}

@@ -38,7 +38,7 @@ jobs:
       match: ${{ steps.changes.outputs.match }}
     steps:
       - id: changes
-        uses: mark1russell7/template/.github/actions/changes@eb7f3517aa8614e338a46acd37ab0c49395be5f9 # main
+        uses: mark1russell7/template/.github/actions/changes@8384e885a3cb304498a858c531cd86641956480c # main
         with:
           paths: |
             .github/workflows/lean.yml
@@ -86,6 +86,6 @@ jobs:
     timeout-minutes: 2
     permissions: {}
     steps:
-      - uses: mark1russell7/template/.github/actions/gate-summary@eb7f3517aa8614e338a46acd37ab0c49395be5f9 # main
+      - uses: mark1russell7/template/.github/actions/gate-summary@8384e885a3cb304498a858c531cd86641956480c # main
         with:
           needs: ${{ toJSON(needs) }}
