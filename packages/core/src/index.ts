@@ -294,6 +294,7 @@ export {
   print,
   syntaxFormat,
 } from "./syntax.ts";
+export { type StdOps, STD_OPS } from "./std-ops.ts";
 export { type Configuration, type Frame, type StepperOptions, decodeConfiguration, encodeConfiguration, stepper, stepperNext, stepperStart } from "./stepper.ts";
 export { type Definitions, type ReferenceOptions, type ReferenceRunOptions, STD_DEFINITIONS, formulaDefinitions, reference, referenceRun } from "./reference.ts";
 export { type AgreeOptions, type AgreeRunOptions, type Agreement, type AgreeTypesOptions, type TypeAgreement, agreeTypes, type Tier, type TierInput, type TierResult, agree, agreeRun, sameValue } from "./agree.ts";
