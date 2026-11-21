@@ -2,6 +2,10 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.38.2
+
+An automated dependency update changes the shipped files, so this PATCH ships them.
+
 ## 0.38.1
 
 The formula kit gets a standard table of operations (D219).
