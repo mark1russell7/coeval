@@ -1,10 +1,10 @@
 # coeval
 
-[![CI](https://github.com/mark1russell7/coeval/actions/workflows/ci.yml/badge.svg)](https://github.com/mark1russell7/coeval/actions/workflows/ci.yml) [![site](https://img.shields.io/badge/site-live%20diagrams-2346c4)](https://mark1russell7.github.io/coeval/) [![license](https://img.shields.io/badge/license-MIT-2346c4)](./LICENSE)
+[![CI](https://github.com/metrograph-labs/coeval/actions/workflows/ci.yml/badge.svg)](https://github.com/metrograph-labs/coeval/actions/workflows/ci.yml) [![site](https://img.shields.io/badge/site-live%20diagrams-2346c4)](https://metrograph-labs.github.io/coeval/) [![license](https://img.shields.io/badge/license-MIT-2346c4)](./LICENSE)
 
 coeval is a base for declarative languages. Each language keeps its programs as JSON documents. A document gets its meaning from a question, not from a definition: its kind names the evaluator, and a ladder finds it.
 
-**[The site](https://mark1russell7.github.io/coeval/)** explains each idea with a live diagram. The diagrams use the model package of this repository, thus each answer comes from real code.
+**[The site](https://metrograph-labs.github.io/coeval/)** explains each idea with a live diagram. The diagrams use the model package of this repository, thus each answer comes from real code.
 
 ## Status
 

@@ -6,7 +6,7 @@ import { defineConfig } from "astro/config";
 const base = process.env["SITE_BASE"] ?? "/coeval";
 
 export default defineConfig({
-  site: "https://mark1russell7.github.io",
+  site: "https://metrograph-labs.github.io",
   base,
   trailingSlash: "ignore",
   integrations: [
@@ -16,8 +16,8 @@ export default defineConfig({
         "coeval: a base for declarative languages. A document gets its meaning from a question. Its kind names the evaluator, and a ladder finds it.",
       logo: { src: "./src/assets/mark.svg", replacesTitle: false },
       favicon: "/favicon.svg",
-      social: [{ icon: "github", label: "GitHub", href: "https://github.com/mark1russell7/coeval" }],
-      editLink: { baseUrl: "https://github.com/mark1russell7/coeval/edit/main/packages/site/" },
+      social: [{ icon: "github", label: "GitHub", href: "https://github.com/metrograph-labs/coeval" }],
+      editLink: { baseUrl: "https://github.com/metrograph-labs/coeval/edit/main/packages/site/" },
       customCss: [
         "@fontsource-variable/atkinson-hyperlegible-next",
         "@fontsource-variable/atkinson-hyperlegible-mono",
@@ -59,10 +59,10 @@ export default defineConfig({
             "design/decisions",
             "design/research",
             "design/lineage",
-            { label: "Roadmap", link: "https://github.com/mark1russell7/coeval/blob/main/docs/ROADMAP.md" },
+            { label: "Roadmap", link: "https://github.com/metrograph-labs/coeval/blob/main/docs/ROADMAP.md" },
           ],
         },
-        { label: "Project", items: [{ label: "Status", link: "https://mark1russell7.github.io/coeval/status/" }, { label: "Releases", link: "https://mark1russell7.github.io/coeval/releases/" }] },
+        { label: "Project", items: [{ label: "Status", link: "https://metrograph-labs.github.io/coeval/status/" }, { label: "Releases", link: "https://metrograph-labs.github.io/coeval/releases/" }] },
       ],
     }),
     react(),

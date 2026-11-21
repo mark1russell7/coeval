@@ -5,7 +5,7 @@ name: One meaning
 
 on:
   schedule:
-    - cron: "46 3 * * *"
+    - cron: "41 3 * * *"
   workflow_dispatch:
     inputs:
       count:

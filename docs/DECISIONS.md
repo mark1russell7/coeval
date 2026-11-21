@@ -3931,7 +3931,7 @@ A host that keeps its cells by the keys of `place` as text was already wrong (D1
 - The noise caps of the plan and tree families are near 30 %, because one job of each had an A/A spread near 15 %. At that size, a cap does not stop a verdict. A cap from more jobs, or the default cap of each family in the shared bench core, can replace it.
 - The limits come from 6 jobs only. Refresh them when 5 or more new jobs have records.
 
-**How to refresh.** Download each Speed run with `gh run download <id> -R mark1russell7/coeval -D <dir>/<id>`, then start `node packages/core/bench/refresh.ts <dir>`. The script writes `limits.json`, and the fixture when the run 41579105529 is in `<dir>`. It fails for a false pooled verdict of a run of the same code, and for a job whose A/A band does not hold 1.
+**How to refresh.** Download each Speed run with `gh run download <id> -R metrograph-labs/coeval -D <dir>/<id>`, then start `node packages/core/bench/refresh.ts <dir>`. The script writes `limits.json`, and the fixture when the run 41579105529 is in `<dir>`. It fails for a false pooled verdict of a run of the same code, and for a job whose A/A band does not hold 1.
 
 **Why.** The rule of the gate limits is the worst of 5 or more CI jobs plus their spread, with the runs beside it. A fixed margin had no source. The limits of each family keep a quiet family strict, and they give a noisy family a wider margin.
 
