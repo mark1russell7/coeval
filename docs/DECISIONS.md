@@ -6123,3 +6123,32 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - A division by zero that gives `Infinity`. A host that sends the value to an API then sends a text that the API refuses.
 - A coalesce that skips each error. It then hides a typing fault, for example `"a" + 1`.
 - A table in the package of each host. That is a copy for each host.
+
+## D220 (2026-11-24): an option of `joinRecords` joins equal records
+
+**Context.** D218 gave `joinRecords` the rule that each record has one fragment. Some records are declarations that each fragment can give, for example a resource and its unit. Each owner file declares the resources of its stores. An add-on with such records wrote its own join, with a comparison of canonical JSON. That is a copy of the loop of `joinRecords`.
+
+**Decision.**
+
+- `joinRecords` gets an optional fifth parameter, `RecordsJoinOptions`, with the function `equal` (LAYERS.RECORDS-EQUAL).
+- With `equal`, the first record of a key in a later fragment joins the first record of the key when the two are equal. It is not in the records.
+- Each later fragment with a different first record is in `from` of one item of `twice`. The message tells that the records are not equal.
+- A repeat of a key in one fragment stays in the records, as with no option (LAYERS.RECORDS-ONE).
+- With no option, the rule of D218 does not change.
+- The module still imports nothing (LAYERS.ALONE). Thus the add-on gives the equality, for example a comparison of canonical JSON.
+
+**Alternatives.**
+
+- A comparison of canonical JSON in the entry. The entry then imports a package, and LAYERS.ALONE breaks.
+- `docEquals` of the kernel as the default equality. The entry then imports the kernel, and a record of an add-on is not always a document.
+- Equal records as the default. D218 refused it: two copies are equal only until one file changes. The option keeps the rule of D218 for each other record.
+- A join in each add-on. That is the copy that this decision removes.
+
+**Why.** The loop over the pieces has one home. The add-on tells only which records can have two fragments, and how to compare them.
+
+**Limits.**
+
+- The record of the join is the first record of the key. A later equal record is not in the records, so its object is not in the result.
+- `equal` compares the first record and one other record. An equality that is not symmetric gives a result that changes with the order of the fragments.
+
+**SemVer.** A new optional parameter and the new type `RecordsJoinOptions` of the entry `./layers`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.38.2.

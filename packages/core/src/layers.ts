@@ -307,12 +307,27 @@ export interface RecordsJoin<Item> {
   readonly errors: readonly string[];
 }
 
+/** The options of `joinRecords`. */
+export interface RecordsJoinOptions<Item> {
+  /**
+   * This function tells if two records of one key are equal. With it, equal records of two or more fragments are one record.
+   *
+   * - The first record of a key is the record of the join. The first record of the key in a later fragment joins it when the two are equal.
+   * - A later fragment with a different record is a fault. The message names the first fragment and each fragment with a different record.
+   * - Use it for a record that each fragment can declare, for example a unit. Two copies are equal only until one file changes, and then the join gives the fault.
+   *
+   * The module imports nothing, so the add-on gives the equality, for example a comparison of canonical JSON.
+   */
+  readonly equal?: (first: Item, other: Item) => boolean;
+}
+
 /**
  * This function joins one list of records of the pieces. Its rule is that each record has one fragment.
  *
  * - The records are in the order of the pieces, and each piece keeps the order of its records.
  * - A key that two or more fragments have is a fault, also when the records are equal.
  * - A key that one fragment has two times is not a fault of the join. `check` of the add-on reads the joined layer.
+ * - With the option `equal`, a record that is equal to the first record of its key joins that record, as `RecordsJoinOptions` tells.
  *
  * The function counts the fragments by their position. Thus two fragments with one name are two fragments.
  *
@@ -320,8 +335,16 @@ export interface RecordsJoin<Item> {
  * @param list - This function gives the records of a layer. `undefined` tells that the layer has none.
  * @param key - This function gives the key of a record, for example its `id`.
  * @param noun - The name of a record with a key for a message, for example `record of the part`.
+ * @param options - The rule for equal records. With no option, each key that two or more fragments have is a fault.
  */
-export function joinRecords<Layer, Item>(pieces: readonly LayerPiece<Layer>[], list: (layer: Layer) => readonly Item[] | undefined, key: (item: Item) => string, noun: string): RecordsJoin<Item> {
+export function joinRecords<Layer, Item>(
+  pieces: readonly LayerPiece<Layer>[],
+  list: (layer: Layer) => readonly Item[] | undefined,
+  key: (item: Item) => string,
+  noun: string,
+  options: RecordsJoinOptions<Item> = {},
+): RecordsJoin<Item> {
+  if (options.equal !== undefined) return joinEqualRecords(pieces, list, key, noun, options.equal);
   const items: Item[] = [];
   // The pieces come in sequence. Thus the last position of a key tells if the piece has the key already.
   const owners = new Map<string, { last: number; readonly from: string[] }>();
@@ -340,6 +363,38 @@ export function joinRecords<Layer, Item>(pieces: readonly LayerPiece<Layer>[], l
   const twice: RecordTwice[] = [];
   for (const [id, owner] of owners) {
     if (owner.from.length > 1) twice.push({ key: id, from: owner.from, message: `The fragments ${quoted(owner.from)} each have the ${noun} "${id}".` });
+  }
+  return { items, twice, errors: twice.map((item) => item.message) };
+}
+
+/** This function is `joinRecords` with the option `equal`. */
+function joinEqualRecords<Layer, Item>(
+  pieces: readonly LayerPiece<Layer>[],
+  list: (layer: Layer) => readonly Item[] | undefined,
+  key: (item: Item) => string,
+  noun: string,
+  equal: (first: Item, other: Item) => boolean,
+): RecordsJoin<Item> {
+  const items: Item[] = [];
+  // The first record of each key, and the fragments with a different record. The last position tells if a piece has the key already.
+  const owners = new Map<string, { readonly first: Item; last: number; readonly from: string[] }>();
+  pieces.forEach((piece, position) => {
+    for (const item of list(piece.layer) ?? []) {
+      const id = key(item);
+      const owner = owners.get(id);
+      if (owner === undefined) owners.set(id, { first: item, last: position, from: [piece.from] });
+      else if (owner.last !== position) {
+        // The first record of the key in a later fragment.
+        owner.last = position;
+        if (equal(owner.first, item)) continue;
+        owner.from.push(piece.from);
+      }
+      items.push(item);
+    }
+  });
+  const twice: RecordTwice[] = [];
+  for (const [id, owner] of owners) {
+    if (owner.from.length > 1) twice.push({ key: id, from: owner.from, message: `The fragments ${quoted(owner.from)} each have the ${noun} "${id}", and the records are not equal.` });
   }
   return { items, twice, errors: twice.map((item) => item.message) };
 }
