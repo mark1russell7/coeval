@@ -494,6 +494,29 @@ describe("the tools of the join of an add-on", () => {
     expect(joinRecords([a, c], stockItems, stockId, "item").errors).toEqual(['The fragments "a", "c" each have the item "y".']);
   });
 
+  it("[LAYERS.RECORDS-TEXT] with the options equal and text, the message gives the first record of the key in each fragment of the fault", () => {
+    const same = (first: StockItem, other: StockItem): boolean => first.count === other.count;
+    const text = (item: StockItem): string => JSON.stringify(item);
+    const a = piece("a", { items: [{ id: "y", count: 2 }] });
+    const c = piece("c", { items: [{ id: "y", count: 2 }] });
+    // The fragment "d" has a later record of "y". Only its first record is in the message.
+    const d = piece("d", { items: [{ id: "y", count: 5 }, { id: "y", count: 8 }] });
+    const e = piece("e", { items: [{ id: "y", count: 6 }] });
+    const join = joinRecords([a, c, d, e], stockItems, stockId, "item", { equal: same, text });
+    const message = 'The fragments "a", "d", "e" each have the item "y", and the records are not equal.\n  "a": {"id":"y","count":2}\n  "d": {"id":"y","count":5}\n  "e": {"id":"y","count":6}';
+    expect(join.twice).toEqual([{ key: "y", from: ["a", "d", "e"], message }]);
+    expect(join.errors).toEqual([message]);
+    // The option changes only the message. The records are the records with no text.
+    expect(join.items).toEqual(joinRecords([a, c, d, e], stockItems, stockId, "item", { equal: same }).items);
+    // With equal records, the join calls no text and gives no fault.
+    const calls: StockItem[] = [];
+    const quiet = joinRecords([a, c], stockItems, stockId, "item", { equal: same, text: (item) => (calls.push(item), text(item)) });
+    expect(quiet.errors).toEqual([]);
+    expect(calls).toEqual([]);
+    // With no equal, the option text changes nothing.
+    expect(joinRecords([a, c], stockItems, stockId, "item", { text })).toEqual(joinRecords([a, c], stockItems, stockId, "item"));
+  });
+
   it("[LAYERS.SETTING] joinSetting gives the value of the first piece that gives the setting", () => {
     const pieces = [piece("a", {}), piece("b", { unit: "kg" }), piece("c", { unit: "kg" }), piece("d", {})];
     expect(joinSetting(pieces, stockUnit, "unit")).toEqual({ value: "kg", errors: [] });

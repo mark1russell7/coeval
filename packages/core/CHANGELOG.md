@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.38.3
+
+The message of a join with the option `equal` can give the records (D221).
+
+### Added
+
+- The option `text` of `RecordsJoinOptions`. With `equal`, the message of a fault gives the text of the first record of the key in each fragment. Thus the reader sees which field is different.
+
 ## 0.38.2
 
 An option of `joinRecords` joins equal records (D220).

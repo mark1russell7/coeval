@@ -6152,3 +6152,28 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - `equal` compares the first record and one other record. An equality that is not symmetric gives a result that changes with the order of the fragments.
 
 **SemVer.** A new optional parameter and the new type `RecordsJoinOptions` of the entry `./layers`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.38.2.
+
+## D221 (2026-11-24): the message of a join with `equal` can give the records
+
+**Context.** With the option `equal` (D220), a fault names the fragments and the key, but not the records. The reader then opens each file to find the field that is different. The local join that D220 removed gave the two records in its message.
+
+**Decision.**
+
+- `RecordsJoinOptions` gets the optional function `text`. It gives the text of a record for a message (LAYERS.RECORDS-TEXT).
+- With `equal` and `text`, the message of each fault gives the first record of the key in each fragment of `from`. The records are in the order of `from`.
+- Each record is on a new line, after the name of its fragment. A text of a record, for example canonical JSON, can have commas. Thus a list on one line is hard to read.
+- The option changes no record and no field of `twice` other than its message. With no `equal`, it changes nothing.
+- The module still imports nothing (LAYERS.ALONE). Thus the add-on gives the text, for example canonical JSON.
+
+**Alternatives.**
+
+- The records as a new field of `RecordTwice`. `RecordTwice` then needs a type parameter, and the reader of a message still gets no text.
+- `JSON.stringify` as the default text. A record can have a value that is not plain JSON, and the order of the keys then changes the text.
+- The text with no option `equal`. Then each record of a key is a fault, also an equal record, so the records tell nothing new.
+
+**Limits.**
+
+- The message gives only the first record of the key in each fragment. A later record of the key in one fragment is for `check` of the add-on.
+- A long record gives a long message. The add-on chooses a short text if it needs one.
+
+**SemVer.** A new optional field of the type `RecordsJoinOptions`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.38.3.

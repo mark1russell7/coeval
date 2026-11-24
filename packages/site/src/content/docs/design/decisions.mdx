@@ -199,6 +199,7 @@ The file `docs/DECISIONS.md` of the repository is the record. This page gives th
 | D197 | The stepper counts the work of D134 and finds the standard definitions. A kept closure keeps one count across the runtimes of its equations (K250). |
 | D219 | `STD_OPS` is the standard table of operations of the formula kit: the operators of `STD_SYNTAX`, `floor`, `concat`, `text` and a lazy `coalesce`. Only `text` converts a value, and a result `NaN` gives `#NUM!` (L8). |
 | D220 | An option of `joinRecords`, the function `equal`, joins equal records of a key in two or more fragments. A different record is a fault, and the entry still imports nothing (L9). |
+| D221 | The option `text` of `joinRecords` gives the text of a record. With `equal`, the message of a fault then gives the record of each fragment, so the reader sees which field is different (L10). |
 
 ## Open
 
