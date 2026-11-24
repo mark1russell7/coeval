@@ -167,7 +167,7 @@ A document can have many fragments, for example one file for each owner. `joinLa
 - A layer of two or more fragments goes to `join` of its add-on. Only the add-on knows if the records agree.
 - With no add-on of its name, such a layer is the error `layer-twice`. The entry joins no records itself.
 - `joinRecords` and `joinSetting` are tools for `join`. The add-on gives the list and the key of its records.
-- With the option `equal`, `joinRecords` joins equal records of a key, for example a unit that each fragment declares. A different record is a fault.
+- With the option `equal`, `joinRecords` joins equal records of a key, for example a unit that each fragment declares. A different record is a fault. With the option `text`, the message gives the record of each fragment, for example as canonical JSON.
 
 ```ts
 import { type LayerJoiner, joinLayers, joinRecords } from "@mark1russell7/coeval/layers";
@@ -205,7 +205,7 @@ A join with a finding gives no layers. Each finding has the field `from`, with t
 | `joinRecords` | For `join` of an add-on: one list of records of the fragments in sequence. A key that two or more fragments have is a fault |
 | `joinSetting` | For `join` of an add-on: the one value of a setting of the whole layer. A different value in a fragment is a fault |
 | `RecordsJoin`, `RecordTwice`, `SettingJoin` | The results of the two tools |
-| `RecordsJoinOptions` | The option `equal` of `joinRecords`: a record that is equal to the first record of its key joins it |
+| `RecordsJoinOptions` | The options `equal` and `text` of `joinRecords`: a record that is equal to the first record of its key joins it, and the message of a fault gives the records |
 
 ## License
 
