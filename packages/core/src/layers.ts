@@ -377,12 +377,12 @@ function joinEqualRecords<Layer, Item>(
 ): RecordsJoin<Item> {
   const items: Item[] = [];
   // The first record of each key, and the fragments with a different record. The last position tells if a piece has the key already.
-  const owners = new Map<string, { readonly first: Item; readonly position: number; last: number; readonly from: string[] }>();
+  const owners = new Map<string, { readonly first: Item; last: number; readonly from: string[] }>();
   pieces.forEach((piece, position) => {
     for (const item of list(piece.layer) ?? []) {
       const id = key(item);
       const owner = owners.get(id);
-      if (owner === undefined) owners.set(id, { first: item, position, last: position, from: [piece.from] });
+      if (owner === undefined) owners.set(id, { first: item, last: position, from: [piece.from] });
       else if (owner.last !== position) {
         // The first record of the key in a later fragment.
         owner.last = position;
