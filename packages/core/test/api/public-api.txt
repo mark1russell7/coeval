@@ -3139,6 +3139,7 @@ export interface RecordsJoin<Item> {
 ### build/layers.d.ts#RecordsJoinOptions
 export interface RecordsJoinOptions<Item> {
   readonly equal?: (first: Item, other: Item) => boolean;
+  readonly text?: (item: Item) => string;
 }
 
 ### build/layers.d.ts#SettingJoin
