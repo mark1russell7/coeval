@@ -6161,6 +6161,7 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 
 - `RecordsJoinOptions` gets the optional function `text`. It gives the text of a record for a message (LAYERS.RECORDS-TEXT).
 - With `equal` and `text`, the message of each fault gives the first record of the key in each fragment of `from`. The records are in the order of `from`.
+- Each record is on a new line, after the name of its fragment. A text of a record, for example canonical JSON, can have commas. Thus a list on one line is hard to read.
 - The option changes no record and no field of `twice` other than its message. With no `equal`, it changes nothing.
 - The module still imports nothing (LAYERS.ALONE). Thus the add-on gives the text, for example canonical JSON.
 

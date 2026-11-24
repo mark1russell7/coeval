@@ -503,7 +503,7 @@ describe("the tools of the join of an add-on", () => {
     const d = piece("d", { items: [{ id: "y", count: 5 }, { id: "y", count: 8 }] });
     const e = piece("e", { items: [{ id: "y", count: 6 }] });
     const join = joinRecords([a, c, d, e], stockItems, stockId, "item", { equal: same, text });
-    const message = 'The fragments "a", "d", "e" each have the item "y", and the records are not equal: "a" has {"id":"y","count":2}, "d" has {"id":"y","count":5}, "e" has {"id":"y","count":6}.';
+    const message = 'The fragments "a", "d", "e" each have the item "y", and the records are not equal.\n  "a": {"id":"y","count":2}\n  "d": {"id":"y","count":5}\n  "e": {"id":"y","count":6}';
     expect(join.twice).toEqual([{ key: "y", from: ["a", "d", "e"], message }]);
     expect(join.errors).toEqual([message]);
     // The option changes only the message. The records are the records with no text.

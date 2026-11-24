@@ -293,7 +293,7 @@ export interface RecordTwice {
   readonly key: string;
   /** The names of the fragments with a record of the key, in the order of the fragments. */
   readonly from: readonly string[];
-  /** The fault in plain words, with the key and the fragments. */
+  /** The fault in plain words, with the key and the fragments. With the options `equal` and `text` of `joinRecords`, it also gives the records. */
   readonly message: string;
 }
 
@@ -323,6 +323,7 @@ export interface RecordsJoinOptions<Item> {
    * This function gives the text of a record for a message, for example its canonical JSON.
    *
    * - With `equal`, the message of a fault gives the first record of the key in each fragment of `from`. Thus the reader sees which field is different.
+   * - Each record is on a new line after the message, with the name of its fragment. The text of a record can have commas.
    * - With no `equal`, the function does not use this option. Each record of a key is then a fault, also an equal record.
    */
   readonly text?: (item: Item) => string;
@@ -405,8 +406,10 @@ function joinEqualRecords<Layer, Item>(
   const twice: RecordTwice[] = [];
   for (const [id, owner] of owners) {
     if (owner.from.length <= 1) continue;
-    const records = text === undefined ? "" : `: ${owner.from.map((from, index) => `"${from}" has ${text(owner.records[index] as Item)}`).join(", ")}`;
-    twice.push({ key: id, from: owner.from, message: `The fragments ${quoted(owner.from)} each have the ${noun} "${id}", and the records are not equal${records}.` });
+    const message = `The fragments ${quoted(owner.from)} each have the ${noun} "${id}", and the records are not equal.`;
+    // Each record has its own line, because a text of a record can have commas.
+    const records = text === undefined ? "" : owner.from.map((from, index) => `\n  "${from}": ${text(owner.records[index] as Item)}`).join("");
+    twice.push({ key: id, from: owner.from, message: message + records });
   }
   return { items, twice, errors: twice.map((item) => item.message) };
 }
