@@ -1,4 +1,4 @@
-# Builds packages/site and publishes it to GitHub Pages at https://mark1russell7.github.io/coeval/, with
+# Builds packages/site and publishes it to GitHub Pages at https://metrograph-labs.github.io/coeval/, with
 # the shared Pages workflow of mark1russell7 (reusable-pages.yml of mark1russell7/template, its CI.md).
 # The Pages source of the repository is "GitHub Actions" (Settings > Pages).
 # A scheduled build takes the newest commit of main, or the newest green one if CI failed on it.
@@ -15,7 +15,7 @@ on:
     branches: [main]
   # Every 3 hours, so that the Status page shows the open pull requests and issues of now
   schedule:
-    - cron: "13 */3 * * *"
+    - cron: "52 */3 * * *"
   workflow_dispatch:
 
 permissions: {}

@@ -8,7 +8,7 @@ name: Ladder plain
 on:
   # One morning each week, on the minute that the rule runner-budget gives this file.
   schedule:
-    - cron: "25 5 * * 2"
+    - cron: "40 5 * * 2"
   # A one-off read can name another slope. The weekly run and the call from "measure" use 1.25.
   workflow_dispatch:
     inputs:
