@@ -476,6 +476,24 @@ describe("the tools of the join of an add-on", () => {
     expect(same.twice).toEqual([{ key: "x", from: ["a", "a"], message: 'The fragments "a", "a" each have the item "x".' }]);
   });
 
+  it("[LAYERS.RECORDS-EQUAL] with the option equal, a record equal to the first record of its key joins it, and a different record is a fault", () => {
+    const same = (first: StockItem, other: StockItem): boolean => first.count === other.count;
+    const a = piece("a", { items: [{ id: "x", count: 1 }, { id: "y", count: 2 }] });
+    // The fragment "b" repeats "x" after its first record. The repeat stays for `check` of the add-on.
+    const b = piece("b", { items: [{ id: "x", count: 1 }, { id: "x", count: 7 }, { id: "z", count: 3 }] });
+    const c = piece("c", { items: [{ id: "y", count: 2 }] });
+    const join = joinRecords([a, b, c], stockItems, stockId, "item", { equal: same });
+    expect(join).toEqual({ items: [{ id: "x", count: 1 }, { id: "y", count: 2 }, { id: "x", count: 7 }, { id: "z", count: 3 }], twice: [], errors: [] });
+    // Each fragment with a different first record is in the fault, in the order of the fragments.
+    const d = piece("d", { items: [{ id: "y", count: 5 }] });
+    const e = piece("e", { items: [{ id: "y", count: 6 }, { id: "x", count: 1 }] });
+    const faults = joinRecords([a, c, d, e], stockItems, stockId, "item", { equal: same });
+    expect(faults.twice).toEqual([{ key: "y", from: ["a", "d", "e"], message: 'The fragments "a", "d", "e" each have the item "y", and the records are not equal.' }]);
+    expect(faults.errors).toEqual([faults.twice[0]?.message]);
+    // With no option, equal records of two fragments are a fault.
+    expect(joinRecords([a, c], stockItems, stockId, "item").errors).toEqual(['The fragments "a", "c" each have the item "y".']);
+  });
+
   it("[LAYERS.SETTING] joinSetting gives the value of the first piece that gives the setting", () => {
     const pieces = [piece("a", {}), piece("b", { unit: "kg" }), piece("c", { unit: "kg" }), piece("d", {})];
     expect(joinSetting(pieces, stockUnit, "unit")).toEqual({ value: "kg", errors: [] });

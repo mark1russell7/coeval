@@ -459,6 +459,7 @@ Layered: build/layers.d.ts#Layered
 LayersJoin: build/layers.d.ts#LayersJoin
 RecordTwice: build/layers.d.ts#RecordTwice
 RecordsJoin: build/layers.d.ts#RecordsJoin
+RecordsJoinOptions: build/layers.d.ts#RecordsJoinOptions
 SettingJoin: build/layers.d.ts#SettingJoin
 checkLayers: build/layers.d.ts#checkLayers
 isLayerName: build/layers.d.ts#isLayerName
@@ -3135,6 +3136,11 @@ export interface RecordsJoin<Item> {
   readonly errors: readonly string[];
 }
 
+### build/layers.d.ts#RecordsJoinOptions
+export interface RecordsJoinOptions<Item> {
+  readonly equal?: (first: Item, other: Item) => boolean;
+}
+
 ### build/layers.d.ts#SettingJoin
 export interface SettingJoin<Value> {
   readonly value: Value | undefined;
@@ -3151,7 +3157,7 @@ export declare function isLayerName(text: string): boolean;
 export declare function joinLayers(fragments: readonly LayerFragment[], joiners: readonly LayerJoiner<unknown>[]): LayersJoin;
 
 ### build/layers.d.ts#joinRecords
-export declare function joinRecords<Layer, Item>(pieces: readonly LayerPiece<Layer>[], list: (layer: Layer) => readonly Item[] | undefined, key: (item: Item) => string, noun: string): RecordsJoin<Item>;
+export declare function joinRecords<Layer, Item>(pieces: readonly LayerPiece<Layer>[], list: (layer: Layer) => readonly Item[] | undefined, key: (item: Item) => string, noun: string, options?: RecordsJoinOptions<Item>): RecordsJoin<Item>;
 
 ### build/layers.d.ts#joinSetting
 export declare function joinSetting<Layer, Value extends string | number | boolean>(pieces: readonly LayerPiece<Layer>[], setting: (layer: Layer) => Value | undefined, noun: string): SettingJoin<Value>;

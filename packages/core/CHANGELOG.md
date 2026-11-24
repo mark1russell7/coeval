@@ -2,6 +2,14 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.38.2
+
+An option of `joinRecords` joins equal records (D220).
+
+### Added
+
+- The optional fifth parameter of `joinRecords`, with the function `equal`, and its type `RecordsJoinOptions`. A record that is equal to the first record of its key in an earlier fragment joins it. A different record is a fault.
+
 ## 0.38.1
 
 The formula kit gets a standard table of operations (D219).
