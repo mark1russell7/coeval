@@ -40,7 +40,7 @@ A plan evaluates many times without a trace. `evaluate(machine, doc)` gives the 
 | The effects | `effectsOf`, `checkLatent`, `EffectsOptions` | The effects of a document that can reach the host: the declared effects, without the effects that a mask or a rule `only` removes. A host can grant exactly these capabilities. `checkLatent` compares the latent effects that a procedure declares with its body (D27) |
 | The static facts | `factsOf`, `DocFacts`, `StaticRead`, `FactsOptions`, `KindFacts`, `LazyRule` | The reads of a document with a mark for each read under a lazy part, its side, its effects and the marks `pure` and `volatile`. The contracts and the hook `facts` of a machine declare them (D24). The option `verb` names the verb |
 | Trees | `STD_WORLD` (`panel`, `box`), `nearestWalker`, `treeNodeEvaluator` | The decorated tree: each field of a node is an attribute that evaluates on demand, one time in an evaluation. A sibling is a path through the parent, and a cycle gives `#CYCLE!` with its chain. A cycle of `circular` attributes evaluates to a fixed point. A host can keep the memo cells of the attributes between evaluations, by the key of each node in its scope |
-| The formula kit | `formulaMachine`, `FormulaProfile`, `formulaKnown`, `formulaFacts` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. A language extends the kit through the merge. An address gives a thing, not its value |
+| The formula kit | `formulaMachine`, `FormulaProfile`, `formulaKnown`, `formulaFacts`, `STD_OPS` | The shared constructs `lit`, `ref`, `record`, `list`, `let`, `fn`, `call`, `if`, `and`, `or`, and the namespaces `ops` and `ext`. A profile gives the rules of a language, for example how the errors of two parts combine. A language extends the kit through the merge. An address gives a thing, not its value |
 | The codec of values | `encodeValue`, `decodeValue`, `decodeDomain`, `DomainCodec`, `STD_EXT` | A host value as one term document. JSON stays as it is. `ext.number`, `ext.undefined` and `ext.domain` hold the other values. A domain gives its codec (D40) |
 | The syntax kit | `parse`, `print`, `syntaxFormat`, `checkSyntax`, `SyntaxProfile`, `SyntaxOperator`, `SyntaxIssue`, `SyntaxFinding`, `MAX_SYNTAX_ISSUES`, `STD_SYNTAX`, `WORLD_SYNTAX` | One parser and one printer for the text of a language. A profile gives the operators, the literals, the references and the calls. `parse` gives a document, or each issue of the text with its span (D138), and `print` gives text that `parse` reads back (D41). `WORLD_SYNTAX` is the profile of `STD_WORLD` (D64) |
 | Stepper | `stepper`, `stepperStart`, `stepperNext`, `encodeConfiguration`, `decodeConfiguration`, `Configuration`, `Frame`, `StepperOptions` | A third tier: an evaluation with an explicit stack. It reads the lookup, the split and the paths itself. One step is a pure function. The codec gives the JSON form of a configuration. |
@@ -93,6 +93,7 @@ const machine = mergeMachines(formulaMachine(profile), syntaxFormat(algebra)); /
 - An issue of `parse` has `offset`, `length` and `message`. Show it at its span in an editor.
 - Test your profile with a round trip: `parse(print(doc))` gives `doc` again. `STD_SYNTAX` is the standard profile of the formula kit.
 - Start `checkSyntax(profile)` before you use a new profile. Each finding has a `code`, a `place` in the profile and a `reason` (D140).
+- `STD_OPS` gives the operations of `STD_SYNTAX`, and `floor`, `concat`, `text` and `coalesce`. Thus `formulaMachine(STD_OPS)` evaluates each text of `STD_SYNTAX`. Does your language need more operations? Spread each table of `STD_OPS` into your profile (D219).
 - `WORLD_SYNTAX` is the profile of `STD_WORLD`, for example `seq(a = 1 + 2, log(a))`. Is your world the standard world with more kinds? Spread `WORLD_SYNTAX` and add your forms to `calls.forms`.
 
 ## Check the code of a language
@@ -127,6 +128,84 @@ expect(codecLaws(machine, "date", { samples: [new Date(0)], equal: sameDate })).
 - The function tests the given samples, edge values and the lists of the domains, for example `NaN`, `-0` and empty containers. A value outside the domain gets no test.
 - The laws are `samples`, `encode`, `json`, `stable`, `decode` and `roundtrip`. Each finding has a `probe`: the domain, the member and its data.
 - Does a member hold an object? Give the rule `equal`, because `sameValue` compares an object only with itself.
+
+## Layers: a core and its add-ons
+
+The entry `@mark1russell7/coeval/layers` is for a library with one core and many add-ons. It imports nothing.
+
+- The core has one JSON document. Each add-on has one layer in the field `layers`, under the name of its format.
+- The core keeps each layer, and it does not read one. Thus the add-ons do not know each other.
+- An add-on gives `schema`, `parse` and `check`. A core can extend the type `AddOn` with more functions.
+
+```ts
+import { type AddOn, checkLayers, readLayer } from "@mark1russell7/coeval/layers";
+
+interface Core { readonly ids: readonly string[] }
+interface Cost { readonly prices: Readonly<Record<string, number>> }
+
+const cost: AddOn<Cost, Core> = {
+  schema: "cost/1",
+  parse: (value) => ({ ok: true, layer: value as Cost }),
+  check: (layer, core) =>
+    Object.keys(layer.prices)
+      .filter((id) => !core.ids.includes(id))
+      .map((id) => ({ level: "error", code: "price-record", at: id, message: `No record has the id "${id}".` })),
+};
+
+const doc = { layers: { "cost/1": { prices: { a: 2, z: 5 } }, "light/1": {} } };
+checkLayers(doc, [cost], { ids: ["a"] });
+// => the error `price-record` at "z" of the layer `cost/1`, then the warning `layer-unknown` of the layer `light/1`
+readLayer(doc, cost);
+// => { ok: true, layer: { prices: { a: 2, z: 5 } } }
+```
+
+### The fragments of a document
+
+A document can have many fragments, for example one file for each owner. `joinLayers` gives the layers of the one document.
+
+- A layer of one fragment stays as it is.
+- A layer of two or more fragments goes to `join` of its add-on. Only the add-on knows if the records agree.
+- With no add-on of its name, such a layer is the error `layer-twice`. The entry joins no records itself.
+- `joinRecords` and `joinSetting` are tools for `join`. The add-on gives the list and the key of its records.
+- With the option `equal`, `joinRecords` joins equal records of a key, for example a unit that each fragment declares. A different record is a fault. With the option `text`, the message gives the record of each fragment, for example as canonical JSON.
+
+```ts
+import { type LayerJoiner, joinLayers, joinRecords } from "@mark1russell7/coeval/layers";
+
+const costJoin: LayerJoiner<Cost> = {
+  schema: cost.schema,
+  parse: cost.parse,
+  join(pieces) {
+    // Each price has one fragment. A price of one record in two fragments is a fault.
+    const prices = joinRecords(pieces, (layer) => Object.entries(layer.prices), ([id]) => id, "price of the record");
+    return prices.errors.length === 0 ? { ok: true, layer: { prices: Object.fromEntries(prices.items) } } : { ok: false, errors: prices.errors };
+  },
+};
+
+const a = { name: "a.json", doc: { layers: { "cost/1": { prices: { a: 2 } }, "light/1": {} } } };
+joinLayers([a, { name: "b.json", doc: { layers: { "cost/1": { prices: { z: 5 } } } } }], [costJoin]);
+// => { ok: true, layers: { "cost/1": { prices: { a: 2, z: 5 } }, "light/1": {} } }
+joinLayers([a, { name: "c.json", doc: { layers: { "cost/1": { prices: { a: 3 } } } } }], [costJoin]);
+// => no layers, and the error `layer-join` of the layer `cost/1`:
+//    The fragments "a.json", "c.json" each have the price of the record "a".
+```
+
+A join with a finding gives no layers. Each finding has the field `from`, with the names of its fragments. `checkLayers` examines the joined layers afterward.
+
+| Export | What it does |
+| --- | --- |
+| `AddOn`, `Layered`, `LayerParse`, `LayerFault`, `LayerFinding` | The contract of an add-on, a document with layers, and the results |
+| `checkLayers` | The findings of each layer: the faults of its name and its form, then the faults from its add-on |
+| `readLayer` | The read of the layer of one add-on, or `undefined` when the document has no such layer |
+| `isLayerName` | The test of a name: a word, a slash and a version, for example `spend/1` |
+| `LAYER_CODES`, `LAYER_LEVELS` | The codes `layer-name`, `layer-unknown` and `layer-form`, and the levels `error` and `warning` |
+| `joinLayers` | The layers of one document from its fragments, or the findings of the join |
+| `LayerJoiner`, `LayerFragment`, `LayerPiece`, `LayersJoin`, `JoinFinding` | The contract of the join of an add-on, a fragment, the layer of one fragment, and the results |
+| `JOIN_CODES` | The codes `layer-name`, `layer-twice`, `layer-form` and `layer-join` of a join |
+| `joinRecords` | For `join` of an add-on: one list of records of the fragments in sequence. A key that two or more fragments have is a fault |
+| `joinSetting` | For `join` of an add-on: the one value of a setting of the whole layer. A different value in a fragment is a fault |
+| `RecordsJoin`, `RecordTwice`, `SettingJoin` | The results of the two tools |
+| `RecordsJoinOptions` | The options `equal` and `text` of `joinRecords`: a record that is equal to the first record of its key joins it, and the message of a fault gives the records |
 
 ## License
 

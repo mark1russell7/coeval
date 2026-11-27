@@ -3,7 +3,7 @@
   "name": "coeval-monorepo",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@12.10.1",
+  "packageManager": "pnpm@12.23.0",
   "engines": {
     "node": ">=22"
   },
@@ -16,11 +16,14 @@
     "check:conventions": "conventions check",
     "check:api": "api-report check"
   },
+  "sitePages": {
+    "bareErrors": "fail"
+  },
   "devDependencies": {
     "@mark1russell7/api-report": "^0.5.3",
-    "@mark1russell7/conventions": "^0.41.0",
+    "@mark1russell7/conventions": "^0.54.0",
     "@mark1russell7/cue": "^2.1.1",
-    "@mark1russell7/ste-lint": "^0.3.0",
+    "@mark1russell7/ste-lint": "^0.6.0",
     "@mark1russell7/template-cli": "^0.1.0",
     "publint": "^0.3.25",
     "tsdown": "^0.23.0",

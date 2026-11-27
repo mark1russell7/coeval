@@ -1,12 +1,13 @@
 {
   "$schema": "https://json.schemastore.org/package",
   "name": "@mark1russell7/coeval",
-  "version": "0.37.0",
+  "version": "0.38.3",
   "description": "coeval: the kernel of declarative languages. Documents in envelopes, a ladder that finds the evaluator, kind contracts, compiled plans, a static kit, a formula kit and a run side with capabilities.",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./layers": "./src/layers.ts",
     "./package.json": "./package.json"
   },
   "files": [
@@ -39,7 +40,7 @@
   ],
   "devDependencies": {
     "@mark1russell7/cue": "^2.1.1",
-    "@mark1russell7/rigor-bench": "^0.2.34",
+    "@mark1russell7/rigor-bench": "^0.3.1",
     "@mark1russell7/rigor-statistics": "^0.2.0",
     "@types/node": "^26.6.4",
     "@vitest/coverage-v8": "^5.0.3",
@@ -56,11 +57,15 @@
         "types": "./build/index.d.ts",
         "default": "./build/index.js"
       },
+      "./layers": {
+        "types": "./build/layers.d.ts",
+        "default": "./build/layers.js"
+      },
       "./package.json": "./package.json"
     }
   },
   "dependencies": {
     "@mark1russell7/collections": "^0.11.0",
-    "@mark1russell7/rigor-generators": "^0.1.8"
+    "@mark1russell7/rigor-generators": "^0.2.0"
   }
 }

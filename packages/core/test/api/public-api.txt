@@ -198,6 +198,7 @@ STD_DOMAINS: build/index.d.ts#STD_DOMAINS
 STD_EVALUATORS: build/index.d.ts#STD_EVALUATORS
 STD_EXT: build/index.d.ts#STD_EXT
 STD_MACHINE: build/index.d.ts#STD_MACHINE
+STD_OPS: build/index.d.ts#STD_OPS
 STD_RUNNERS: build/index.d.ts#STD_RUNNERS
 STD_SYNTAX: build/index.d.ts#STD_SYNTAX
 STD_WALKERS: build/index.d.ts#STD_WALKERS
@@ -217,6 +218,7 @@ type Side: build/index.d.ts#Side
 type Signature: build/index.d.ts#Signature
 type Split: build/index.d.ts#Split
 type StaticRead: build/index.d.ts#StaticRead
+type StdOps: build/index.d.ts#StdOps
 type Step: build/index.d.ts#Step
 type StepKey: build/index.d.ts#StepKey
 type StepLadder: build/index.d.ts#StepLadder
@@ -436,6 +438,35 @@ valueOfThing: build/index.d.ts#valueOfThing
 verifyReads: build/index.d.ts#verifyReads
 walk: build/index.d.ts#walk
 worldThing: build/index.d.ts#worldThing
+
+## ./layers (build/layers.d.ts): names
+
+AddOn: build/layers.d.ts#AddOn
+JOIN_CODES: build/layers.d.ts#JOIN_CODES
+JoinCode: build/layers.d.ts#JoinCode
+JoinFinding: build/layers.d.ts#JoinFinding
+LAYER_CODES: build/layers.d.ts#LAYER_CODES
+LAYER_LEVELS: build/layers.d.ts#LAYER_LEVELS
+LayerCode: build/layers.d.ts#LayerCode
+LayerFault: build/layers.d.ts#LayerFault
+LayerFinding: build/layers.d.ts#LayerFinding
+LayerFragment: build/layers.d.ts#LayerFragment
+LayerJoiner: build/layers.d.ts#LayerJoiner
+LayerLevel: build/layers.d.ts#LayerLevel
+LayerParse: build/layers.d.ts#LayerParse
+LayerPiece: build/layers.d.ts#LayerPiece
+Layered: build/layers.d.ts#Layered
+LayersJoin: build/layers.d.ts#LayersJoin
+RecordTwice: build/layers.d.ts#RecordTwice
+RecordsJoin: build/layers.d.ts#RecordsJoin
+RecordsJoinOptions: build/layers.d.ts#RecordsJoinOptions
+SettingJoin: build/layers.d.ts#SettingJoin
+checkLayers: build/layers.d.ts#checkLayers
+isLayerName: build/layers.d.ts#isLayerName
+joinLayers: build/layers.d.ts#joinLayers
+joinRecords: build/layers.d.ts#joinRecords
+joinSetting: build/layers.d.ts#joinSetting
+readLayer: build/layers.d.ts#readLayer
 
 ## Declarations
 
@@ -1857,6 +1888,9 @@ export declare const STD_EXT: Readonly<Record<string, ExtFn>>;
 ### build/index.d.ts#STD_MACHINE
 export declare const STD_MACHINE: Machine;
 
+### build/index.d.ts#STD_OPS
+export declare const STD_OPS: StdOps;
+
 ### build/index.d.ts#STD_RUNNERS
 export declare const STD_RUNNERS: Readonly<Record<string, Runner>>;
 
@@ -2047,6 +2081,14 @@ interface StaticRead {
   readonly path: readonly Json[];
   readonly place: readonly Key[];
   readonly at: readonly Key[];
+}
+
+### build/index.d.ts#StdOps
+interface StdOps {
+  readonly ops: Readonly<Record<string, OpFn>>;
+  readonly lazy: Readonly<Record<string, LazyOp>>;
+  readonly sigs: Readonly<Record<string, Signature | readonly Signature[]>>;
+  readonly pure: readonly string[];
 }
 
 ### build/index.d.ts#Step
@@ -2992,3 +3034,134 @@ export declare function walk(world: World, doc: unknown, visit: (visit: DocVisit
 
 ### build/index.d.ts#worldThing
 export declare function worldThing(world: World): Json;
+
+### build/layers.d.ts#AddOn
+export interface AddOn<Layer, Context> {
+  readonly schema: string;
+  parse(value: unknown): LayerParse<Layer>;
+  check(layer: Layer, context: Context): readonly LayerFault[];
+}
+
+### build/layers.d.ts#JOIN_CODES
+export declare const JOIN_CODES: readonly ["layer-name", "layer-twice", "layer-form", "layer-join"];
+
+### build/layers.d.ts#JoinCode
+export type JoinCode = (typeof JOIN_CODES)[number];
+
+### build/layers.d.ts#JoinFinding
+export interface JoinFinding extends LayerFinding {
+  readonly code: JoinCode;
+  readonly from: readonly string[];
+}
+
+### build/layers.d.ts#LAYER_CODES
+export declare const LAYER_CODES: readonly ["layer-name", "layer-unknown", "layer-form"];
+
+### build/layers.d.ts#LAYER_LEVELS
+export declare const LAYER_LEVELS: readonly ["error", "warning"];
+
+### build/layers.d.ts#LayerCode
+export type LayerCode = (typeof LAYER_CODES)[number];
+
+### build/layers.d.ts#LayerFault
+export interface LayerFault {
+  readonly level: LayerLevel;
+  readonly code: string;
+  readonly at: string;
+  readonly message: string;
+  readonly other?: string | undefined;
+}
+
+### build/layers.d.ts#LayerFinding
+export interface LayerFinding extends LayerFault {
+  readonly layer: string;
+}
+
+### build/layers.d.ts#LayerFragment
+export interface LayerFragment {
+  readonly name: string;
+  readonly doc: Layered;
+}
+
+### build/layers.d.ts#LayerJoiner
+export interface LayerJoiner<Layer> {
+  readonly schema: string;
+  parse(value: unknown): LayerParse<Layer>;
+  join(pieces: readonly LayerPiece<Layer>[]): LayerParse<Layer>;
+}
+
+### build/layers.d.ts#LayerLevel
+export type LayerLevel = (typeof LAYER_LEVELS)[number];
+
+### build/layers.d.ts#LayerParse
+export type LayerParse<Layer> = {
+  readonly ok: true;
+  readonly layer: Layer;
+} | {
+  readonly ok: false;
+  readonly errors: readonly string[];
+};
+
+### build/layers.d.ts#LayerPiece
+export interface LayerPiece<Layer> {
+  readonly from: string;
+  readonly layer: Layer;
+}
+
+### build/layers.d.ts#Layered
+export interface Layered {
+  readonly layers?: Readonly<Record<string, unknown>> | undefined;
+}
+
+### build/layers.d.ts#LayersJoin
+export type LayersJoin = {
+  readonly ok: true;
+  readonly layers: Readonly<Record<string, unknown>>;
+} | {
+  readonly ok: false;
+  readonly findings: readonly JoinFinding[];
+};
+
+### build/layers.d.ts#RecordTwice
+export interface RecordTwice {
+  readonly key: string;
+  readonly from: readonly string[];
+  readonly message: string;
+}
+
+### build/layers.d.ts#RecordsJoin
+export interface RecordsJoin<Item> {
+  readonly items: readonly Item[];
+  readonly twice: readonly RecordTwice[];
+  readonly errors: readonly string[];
+}
+
+### build/layers.d.ts#RecordsJoinOptions
+export interface RecordsJoinOptions<Item> {
+  readonly equal?: (first: Item, other: Item) => boolean;
+  readonly text?: (item: Item) => string;
+}
+
+### build/layers.d.ts#SettingJoin
+export interface SettingJoin<Value> {
+  readonly value: Value | undefined;
+  readonly errors: readonly string[];
+}
+
+### build/layers.d.ts#checkLayers
+export declare function checkLayers<Context>(doc: Layered, addOns: readonly AddOn<unknown, Context>[], context: Context): readonly LayerFinding[];
+
+### build/layers.d.ts#isLayerName
+export declare function isLayerName(text: string): boolean;
+
+### build/layers.d.ts#joinLayers
+export declare function joinLayers(fragments: readonly LayerFragment[], joiners: readonly LayerJoiner<unknown>[]): LayersJoin;
+
+### build/layers.d.ts#joinRecords
+export declare function joinRecords<Layer, Item>(pieces: readonly LayerPiece<Layer>[], list: (layer: Layer) => readonly Item[] | undefined, key: (item: Item) => string, noun: string, options?: RecordsJoinOptions<Item>): RecordsJoin<Item>;
+
+### build/layers.d.ts#joinSetting
+export declare function joinSetting<Layer, Value extends string | number | boolean>(pieces: readonly LayerPiece<Layer>[], setting: (layer: Layer) => Value | undefined, noun: string): SettingJoin<Value>;
+
+### build/layers.d.ts#readLayer
+export declare function readLayer<Layer>(doc: Layered, addOn: Pick<AddOn<Layer, never>, "schema" | "parse">): LayerParse<Layer> | undefined;

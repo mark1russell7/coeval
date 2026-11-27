@@ -592,6 +592,27 @@ A value type is a set of values that a result can have (R5 P2, D22). It is a JSO
 | FORMULA.SPEED | A plan evaluates a small formula many times quickly. The bench measures the time (K200). |
 | FORMULA.EXTEND | `formulaMachine` merges the kit and the language with `mergeMachines`. A kind `ops.*` or a namespace `ops` of the language extends the namespace of the kit, and the fallback of the kit stays. A different kind or evaluator with the name of a kit entry is a conflict, unless the language replaces it. |
 
+## The standard operations
+
+`STD_OPS` is the standard table of operations of the formula kit (D219). A language uses it as its profile, or it spreads each table into its own profile.
+
+| ID | Rule |
+| --- | --- |
+| STDOPS.SYNTAX | The table has an operation for each operator of `STD_SYNTAX`. Thus a text of the standard syntax evaluates with `formulaMachine(STD_OPS)`. |
+| STDOPS.NUMBERS | `add`, `sub`, `mul`, `div`, `pow`, `neg` and `floor` give the result of the operator or the function of the host. |
+| STDOPS.MOD | `mod` gives the remainder of a truncated division. The remainder has the sign of the first argument. |
+| STDOPS.NUM | A result `NaN` of an operation on numbers gives `#NUM!`. An infinite result of finite arguments also gives `#NUM!`. Thus `1 / 0` is an error, and `Infinity + 1` is `Infinity`. |
+| STDOPS.VALUE | An argument of the wrong shape gives `#VALUE!`, with the shapes of the arguments in the reason. The table does not convert a value. Thus `"1" + 2` is an error. |
+| STDOPS.ARGS | A different count of arguments gives `#ARGS`. Only `concat` and `coalesce` take any count. |
+| STDOPS.EQUAL | `eq` and `ne` compare with `docEquals`. Thus `-0` is not `0`, `NaN` is `NaN`, and two lists with equal items are equal. |
+| STDOPS.ORDER | `lt`, `le`, `gt` and `ge` take two numbers or two texts. Texts compare by code units. A comparison with `NaN` is false. |
+| STDOPS.CONCAT | `concat` joins zero or more texts. With no argument, it gives the empty text. |
+| STDOPS.TEXT | `text` gives the text of a number, a text or a truth value. A number gives the shortest text that reads back as the same number, as in JavaScript, thus `-0` gives `0`. Each other value gives `#VALUE!`. |
+| STDOPS.COALESCE | The lazy operation `coalesce` evaluates its arguments in order. It gives the first value that is not `null` or `undefined`. An argument with the error `#N/A` has no value. Each other error stops it, also `#NAME?` of an unbound name. With no value, it gives `#N/A`, so a record with `omit` of `#N/A` leaves out the field. |
+| STDOPS.TYPES | Each operation has a signature in `sigs`, and `conforms` finds no fault in the table. A comparison has one signature for numbers and one for texts. |
+| STDOPS.PURE | Each operation of the table is pure, and `pure` names each one. Thus a formula of the table folds in a plan. |
+| STDOPS.SPREAD | Each table is a frozen plain record. A language spreads it into its own profile and adds its operations. The tables do not change. |
+
 ## The limit of work
 
 | ID | Rule |
@@ -739,6 +760,53 @@ A syntax profile gives the text of a language: its operators, literals, referenc
 | STEPPER.DATA | A configuration of a document of the formula kit goes through JSON with `encodeConfiguration` and `decodeConfiguration` at each step. The run gives the same result, and a record of data stays data. |
 | STEPPER.NEXT-STATE | Each call of `stepperNext` has a new program. Thus a configuration from it holds the count of work, the count of the effects at each place and the number of effects. Steps give each effect the address and the index of `stepper`, also through JSON. |
 | STEPPER.PURE | `stepperNext` leaves its configuration as it is. A host can step one configuration twice, and it gets equal configurations. |
+
+## Layers
+
+These are the rules of the entry `@mark1russell7/coeval/layers`. A layer holds the records of one add-on in a document.
+
+| ID | Rule |
+| --- | --- |
+| LAYERS.NAME | The name of a layer is a word, a slash and a version, for example `spend/1`. The word starts with a lowercase letter, and it has lowercase letters, digits and hyphens. A layer with a different name gets the error `layer-name`, and no add-on reads it. |
+| LAYERS.UNKNOWN | A layer of no add-on of the check gets the warning `layer-unknown`. `checkLayers` does not change the document, so the document keeps the layer. |
+| LAYERS.FORM | A layer that its add-on cannot read gets one error `layer-form` for each fault of its form. Its `check` does not start. |
+| LAYERS.CHECK | The faults of the meaning of a layer come from `check` of its add-on, with the context of the caller. Each finding gets the name of its layer, and the faults keep the order of the add-on. |
+| LAYERS.ORDER | The findings are in the order of the layer names by code units. Thus the order of the fields of `layers` and the order of the add-ons do not change the findings. |
+| LAYERS.FIRST | The first add-on of a name in the list reads the layer of that name. |
+| LAYERS.NONE | A document with no field `layers`, or with no layer, has no finding. `readLayer` gives `undefined` for a layer that the document does not have. |
+| LAYERS.READ | `readLayer` gives the read of the layer of one add-on. It reads only an own field of `layers`. |
+| LAYERS.CODES | `LAYER_CODES` lists the codes that `checkLayers` gives itself, and `LAYER_LEVELS` lists the levels of a fault. |
+| LAYERS.ALONE | The module of the entry imports nothing. Thus a core that uses the entry gets no other code of the package. |
+
+A document can have many fragments, for example one file for each owner. Each fragment is a document with its own layers. `joinLayers` gives the layers of the one document, or the findings of the join.
+
+| ID | Rule |
+| --- | --- |
+| LAYERS.JOIN-ONE | A layer of one fragment stays as it is in the joined layers. `joinLayers` does not examine it, and no add-on reads it. |
+| LAYERS.JOIN-MANY | A layer of two or more fragments goes to `join` of the first add-on of its name. The pieces are in the order of the fragments. Each piece has the name of its fragment and the layer that `parse` gave. |
+| LAYERS.JOIN-NAME | A layer of two or more fragments with a name that `isLayerName` refuses gets the error `layer-name`, with the message of `checkLayers`. No add-on reads it. |
+| LAYERS.JOIN-TWICE | A layer of two or more fragments with no add-on of its name gets the error `layer-twice`. `joinLayers` joins no records itself, also when the values are equal. |
+| LAYERS.JOIN-FORM | A layer that its add-on cannot read gets one error `layer-form` for each fault of its form, with the name of its fragment. Then `join` does not start for that layer. |
+| LAYERS.JOIN-FAULT | Each fault of `join` of an add-on is one error `layer-join`, with the names of the fragments of the layer. |
+| LAYERS.JOIN-ALL | A join with a finding gives the findings of each layer, and it gives no layers. |
+| LAYERS.JOIN-ORDER | The joined layers and the findings are in the order of the layer names by code units. Thus the order of the fields of `layers` and the order of the add-ons do not change the result. |
+| LAYERS.JOIN-OWN | `joinLayers` reads only an own field of `layers`. A layer with the name `__proto__` stays an own field of the joined layers. |
+| LAYERS.JOIN-PURE | `joinLayers` does not change a fragment. A join of no fragment, or of fragments with no layer, gives no layer and no finding. |
+| LAYERS.JOIN-CHECK | `checkLayers` examines the joined layers as the layers of each other document. One value can be an add-on and its join. |
+| LAYERS.JOIN-CODES | `JOIN_CODES` lists the codes that `joinLayers` gives. Each finding of a join is an error. |
+
+`joinRecords` and `joinSetting` are tools for `join` of an add-on. The add-on gives the list and the key of its records, so the tools know no topic.
+
+| ID | Requirement |
+| --- | --- |
+| LAYERS.RECORDS | `joinRecords` gives the records of one list of each piece, in the order of the pieces. Each piece keeps the order of its records. A layer with no list gives no record. The function does not change a piece. |
+| LAYERS.RECORDS-TWICE | A key that two or more fragments have is one item of `twice`, also when the records are equal. The items are in the order of the first record of each key. `from` has each fragment one time, in the order of the fragments. `errors` has the message of each item. |
+| LAYERS.RECORDS-ONE | A key that one fragment has two times is no fault of the join: `check` of the add-on reads the joined layer. The function counts the fragments by their position, so two fragments with one name are two fragments. |
+| LAYERS.RECORDS-EQUAL | With the option `equal`, the first record of a key in a later fragment joins the first record of the key when `equal` tells that the two are equal. Each later fragment with a different first record is in `from` of one item of `twice`. A repeat in one fragment stays in the records. |
+| LAYERS.RECORDS-TEXT | With the options `equal` and `text`, the message of each item of `twice` gives the text of the first record of the key in each fragment of `from`, in the order of `from`. Each record is on a new line, after the name of its fragment. The option changes no record. With no `equal`, the option `text` changes nothing. |
+| LAYERS.SETTING | `joinSetting` gives the value of the first piece that gives the setting. A piece with `undefined` gives no value. The values 0, `false` and the empty text are values. With no such piece, the value is `undefined` and no message comes. |
+| LAYERS.SETTING-DIFF | Each piece with a value that is not the first value is one message, with the two fragments and the two values. |
+| LAYERS.TOOLS | The messages of the tools are faults for the result of `join`. Thus `joinLayers` gives each one as the error `layer-join`. |
 
 ## The calculus
 

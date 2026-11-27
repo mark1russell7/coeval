@@ -2,6 +2,55 @@
 
 The GitHub release of a version shows the section of that version. Each decision `D<n>` is in `docs/DECISIONS.md`.
 
+## 0.38.3
+
+The message of a join with the option `equal` can give the records (D221).
+
+### Added
+
+- The option `text` of `RecordsJoinOptions`. With `equal`, the message of a fault gives the text of the first record of the key in each fragment. Thus the reader sees which field is different.
+
+## 0.38.2
+
+An option of `joinRecords` joins equal records (D220).
+
+### Added
+
+- The optional fifth parameter of `joinRecords`, with the function `equal`, and its type `RecordsJoinOptions`. A record that is equal to the first record of its key in an earlier fragment joins it. A different record is a fault.
+
+## 0.38.1
+
+The formula kit gets a standard table of operations (D219).
+
+### Added
+
+- `STD_OPS` and its type `StdOps`: an operation for each operator of `STD_SYNTAX`, and `floor`, `concat`, `text` and the lazy `coalesce`. Each one has a signature.
+
+## 0.38.0
+
+The release train changes the range of `@mark1russell7/rigor-generators` to a version outside the old range. The public types name @mark1russell7/rigor-generators, so its new version outside the old range can change them.
+
+### Breaking
+
+- The range `^0.1.8` of `@mark1russell7/rigor-generators` in `dependencies` does not hold `0.2.0`, so it changes.
+
+## 0.37.2
+
+PATCH: new exports of the entry `./layers`. Before 1.0.0, a feature increases PATCH. No export that exists changes.
+
+### Features
+
+- **`joinLayers` of the entry `@mark1russell7/coeval/layers` (D218, L7).** A document can have many fragments, for example one file for each owner. `joinLayers` gives the layers of the one document. A layer of one fragment stays as it is. A layer of two or more fragments goes to `join` of its add-on, which has the new contract `LayerJoiner`. With no add-on, such a layer is the error `layer-twice`: the entry joins no records itself.
+- **`joinRecords` and `joinSetting`, the tools of `join` of an add-on (D218).** `joinRecords` puts one list of records of the fragments in sequence. A key that two or more fragments have is a fault, so each record has one fragment. `joinSetting` gives the one value of a setting of the whole layer. A different value in a fragment is a fault.
+
+## 0.37.1
+
+PATCH: a new entry. Before 1.0.0, a feature increases PATCH. The root entry does not change.
+
+### Features
+
+- **The entry `@mark1russell7/coeval/layers` (D217, L6).** A library with one core and many add-ons keeps the records of each add-on as one layer of its document. The entry has the contract `AddOn`, with `schema`, `parse` and `check`. `checkLayers` gives the faults of the name and the form of each layer, then the faults from its add-on. `readLayer` reads the layer of one add-on. The module imports nothing (LAYERS.ALONE).
+
 ## 0.37.0
 
 The release train changes the range of `@mark1russell7/collections` to a version outside the old range. The public types name @mark1russell7/collections, so its new version outside the old range can change them.

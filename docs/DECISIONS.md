@@ -2999,7 +2999,7 @@ Thus a later case ran on the heap and the type feedback of the earlier cases. An
 
 **Decision.**
 
-- The bench follows the default of the fleet strategy: each case of a gate runs alone in its own fresh processes.
+- The bench follows this default: each case of a gate runs alone in its own fresh processes.
 - A mode run is optional. It only saves processes, and it can keep a case in order only when it has enough processes for the budget.
 - The bench thus runs each of the 16 cases in its own processes. The list `TOGETHER` of `paths.ts` names the cases that run in one process. It is empty.
 - In each round, each group of cases runs for the three copies in the order of the round. Then the next group starts.
@@ -3015,7 +3015,7 @@ Thus a later case ran on the heap and the type feedback of the earlier cases. An
 - The halves change places in each second round. The case order and the places of IN ORDER and GROUP turn in each round.
 - The workflow `measure.yml` runs the script in 2 parts of 8 cases, each part on its own runner. The job `mode-verdict` pools the parts with Node only.
 
-**The verdict.** The mode run gives each case the equivalence verdict of the fleet strategy (O83 amendment, with the amendment of the A/A term).
+**The verdict.** The mode run gives each case the equivalence verdict (O83 amendment, with the amendment of the A/A term).
 
 - The ratios of a case are its 20 ratios IN ORDER / A1, one for each round.
 - The interval of the median is the 6th to the 15th of the 20 sorted ratios. It is free of a distribution.
@@ -6011,3 +6011,169 @@ The fault broke TREE.ONCE and the claim of D134 that other work stays polynomial
 - A host that prepares each level of the original value, not of the folded copy, still copies each level again. The host gets the shared copy from the result of the plan.
 
 **SemVer.** No export changes. A deep value folds, and before it did not fold. Thus a plan gives one frozen result for it at each evaluation, as PLAN.SHARED states for each other value. A host must not change a result in place. Thus this is a fix: PATCH.
+
+## D217 (2026-11-16): the contract of a layer is one entry that imports nothing
+
+**Context.** L6. Two libraries have one topic-free core and many add-ons: a model of rooms, and a model of the parts of a system. Each one keeps one JSON document. Each add-on has one layer in the field `layers`, under the name of its format.
+
+- The two cores had the same contract of an add-on.
+- Each core had its own copy of the read and the check of the layers.
+- A third library of this form makes a third copy.
+- The contract names no topic. It is a rule of documents and their formats, so its home is this package.
+
+**Decision.**
+
+- The new entry `@mark1russell7/coeval/layers` has the contract. Its module `src/layers.ts` imports nothing (LAYERS.ALONE).
+- `AddOn<Layer, Context>` has `schema`, `parse` and `check`. The context is what a core gives to each add-on, for example its own records.
+- `checkLayers` gives the codes `layer-name`, `layer-unknown` and `layer-form` itself. Each other code comes from an add-on.
+- An unknown layer is a warning, not an error. A document can have the layer of an add-on that one host does not load.
+- The findings are in the order of the layer names. The faults of one layer keep the order of its add-on (LAYERS.ORDER, LAYERS.CHECK).
+- A core extends `AddOn` for its own needs. For example, a core of space adds the function that gives the anchors of the records.
+
+**Alternatives.**
+
+- The contract in each core. That is the state before, with two copies.
+- A new package for the contract. The contract is 150 lines with no dependency, and a package for it adds a release and a version to each core.
+- An export of the root entry. A core of plain records then imports the kernel, and its users load a module graph that they do not use.
+- A layer as an envelope with a `type`. The kernel then needs a kind for each layer, and a core with no evaluation has no world.
+- A sort of the faults of one layer by `at`. The order of an add-on can have a meaning, for example the order of the records of the core. A core that wants a different order sorts in its own `check`.
+
+**Why.** One home holds the rule (the name of a layer, the three codes, the order of the findings), and each core keeps only its own topic. The entry imports nothing, so the boundary rules of a core can permit it with no exception.
+
+**Limits.**
+
+- The entry does not catch an exception of `parse` or `check`. An add-on gives a fault of the form as a result, and it does not throw.
+- The entry has no function that writes a layer. A core writes `layers` as it writes each other field.
+- The two cores do not use the entry yet. Each one changes to it in its own release, with no change of its findings.
+
+**SemVer.** A new entry `./layers` with new exports. The root entry does not change. Before 1.0.0, a feature increases PATCH: 0.37.1.
+
+## D218 (2026-11-16): an add-on joins its layer, and the entry joins no records
+
+**Context.** L7. A document of a core with add-ons can have many fragments: one file for each owner, or one file for each topic. Each fragment is a document with its own layers.
+
+- A check reads one document, so a host joins the fragments first.
+- The core joins its own records. It does not read the layers, so it cannot join them.
+- Two fragments can have a layer of the same name. Only the add-on of that layer knows if their records agree.
+- Without a shared rule, each core writes the same loop over the fragments and the layer names.
+
+**Decision.**
+
+- The entry `@mark1russell7/coeval/layers` gets `joinLayers(fragments, joiners)`. The module still imports nothing (LAYERS.ALONE).
+- A fragment is a name and a document. The name tells the source of a layer in a finding, for example the path of a file.
+- `LayerJoiner<Layer>` has `schema`, `parse` and `join`. It has the `schema` and the `parse` of `AddOn`, so one value can be an add-on and its join.
+- A layer of one fragment stays as it is, and no add-on reads it (LAYERS.JOIN-ONE). `checkLayers` examines it afterward.
+- A layer of two or more fragments goes to `join` of its add-on, in the order of the fragments. Each piece has the name of its fragment and the layer that `parse` gave.
+- A layer of two or more fragments with a name that `isLayerName` refuses is the error `layer-name`, and no add-on reads it. This is the rule and the message of `checkLayers`.
+- With no add-on of its name, such a layer is the error `layer-twice`. The entry joins no records itself.
+- The result is all the layers or the findings. A join with a finding gives no part of the layers (LAYERS.JOIN-ALL).
+- The codes of a join are a new list, `JOIN_CODES`. `LAYER_CODES` does not change.
+- The entry has two tools for `join` of an add-on. The add-on gives the list and the key of its records, so the tools know no topic.
+- `joinRecords` puts one list of records in sequence. Its rule is that each record has one fragment. A key that two or more fragments have is a fault, also when the records are equal.
+- `joinSetting` gives the one value of a setting of the whole layer, for example a currency. A fragment with a different value is a fault.
+
+**Alternatives.**
+
+- A join in each core. That is the copy that L6 removed for the check.
+- A deep merge of the JSON of the layers. A merge of two lists can hide two records with one `id`, or two different limits. Only the add-on knows the meaning.
+- The last fragment replaces the layer. A file then removes the records of a different owner with no finding.
+- A join of equal values with no add-on. Two equal lists of records can be one list in two files, or two lists. The entry cannot tell, so it gives `layer-twice`.
+- The function `join` as a field that each `AddOn` must have. That breaks each add-on that exists, and an add-on of a document with one fragment needs no join.
+- A join that also checks the layers. A check needs the context of the core, and the core makes the context from the joined records.
+- Equal records of one key in two fragments become one record. The two copies are equal only until one file changes. Thus `joinRecords` keeps one home for each record.
+- No tools, so each add-on writes the loop over the pieces. Each add-on then has its own text for the same fault, and its own order of the faults.
+
+**Why.** One home holds the rule of the fragments. The rule tells which layer needs a join, the order of the pieces, the codes and the order of the findings. Each add-on keeps only the meaning of its own records, and the add-ons still do not know each other.
+
+**Limits.**
+
+- The entry does not examine the names of the fragments. A core gives a different name to each fragment.
+- The entry does not read the joined layer again. `checkLayers` reads it afterward, and a joined layer that `parse` cannot read shows there as `layer-form`.
+- A fault of `join` is a text with no `at`. The text names the record and its fragments.
+- The entry does not catch an exception of `parse` or `join`.
+- The entry joins only the layers. A core joins its own records, and it gives its own faults. A core can use `joinRecords` for them.
+- `joinSetting` compares a text, a number or a boolean. An add-on compares a setting that is a record itself.
+- An add-on with a different rule for its records writes its own `join`. The tools are not a part of the contract.
+
+**SemVer.** New exports of the entry `./layers`: `joinLayers`, `joinRecords`, `joinSetting`, `JOIN_CODES`, and the types `LayerFragment`, `LayerPiece`, `LayerJoiner`, `JoinCode`, `JoinFinding`, `LayersJoin`, `RecordTwice`, `RecordsJoin` and `SettingJoin`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.37.2.
+
+## D219 (2026-11-17): a standard table of operations for the formula kit
+
+**Context.** L8. `STD_SYNTAX` writes the kinds `ops.not`, `ops.eq`, `ops.add`, `ops.div` and the others, but no standard profile gives these operations. Each language writes its own table again, with its own rules for a wrong value.
+
+- A host that keeps the values of an API as terms needs only a few operations, for example `floor(div(ms, 1000))` for seconds.
+- A term that joins texts needs `concat`. A reason that holds an HTTP status needs the text of a number. A term that takes the first given field of two needs a coalesce.
+- A reference to an absent field of a record gives `#N/A`. A strict operation stops at that error, so a coalesce must be lazy.
+
+**Decision.**
+
+- `STD_OPS` is the standard table. It has `ops`, `lazy`, `sigs` and `pure`, each a frozen plain record. Its type is `StdOps`.
+- It has an operation for each operator of `STD_SYNTAX`, and `floor`, `concat`, `text` and `coalesce` (STDOPS.SYNTAX).
+- Only `text` converts a value: it gives the text of a number, a text or a truth value (STDOPS.TEXT). Each other operation converts no value. A wrong shape gives `#VALUE!`, and a wrong count gives `#ARGS` (STDOPS.VALUE, STDOPS.ARGS).
+- A result `NaN`, or an infinite result of finite numbers, gives `#NUM!` (STDOPS.NUM). Thus a division by zero is an error.
+- `eq` and `ne` use `docEquals`, the one equality of the kernel (D20).
+- `mod` keeps the remainder of the host, with the sign of the first argument.
+- `coalesce` counts `#N/A` as no value, and each other error stops it. An unbound name stays an error of the program.
+- The table is data only. `formulaMachine` does not change, and no profile gets the table without a spread.
+
+**Alternatives.**
+
+- The table as the default of `formulaMachine`. Each language then gets operations that it did not ask for, and an operation of the same name changes meaning.
+- The rules of JavaScript for `+` and `<`. Then `"1" + 2` is `"12"`, and a wrong input gives no error.
+- A division by zero that gives `Infinity`. A host that sends the value to an API then sends a text that the API refuses.
+- A coalesce that skips each error. It then hides a typing fault, for example `"a" + 1`.
+- A table in the package of each host. That is a copy for each host.
+
+## D220 (2026-11-24): an option of `joinRecords` joins equal records
+
+**Context.** D218 gave `joinRecords` the rule that each record has one fragment. Some records are declarations that each fragment can give, for example a resource and its unit. Each owner file declares the resources of its stores. An add-on with such records wrote its own join, with a comparison of canonical JSON. That is a copy of the loop of `joinRecords`.
+
+**Decision.**
+
+- `joinRecords` gets an optional fifth parameter, `RecordsJoinOptions`, with the function `equal` (LAYERS.RECORDS-EQUAL).
+- With `equal`, the first record of a key in a later fragment joins the first record of the key when the two are equal. It is not in the records.
+- Each later fragment with a different first record is in `from` of one item of `twice`. The message tells that the records are not equal.
+- A repeat of a key in one fragment stays in the records, as with no option (LAYERS.RECORDS-ONE).
+- With no option, the rule of D218 does not change.
+- The module still imports nothing (LAYERS.ALONE). Thus the add-on gives the equality, for example a comparison of canonical JSON.
+
+**Alternatives.**
+
+- A comparison of canonical JSON in the entry. The entry then imports a package, and LAYERS.ALONE breaks.
+- `docEquals` of the kernel as the default equality. The entry then imports the kernel, and a record of an add-on is not always a document.
+- Equal records as the default. D218 refused it: two copies are equal only until one file changes. The option keeps the rule of D218 for each other record.
+- A join in each add-on. That is the copy that this decision removes.
+
+**Why.** The loop over the pieces has one home. The add-on tells only which records can have two fragments, and how to compare them.
+
+**Limits.**
+
+- The record of the join is the first record of the key. A later equal record is not in the records, so its object is not in the result.
+- `equal` compares the first record and one other record. An equality that is not symmetric gives a result that changes with the order of the fragments.
+
+**SemVer.** A new optional parameter and the new type `RecordsJoinOptions` of the entry `./layers`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.38.2.
+
+## D221 (2026-11-24): the message of a join with `equal` can give the records
+
+**Context.** With the option `equal` (D220), a fault names the fragments and the key, but not the records. The reader then opens each file to find the field that is different. The local join that D220 removed gave the two records in its message.
+
+**Decision.**
+
+- `RecordsJoinOptions` gets the optional function `text`. It gives the text of a record for a message (LAYERS.RECORDS-TEXT).
+- With `equal` and `text`, the message of each fault gives the first record of the key in each fragment of `from`. The records are in the order of `from`.
+- Each record is on a new line, after the name of its fragment. A text of a record, for example canonical JSON, can have commas. Thus a list on one line is hard to read.
+- The option changes no record and no field of `twice` other than its message. With no `equal`, it changes nothing.
+- The module still imports nothing (LAYERS.ALONE). Thus the add-on gives the text, for example canonical JSON.
+
+**Alternatives.**
+
+- The records as a new field of `RecordTwice`. `RecordTwice` then needs a type parameter, and the reader of a message still gets no text.
+- `JSON.stringify` as the default text. A record can have a value that is not plain JSON, and the order of the keys then changes the text.
+- The text with no option `equal`. Then each record of a key is a fault, also an equal record, so the records tell nothing new.
+
+**Limits.**
+
+- The message gives only the first record of the key in each fragment. A later record of the key in one fragment is for `check` of the add-on.
+- A long record gives a long message. The add-on chooses a short text if it needs one.
+
+**SemVer.** A new optional field of the type `RecordsJoinOptions`. No export that exists changes. Before 1.0.0, a feature increases PATCH: 0.38.3.
